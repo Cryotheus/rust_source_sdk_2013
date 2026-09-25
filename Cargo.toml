@@ -17,4 +17,4 @@ prettyplease = "0.3.0"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.6", features = ["full", "visit"] }
-thiserror = "2.0.20"
+thiserror = "2.0.21"

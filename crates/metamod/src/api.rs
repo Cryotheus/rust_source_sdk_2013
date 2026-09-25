@@ -165,6 +165,56 @@ impl MetamodApi<'_> {
 		NonNull::new(interface.cast())
 	}
 
+	/// `ISmmAPI::RegisterConCommandBase`, which links a command or variable and
+	/// tracks it for `plugin`. Metamod's result is always `true`.
+	///
+	/// # Safety
+	///
+	/// `plugin` must be the plugin object Metamod loaded, and `command` a live
+	/// `ConCommandBase`, which Metamod passes to the engine's `ICvar`.
+	#[cfg(feature = "sdk")]
+	pub(crate) unsafe fn register_con_command_base(
+		&self,
+		plugin: NonNull<c_void>,
+		command: NonNull<c_void>,
+	) -> bool {
+		let prefix = self.binding.vtable.prefix();
+		let register = unsafe { (&raw const (*prefix.as_ptr()).register_con_command_base).read() };
+
+		unsafe {
+			register(
+				self.binding.this.as_ptr(),
+				plugin.as_ptr(),
+				command.as_ptr(),
+			)
+		}
+	}
+
+	/// `ISmmAPI::UnregisterConCommandBase`, the reverse of
+	/// [`Self::register_con_command_base`].
+	///
+	/// # Safety
+	///
+	/// As for [`Self::register_con_command_base`].
+	#[cfg(feature = "sdk")]
+	pub(crate) unsafe fn unregister_con_command_base(
+		&self,
+		plugin: NonNull<c_void>,
+		command: NonNull<c_void>,
+	) {
+		let prefix = self.binding.vtable.prefix();
+		let unregister =
+			unsafe { (&raw const (*prefix.as_ptr()).unregister_con_command_base).read() };
+
+		unsafe {
+			unregister(
+				self.binding.this.as_ptr(),
+				plugin.as_ptr(),
+				command.as_ptr(),
+			)
+		};
+	}
+
 	/// Returns `None` on dev builds, which removed `GetShVersions`.
 	pub fn source_hook_versions(&self) -> Option<SourceHookVersions> {
 		let VersionedVtable::Stable1226(vtable) = self.binding.vtable else {

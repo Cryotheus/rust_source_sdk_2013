@@ -254,7 +254,7 @@ game_events! {
 		PlayerBuff = b"player_buff" c"player_buff",
 
 		/// > Objects built by players (sentry gun, teleporter, etc.)
-		/// </br></br>
+		/// <br><br>
 		/// Some object events have "object" and some have "objecttype".
 		/// We can't change them as there are third-party
 		/// scripts that listen for these events.

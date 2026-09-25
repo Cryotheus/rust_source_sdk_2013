@@ -24,6 +24,53 @@ impl<'s> Cvar<'s> {
 			_not_thread_safe: PhantomData,
 		})
 	}
+
+	/// Prints to the console display functions, which a dedicated server does
+	/// not install; see [`Server::console_print`](crate::Server::console_print).
+	#[doc(alias = "ConsolePrintf")]
+	pub(crate) fn console_printf(self, message: &CStr) {
+		// SAFETY: As for `find_var`. The message is passed as an argument of a
+		// constant format, so it is never interpreted as one.
+		unsafe { vcall!(self.as_ptr() => ICvar_ConsolePrintf(c"%s".as_ptr(), message.as_ptr())) };
+	}
+
+	/// Finds a console variable or command by name, ignoring case.
+	#[doc(alias = "FindCommandBase")]
+	pub(crate) fn find_command_base(self, name: &CStr) -> Option<NonNull<sys::ConCommandBase>> {
+		// SAFETY: As for `find_var`.
+		NonNull::new(unsafe { vcall!(self.as_ptr() => ICvar_FindCommandBase(name.as_ptr())) })
+	}
+
+	/// Reserves an identifier, which `ICvar::UnregisterConCommands` uses to
+	/// unlink every command a module registered.
+	#[doc(alias = "AllocateDLLIdentifier")]
+	pub(crate) fn allocate_dll_identifier(self) -> sys::CVarDLLIdentifier_t {
+		// SAFETY: As for `find_var`.
+		unsafe { vcall!(self.as_ptr() => ICvar_AllocateDLLIdentifier()) }
+	}
+
+	/// Links a command into the registry.
+	///
+	/// # Safety
+	///
+	/// `command` must be a live `ConCommandBase` that stays at its address,
+	/// with its code loaded, until it is unregistered.
+	#[doc(alias = "RegisterConCommand")]
+	pub(crate) unsafe fn register_con_command(self, command: NonNull<sys::ConCommandBase>) {
+		// SAFETY: As for `find_var`, and the caller upholds the contract.
+		unsafe { vcall!(self.as_ptr() => ICvar_RegisterConCommand(command.as_ptr())) };
+	}
+
+	/// Unlinks a command from the registry.
+	///
+	/// # Safety
+	///
+	/// `command` must be a live `ConCommandBase`.
+	#[doc(alias = "UnregisterConCommand")]
+	pub(crate) unsafe fn unregister_con_command(self, command: NonNull<sys::ConCommandBase>) {
+		// SAFETY: As for `find_var`, and the caller upholds the contract.
+		unsafe { vcall!(self.as_ptr() => ICvar_UnregisterConCommand(command.as_ptr())) };
+	}
 }
 
 /// A console variable (`ConVar`).

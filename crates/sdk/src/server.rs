@@ -128,6 +128,61 @@ pub(crate) unsafe trait Interface<'s>: Sized {
 	unsafe fn bind(raw: NonNull<Self::Raw>, server: &Server<'s>) -> Self;
 }
 
+/// The running server's interface factories, kept between the engine's calls
+/// into a plugin.
+///
+/// Callbacks this crate implements for the engine, such as console commands,
+/// use a binding to produce a [`Server`] scoped to each call. Creating a
+/// binding is where the caller vouches for the factories once; each call site
+/// that turns it into a [`Server`] vouches for its own scope.
+#[derive(Debug, Clone, Copy)]
+pub struct ServerBinding {
+	engine: InterfaceFactory,
+	game_server: InterfaceFactory,
+	game: Game,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl ServerBinding {
+	/// Keeps the running server's interface factories for later calls.
+	///
+	/// # Safety
+	///
+	/// Conditions 1, 2 and 4 of [`Server::new`] must hold during every call
+	/// from the engine into the plugin in which this binding, or a copy, is
+	/// turned into a [`Server`]. In practice: the factories belong to the
+	/// running server, which the plugin is unloaded from before those modules
+	/// are, and the game DLL was built for `game`.
+	pub const unsafe fn new(
+		engine: InterfaceFactory,
+		game_server: InterfaceFactory,
+		game: Game,
+	) -> Self {
+		Self {
+			engine,
+			game_server,
+			game,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// The game the server runs.
+	pub const fn game(&self) -> Game {
+		self.game
+	}
+
+	/// Produces a [`Server`] for the scope `'s`.
+	///
+	/// # Safety
+	///
+	/// Condition 3 of [`Server::new`]: `'s` lies within a single call from the
+	/// engine into the plugin, on the server's main thread.
+	pub const unsafe fn server<'s, S: ?Sized>(&self, scope: &'s S) -> Server<'s> {
+		// SAFETY: `new` vouched for conditions 1, 2 and 4, and the caller for 3.
+		unsafe { Server::new(self.engine, self.game_server, self.game, scope) }
+	}
+}
+
 /// The running server, as seen from one call the engine makes into a plugin.
 ///
 /// Every other type in this crate is reached from here. A `Server` holds the
@@ -195,6 +250,22 @@ impl<'s> Server<'s> {
 
 	pub const fn game_server_factory(&self) -> InterfaceFactory {
 		self.game_server
+	}
+
+	/// Prints to the server console, which rcon's redirection also receives.
+	///
+	/// This goes through tier0's `Msg`, as the game's own console commands do.
+	/// If tier0 cannot be found, it falls back to `ICvar::ConsolePrintf`, which
+	/// only listen servers display.
+	#[doc(alias = "Msg")]
+	pub fn console_print(&self, message: &CStr) {
+		if crate::tier0::print(message) {
+			return;
+		}
+
+		if let Ok(cvar) = self.cvar() {
+			cvar.console_printf(message);
+		}
 	}
 
 	/// Looks up an interface this crate does not wrap.
@@ -354,12 +425,17 @@ pub(crate) mod test_support {
 	/// A server whose factories export only what [`export`] registered on this thread.
 	pub(crate) fn mock_server<S: ?Sized>(scope: &S) -> Server<'_> {
 		// SAFETY: Tests only export objects that outlive the scope they pass.
+		unsafe { mock_binding().server(scope) }
+	}
+
+	/// A binding to the factories of [`mock_server`].
+	pub(crate) fn mock_binding() -> ServerBinding {
+		// SAFETY: Tests only export objects that outlive their use of the binding.
 		unsafe {
-			Server::new(
+			ServerBinding::new(
 				InterfaceFactory::new(engine_factory),
 				InterfaceFactory::new(game_server_factory),
 				Game::TeamFortress2,
-				scope,
 			)
 		}
 	}

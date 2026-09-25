@@ -121,6 +121,16 @@ impl<'s> ValveEngine<'s> {
 			.find(|&edict| !edict.is_free() && self.user_id_of_edict(edict) == Some(user_id))
 	}
 
+	/// Prints a message to the console of the client owning an edict.
+	#[doc(alias = "ClientPrintf")]
+	pub fn client_print(self, client: Edict<'_>, message: &CStr) {
+		// SAFETY: As for `change_level`, and the edict is live. The engine
+		// ignores edicts that no connected client owns.
+		unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_ClientPrintf(client.as_ptr(), message.as_ptr()))
+		};
+	}
+
 	/// The network ID of the client owning an edict, such as a rendered Steam
 	/// ID or `BOT`.
 	#[doc(alias = "GetPlayerNetworkIDString")]

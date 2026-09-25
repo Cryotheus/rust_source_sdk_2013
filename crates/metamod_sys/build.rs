@@ -116,6 +116,11 @@ fn compile_bridge(
 		compiler.flag("/wd4100");
 	} else {
 		compiler.flag_if_supported("-Wno-unused-parameter");
+
+		// SourceHook's FastDelegate casts between member function pointer types,
+		// and its hook macros define helpers a plugin may not use.
+		compiler.flag_if_supported("-Wno-cast-function-type");
+		compiler.flag_if_supported("-Wno-unused-function");
 	}
 
 	compiler.compile(archive);
