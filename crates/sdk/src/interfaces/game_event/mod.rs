@@ -1,7 +1,6 @@
 //! `IGameEventManager2` and the game events it creates, fires, and delivers.
 
 mod id;
-mod sers;
 
 use crate::abi::{CppDestructors, WChar};
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
