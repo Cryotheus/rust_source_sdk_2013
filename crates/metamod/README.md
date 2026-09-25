@@ -1,3 +1,10 @@
+# Metamod:Source (High-level Rust Bindings)
+
+Set your environment variables or the crate will fail to compile `metamod_source_sys`:
+```
+METAMOD_SOURCE_DEV=path/to/latest-dev-commit-of/metamod-source
+METAMOD_SOURCE_STABLE=path/to/latest-stable-commit-of/metamod-source
+```
 
 # License
 

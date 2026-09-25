@@ -1,5 +1,11 @@
 # Metamod:Source (Generated Rust Bindings)
 
+Set your environment variables or the crate will fail to compile:
+```
+METAMOD_SOURCE_DEV=path/to/latest-dev-commit-of/metamod-source
+METAMOD_SOURCE_STABLE=path/to/latest-stable-commit-of/metamod-source
+```
+
 # License
 
 For Valve's Source SDK 2013, see the [SOURCE 1 SDK LICENSE](https://github.com/ValveSoftware/source-sdk-2013/blob/master/LICENSE).
