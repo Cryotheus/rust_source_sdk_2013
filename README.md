@@ -1,10 +1,11 @@
 # Source SDK 2013 for Rust
-*"Somewhat Higher" level Rust Bindings*
 
 [![crates.io](https://img.shields.io/crates/v/source_sdk_2013)](https://crates.io/crates/source_sdk_2013)
-[![docs.rs](https://img.shields.io/docsrs/source_sdk_2013)](https://docs.rs/source_sdk_2013)
+[![docs.rs](https://img.shields.io/docsrs/source_sdk_2013)](https://docs.rs/source_sdk_2013)  
+*"Somewhat Higher" level Rust Bindings*
 
 For now, this is:
+
 - Only for Windows and Linux, on x86-64 targets (no 32bit support)
 - Focused for Team Fortress 2 server plugin development
 
