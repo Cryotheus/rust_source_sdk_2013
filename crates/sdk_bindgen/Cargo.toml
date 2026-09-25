@@ -7,6 +7,10 @@ rust-version = "1.98.1"
 authors.workspace = true
 license.workspace = true
 
+description = "Binding generator for the Source SDK."
+categories = ["development-tools::ffi"]
+keywords = []
+
 [dependencies]
 anyhow.workspace = true
 bindgen.workspace = true

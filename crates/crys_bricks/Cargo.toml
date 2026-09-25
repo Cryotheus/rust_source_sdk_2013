@@ -6,6 +6,11 @@ rust-version = "1.98.1"
 
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+
+description = "Utilities for build scripts and binding generation."
+categories = ["development-tools::build-utils", "development-tools::procedural-macro-helpers"]
+keywords = []
 
 [dependencies]
 anyhow.workspace = true
