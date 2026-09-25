@@ -12,7 +12,7 @@ version = "0.1.0-alpha.1"
 anyhow = "1.0.104"
 bindgen = "0.73.2"
 chrono = "0.4.45"
-crys_bricks = { version = "0.1.0" }
+crys_bricks = { version = "0.1.0", path = "crates/crys_bricks" }
 prettyplease = "0.3.0"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
