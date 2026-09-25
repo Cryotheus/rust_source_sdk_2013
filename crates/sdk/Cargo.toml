@@ -14,7 +14,7 @@ keywords = ["gamedev", "source-engine", "valve"]
 
 [dependencies]
 glam = { version = "0.33.9", features = [] }
-sys = { path = "../sdk_sys", package = "source_sdk_2013_sys" }
+sys = { path = "../sdk_sys", version = "0.1.0-alpha.1", package = "source_sdk_2013_sys" }
 thiserror.workspace = true
 
 [package.metadata.docs.rs]
