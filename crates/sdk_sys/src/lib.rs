@@ -1,5 +1,4 @@
 //! Agabaraya.
-#![cfg_attr(docsrs, feature(doc_cfg))]
 
 use std::mem::offset_of;
 
