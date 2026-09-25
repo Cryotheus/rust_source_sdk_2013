@@ -1,0 +1,29 @@
+[package]
+name = "source_sdk_2013_sys"
+version.workspace = true
+edition = "2024"
+rust-version = "1.98.1"
+
+authors.workspace = true
+license.workspace = true
+
+description = "Low-level bindings for the Source SDK."
+categories = ["external-ffi-bindings"]
+keywords = []
+
+[dependencies]
+
+[build-dependencies]
+anyhow.workspace = true
+source_sdk_2013_bindgen = { path = "../sdk_bindgen", optional = true }
+
+[features]
+generate_bindings = ["dep:source_sdk_2013_bindgen"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+	"-Zunstable-options",
+	"--generate-link-to-definition",
+	"--generate-macro-expansion",
+]

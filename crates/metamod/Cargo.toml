@@ -1,0 +1,24 @@
+[package]
+name = "metamod_source"
+version.workspace = true
+edition = "2024"
+rust-version = "1.98.1"
+
+authors.workspace = true
+license.workspace = true
+
+description = "Higher-level bindings for Metamod:Source."
+categories = ["api-bindings"]
+keywords = ["gamedev", "source-engine", "metamod"]
+
+[dependencies]
+crys_bricks.workspace = true
+sys = { path = "../metamod_sys", package = "metamod_source_sys" }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+	"-Zunstable-options",
+	"--generate-link-to-definition",
+	"--generate-macro-expansion",
+]

@@ -1,0 +1,13 @@
+# build artifacts
+/target
+/Cargo.lock
+
+# IDE garbage
+/.idea
+/.vscode
+
+# Secrets
+**/.env
+
+# Stack traces from breaking rustc
+/rustc-ice-*.txt

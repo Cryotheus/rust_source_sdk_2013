@@ -1,0 +1,4 @@
+edition = "2024"
+hard_tabs = true
+ignore = ["crates/sdk_sys/src/linux_64/", "crates/sdk_sys/src/windows_64/"]
+style_edition = "2024"

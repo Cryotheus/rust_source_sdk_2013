@@ -1,0 +1,28 @@
+[package]
+name = "metamod_source_sys"
+version.workspace = true
+edition = "2024"
+rust-version = "1.98.1"
+
+authors.workspace = true
+license.workspace = true
+
+description = "Low-level bindings for Metamod:Source."
+categories = ["external-ffi-bindings"]
+keywords = []
+
+[dependencies]
+
+[build-dependencies]
+anyhow.workspace = true
+cc = "1.4.4"
+crys_bricks.workspace = true
+dotenv = "0.15.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+	"-Zunstable-options",
+	"--generate-link-to-definition",
+	"--generate-macro-expansion",
+]
