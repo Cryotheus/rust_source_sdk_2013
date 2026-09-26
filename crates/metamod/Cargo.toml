@@ -18,7 +18,7 @@ sdk = ["dep:source_sdk_2013", "dep:thiserror"]
 
 [dependencies]
 crys_bricks.workspace = true
-source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.1", optional = true }
+source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.2", optional = true }
 sys = { path = "../metamod_sys", version = "0.1.0-alpha.2", package = "metamod_source_sys" }
 thiserror = { workspace = true, optional = true }
 
