@@ -14,8 +14,8 @@
 //! client keeps playing its soundscape until it is given another.
 
 use crate::datatables::NetPropError;
-use crate::entities::{Entity, data_fields, data_map_class};
-use crate::ffi::{borrow_cstr, copy_cstr};
+use crate::entities::{Entity, data_field_offset, data_map_class};
+use crate::ffi::copy_cstr;
 use crate::interfaces::ServerTools;
 use crate::server::{InterfaceError, Server};
 use std::ffi::{CStr, CString, c_int};
@@ -80,17 +80,7 @@ impl Layout {
 			.data_maps()
 			.find(|&map| data_map_class(map) == Some(c"CEnvSoundscape"))?;
 
-		let offset = |name: &CStr, field_type: sys::fieldtype_t| {
-			data_fields(map)
-				.iter()
-				.find(|field| {
-					field.fieldType == field_type
-						// SAFETY: Field names are string literals of the game DLL.
-						&& unsafe { borrow_cstr(field.fieldName) } == Some(name)
-				})
-				.and_then(|field| usize::try_from(field.fieldOffset[0]).ok())
-		};
-
+		let offset = |name, field_type| data_field_offset(map, name, field_type);
 		let string = size_of::<sys::string_t>();
 		let name = offset(c"m_soundscapeName", sys::_fieldtypes_FIELD_STRING)?;
 		let positions = offset(c"m_positionNames[0]", sys::_fieldtypes_FIELD_STRING)?;

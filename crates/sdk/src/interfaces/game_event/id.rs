@@ -249,6 +249,9 @@ game_events! {
 		PingUpdated = b"ping_updated" c"ping_updated",
 		PlayerAbandonedMatch = b"player_abandoned_match" c"player_abandoned_match",
 		PlayerAccountChanged = b"player_account_changed" c"player_account_changed",
+		/// A player finished connecting and entered the game. The engine fires
+		/// it, not the game.
+		PlayerActivate = b"player_activate" c"player_activate",
 		PlayerAskedforball = b"player_askedforball" c"player_askedforball",
 		PlayerBonuspoints = b"player_bonuspoints" c"player_bonuspoints",
 		PlayerBuff = b"player_buff" c"player_buff",

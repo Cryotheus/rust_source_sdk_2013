@@ -160,6 +160,12 @@ cfg_select! {
 				offset_of!(IServerTools__bindgen_vtable, IServerTools_NextEntity) == SLOT_SIZE * 9
 			);
 			assert!(
+				offset_of!(
+					IServerTools__bindgen_vtable,
+					IServerTools_FindEntityByHammerID
+				) == SLOT_SIZE * 10
+			);
+			assert!(
 				offset_of!(IServerTools__bindgen_vtable, IServerTools_GetKeyValue)
 					== SLOT_SIZE * 11
 			);
@@ -493,6 +499,12 @@ cfg_select! {
 			);
 			assert!(
 				offset_of!(IServerTools__bindgen_vtable, IServerTools_NextEntity) == SLOT_SIZE * 8
+			);
+			assert!(
+				offset_of!(
+					IServerTools__bindgen_vtable,
+					IServerTools_FindEntityByHammerID
+				) == SLOT_SIZE * 9
 			);
 			assert!(
 				offset_of!(IServerTools__bindgen_vtable, IServerTools_GetKeyValue)

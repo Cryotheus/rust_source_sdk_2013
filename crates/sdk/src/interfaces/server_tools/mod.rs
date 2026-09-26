@@ -1,6 +1,6 @@
 //! `IServerTools`, which enumerates and manipulates the server's entities.
 
-use crate::entities::{Entity, EntityHandle, ProtectedEntity, TeleportError};
+use crate::entities::{Entity, EntityHandle, HammerId, ProtectedEntity, TeleportError};
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, cstring_from_buffer, vcall};
 use crate::inputs::{self, InputError, InputValue};
 use crate::math::{QAngle, Vector};
@@ -40,213 +40,6 @@ impl<'s> ServerTools<'s> {
 			_scope: PhantomData,
 			_not_thread_safe: PhantomData,
 		}
-	}
-
-	/// Returns the interface pointer, for calls this crate does not wrap.
-	pub const fn as_ptr(self) -> *mut sys::IServerTools {
-		self.raw.as_ptr()
-	}
-
-	/// Looks up a networked entity by edict index.
-	///
-	/// Server-only entities have no edict index; find them with
-	/// [`Self::entities`] or [`Self::entity_by_handle`].
-	#[doc(alias = "GetBaseEntityByEntIndex")]
-	pub fn entity_by_index(self, index: c_int) -> Option<Entity<'s>> {
-		if !(0..crate::edicts::MAX_EDICTS).contains(&index) {
-			return None;
-		}
-
-		// SAFETY: `Server::new` guarantees the interface is live.
-		let entity =
-			unsafe { vcall!(self.as_ptr() => IServerTools_GetBaseEntityByEntIndex(index)) };
-
-		// SAFETY: Entities are not freed immediately during `'s`.
-		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
-	}
-
-	/// Looks up the entity a handle refers to, or `None` if it no longer exists.
-	#[doc(alias = "LookupEntity")]
-	pub fn entity_by_handle(self, handle: EntityHandle) -> Option<Entity<'s>> {
-		let index = handle
-			.index()
-			.filter(|&index| index < EntityHandle::SLOTS)?;
-
-		// SAFETY: As for `entity_by_index`.
-		let list = NonNull::new(unsafe { vcall!(self.as_ptr() => IServerTools_GetEntityList()) })?;
-
-		// SAFETY: `gEntList` is a static of the game DLL, and the index is
-		// within `m_EntPtrArray`. Entries are read without forming references.
-		let (entity, serial_number) = unsafe {
-			let info = (&raw const (*list.as_ptr())._base.m_EntPtrArray)
-				.cast::<sys::CEntInfo>()
-				.add(index);
-
-			(
-				(&raw const (*info).m_pEntity).read(),
-				(&raw const (*info).m_SerialNumber).read(),
-			)
-		};
-
-		if u32::try_from(serial_number).ok()? != handle.serial_number() {
-			return None;
-		}
-
-		// SAFETY: `CBaseEntity`'s primary base derives from `IHandleEntity`, so
-		// the pointers coincide, and the server's list only holds entities.
-		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity.cast()) })
-	}
-
-	/// Iterates over every entity, including server-only ones and those
-	/// pending deletion.
-	#[doc(alias = "FirstEntity")]
-	#[doc(alias = "NextEntity")]
-	pub fn entities(self) -> Entities<'s> {
-		Entities {
-			tools: self,
-			state: IterState::First,
-		}
-	}
-
-	/// Finds the next entity after `after` whose class name matches
-	/// `class_name`, which may end in a `*` wildcard.
-	#[doc(alias = "FindEntityByClassname")]
-	pub fn find_by_class_name(
-		self,
-		after: Option<Entity<'_>>,
-		class_name: &CStr,
-	) -> Option<Entity<'s>> {
-		let after = after.map_or(ptr::null_mut(), Entity::as_ptr);
-
-		// SAFETY: As for `entity_by_index`, and `after` is live or null.
-		let entity = unsafe {
-			vcall!(self.as_ptr() => IServerTools_FindEntityByClassname(after, class_name.as_ptr()))
-		};
-
-		// SAFETY: As for `entity_by_index`.
-		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
-	}
-
-	/// Reads one of an entity's key values, as formatted by its datamap.
-	///
-	/// Keys of string fields, such as `damagefilter` and `model`, are read from
-	/// the field, since `GetKeyValue` copies the bytes of the string's pointer
-	/// instead of its text. An unset string reads as empty. Other values longer
-	/// than 1023 bytes are truncated.
-	#[doc(alias = "GetKeyValue")]
-	pub fn key_value(self, entity: Entity<'_>, key: &CStr) -> Option<CString> {
-		if let Some(field) = entity.string_key_field(key) {
-			// SAFETY: The field belongs to the live entity, and is read without
-			// forming a reference, as the game writes it too.
-			let string = unsafe { field.read() };
-
-			// SAFETY: String fields hold null, which `STRING` reads as empty, or a
-			// string the game may read at any time, such as a pooled one. It is
-			// copied immediately.
-			return Some(unsafe { copy_cstr(string.pszValue) }.unwrap_or_default());
-		}
-
-		let mut buffer = [0 as c_char; KEY_VALUE_CAPACITY];
-
-		// SAFETY: As for `entity_by_index`, and the buffer length is passed.
-		let found = unsafe {
-			vcall!(self.as_ptr() => IServerTools_GetKeyValue(entity.as_ptr(), key.as_ptr(), buffer.as_mut_ptr(), KEY_VALUE_CAPACITY as c_int))
-		};
-
-		found.then(|| cstring_from_buffer(&buffer))
-	}
-
-	/// Requests Source's deferred removal of an entity.
-	///
-	/// The entity stays allocated, and may still appear in iteration, until
-	/// the engine frees it at the end of the frame. Physics callbacks may also
-	/// defer setting its deletion flag; check
-	/// [`Entity::is_marked_for_deletion`] for the current state.
-	///
-	/// Refuses the world, players, and soundscapes, which the game keeps using
-	/// after they are freed. Other entities the game keeps pointers to, such as
-	/// the game rules or a team, crash the server the same way once freed.
-	#[doc(alias = "RemoveEntity")]
-	#[doc(alias = "UTIL_Remove")]
-	pub fn remove(self, entity: Entity<'_>) -> Result<(), ProtectedEntity> {
-		if entity.is_protected() {
-			return Err(ProtectedEntity);
-		}
-
-		if !entity.is_marked_for_deletion() {
-			// SAFETY: As for `entity_by_index`. Removal is deferred.
-			unsafe { vcall!(self.as_ptr() => IServerTools_RemoveEntity(entity.as_ptr())) };
-		}
-
-		Ok(())
-	}
-
-	/// Creates an entity of a class, without spawning it, as the game's
-	/// `CreateEntityByName` does. Returns `None` for an unknown class.
-	///
-	/// Set its key values with [`Self::set_key_value`], then spawn it with
-	/// [`Self::dispatch_spawn`].
-	///
-	/// # Safety
-	///
-	/// The class's constructor must free entities only through Source's
-	/// deferred deletion (condition 4 of [`Server::new`]).
-	#[doc(alias = "CreateEntityByName")]
-	pub unsafe fn create_entity_by_name(self, class_name: &CStr) -> Option<Entity<'s>> {
-		// SAFETY: As for `entity_by_index`, and the caller vouches for the
-		// constructor. The game adds the entity to its entity list.
-		let entity = unsafe {
-			vcall!(self.as_ptr() => IServerTools_CreateEntityByName(class_name.as_ptr()))
-		};
-
-		// SAFETY: As above, and nothing frees it during `'s`.
-		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
-	}
-
-	/// Spawns an entity created with [`Self::create_entity_by_name`], as the
-	/// game's `DispatchSpawn` does. Its `Spawn`, which usually precaches what
-	/// it needs, runs before this returns.
-	///
-	/// # Safety
-	///
-	/// Everything the entity's `Spawn` runs must free entities only through
-	/// Source's deferred deletion (condition 4 of [`Server::new`]), and the
-	/// entity must not have been spawned before.
-	#[doc(alias = "DispatchSpawn")]
-	pub unsafe fn dispatch_spawn(self, entity: Entity<'_>) {
-		// SAFETY: As for `entity_by_index`, and the caller vouches for `Spawn`.
-		unsafe { vcall!(self.as_ptr() => IServerTools_DispatchSpawn(entity.as_ptr())) };
-	}
-
-	/// Sets one of an entity's key values, as a map's entity lump does before
-	/// the entity spawns. Returns whether the entity knew the key.
-	///
-	/// The key and value are copied first, since the game writes into keys
-	/// containing `#`.
-	#[doc(alias = "SetKeyValue")]
-	pub fn set_key_value(self, entity: Entity<'_>, key: &CStr, value: &CStr) -> bool {
-		let key = key.to_owned();
-		let value = value.to_owned();
-
-		// SAFETY: As for `entity_by_index`. The game may write into the copies,
-		// which are only used for the call.
-		unsafe {
-			vcall!(self.as_ptr() => IServerTools_SetKeyValue(entity.as_ptr(), key.as_ptr(), value.as_ptr()))
-		}
-	}
-
-	/// Moves an entity through Source's `Teleport` method, which also updates
-	/// its physics state and may move child entities. Each argument left as
-	/// `None` is unchanged.
-	#[doc(alias = "Teleport")]
-	pub fn teleport(
-		self,
-		entity: Entity<'_>,
-		origin: Option<Vector>,
-		angles: Option<QAngle>,
-		velocity: Option<Vector>,
-	) -> Result<(), TeleportError> {
-		entity.teleport(self.game.teleport_vtable_slot(), origin, angles, velocity)
 	}
 
 	/// Sends an input to an entity through Source's `AcceptInput`, as map I/O
@@ -334,6 +127,230 @@ impl<'s> ServerTools<'s> {
 
 		// SAFETY: The caller upholds the contract.
 		unsafe { self.send_input(target, checked, value, activator, caller) }
+	}
+
+	/// Returns the interface pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut sys::IServerTools {
+		self.raw.as_ptr()
+	}
+
+	/// Creates an entity of a class, without spawning it, as the game's
+	/// `CreateEntityByName` does. Returns `None` for an unknown class.
+	///
+	/// Set its key values with [`Self::set_key_value`], then spawn it with
+	/// [`Self::dispatch_spawn`].
+	///
+	/// # Safety
+	///
+	/// The class's constructor must free entities only through Source's
+	/// deferred deletion (condition 4 of [`Server::new`]).
+	#[doc(alias = "CreateEntityByName")]
+	pub unsafe fn create_entity_by_name(self, class_name: &CStr) -> Option<Entity<'s>> {
+		// SAFETY: As for `entity_by_index`, and the caller vouches for the
+		// constructor. The game adds the entity to its entity list.
+		let entity = unsafe {
+			vcall!(self.as_ptr() => IServerTools_CreateEntityByName(class_name.as_ptr()))
+		};
+
+		// SAFETY: As above, and nothing frees it during `'s`.
+		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
+	}
+
+	/// Spawns an entity created with [`Self::create_entity_by_name`], as the
+	/// game's `DispatchSpawn` does. Its `Spawn`, which usually precaches what
+	/// it needs, runs before this returns.
+	///
+	/// # Safety
+	///
+	/// Everything the entity's `Spawn` runs must free entities only through
+	/// Source's deferred deletion (condition 4 of [`Server::new`]), and the
+	/// entity must not have been spawned before.
+	#[doc(alias = "DispatchSpawn")]
+	pub unsafe fn dispatch_spawn(self, entity: Entity<'_>) {
+		// SAFETY: As for `entity_by_index`, and the caller vouches for `Spawn`.
+		unsafe { vcall!(self.as_ptr() => IServerTools_DispatchSpawn(entity.as_ptr())) };
+	}
+
+	/// Iterates over every entity, including server-only ones and those
+	/// pending deletion.
+	#[doc(alias = "FirstEntity")]
+	#[doc(alias = "NextEntity")]
+	pub fn entities(self) -> Entities<'s> {
+		Entities {
+			tools: self,
+			state: IterState::First,
+		}
+	}
+
+	/// Looks up the entity a handle refers to, or `None` if it no longer exists.
+	#[doc(alias = "LookupEntity")]
+	pub fn entity_by_handle(self, handle: EntityHandle) -> Option<Entity<'s>> {
+		let index = handle
+			.index()
+			.filter(|&index| index < EntityHandle::SLOTS)?;
+
+		// SAFETY: As for `entity_by_index`.
+		let list = NonNull::new(unsafe { vcall!(self.as_ptr() => IServerTools_GetEntityList()) })?;
+
+		// SAFETY: `gEntList` is a static of the game DLL, and the index is
+		// within `m_EntPtrArray`. Entries are read without forming references.
+		let (entity, serial_number) = unsafe {
+			let info = (&raw const (*list.as_ptr())._base.m_EntPtrArray)
+				.cast::<sys::CEntInfo>()
+				.add(index);
+
+			(
+				(&raw const (*info).m_pEntity).read(),
+				(&raw const (*info).m_SerialNumber).read(),
+			)
+		};
+
+		if u32::try_from(serial_number).ok()? != handle.serial_number() {
+			return None;
+		}
+
+		// SAFETY: `CBaseEntity`'s primary base derives from `IHandleEntity`, so
+		// the pointers coincide, and the server's list only holds entities.
+		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity.cast()) })
+	}
+
+	/// Looks up a networked entity by edict index.
+	///
+	/// Server-only entities have no edict index; find them with
+	/// [`Self::entities`] or [`Self::entity_by_handle`].
+	#[doc(alias = "GetBaseEntityByEntIndex")]
+	pub fn entity_by_index(self, index: c_int) -> Option<Entity<'s>> {
+		if !(0..crate::edicts::MAX_EDICTS).contains(&index) {
+			return None;
+		}
+
+		// SAFETY: `Server::new` guarantees the interface is live.
+		let entity =
+			unsafe { vcall!(self.as_ptr() => IServerTools_GetBaseEntityByEntIndex(index)) };
+
+		// SAFETY: Entities are not freed immediately during `'s`.
+		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
+	}
+
+	/// Finds the next entity after `after` whose class name matches
+	/// `class_name`, which may end in a `*` wildcard.
+	#[doc(alias = "FindEntityByClassname")]
+	pub fn find_by_class_name(
+		self,
+		after: Option<Entity<'_>>,
+		class_name: &CStr,
+	) -> Option<Entity<'s>> {
+		let after = after.map_or(ptr::null_mut(), Entity::as_ptr);
+
+		// SAFETY: As for `entity_by_index`, and `after` is live or null.
+		let entity = unsafe {
+			vcall!(self.as_ptr() => IServerTools_FindEntityByClassname(after, class_name.as_ptr()))
+		};
+
+		// SAFETY: As for `entity_by_index`.
+		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
+	}
+
+	/// Finds the first entity in the entity list whose Hammer ID is `id`,
+	/// including server-only entities and those pending deletion.
+	///
+	/// Entities a `point_template` spawns share their template entity's ID. To
+	/// find every entity with an ID, filter [`Self::entities`] by
+	/// [`Entity::hammer_id`].
+	#[doc(alias = "FindEntityByHammerID")]
+	pub fn find_by_hammer_id(self, id: HammerId) -> Option<Entity<'s>> {
+		// SAFETY: As for `entity_by_index`. The game only compares each entity's
+		// ID with this one.
+		let entity =
+			unsafe { vcall!(self.as_ptr() => IServerTools_FindEntityByHammerID(id.get())) };
+
+		// SAFETY: As for `entity_by_index`.
+		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
+	}
+
+	/// Reads one of an entity's key values, as formatted by its datamap.
+	///
+	/// Keys of string fields, such as `damagefilter` and `model`, are read from
+	/// the field, since `GetKeyValue` copies the bytes of the string's pointer
+	/// instead of its text. An unset string reads as empty. Other values longer
+	/// than 1023 bytes are truncated.
+	#[doc(alias = "GetKeyValue")]
+	pub fn key_value(self, entity: Entity<'_>, key: &CStr) -> Option<CString> {
+		if let Some(field) = entity.string_key_field(key) {
+			// SAFETY: The field belongs to the live entity, and is read without
+			// forming a reference, as the game writes it too.
+			let string = unsafe { field.read() };
+
+			// SAFETY: String fields hold null, which `STRING` reads as empty, or a
+			// string the game may read at any time, such as a pooled one. It is
+			// copied immediately.
+			return Some(unsafe { copy_cstr(string.pszValue) }.unwrap_or_default());
+		}
+
+		let mut buffer = [0 as c_char; KEY_VALUE_CAPACITY];
+
+		// SAFETY: As for `entity_by_index`, and the buffer length is passed.
+		let found = unsafe {
+			vcall!(self.as_ptr() => IServerTools_GetKeyValue(entity.as_ptr(), key.as_ptr(), buffer.as_mut_ptr(), KEY_VALUE_CAPACITY as c_int))
+		};
+
+		found.then(|| cstring_from_buffer(&buffer))
+	}
+
+	/// Requests Source's deferred removal of an entity.
+	///
+	/// The entity stays allocated, and may still appear in iteration, until
+	/// the engine frees it at the end of the frame. Physics callbacks may also
+	/// defer setting its deletion flag; check
+	/// [`Entity::is_marked_for_deletion`] for the current state.
+	///
+	/// Refuses the world, players, and soundscapes, which the game keeps using
+	/// after they are freed. Other entities the game keeps pointers to, such as
+	/// the game rules or a team, crash the server the same way once freed.
+	#[doc(alias = "RemoveEntity")]
+	#[doc(alias = "UTIL_Remove")]
+	pub fn remove(self, entity: Entity<'_>) -> Result<(), ProtectedEntity> {
+		if entity.is_protected() {
+			return Err(ProtectedEntity);
+		}
+
+		if !entity.is_marked_for_deletion() {
+			// SAFETY: As for `entity_by_index`. Removal is deferred.
+			unsafe { vcall!(self.as_ptr() => IServerTools_RemoveEntity(entity.as_ptr())) };
+		}
+
+		Ok(())
+	}
+
+	/// Sets one of an entity's key values, as a map's entity lump does before
+	/// the entity spawns. Returns whether the entity knew the key.
+	///
+	/// The key and value are copied first, since the game writes into keys
+	/// containing `#`.
+	#[doc(alias = "SetKeyValue")]
+	pub fn set_key_value(self, entity: Entity<'_>, key: &CStr, value: &CStr) -> bool {
+		let key = key.to_owned();
+		let value = value.to_owned();
+
+		// SAFETY: As for `entity_by_index`. The game may write into the copies,
+		// which are only used for the call.
+		unsafe {
+			vcall!(self.as_ptr() => IServerTools_SetKeyValue(entity.as_ptr(), key.as_ptr(), value.as_ptr()))
+		}
+	}
+
+	/// Moves an entity through Source's `Teleport` method, which also updates
+	/// its physics state and may move child entities. Each argument left as
+	/// `None` is unchanged.
+	#[doc(alias = "Teleport")]
+	pub fn teleport(
+		self,
+		entity: Entity<'_>,
+		origin: Option<Vector>,
+		angles: Option<QAngle>,
+		velocity: Option<Vector>,
+	) -> Result<(), TeleportError> {
+		entity.teleport(self.game.teleport_vtable_slot(), origin, angles, velocity)
 	}
 
 	/// # Safety
@@ -516,6 +533,13 @@ mod tests {
 		if index == 1 { ENTITY.get() } else { null_mut() }
 	}
 
+	unsafe extern "C" fn entity_by_hammer_id(
+		_: *mut sys::IServerTools,
+		id: c_int,
+	) -> *mut sys::CBaseEntity {
+		if id == 1234 { ENTITY.get() } else { null_mut() }
+	}
+
 	unsafe extern "C" fn entity_list(_: *mut sys::IServerTools) -> *mut sys::CGlobalEntityList {
 		LIST.get()
 	}
@@ -545,6 +569,8 @@ mod tests {
 					(&raw mut (*vtable).IServerTools_NextEntity).write(next_entity);
 					(&raw mut (*vtable).IServerTools_GetBaseEntityByEntIndex)
 						.write(entity_by_index);
+					(&raw mut (*vtable).IServerTools_FindEntityByHammerID)
+						.write(entity_by_hammer_id);
 					(&raw mut (*vtable).IServerTools_GetEntityList).write(entity_list);
 					(&raw mut (*vtable).IServerTools_RemoveEntity).write(remove_entity);
 				},
@@ -577,6 +603,17 @@ mod tests {
 		assert_eq!(
 			tools.entities().map(Entity::as_ptr).collect::<Vec<_>>(),
 			[mock.as_ptr()]
+		);
+		assert_eq!(
+			tools
+				.find_by_hammer_id(HammerId::new(1234).unwrap())
+				.map(Entity::as_ptr),
+			Some(mock.as_ptr())
+		);
+		assert!(
+			tools
+				.find_by_hammer_id(HammerId::new(99).unwrap())
+				.is_none()
 		);
 
 		let handle = tools.entity_by_index(1).unwrap().handle();

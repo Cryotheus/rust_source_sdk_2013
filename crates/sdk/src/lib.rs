@@ -42,6 +42,7 @@ mod rtti;
 mod tier0;
 
 pub mod abi;
+pub mod ambient_sounds;
 pub mod bitbuf;
 pub mod commands;
 pub mod datatables;
