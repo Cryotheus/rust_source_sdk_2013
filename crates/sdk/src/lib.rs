@@ -45,6 +45,7 @@ pub mod commands;
 pub mod datatables;
 pub mod edicts;
 pub mod entities;
+pub mod inputs;
 pub mod interfaces;
 pub mod math;
 pub mod players;

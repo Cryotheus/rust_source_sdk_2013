@@ -95,9 +95,11 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_GetModelIndex: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_GetModelName: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
-    ) -> string_t,
+        arg2: *mut string_t,
+    ) -> *mut string_t,
     pub CBaseAnimatingOverlay_SetModelIndex: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
         arg2: ::std::os::raw::c_int,
@@ -220,12 +222,13 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_ObjectCaps: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> ::std::os::raw::c_int,
+    /// C++ takes `::variant_t` by value. `arg5` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CBaseAnimatingOverlay_AcceptInput: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
         arg2: *const ::std::os::raw::c_char,
         arg3: *mut CBaseEntity,
         arg4: *mut CBaseEntity,
-        arg5: variant_t,
+        arg5: *mut variant_t,
         arg6: ::std::os::raw::c_int,
     ) -> bool,
     pub CBaseAnimatingOverlay_GetInputDispatchEffectPosition: unsafe extern "C" fn(
@@ -298,9 +301,11 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_GetAutoAimRadius: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> f32,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_GetAutoAimCenter: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseAnimatingOverlay_GetBeamTraceFilter: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> *mut ITraceFilter,
@@ -578,27 +583,35 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
         arg1: *mut CBaseAnimatingOverlay,
         arg2: f32,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_EyePosition: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseAnimatingOverlay_EyeAngles: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> *const QAngle,
     pub CBaseAnimatingOverlay_LocalEyeAngles: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> *const QAngle,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_EarPosition: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_BodyTarget: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
-        arg2: *const Vector,
-        arg3: bool,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+        arg4: bool,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_HeadTarget: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
-        arg2: *const Vector,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+    ) -> *mut Vector,
     pub CBaseAnimatingOverlay_GetVectors: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
         arg2: *mut Vector,
@@ -612,9 +625,11 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
         arg1: *mut CBaseAnimatingOverlay,
         arg2: *const Vector,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_GetSmoothedVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseAnimatingOverlay_GetVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
         arg2: *mut Vector,
@@ -661,9 +676,11 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_WorldSpaceCenter: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
     ) -> *const Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_GetSoundEmissionOrigin: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseAnimatingOverlay_ModifyEmitSoundParams: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
         arg2: *mut EmitSound_t,
@@ -746,12 +763,16 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
         arg4: *mut QAngle,
         arg5: *mut QAngle,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_GetStepOrigin: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_GetStepAngles: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
-    ) -> QAngle,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
     pub CBaseAnimatingOverlay_ShouldDrawWaterImpacts: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> bool,
@@ -893,9 +914,11 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_InitBoneControllers: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseAnimatingOverlay_GetGroundSpeedVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseAnimatingOverlay_RefreshCollisionBounds: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ),

@@ -148,12 +148,16 @@ pub struct IPhysicsObject__bindgen_vtable {
     pub IPhysicsObject_GetInvMass: unsafe extern "C" fn(
         arg1: *const IPhysicsObject,
     ) -> f32,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IPhysicsObject_GetInertia: unsafe extern "C" fn(
         arg1: *const IPhysicsObject,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IPhysicsObject_GetInvInertia: unsafe extern "C" fn(
         arg1: *const IPhysicsObject,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub IPhysicsObject_SetInertia: unsafe extern "C" fn(
         arg1: *mut IPhysicsObject,
         arg2: *const Vector,
@@ -197,9 +201,11 @@ pub struct IPhysicsObject__bindgen_vtable {
     pub IPhysicsObject_GetEnergy: unsafe extern "C" fn(
         arg1: *const IPhysicsObject,
     ) -> f32,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IPhysicsObject_GetMassCenterLocalSpace: unsafe extern "C" fn(
         arg1: *const IPhysicsObject,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub IPhysicsObject_SetPosition: unsafe extern "C" fn(
         arg1: *mut IPhysicsObject,
         arg2: *const Vector,

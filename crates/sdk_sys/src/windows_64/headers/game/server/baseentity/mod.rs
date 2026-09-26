@@ -393,9 +393,11 @@ pub struct CBaseEntity__bindgen_vtable {
     pub CBaseEntity_GetModelIndex: unsafe extern "C" fn(
         arg1: *const CBaseEntity,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_GetModelName: unsafe extern "C" fn(
         arg1: *const CBaseEntity,
-    ) -> string_t,
+        arg2: *mut string_t,
+    ) -> *mut string_t,
     pub CBaseEntity_SetModelIndex: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
         arg2: ::std::os::raw::c_int,
@@ -510,12 +512,13 @@ pub struct CBaseEntity__bindgen_vtable {
     pub CBaseEntity_ObjectCaps: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
     ) -> ::std::os::raw::c_int,
+    /// C++ takes `::variant_t` by value. `arg5` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CBaseEntity_AcceptInput: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
         arg2: *const ::std::os::raw::c_char,
         arg3: *mut CBaseEntity,
         arg4: *mut CBaseEntity,
-        arg5: variant_t,
+        arg5: *mut variant_t,
         arg6: ::std::os::raw::c_int,
     ) -> bool,
     pub CBaseEntity_GetInputDispatchEffectPosition: unsafe extern "C" fn(
@@ -580,9 +583,11 @@ pub struct CBaseEntity__bindgen_vtable {
     pub CBaseEntity_GetAutoAimRadius: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
     ) -> f32,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_GetAutoAimCenter: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseEntity_GetBeamTraceFilter: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
     ) -> *mut ITraceFilter,
@@ -821,23 +826,35 @@ pub struct CBaseEntity__bindgen_vtable {
     ) -> ::std::os::raw::c_int,
     pub CBaseEntity_GetDamage: unsafe extern "C" fn(arg1: *mut CBaseEntity) -> f32,
     pub CBaseEntity_SetDamage: unsafe extern "C" fn(arg1: *mut CBaseEntity, arg2: f32),
-    pub CBaseEntity_EyePosition: unsafe extern "C" fn(arg1: *mut CBaseEntity) -> Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseEntity_EyePosition: unsafe extern "C" fn(
+        arg1: *mut CBaseEntity,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseEntity_EyeAngles: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
     ) -> *const QAngle,
     pub CBaseEntity_LocalEyeAngles: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
     ) -> *const QAngle,
-    pub CBaseEntity_EarPosition: unsafe extern "C" fn(arg1: *mut CBaseEntity) -> Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseEntity_EarPosition: unsafe extern "C" fn(
+        arg1: *mut CBaseEntity,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_BodyTarget: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
-        arg2: *const Vector,
-        arg3: bool,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+        arg4: bool,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_HeadTarget: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
-        arg2: *const Vector,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+    ) -> *mut Vector,
     pub CBaseEntity_GetVectors: unsafe extern "C" fn(
         arg1: *const CBaseEntity,
         arg2: *mut Vector,
@@ -851,9 +868,11 @@ pub struct CBaseEntity__bindgen_vtable {
         arg1: *mut CBaseEntity,
         arg2: *const Vector,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_GetSmoothedVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseEntity_GetVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
         arg2: *mut Vector,
@@ -898,9 +917,11 @@ pub struct CBaseEntity__bindgen_vtable {
     pub CBaseEntity_WorldSpaceCenter: unsafe extern "C" fn(
         arg1: *const CBaseEntity,
     ) -> *const Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_GetSoundEmissionOrigin: unsafe extern "C" fn(
         arg1: *const CBaseEntity,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseEntity_ModifyEmitSoundParams: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
         arg2: *mut EmitSound_t,
@@ -977,12 +998,16 @@ pub struct CBaseEntity__bindgen_vtable {
         arg4: *mut QAngle,
         arg5: *mut QAngle,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_GetStepOrigin: unsafe extern "C" fn(
         arg1: *const CBaseEntity,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseEntity_GetStepAngles: unsafe extern "C" fn(
         arg1: *const CBaseEntity,
-    ) -> QAngle,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
     pub CBaseEntity_ShouldDrawWaterImpacts: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
     ) -> bool,

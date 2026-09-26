@@ -8,7 +8,8 @@ mod transform;
 
 use bindgen::RustTarget;
 use cpp_vtable::{
-	CppAbi, RecordIndex, VtableModel, VtableProbe, collect_records_under_root, render_vtable_probe,
+	CppAbi, RecordIndex, VtableModel, VtableProbe, collect_records_under_root,
+	query_record_call_traits, render_vtable_probe,
 };
 use crys_bricks::bindings::{ModulePath, ModulePathError, ModuleTree, ModuleTreeError};
 use crys_bricks::config::{PathResolutionError, PathResolutionMethod, RequireVarError, cargo_var};
@@ -89,7 +90,8 @@ impl Bindgen {
 		let sdk_src = self.sdk_path.join("src");
 		let clang_args = clang_arguments(&sdk_src, target);
 		let abi = match target {
-			SupportedTarget::Linux32 | SupportedTarget::Linux64 => CppAbi::Itanium,
+			SupportedTarget::Linux32 => CppAbi::ItaniumX86,
+			SupportedTarget::Linux64 => CppAbi::Itanium,
 			SupportedTarget::Windows32 => CppAbi::MsvcX86,
 			SupportedTarget::Windows64 => CppAbi::Msvc,
 		};
@@ -112,10 +114,7 @@ impl Bindgen {
 			.map_err(cpp_vtable_error)?;
 		let generated_record_names =
 			bindgen_record_name_map(&records, &discovery_index, &generated_types)?;
-		let mut probes = Vec::new();
-		let mut flattened_interfaces = Vec::new();
-		let mut probe_targets = BTreeMap::new();
-		let mut expected_vtables = BTreeMap::new();
+		let mut layouts = Vec::new();
 		let mut opaque_vtables = BTreeMap::new();
 
 		for qualified_name in records.records().keys() {
@@ -153,7 +152,28 @@ impl Bindgen {
 				}
 			};
 
-			let probe = render_vtable_probe(&records, &layout).map_err(cpp_vtable_error)?;
+			layouts.push((generated_name, layout));
+		}
+
+		// How a class passed or returned by value crosses the call depends on
+		// its special members, which only Clang's semantic analysis knows.
+		let call_traits = query_record_call_traits(
+			BRIDGE_FILE,
+			BRIDGE_SOURCE,
+			&clang_args,
+			layouts
+				.iter()
+				.flat_map(|(_, layout)| layout.by_value_records()),
+		)
+		.map_err(cpp_vtable_error)?;
+		let mut probes = Vec::new();
+		let mut flattened_interfaces = Vec::new();
+		let mut probe_targets = BTreeMap::new();
+		let mut expected_vtables = BTreeMap::new();
+
+		for (generated_name, layout) in layouts {
+			let probe =
+				render_vtable_probe(&records, &layout, &call_traits).map_err(cpp_vtable_error)?;
 			let probe_key = probe
 				.stem
 				.strip_prefix("__crys_vtable_")

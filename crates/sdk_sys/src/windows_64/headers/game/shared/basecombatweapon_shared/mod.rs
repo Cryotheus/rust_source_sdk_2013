@@ -163,9 +163,11 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_GetModelIndex: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetModelName: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
-    ) -> string_t,
+        arg2: *mut string_t,
+    ) -> *mut string_t,
     pub CBaseCombatWeapon_SetModelIndex: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
         arg2: ::std::os::raw::c_int,
@@ -282,12 +284,13 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_ObjectCaps: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> ::std::os::raw::c_int,
+    /// C++ takes `::variant_t` by value. `arg5` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CBaseCombatWeapon_AcceptInput: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
         arg2: *const ::std::os::raw::c_char,
         arg3: *mut CBaseEntity,
         arg4: *mut CBaseEntity,
-        arg5: variant_t,
+        arg5: *mut variant_t,
         arg6: ::std::os::raw::c_int,
     ) -> bool,
     pub CBaseCombatWeapon_GetInputDispatchEffectPosition: unsafe extern "C" fn(
@@ -354,9 +357,11 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_GetAutoAimRadius: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> f32,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetAutoAimCenter: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseCombatWeapon_GetBeamTraceFilter: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> *mut ITraceFilter,
@@ -632,27 +637,35 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
         arg1: *mut CBaseCombatWeapon,
         arg2: f32,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_EyePosition: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseCombatWeapon_EyeAngles: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> *const QAngle,
     pub CBaseCombatWeapon_LocalEyeAngles: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> *const QAngle,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_EarPosition: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_BodyTarget: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-        arg2: *const Vector,
-        arg3: bool,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+        arg4: bool,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_HeadTarget: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-        arg2: *const Vector,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+    ) -> *mut Vector,
     pub CBaseCombatWeapon_GetVectors: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
         arg2: *mut Vector,
@@ -666,9 +679,11 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
         arg1: *mut CBaseCombatWeapon,
         arg2: *const Vector,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetSmoothedVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseCombatWeapon_GetVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
         arg2: *mut Vector,
@@ -713,9 +728,11 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_WorldSpaceCenter: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
     ) -> *const Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetSoundEmissionOrigin: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseCombatWeapon_ModifyEmitSoundParams: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
         arg2: *mut EmitSound_t,
@@ -798,12 +815,16 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
         arg4: *mut QAngle,
         arg5: *mut QAngle,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetStepOrigin: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetStepAngles: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
-    ) -> QAngle,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
     pub CBaseCombatWeapon_ShouldDrawWaterImpacts: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> bool,
@@ -945,9 +966,11 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_InitBoneControllers: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetGroundSpeedVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseCombatWeapon_RefreshCollisionBounds: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ),
@@ -1184,10 +1207,12 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_GetBulletType: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseCombatWeapon_GetBulletSpread1: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
-        arg2: WeaponProficiency_t,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: WeaponProficiency_t,
+    ) -> *mut Vector,
     pub CBaseCombatWeapon_GetBulletSpread: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> *const Vector,

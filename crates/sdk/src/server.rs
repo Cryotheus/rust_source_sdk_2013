@@ -223,7 +223,11 @@ impl<'s> Server<'s> {
 	///    plugins' code reached through calls made in `'s`, frees entities only
 	///    through the engine's deferred deletion (`UTIL_Remove`), never
 	///    immediately (`UTIL_RemoveImmediate`, `RemoveEntityImmediate`, or
-	///    `RemoveEdict`).
+	///    `RemoveEdict`). This includes map scripts (VScript) the game runs
+	///    during `'s`, and rules out restarting the round, which frees nearly
+	///    every entity. The crate's safe functions refuse the calls known to
+	///    break this whatever the map does, such as inputs that run code the
+	///    caller chooses or spawn entity templates.
 	pub const unsafe fn new<S: ?Sized>(
 		engine: InterfaceFactory,
 		game_server: InterfaceFactory,

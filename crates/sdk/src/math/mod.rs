@@ -107,3 +107,41 @@ impl From<Vector> for sys::Vector {
 		}
 	}
 }
+
+/// A color with 8-bit red, green, blue, and alpha components (`color32`).
+#[doc(alias = "color32")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Color32 {
+	pub r: u8,
+	pub g: u8,
+	pub b: u8,
+	pub a: u8,
+}
+
+impl Color32 {
+	pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+		Self { r, g, b, a }
+	}
+
+	/// An opaque color.
+	pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+		Self::new(r, g, b, u8::MAX)
+	}
+}
+
+impl From<sys::color32> for Color32 {
+	fn from(value: sys::color32) -> Self {
+		Self::new(value.r, value.g, value.b, value.a)
+	}
+}
+
+impl From<Color32> for sys::color32 {
+	fn from(value: Color32) -> Self {
+		Self {
+			r: value.r,
+			g: value.g,
+			b: value.b,
+			a: value.a,
+		}
+	}
+}

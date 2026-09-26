@@ -58,16 +58,20 @@ pub struct IBotController__bindgen_vtable {
         arg1: *mut IBotController,
         arg2: *const Vector,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IBotController_GetLocalOrigin: unsafe extern "C" fn(
         arg1: *mut IBotController,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub IBotController_SetLocalAngles: unsafe extern "C" fn(
         arg1: *mut IBotController,
         arg2: *const QAngle,
     ),
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IBotController_GetLocalAngles: unsafe extern "C" fn(
         arg1: *mut IBotController,
-    ) -> QAngle,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
     pub IBotController_RemoveAllItems: unsafe extern "C" fn(
         arg1: *mut IBotController,
         arg2: bool,
@@ -155,14 +159,26 @@ pub struct IPlayerInfo__bindgen_vtable {
     pub IPlayerInfo_IsDead: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> bool,
     pub IPlayerInfo_IsInAVehicle: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> bool,
     pub IPlayerInfo_IsObserver: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> bool,
-    pub IPlayerInfo_GetAbsOrigin: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> Vector,
-    pub IPlayerInfo_GetAbsAngles: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> QAngle,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub IPlayerInfo_GetAbsOrigin: unsafe extern "C" fn(
+        arg1: *mut IPlayerInfo,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub IPlayerInfo_GetAbsAngles: unsafe extern "C" fn(
+        arg1: *mut IPlayerInfo,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IPlayerInfo_GetPlayerMins: unsafe extern "C" fn(
         arg1: *mut IPlayerInfo,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IPlayerInfo_GetPlayerMaxs: unsafe extern "C" fn(
         arg1: *mut IPlayerInfo,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub IPlayerInfo_GetWeaponName: unsafe extern "C" fn(
         arg1: *mut IPlayerInfo,
     ) -> *const ::std::os::raw::c_char,
@@ -175,9 +191,11 @@ pub struct IPlayerInfo__bindgen_vtable {
     pub IPlayerInfo_GetMaxHealth: unsafe extern "C" fn(
         arg1: *mut IPlayerInfo,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::CBotCmd` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IPlayerInfo_GetLastUserCommand: unsafe extern "C" fn(
         arg1: *mut IPlayerInfo,
-    ) -> CBotCmd,
+        arg2: *mut CBotCmd,
+    ) -> *mut CBotCmd,
     pub IPlayerInfo_IsReplay: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> bool,
 }
 include!("layout_assertions.rs");

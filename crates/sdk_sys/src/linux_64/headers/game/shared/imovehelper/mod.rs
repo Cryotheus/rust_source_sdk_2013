@@ -21,9 +21,10 @@ pub struct IMoveHelper {
 }
 #[repr(C)]
 pub struct IMoveHelper__bindgen_vtable {
+    /// C++ takes `::EntityHandle_t` by value. `arg2` points to a temporary copy the caller makes; the callee may modify it, and the caller destroys it after the call.
     pub IMoveHelper_GetName: unsafe extern "C" fn(
         arg1: *const IMoveHelper,
-        arg2: EntityHandle_t,
+        arg2: *mut EntityHandle_t,
     ) -> *const ::std::os::raw::c_char,
     pub IMoveHelper_ResetTouchList: unsafe extern "C" fn(arg1: *mut IMoveHelper),
     pub IMoveHelper_AddToTouched: unsafe extern "C" fn(

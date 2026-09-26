@@ -51,9 +51,11 @@ pub struct CFogController__bindgen_vtable {
     pub CFogController_GetModelIndex: unsafe extern "C" fn(
         arg1: *const CFogController,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_GetModelName: unsafe extern "C" fn(
         arg1: *const CFogController,
-    ) -> string_t,
+        arg2: *mut string_t,
+    ) -> *mut string_t,
     pub CFogController_SetModelIndex: unsafe extern "C" fn(
         arg1: *mut CFogController,
         arg2: ::std::os::raw::c_int,
@@ -168,12 +170,13 @@ pub struct CFogController__bindgen_vtable {
     pub CFogController_ObjectCaps: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> ::std::os::raw::c_int,
+    /// C++ takes `::variant_t` by value. `arg5` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CFogController_AcceptInput: unsafe extern "C" fn(
         arg1: *mut CFogController,
         arg2: *const ::std::os::raw::c_char,
         arg3: *mut CBaseEntity,
         arg4: *mut CBaseEntity,
-        arg5: variant_t,
+        arg5: *mut variant_t,
         arg6: ::std::os::raw::c_int,
     ) -> bool,
     pub CFogController_GetInputDispatchEffectPosition: unsafe extern "C" fn(
@@ -240,9 +243,11 @@ pub struct CFogController__bindgen_vtable {
     pub CFogController_GetAutoAimRadius: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> f32,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_GetAutoAimCenter: unsafe extern "C" fn(
         arg1: *mut CFogController,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CFogController_GetBeamTraceFilter: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> *mut ITraceFilter,
@@ -502,27 +507,35 @@ pub struct CFogController__bindgen_vtable {
         arg1: *mut CFogController,
         arg2: f32,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_EyePosition: unsafe extern "C" fn(
         arg1: *mut CFogController,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CFogController_EyeAngles: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> *const QAngle,
     pub CFogController_LocalEyeAngles: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> *const QAngle,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_EarPosition: unsafe extern "C" fn(
         arg1: *mut CFogController,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_BodyTarget: unsafe extern "C" fn(
         arg1: *mut CFogController,
-        arg2: *const Vector,
-        arg3: bool,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+        arg4: bool,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_HeadTarget: unsafe extern "C" fn(
         arg1: *mut CFogController,
-        arg2: *const Vector,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+    ) -> *mut Vector,
     pub CFogController_GetVectors: unsafe extern "C" fn(
         arg1: *const CFogController,
         arg2: *mut Vector,
@@ -536,9 +549,11 @@ pub struct CFogController__bindgen_vtable {
         arg1: *mut CFogController,
         arg2: *const Vector,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_GetSmoothedVelocity: unsafe extern "C" fn(
         arg1: *mut CFogController,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CFogController_GetVelocity: unsafe extern "C" fn(
         arg1: *mut CFogController,
         arg2: *mut Vector,
@@ -583,9 +598,11 @@ pub struct CFogController__bindgen_vtable {
     pub CFogController_WorldSpaceCenter: unsafe extern "C" fn(
         arg1: *const CFogController,
     ) -> *const Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_GetSoundEmissionOrigin: unsafe extern "C" fn(
         arg1: *const CFogController,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CFogController_ModifyEmitSoundParams: unsafe extern "C" fn(
         arg1: *mut CFogController,
         arg2: *mut EmitSound_t,
@@ -668,12 +685,16 @@ pub struct CFogController__bindgen_vtable {
         arg4: *mut QAngle,
         arg5: *mut QAngle,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_GetStepOrigin: unsafe extern "C" fn(
         arg1: *const CFogController,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CFogController_GetStepAngles: unsafe extern "C" fn(
         arg1: *const CFogController,
-    ) -> QAngle,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
     pub CFogController_ShouldDrawWaterImpacts: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> bool,

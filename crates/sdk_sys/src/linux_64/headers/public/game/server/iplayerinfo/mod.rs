@@ -173,9 +173,11 @@ pub struct IPlayerInfo__bindgen_vtable {
     pub IPlayerInfo_GetMaxHealth: unsafe extern "C" fn(
         arg1: *mut IPlayerInfo,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::CBotCmd` by value. `arg1` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IPlayerInfo_GetLastUserCommand: unsafe extern "C" fn(
-        arg1: *mut IPlayerInfo,
-    ) -> CBotCmd,
+        arg1: *mut CBotCmd,
+        arg2: *mut IPlayerInfo,
+    ) -> *mut CBotCmd,
     pub IPlayerInfo_IsReplay: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> bool,
 }
 include!("layout_assertions.rs");

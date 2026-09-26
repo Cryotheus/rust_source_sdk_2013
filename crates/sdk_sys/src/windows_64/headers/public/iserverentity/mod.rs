@@ -43,9 +43,11 @@ pub struct IServerEntity__bindgen_vtable {
     pub IServerEntity_GetModelIndex: unsafe extern "C" fn(
         arg1: *const IServerEntity,
     ) -> ::std::os::raw::c_int,
+    /// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub IServerEntity_GetModelName: unsafe extern "C" fn(
         arg1: *const IServerEntity,
-    ) -> string_t,
+        arg2: *mut string_t,
+    ) -> *mut string_t,
     pub IServerEntity_SetModelIndex: unsafe extern "C" fn(
         arg1: *mut IServerEntity,
         arg2: ::std::os::raw::c_int,

@@ -94,7 +94,11 @@ pub struct CBaseFlex__bindgen_vtable {
     pub CBaseFlex_GetModelIndex: unsafe extern "C" fn(
         arg1: *const CBaseFlex,
     ) -> ::std::os::raw::c_int,
-    pub CBaseFlex_GetModelName: unsafe extern "C" fn(arg1: *const CBaseFlex) -> string_t,
+    /// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseFlex_GetModelName: unsafe extern "C" fn(
+        arg1: *const CBaseFlex,
+        arg2: *mut string_t,
+    ) -> *mut string_t,
     pub CBaseFlex_SetModelIndex: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
         arg2: ::std::os::raw::c_int,
@@ -209,12 +213,13 @@ pub struct CBaseFlex__bindgen_vtable {
     pub CBaseFlex_ObjectCaps: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
     ) -> ::std::os::raw::c_int,
+    /// C++ takes `::variant_t` by value. `arg5` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CBaseFlex_AcceptInput: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
         arg2: *const ::std::os::raw::c_char,
         arg3: *mut CBaseEntity,
         arg4: *mut CBaseEntity,
-        arg5: variant_t,
+        arg5: *mut variant_t,
         arg6: ::std::os::raw::c_int,
     ) -> bool,
     pub CBaseFlex_GetInputDispatchEffectPosition: unsafe extern "C" fn(
@@ -273,7 +278,11 @@ pub struct CBaseFlex__bindgen_vtable {
         arg2: *mut CBaseEntity,
     ) -> bool,
     pub CBaseFlex_GetAutoAimRadius: unsafe extern "C" fn(arg1: *mut CBaseFlex) -> f32,
-    pub CBaseFlex_GetAutoAimCenter: unsafe extern "C" fn(arg1: *mut CBaseFlex) -> Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseFlex_GetAutoAimCenter: unsafe extern "C" fn(
+        arg1: *mut CBaseFlex,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseFlex_GetBeamTraceFilter: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
     ) -> *mut ITraceFilter,
@@ -508,21 +517,33 @@ pub struct CBaseFlex__bindgen_vtable {
     ) -> ::std::os::raw::c_int,
     pub CBaseFlex_GetDamage: unsafe extern "C" fn(arg1: *mut CBaseFlex) -> f32,
     pub CBaseFlex_SetDamage: unsafe extern "C" fn(arg1: *mut CBaseFlex, arg2: f32),
-    pub CBaseFlex_EyePosition: unsafe extern "C" fn(arg1: *mut CBaseFlex) -> Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseFlex_EyePosition: unsafe extern "C" fn(
+        arg1: *mut CBaseFlex,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseFlex_EyeAngles: unsafe extern "C" fn(arg1: *mut CBaseFlex) -> *const QAngle,
     pub CBaseFlex_LocalEyeAngles: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
     ) -> *const QAngle,
-    pub CBaseFlex_EarPosition: unsafe extern "C" fn(arg1: *mut CBaseFlex) -> Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseFlex_EarPosition: unsafe extern "C" fn(
+        arg1: *mut CBaseFlex,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseFlex_BodyTarget: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
-        arg2: *const Vector,
-        arg3: bool,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+        arg4: bool,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseFlex_HeadTarget: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
-        arg2: *const Vector,
-    ) -> Vector,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+    ) -> *mut Vector,
     pub CBaseFlex_GetVectors: unsafe extern "C" fn(
         arg1: *const CBaseFlex,
         arg2: *mut Vector,
@@ -536,9 +557,11 @@ pub struct CBaseFlex__bindgen_vtable {
         arg1: *mut CBaseFlex,
         arg2: *const Vector,
     ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseFlex_GetSmoothedVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseFlex_GetVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
         arg2: *mut Vector,
@@ -583,9 +606,11 @@ pub struct CBaseFlex__bindgen_vtable {
     pub CBaseFlex_WorldSpaceCenter: unsafe extern "C" fn(
         arg1: *const CBaseFlex,
     ) -> *const Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseFlex_GetSoundEmissionOrigin: unsafe extern "C" fn(
         arg1: *const CBaseFlex,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseFlex_ModifyEmitSoundParams: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
         arg2: *mut EmitSound_t,
@@ -660,8 +685,16 @@ pub struct CBaseFlex__bindgen_vtable {
         arg4: *mut QAngle,
         arg5: *mut QAngle,
     ),
-    pub CBaseFlex_GetStepOrigin: unsafe extern "C" fn(arg1: *const CBaseFlex) -> Vector,
-    pub CBaseFlex_GetStepAngles: unsafe extern "C" fn(arg1: *const CBaseFlex) -> QAngle,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseFlex_GetStepOrigin: unsafe extern "C" fn(
+        arg1: *const CBaseFlex,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseFlex_GetStepAngles: unsafe extern "C" fn(
+        arg1: *const CBaseFlex,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
     pub CBaseFlex_ShouldDrawWaterImpacts: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
     ) -> bool,
@@ -783,9 +816,11 @@ pub struct CBaseFlex__bindgen_vtable {
         arg3: *mut matrix3x4_t,
     ) -> bool,
     pub CBaseFlex_InitBoneControllers: unsafe extern "C" fn(arg1: *mut CBaseFlex),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
     pub CBaseFlex_GetGroundSpeedVelocity: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
-    ) -> Vector,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
     pub CBaseFlex_RefreshCollisionBounds: unsafe extern "C" fn(arg1: *mut CBaseFlex),
     pub CBaseFlex_Ignite: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,

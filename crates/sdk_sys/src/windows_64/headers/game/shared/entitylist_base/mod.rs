@@ -29,15 +29,17 @@ pub struct CBaseEntityList_CEntInfoList {
 }
 #[repr(C)]
 pub struct CBaseEntityList__bindgen_vtable {
+    /// C++ takes `::CBaseHandle` by value. `arg3` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CBaseEntityList_OnAddEntity: unsafe extern "C" fn(
         arg1: *mut CBaseEntityList,
         arg2: *mut IHandleEntity,
-        arg3: CBaseHandle,
+        arg3: *mut CBaseHandle,
     ),
+    /// C++ takes `::CBaseHandle` by value. `arg3` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CBaseEntityList_OnRemoveEntity: unsafe extern "C" fn(
         arg1: *mut CBaseEntityList,
         arg2: *mut IHandleEntity,
-        arg3: CBaseHandle,
+        arg3: *mut CBaseHandle,
     ),
 }
 #[repr(C)]

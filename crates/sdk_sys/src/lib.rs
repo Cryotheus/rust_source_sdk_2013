@@ -23,8 +23,34 @@ cfg_select! {
 		/// `CBaseEntity::Teleport` in TF2's game DLL.
 		/// Verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
 		pub const CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT: usize = 115;
+		/// `CBaseEntity::AcceptInput` in the primary vtable. TF2 declares its own
+		/// virtual methods after it, so the slot is the same for every game.
+		/// Derived from `game/server/baseentity.h` with the Itanium ABI model, and
+		/// verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
+		pub const CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT: usize = 39;
 
 		const _: () = {
+			assert!(
+				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_GetDataDescMap)
+					== SLOT_SIZE * CBASEENTITY_DATAMAP_VTABLE_SLOT
+			);
+			assert!(
+				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_AcceptInput)
+					== SLOT_SIZE * CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT
+			);
+			assert!(
+				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_Teleport)
+					== SLOT_SIZE * CBASEENTITY_TELEPORT_VTABLE_SLOT
+			);
+
+			// `AcceptInput` takes a `variant_t` by value. Its handle member has a
+			// user-provided copy constructor, so both ABIs pass a pointer to a copy
+			// the caller owns, which the generated signature takes as `*mut variant_t`.
+			assert!(size_of::<variant_t>() == 24 && align_of::<variant_t>() == 8);
+			assert!(offset_of!(variant_t, eVal) == 16);
+			assert!(offset_of!(variant_t, fieldType) == 20);
+			assert!(size_of::<string_t>() == SLOT_SIZE);
+
 			assert!(
 				offset_of!(
 					IGameEventVisitor2__bindgen_vtable,
@@ -184,8 +210,34 @@ cfg_select! {
 		/// `CBaseEntity::Teleport` in TF2's game DLL.
 		/// Verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
 		pub const CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT: usize = 114;
+		/// `CBaseEntity::AcceptInput` in the primary vtable. TF2 declares its own
+		/// virtual methods after it, so the slot is the same for every game.
+		/// Derived from `game/server/baseentity.h` with the MSVC ABI model, and
+		/// verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
+		pub const CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT: usize = 38;
 
 		const _: () = {
+			assert!(
+				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_GetDataDescMap)
+					== SLOT_SIZE * CBASEENTITY_DATAMAP_VTABLE_SLOT
+			);
+			assert!(
+				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_AcceptInput)
+					== SLOT_SIZE * CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT
+			);
+			assert!(
+				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_Teleport)
+					== SLOT_SIZE * CBASEENTITY_TELEPORT_VTABLE_SLOT
+			);
+
+			// `AcceptInput` takes a `variant_t` by value. Its handle member has a
+			// user-provided copy constructor, so both ABIs pass a pointer to a copy
+			// the caller owns, which the generated signature takes as `*mut variant_t`.
+			assert!(size_of::<variant_t>() == 24 && align_of::<variant_t>() == 8);
+			assert!(offset_of!(variant_t, eVal) == 16);
+			assert!(offset_of!(variant_t, fieldType) == 20);
+			assert!(size_of::<string_t>() == SLOT_SIZE);
+
 			assert!(
 				offset_of!(
 					IGameEventVisitor2__bindgen_vtable,

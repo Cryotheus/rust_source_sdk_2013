@@ -1,0 +1,2 @@
+[alias]
+bind = ["build", "--package", "source_sdk_2013_sys", "--features", "generate_bindings"]

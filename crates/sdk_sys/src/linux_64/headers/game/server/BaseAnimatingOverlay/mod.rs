@@ -223,12 +223,13 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_ObjectCaps: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> ::std::os::raw::c_int,
+    /// C++ takes `::variant_t` by value. `arg5` points to a temporary copy the caller makes; the callee may modify it, and the caller destroys it after the call.
     pub CBaseAnimatingOverlay_AcceptInput: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
         arg2: *const ::std::os::raw::c_char,
         arg3: *mut CBaseEntity,
         arg4: *mut CBaseEntity,
-        arg5: variant_t,
+        arg5: *mut variant_t,
         arg6: ::std::os::raw::c_int,
     ) -> bool,
     pub CBaseAnimatingOverlay_GetInputDispatchEffectPosition: unsafe extern "C" fn(
