@@ -7,7 +7,7 @@
 /.vscode
 
 # Secrets
-**/.env
+**/*.env
 
 # Stack traces from breaking rustc
 /rustc-ice-*.txt
