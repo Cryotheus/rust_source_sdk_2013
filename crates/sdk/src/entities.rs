@@ -41,6 +41,14 @@ pub enum TeleportError {
 	MarkedForDeletion,
 }
 
+/// Why [`ServerTools::remove`] refused an entity: the game keeps using it
+/// after it is freed.
+///
+/// [`ServerTools::remove`]: crate::interfaces::ServerTools::remove
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the game keeps using this entity after it is freed")]
+pub struct ProtectedEntity;
+
 /// An entity in the server's entity list, as referred to by a `CBaseEntity *`.
 ///
 /// Removing an entity frees it at the end of the frame, so a handle is bound
@@ -145,6 +153,22 @@ impl<'s> Entity<'s> {
 
 		// SAFETY: The origin is a member of the live entity, copied immediately.
 		Some(unsafe { origin.as_ptr().read() }.into())
+	}
+
+	/// Whether the game keeps using this entity after it is freed, so that
+	/// removing it before the level ends crashes the server.
+	///
+	/// That is the world, players, and soundscapes: removing a soundscape
+	/// shifts the soundscape system's entity list, which the lists it built
+	/// for each area of the map then index past.
+	pub(crate) fn is_protected(self) -> bool {
+		self.index() == Some(0)
+			|| self.data_maps().any(|map| {
+				matches!(
+					data_map_class(map).map(CStr::to_bytes),
+					Some(b"CBasePlayer" | b"CEnvSoundscape")
+				)
+			})
 	}
 
 	/// Whether Source has marked this entity for deferred deletion.

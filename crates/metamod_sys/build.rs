@@ -114,6 +114,8 @@ fn compile_bridge(
 
 	if target_env == "msvc" {
 		compiler.flag("/wd4100");
+		// SourceHook's hook declaration macros test constant conditions.
+		compiler.flag("/wd4127");
 	} else {
 		compiler.flag_if_supported("-Wno-unused-parameter");
 

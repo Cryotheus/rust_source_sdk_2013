@@ -1,6 +1,6 @@
 //! `IServerTools`, which enumerates and manipulates the server's entities.
 
-use crate::entities::{Entity, EntityHandle, TeleportError};
+use crate::entities::{Entity, EntityHandle, ProtectedEntity, TeleportError};
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, cstring_from_buffer, vcall};
 use crate::inputs::{self, InputError, InputValue};
 use crate::math::{QAngle, Vector};
@@ -162,15 +162,77 @@ impl<'s> ServerTools<'s> {
 	/// the engine frees it at the end of the frame. Physics callbacks may also
 	/// defer setting its deletion flag; check
 	/// [`Entity::is_marked_for_deletion`] for the current state.
+	///
+	/// Refuses the world, players, and soundscapes, which the game keeps using
+	/// after they are freed. Other entities the game keeps pointers to, such as
+	/// the game rules or a team, crash the server the same way once freed.
 	#[doc(alias = "RemoveEntity")]
 	#[doc(alias = "UTIL_Remove")]
-	pub fn remove(self, entity: Entity<'_>) {
-		if entity.is_marked_for_deletion() {
-			return;
+	pub fn remove(self, entity: Entity<'_>) -> Result<(), ProtectedEntity> {
+		if entity.is_protected() {
+			return Err(ProtectedEntity);
 		}
 
-		// SAFETY: As for `entity_by_index`. Removal is deferred.
-		unsafe { vcall!(self.as_ptr() => IServerTools_RemoveEntity(entity.as_ptr())) };
+		if !entity.is_marked_for_deletion() {
+			// SAFETY: As for `entity_by_index`. Removal is deferred.
+			unsafe { vcall!(self.as_ptr() => IServerTools_RemoveEntity(entity.as_ptr())) };
+		}
+
+		Ok(())
+	}
+
+	/// Creates an entity of a class, without spawning it, as the game's
+	/// `CreateEntityByName` does. Returns `None` for an unknown class.
+	///
+	/// Set its key values with [`Self::set_key_value`], then spawn it with
+	/// [`Self::dispatch_spawn`].
+	///
+	/// # Safety
+	///
+	/// The class's constructor must free entities only through Source's
+	/// deferred deletion (condition 4 of [`Server::new`]).
+	#[doc(alias = "CreateEntityByName")]
+	pub unsafe fn create_entity_by_name(self, class_name: &CStr) -> Option<Entity<'s>> {
+		// SAFETY: As for `entity_by_index`, and the caller vouches for the
+		// constructor. The game adds the entity to its entity list.
+		let entity = unsafe {
+			vcall!(self.as_ptr() => IServerTools_CreateEntityByName(class_name.as_ptr()))
+		};
+
+		// SAFETY: As above, and nothing frees it during `'s`.
+		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
+	}
+
+	/// Spawns an entity created with [`Self::create_entity_by_name`], as the
+	/// game's `DispatchSpawn` does. Its `Spawn`, which usually precaches what
+	/// it needs, runs before this returns.
+	///
+	/// # Safety
+	///
+	/// Everything the entity's `Spawn` runs must free entities only through
+	/// Source's deferred deletion (condition 4 of [`Server::new`]), and the
+	/// entity must not have been spawned before.
+	#[doc(alias = "DispatchSpawn")]
+	pub unsafe fn dispatch_spawn(self, entity: Entity<'_>) {
+		// SAFETY: As for `entity_by_index`, and the caller vouches for `Spawn`.
+		unsafe { vcall!(self.as_ptr() => IServerTools_DispatchSpawn(entity.as_ptr())) };
+	}
+
+	/// Sets one of an entity's key values, as a map's entity lump does before
+	/// the entity spawns. Returns whether the entity knew the key.
+	///
+	/// The key and value are copied first, since the game writes into keys
+	/// containing `#`.
+	#[doc(alias = "SetKeyValue")]
+	pub fn set_key_value(self, entity: Entity<'_>, key: &CStr, value: &CStr) -> bool {
+		let key = key.to_owned();
+		let value = value.to_owned();
+
+		// SAFETY: As for `entity_by_index`. The game may write into the copies,
+		// which are only used for the call.
+		unsafe {
+			vcall!(self.as_ptr() => IServerTools_SetKeyValue(entity.as_ptr(), key.as_ptr(), value.as_ptr()))
+		}
 	}
 
 	/// Moves an entity through Source's `Teleport` method, which also updates
@@ -218,8 +280,8 @@ impl<'s> ServerTools<'s> {
 	///   and scripts can also restart the round.
 	/// - [`InputError::PickerName`]: the string `"!picker"`, which the game
 	///   resolves through the first player without checking that there is one.
-	/// - [`InputError::ProtectedEntity`]: `Kill` and `KillHierarchy` on a
-	///   player or the world.
+	/// - [`InputError::ProtectedEntity`]: `Kill` and `KillHierarchy` on the
+	///   world, a player, or a soundscape, which [`Self::remove`] refuses too.
 	///
 	/// The last is a precaution, not a guarantee: removing an entity also
 	/// removes the entities parented to it, and outputs added with `AddOutput`
@@ -532,8 +594,8 @@ mod tests {
 
 		let entity = tools.entity_by_index(1).unwrap();
 
-		tools.remove(entity);
-		tools.remove(entity);
+		tools.remove(entity).unwrap();
+		tools.remove(entity).unwrap();
 
 		assert!(entity.is_marked_for_deletion());
 		assert_eq!(REMOVALS.get(), 1);

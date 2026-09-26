@@ -54,3 +54,17 @@ class bf_read {};
 
 #include "game/server/gameinterface.h"
 
+//TF2's engine is built with replay support, which adds virtual methods to the
+//client message handler and to IClient. Without it, their later slots would be
+//off by one. Nothing included above depends on it.
+#define REPLAY_ENABLED
+
+//per-client networking: net channels and their messages, recipient filters, and
+//the engine's server and client objects
+#include "public/inetchannel.h"
+#include "public/inetmessage.h"
+#include "public/inetmsghandler.h"
+#include "public/irecipientfilter.h"
+#include "public/iserver.h"
+#include "public/iclient.h"
+

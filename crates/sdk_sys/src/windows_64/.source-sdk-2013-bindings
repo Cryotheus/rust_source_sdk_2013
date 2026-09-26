@@ -2,6 +2,9 @@
 headers/__bindgen/mod.rs
 headers/__bindgen/support/layout_assertions.rs
 headers/__bindgen/support/mod.rs
+headers/common/mod.rs
+headers/common/userid/layout_assertions.rs
+headers/common/userid/mod.rs
 headers/game/mod.rs
 headers/game/server/BaseAnimatingOverlay/layout_assertions.rs
 headers/game/server/BaseAnimatingOverlay/mod.rs
@@ -157,6 +160,8 @@ headers/public/gametrace/layout_assertions.rs
 headers/public/gametrace/mod.rs
 headers/public/globalvars_base/layout_assertions.rs
 headers/public/globalvars_base/mod.rs
+headers/public/iclient/layout_assertions.rs
+headers/public/iclient/mod.rs
 headers/public/iclientrenderable/layout_assertions.rs
 headers/public/iclientrenderable/mod.rs
 headers/public/iclientunknown/layout_assertions.rs
@@ -167,8 +172,18 @@ headers/public/igameevents/layout_assertions.rs
 headers/public/igameevents/mod.rs
 headers/public/ihandleentity/layout_assertions.rs
 headers/public/ihandleentity/mod.rs
+headers/public/inetchannel/layout_assertions.rs
+headers/public/inetchannel/mod.rs
+headers/public/inetchannelinfo/layout_assertions.rs
+headers/public/inetchannelinfo/mod.rs
+headers/public/inetmessage/layout_assertions.rs
+headers/public/inetmessage/mod.rs
+headers/public/inetmsghandler/layout_assertions.rs
+headers/public/inetmsghandler/mod.rs
 headers/public/irecipientfilter/layout_assertions.rs
 headers/public/irecipientfilter/mod.rs
+headers/public/iserver/layout_assertions.rs
+headers/public/iserver/mod.rs
 headers/public/iserverentity/layout_assertions.rs
 headers/public/iserverentity/mod.rs
 headers/public/iservernetworkable/layout_assertions.rs
@@ -221,6 +236,7 @@ headers/public/tier0/mod.rs
 headers/public/tier0/platform/mod.rs
 headers/public/tier0/threadtools/layout_assertions.rs
 headers/public/tier0/threadtools/mod.rs
+headers/public/tier0/vcrmode/mod.rs
 headers/public/tier0/wchartypes/mod.rs
 headers/public/tier1/KeyValues/layout_assertions.rs
 headers/public/tier1/KeyValues/mod.rs
@@ -234,6 +250,8 @@ headers/public/tier1/iconvar/mod.rs
 headers/public/tier1/interface/layout_assertions.rs
 headers/public/tier1/interface/mod.rs
 headers/public/tier1/mod.rs
+headers/public/tier1/netadr/layout_assertions.rs
+headers/public/tier1/netadr/mod.rs
 headers/public/tier1/utlbuffer/layout_assertions.rs
 headers/public/tier1/utlbuffer/mod.rs
 headers/public/tier1/utlhash/mod.rs

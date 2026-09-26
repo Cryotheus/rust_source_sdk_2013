@@ -17,6 +17,7 @@ pub use self::__bindgen_prelude::*;
 #[allow(ambiguous_glob_reexports, unused_imports)]
 mod __bindgen_prelude {
     pub use super::headers::__bindgen::support::*;
+    pub use super::headers::common::userid::*;
     pub use super::headers::game::server::BaseAnimatingOverlay::*;
     pub use super::headers::game::server::ServerNetworkProperty::*;
     pub use super::headers::game::server::ai_hull::*;
@@ -92,12 +93,18 @@ mod __bindgen_prelude {
     pub use super::headers::public::game::server::iplayerinfo::*;
     pub use super::headers::public::gametrace::*;
     pub use super::headers::public::globalvars_base::*;
+    pub use super::headers::public::iclient::*;
     pub use super::headers::public::iclientrenderable::*;
     pub use super::headers::public::iclientunknown::*;
     pub use super::headers::public::icvar::*;
     pub use super::headers::public::igameevents::*;
     pub use super::headers::public::ihandleentity::*;
+    pub use super::headers::public::inetchannel::*;
+    pub use super::headers::public::inetchannelinfo::*;
+    pub use super::headers::public::inetmessage::*;
+    pub use super::headers::public::inetmsghandler::*;
     pub use super::headers::public::irecipientfilter::*;
+    pub use super::headers::public::iserver::*;
     pub use super::headers::public::iserverentity::*;
     pub use super::headers::public::iservernetworkable::*;
     pub use super::headers::public::iserverunknown::*;
@@ -125,6 +132,7 @@ mod __bindgen_prelude {
     pub use super::headers::public::tier0::basetypes::*;
     pub use super::headers::public::tier0::platform::*;
     pub use super::headers::public::tier0::threadtools::*;
+    pub use super::headers::public::tier0::vcrmode::*;
     pub use super::headers::public::tier0::wchartypes::*;
     pub use super::headers::public::tier1::KeyValues::*;
     pub use super::headers::public::tier1::byteswap::*;
@@ -132,6 +140,7 @@ mod __bindgen_prelude {
     pub use super::headers::public::tier1::convar::*;
     pub use super::headers::public::tier1::iconvar::*;
     pub use super::headers::public::tier1::interface::*;
+    pub use super::headers::public::tier1::netadr::*;
     pub use super::headers::public::tier1::utlbuffer::*;
     pub use super::headers::public::tier1::utlhash::*;
     pub use super::headers::public::tier1::utllinkedlist::*;

@@ -39,17 +39,7 @@ pub struct IAchievementMgr {
 }
 #[repr(C)]
 #[derive(Debug)]
-pub struct INetChannelInfo {
-    _unused: [u8; 0],
-}
-#[repr(C)]
-#[derive(Debug)]
 pub struct IScratchPad3D {
-    _unused: [u8; 0],
-}
-#[repr(C)]
-#[derive(Debug)]
-pub struct IServer {
     _unused: [u8; 0],
 }
 #[repr(C)]

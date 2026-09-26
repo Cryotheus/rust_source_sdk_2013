@@ -2,6 +2,7 @@
 
 use crate::edicts::{Edict, MAX_EDICTS};
 use crate::ffi::{copy_cstr, cstring_from_buffer, vcall};
+use crate::net::NetChannel;
 use crate::players::{ABSOLUTE_PLAYER_LIMIT, UserId};
 use std::ffi::{CStr, CString, c_char, c_int};
 use std::mem::{offset_of, size_of};
@@ -140,6 +141,58 @@ impl<'s> ValveEngine<'s> {
 		unsafe {
 			copy_cstr(
 				vcall!(self.as_ptr() => IVEngineServer_GetPlayerNetworkIDString(edict.as_ptr())),
+			)
+		}
+	}
+
+	/// The net channel of the client owning an edict.
+	///
+	/// Returns `None` for an edict that no connected client owns, and for fake
+	/// clients such as bots and SourceTV, which have no channel.
+	#[doc(alias = "GetPlayerNetInfo")]
+	pub fn net_channel(self, client: Edict<'_>) -> Option<NetChannel<'s>> {
+		// SAFETY: As for `change_level`. The engine checks the index.
+		let info = NonNull::new(unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_GetPlayerNetInfo(client.index()))
+		})?;
+
+		// SAFETY: The engine returns its client's `CNetChan`, whose only base is
+		// `INetChannel`, which derives only from `INetChannelInfo`, so both are
+		// at the same address. The engine frees a channel when its client
+		// disconnects, which nothing safe causes during `'s`.
+		Some(unsafe { NetChannel::from_raw(info.cast()) })
+	}
+
+	/// Renders a client's view from another entity, such as a camera, or from
+	/// its own player again.
+	#[doc(alias = "SetView")]
+	pub fn set_view(self, client: Edict<'_>, view: Edict<'_>) {
+		// SAFETY: As for `change_level`, and both edicts are live. The engine
+		// ignores edicts that no connected client owns.
+		unsafe { vcall!(self.as_ptr() => IVEngineServer_SetView(client.as_ptr(), view.as_ptr())) };
+	}
+
+	/// Offsets the crosshair of the client owning an edict, in degrees.
+	#[doc(alias = "CrosshairAngle")]
+	pub fn crosshair_angle(self, client: Edict<'_>, pitch: f32, yaw: f32) {
+		// SAFETY: As for `set_view`.
+		unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_CrosshairAngle(client.as_ptr(), pitch, yaw))
+		};
+	}
+
+	/// The value a client reported for one of its user settings, the console
+	/// variables marked `FCVAR_USERINFO`, such as `name` or `cl_interp`.
+	///
+	/// The engine reports an unknown setting, or an edict that no connected
+	/// client owns, as empty.
+	#[doc(alias = "GetClientConVarValue")]
+	pub fn client_convar_value(self, client: Edict<'_>, name: &CStr) -> Option<CString> {
+		// SAFETY: As for `change_level`. The engine checks the index, and the
+		// value is copied at once.
+		unsafe {
+			copy_cstr(
+				vcall!(self.as_ptr() => IVEngineServer_GetClientConVarValue(client.index(), name.as_ptr())),
 			)
 		}
 	}

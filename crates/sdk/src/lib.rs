@@ -38,9 +38,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod ffi;
+mod rtti;
 mod tier0;
 
 pub mod abi;
+pub mod bitbuf;
 pub mod commands;
 pub mod datatables;
 pub mod edicts;
@@ -48,8 +50,11 @@ pub mod entities;
 pub mod inputs;
 pub mod interfaces;
 pub mod math;
+pub mod net;
 pub mod players;
 pub mod server;
+pub mod soundscapes;
+pub mod user_messages;
 
 pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
 pub use sys;

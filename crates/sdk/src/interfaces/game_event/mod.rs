@@ -3,6 +3,7 @@
 mod id;
 
 use crate::abi::{CppDestructors, WChar};
+use crate::bitbuf::{BitWriter, RawBfWrite};
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
 use crate::players::UserId;
 use std::collections::{HashMap, HashSet};
@@ -512,6 +513,35 @@ impl<'s> GameEventManager<'s> {
 			unsafe { vcall!(self.as_ptr() => IGameEventManager2_DuplicateEvent(event.as_ptr())) };
 
 		NonNull::new(duplicate).map(|raw| OwnedGameEvent { raw, manager: self })
+	}
+
+	/// Encodes an event as the engine sends it to clients: its ID, then its
+	/// fields in the order its description lists them.
+	///
+	/// [`net::messages::GameEvent`](crate::net::messages::GameEvent) sends the
+	/// result to a single client. Returns `None` if the manager has no
+	/// description of the event, or the encoding exceeds 1024 bytes.
+	#[doc(alias = "SerializeEvent")]
+	pub fn serialize_event(self, event: GameEvent<'_>) -> Option<BitWriter> {
+		// `MAX_EVENT_BYTES`, the most the engine sends of an event.
+		let mut storage = [0u32; 1024 / 4];
+		let mut buffer = RawBfWrite::empty(&mut storage);
+
+		// SAFETY: As for `add_listener`, and the event is live. The engine writes
+		// through the buffer, within the bounds it describes, and marks it
+		// overflowed rather than exceed them.
+		let serialized = unsafe {
+			vcall!(self.as_ptr() => IGameEventManager2_SerializeEvent(
+				event.as_ptr(),
+				(&raw mut buffer).cast::<sys::bf_write>(),
+			))
+		};
+
+		// SAFETY: The buffer describes `storage`, which the call has finished
+		// writing.
+		serialized
+			.then(|| unsafe { RawBfWrite::read_back(NonNull::from(&mut buffer)) })
+			.flatten()
 	}
 
 	/// Loads event descriptions from a resource file.

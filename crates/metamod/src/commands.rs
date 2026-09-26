@@ -2,7 +2,8 @@
 //! Metamod.
 
 use crate::MetamodApi;
-use crate::sys::plugin::{self as raw, HookStatus};
+use crate::hooks::HookError;
+use crate::sys::plugin as raw;
 use source_sdk_2013::ServerBinding;
 use source_sdk_2013::commands::{CommandRegistrar, UnlinksBeforeUnload, route_client_command};
 use source_sdk_2013::interfaces::ServerGameClients;
@@ -48,27 +49,6 @@ unsafe impl CommandRegistrar for MetamodRegistrar<'_> {
 // `command_registrar` checked is the one passed, and unlinks the commands after
 // `Unload` (forced or not) or a refused `Load`, before the library is unloaded.
 unsafe impl UnlinksBeforeUnload for MetamodRegistrar<'_> {}
-
-/// Why clients' commands could not be routed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum HookError {
-	#[error(
-		"hooks can only be installed while Metamod runs the plugin, and with a hooking library"
-	)]
-	NotBound,
-
-	#[error("clients' commands are already routed")]
-	AlreadyInstalled,
-
-	#[error("Metamod's hooking library refused the hook")]
-	Refused,
-
-	#[error("the hook was given invalid arguments")]
-	InvalidArgument,
-
-	#[error("this Metamod version has no plugin shell")]
-	Unsupported,
-}
 
 /// The server the client-command hook runs commands for.
 struct RoutedServer(Cell<Option<ServerBinding>>);
@@ -124,14 +104,7 @@ impl<'callback> MetamodApi<'callback> {
 			)
 		};
 
-		match status {
-			HookStatus::INSTALLED => Ok(()),
-			HookStatus::NOT_BOUND => Err(HookError::NotBound),
-			HookStatus::ALREADY_INSTALLED => Err(HookError::AlreadyInstalled),
-			HookStatus::REFUSED => Err(HookError::Refused),
-			HookStatus::INVALID_ARGUMENT => Err(HookError::InvalidArgument),
-			_ => Err(HookError::Unsupported),
-		}
+		HookError::check(status)
 	}
 }
 

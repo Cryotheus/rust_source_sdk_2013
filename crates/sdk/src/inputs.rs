@@ -252,9 +252,9 @@ pub enum InputError {
 	#[error("the input can free entities immediately, so it is only sent unchecked")]
 	FreesEntities,
 
-	/// The input would remove a player or the world, which the engine keeps
-	/// using after they are freed.
-	#[error("the input would remove a player or the world")]
+	/// The input would remove the world, a player, or a soundscape, which the
+	/// game keeps using after they are freed.
+	#[error("the input would remove the world, a player, or a soundscape")]
 	ProtectedEntity,
 
 	/// The game resolves `"!picker"` through the first player's crosshair
@@ -281,7 +281,7 @@ pub(crate) struct CheckedInput<'s> {
 	declared: InputType,
 	frees_entities: bool,
 	kills: bool,
-	target_is_player: bool,
+	target_is_protected: bool,
 }
 
 impl<'s> CheckedInput<'s> {
@@ -312,7 +312,7 @@ pub(crate) fn check_input<'s>(
 	}
 
 	let mut found = None;
-	let mut is_player = false;
+	let mut is_protected = false;
 	let mut is_npc_maker = false;
 
 	// `AcceptInput` searches from the entity's own class towards its bases, and
@@ -320,7 +320,7 @@ pub(crate) fn check_input<'s>(
 	for map in target.data_maps() {
 		let class = data_map_class(map).map_or(&[][..], CStr::to_bytes);
 
-		is_player |= class == b"CBasePlayer";
+		is_protected |= class == b"CBasePlayer" || class == b"CEnvSoundscape";
 		is_npc_maker |= class == b"CBaseNPCMaker";
 
 		if found.is_some() {
@@ -351,7 +351,7 @@ pub(crate) fn check_input<'s>(
 		frees_entities: is_any(&CODE_OR_SPAWN_INPUTS)
 			|| (is_npc_maker && is_any(&NPC_MAKER_SPAWN_INPUTS)),
 		kills: is_any(&KILL_INPUTS),
-		target_is_player: is_player,
+		target_is_protected: is_protected,
 	})
 }
 
@@ -365,7 +365,7 @@ pub(crate) fn check_guards(
 		return Err(InputError::FreesEntities);
 	}
 
-	if input.kills && (input.target_is_player || target.index() == Some(0)) {
+	if input.kills && (input.target_is_protected || target.index() == Some(0)) {
 		return Err(InputError::ProtectedEntity);
 	}
 

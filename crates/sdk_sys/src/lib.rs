@@ -189,6 +189,180 @@ cfg_select! {
 				) == SLOT_SIZE * 11
 			);
 			assert!(size_of::<IServerGameDLL__bindgen_vtable>() == SLOT_SIZE * 48);
+
+			// Per-client channels, as `GetPlayerNetInfo` returns them. Each slot after
+			// the destructor is one later than in TF2's engine.dll, which is MSVC-built.
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_complete_destructor)
+					== SLOT_SIZE * 26
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_deleting_destructor)
+					== SLOT_SIZE * 27
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_SendNetMsg) == SLOT_SIZE * 38
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_SendData) == SLOT_SIZE * 39
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_GetSequenceData)
+					== SLOT_SIZE * 51
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_IsOverflowed) == SLOT_SIZE * 55
+			);
+			assert!(
+				offset_of!(
+					INetChannel__bindgen_vtable,
+					INetChannel_HasPendingReliableData
+				) == SLOT_SIZE * 57
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_GetNumBitsWritten)
+					== SLOT_SIZE * 63
+			);
+			assert!(size_of::<INetChannel__bindgen_vtable>() == SLOT_SIZE * 69);
+
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_complete_destructor) == 0);
+			assert!(
+				offset_of!(INetMessage__bindgen_vtable, INetMessage_deleting_destructor)
+					== SLOT_SIZE
+			);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_Process) == SLOT_SIZE * 4);
+			assert!(
+				offset_of!(INetMessage__bindgen_vtable, INetMessage_WriteToBuffer) == SLOT_SIZE * 6
+			);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_GetType) == SLOT_SIZE * 8);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_GetName) == SLOT_SIZE * 10);
+			assert!(
+				offset_of!(INetMessage__bindgen_vtable, INetMessage_ToString) == SLOT_SIZE * 12
+			);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_GetSize) == SLOT_SIZE * 14);
+			assert!(size_of::<INetMessage__bindgen_vtable>() == SLOT_SIZE * 15);
+
+			// `REPLAY_ENABLED` adds `ProcessSaveReplay`, as in TF2's engine, whose
+			// `CGameClient` handler vtable has 15 slots under MSVC and 16 here.
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_complete_destructor
+				) == 0
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_deleting_destructor
+				) == SLOT_SIZE
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessTick
+				) == SLOT_SIZE * 2
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessVoiceData
+				) == SLOT_SIZE * 8
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessSaveReplay
+				) == SLOT_SIZE * 14
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessCmdKeyValues
+				) == SLOT_SIZE * 15
+			);
+			assert!(size_of::<IClientMessageHandler__bindgen_vtable>() == SLOT_SIZE * 16);
+
+			assert!(offset_of!(IServer__bindgen_vtable, IServer_complete_destructor) == 0);
+			assert!(offset_of!(IServer__bindgen_vtable, IServer_deleting_destructor) == SLOT_SIZE);
+			assert!(offset_of!(IServer__bindgen_vtable, IServer_GetClient) == SLOT_SIZE * 7);
+			assert!(size_of::<IServer__bindgen_vtable>() == SLOT_SIZE * 37);
+
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_complete_destructor) == 0);
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_deleting_destructor) == SLOT_SIZE);
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_GetPlayerSlot) == SLOT_SIZE * 15);
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_GetNetChannel) == SLOT_SIZE * 19);
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_IsReplay) == SLOT_SIZE * 37);
+			assert!(size_of::<IClient__bindgen_vtable>() == SLOT_SIZE * 41);
+
+			assert!(
+				offset_of!(
+					IRecipientFilter__bindgen_vtable,
+					IRecipientFilter_complete_destructor
+				) == 0
+			);
+			assert!(
+				offset_of!(
+					IRecipientFilter__bindgen_vtable,
+					IRecipientFilter_deleting_destructor
+				) == SLOT_SIZE
+			);
+			assert!(
+				offset_of!(
+					IRecipientFilter__bindgen_vtable,
+					IRecipientFilter_IsReliable
+				) == SLOT_SIZE * 2
+			);
+			assert!(
+				offset_of!(
+					IRecipientFilter__bindgen_vtable,
+					IRecipientFilter_GetRecipientIndex
+				) == SLOT_SIZE * 5
+			);
+			assert!(size_of::<IRecipientFilter__bindgen_vtable>() == SLOT_SIZE * 6);
+
+			//no virtual destructor, so the slots are the same under both ABIs
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_GetPlayerNetInfo
+				) == SLOT_SIZE * 20
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_EntityMessageBegin
+				) == SLOT_SIZE * 42
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_UserMessageBegin
+				) == SLOT_SIZE * 43
+			);
+			assert!(
+				offset_of!(IVEngineServer__bindgen_vtable, IVEngineServer_MessageEnd)
+					== SLOT_SIZE * 44
+			);
+			assert!(
+				offset_of!(IVEngineServer__bindgen_vtable, IVEngineServer_SetView)
+					== SLOT_SIZE * 48
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_CrosshairAngle
+				) == SLOT_SIZE * 50
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_GetClientConVarValue
+				) == SLOT_SIZE * 55
+			);
+			assert!(
+				offset_of!(IVEngineServer__bindgen_vtable, IVEngineServer_GetIServer)
+					== SLOT_SIZE * 119
+			);
 		};
 	}
 
@@ -353,6 +527,157 @@ cfg_select! {
 				) == SLOT_SIZE * 11
 			);
 			assert!(size_of::<IServerGameDLL__bindgen_vtable>() == SLOT_SIZE * 48);
+
+			// Per-client channels, as `GetPlayerNetInfo` returns them. These match the
+			// slots of `CNetChan` in TF2's engine.dll, where `SendData` is at 38.
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_destructor) == SLOT_SIZE * 26
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_SendNetMsg) == SLOT_SIZE * 37
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_SendData) == SLOT_SIZE * 38
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_GetSequenceData)
+					== SLOT_SIZE * 50
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_IsOverflowed) == SLOT_SIZE * 54
+			);
+			assert!(
+				offset_of!(
+					INetChannel__bindgen_vtable,
+					INetChannel_HasPendingReliableData
+				) == SLOT_SIZE * 56
+			);
+			assert!(
+				offset_of!(INetChannel__bindgen_vtable, INetChannel_GetNumBitsWritten)
+					== SLOT_SIZE * 62
+			);
+			assert!(size_of::<INetChannel__bindgen_vtable>() == SLOT_SIZE * 68);
+
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_destructor) == 0);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_Process) == SLOT_SIZE * 3);
+			assert!(
+				offset_of!(INetMessage__bindgen_vtable, INetMessage_WriteToBuffer) == SLOT_SIZE * 5
+			);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_GetType) == SLOT_SIZE * 7);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_GetName) == SLOT_SIZE * 9);
+			assert!(
+				offset_of!(INetMessage__bindgen_vtable, INetMessage_ToString) == SLOT_SIZE * 11
+			);
+			assert!(offset_of!(INetMessage__bindgen_vtable, INetMessage_GetSize) == SLOT_SIZE * 13);
+			assert!(size_of::<INetMessage__bindgen_vtable>() == SLOT_SIZE * 14);
+
+			// `REPLAY_ENABLED` adds `ProcessSaveReplay`, as in TF2's engine, whose
+			// `CGameClient` handler vtable has 15 slots under MSVC.
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_destructor
+				) == 0
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessTick
+				) == SLOT_SIZE
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessVoiceData
+				) == SLOT_SIZE * 7
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessSaveReplay
+				) == SLOT_SIZE * 13
+			);
+			assert!(
+				offset_of!(
+					IClientMessageHandler__bindgen_vtable,
+					IClientMessageHandler_ProcessCmdKeyValues
+				) == SLOT_SIZE * 14
+			);
+			assert!(size_of::<IClientMessageHandler__bindgen_vtable>() == SLOT_SIZE * 15);
+
+			assert!(offset_of!(IServer__bindgen_vtable, IServer_destructor) == 0);
+			assert!(offset_of!(IServer__bindgen_vtable, IServer_GetClient) == SLOT_SIZE * 6);
+			assert!(size_of::<IServer__bindgen_vtable>() == SLOT_SIZE * 36);
+
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_destructor) == 0);
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_GetPlayerSlot) == SLOT_SIZE * 14);
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_GetNetChannel) == SLOT_SIZE * 18);
+			assert!(offset_of!(IClient__bindgen_vtable, IClient_IsReplay) == SLOT_SIZE * 36);
+			assert!(size_of::<IClient__bindgen_vtable>() == SLOT_SIZE * 40);
+
+			assert!(
+				offset_of!(
+					IRecipientFilter__bindgen_vtable,
+					IRecipientFilter_destructor
+				) == 0
+			);
+			assert!(
+				offset_of!(
+					IRecipientFilter__bindgen_vtable,
+					IRecipientFilter_IsReliable
+				) == SLOT_SIZE
+			);
+			assert!(
+				offset_of!(
+					IRecipientFilter__bindgen_vtable,
+					IRecipientFilter_GetRecipientIndex
+				) == SLOT_SIZE * 4
+			);
+			assert!(size_of::<IRecipientFilter__bindgen_vtable>() == SLOT_SIZE * 5);
+
+			//no virtual destructor, so the slots are the same under both ABIs
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_GetPlayerNetInfo
+				) == SLOT_SIZE * 20
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_EntityMessageBegin
+				) == SLOT_SIZE * 42
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_UserMessageBegin
+				) == SLOT_SIZE * 43
+			);
+			assert!(
+				offset_of!(IVEngineServer__bindgen_vtable, IVEngineServer_MessageEnd)
+					== SLOT_SIZE * 44
+			);
+			assert!(
+				offset_of!(IVEngineServer__bindgen_vtable, IVEngineServer_SetView)
+					== SLOT_SIZE * 48
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_CrosshairAngle
+				) == SLOT_SIZE * 50
+			);
+			assert!(
+				offset_of!(
+					IVEngineServer__bindgen_vtable,
+					IVEngineServer_GetClientConVarValue
+				) == SLOT_SIZE * 55
+			);
+			assert!(
+				offset_of!(IVEngineServer__bindgen_vtable, IVEngineServer_GetIServer)
+					== SLOT_SIZE * 119
+			);
 		};
 	}
 

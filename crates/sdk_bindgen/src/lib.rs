@@ -63,6 +63,16 @@ const ROOT_TYPES: &[&str] = &[
 	"IServerPluginHelpers",
 	"IVModelInfo",
 	"IVoiceServer",
+	// Per-client networking. `GetPlayerNetInfo` returns a client's channel, and
+	// `GetIServer` the server that owns each client's message handler.
+	"INetChannelInfo",
+	"INetChannel",
+	"INetMessage",
+	"INetChannelHandler",
+	"IClientMessageHandler",
+	"IRecipientFilter",
+	"IServer",
+	"IClient",
 ];
 
 #[derive(Debug)]
@@ -878,6 +888,9 @@ fn clang_arguments(sdk_src: &Path, target: SupportedTarget) -> Vec<String> {
 		format!("-I{}", sdk_src.join("public").join("tier1").display()),
 		format!("-I{}", sdk_src.join("game").join("server").display()),
 		format!("-I{}", sdk_src.join("game").join("shared").display()),
+		// Last, so it cannot shadow the directories above: `iclient.h` includes
+		// `userid.h` from here.
+		format!("-I{}", sdk_src.join("common").display()),
 	];
 
 	if target.is_windows() {

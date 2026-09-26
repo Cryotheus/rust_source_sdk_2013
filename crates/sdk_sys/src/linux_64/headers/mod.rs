@@ -2,5 +2,6 @@
 // Regenerate with the `source_sdk_2013_bindgen/generate_bindings` Cargo feature.
 
 pub mod __bindgen;
+pub mod common;
 pub mod game;
 pub mod public;

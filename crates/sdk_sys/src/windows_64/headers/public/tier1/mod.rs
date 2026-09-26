@@ -7,6 +7,7 @@ pub mod checksum_crc;
 pub mod convar;
 pub mod iconvar;
 pub mod interface;
+pub mod netadr;
 pub mod utlbuffer;
 pub mod utlhash;
 pub mod utllinkedlist;

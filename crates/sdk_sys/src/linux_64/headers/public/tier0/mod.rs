@@ -4,4 +4,5 @@
 pub mod basetypes;
 pub mod platform;
 pub mod threadtools;
+pub mod vcrmode;
 pub mod wchartypes;

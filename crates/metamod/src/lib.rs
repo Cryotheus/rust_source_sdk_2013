@@ -4,6 +4,8 @@ mod api;
 #[cfg(feature = "sdk")]
 mod commands;
 mod context;
+#[cfg(feature = "sdk")]
+mod hooks;
 mod plugin;
 
 pub use api::{
@@ -12,8 +14,11 @@ pub use api::{
 };
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
-pub use commands::{HookError, MetamodRegistrar};
+pub use commands::MetamodRegistrar;
 pub use context::{CachedContext, ContextKey, cached_context_key};
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub use hooks::{GameFrameFn, HookError, LevelEvents, NetMessageHookError};
 pub use plugin::{ErrorBuffer, PluginCallbacks, PluginDescriptor, PluginMetadata};
 pub use sys;
 
