@@ -1,6 +1,5 @@
 [package]
 name = "metamod_source_sys"
-version.workspace = true
 edition = "2024"
 rust-version = "1.98.1"
 
@@ -11,6 +10,10 @@ repository.workspace = true
 description = "Low-level bindings for Metamod:Source."
 categories = ["external-ffi-bindings"]
 keywords = []
+
+# Planning on changing this to `0.1.0+metamod-1.12.0-2.0.0`
+# Once this is extracted to its own repository
+version.workspace = true
 
 [dependencies]
 
