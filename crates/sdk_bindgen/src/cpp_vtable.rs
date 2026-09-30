@@ -23,6 +23,36 @@ use std::path::{Path, PathBuf};
 use std::ptr::{null_mut, slice_from_raw_parts};
 use std::sync::{Arc, OnceLock};
 
+/// [`RecordCallTraits`] of records, keyed by [`RecordValue::canonical_spelling`].
+pub(crate) type RecordCallTraitIndex = BTreeMap<String, RecordCallTraits>;
+
+/// Names the constants [`query_record_call_traits`] evaluates.
+const CALL_TRAITS_PREFIX: &str = "__crys_record_call_traits_";
+
+/// Computes the bits and size which make up a [`RecordCallTraits`].
+///
+/// Access control does not affect the ABI. The generator parses with it
+/// disabled, so private special members count as they should.
+///
+/// `__has_trivial_copy` is deprecated, but it is the only trait which judges
+/// the copy constructor alone: Clang's `__is_trivially_constructible` also
+/// requires a trivial destructor.
+const CALL_TRAITS_TEMPLATE: &str = r#"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-builtins"
+template <class __crys_T>
+struct __crys_record_call_traits {
+	static constexpr unsigned long long bits =
+		(__is_constructible(__crys_T, const __crys_T &) ? 1ull : 0ull) |
+		(__has_trivial_copy(__crys_T) ? 2ull : 0ull) |
+		(__is_constructible(__crys_T, __crys_T &&) ? 4ull : 0ull) |
+		(__is_trivially_constructible(__crys_T, __crys_T &&) ? 8ull : 0ull) |
+		(__is_trivially_destructible(__crys_T) ? 16ull : 0ull);
+	static constexpr unsigned long long size = sizeof(__crys_T);
+};
+#pragma clang diagnostic pop
+"#;
+
 /// A direct base class declaration.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct BaseRecord {
@@ -50,6 +80,12 @@ pub(crate) enum BaseTarget {
 	Dependent,
 }
 
+#[derive(Default)]
+struct CallTraitQueries {
+	values: BTreeMap<String, u64>,
+	error: Option<CppVtableError>,
+}
+
 struct Collector {
 	records: BTreeMap<String, Record>,
 	typedef_named_anonymous_records: BTreeSet<String>,
@@ -71,6 +107,69 @@ impl Collector {
 		match &mut self.source_root {
 			None => true,
 			Some(filter) => source_path.is_some_and(|path| filter.includes(path)),
+		}
+	}
+}
+
+/// The C++ ABI rules which affect virtual destructor slots and how virtual
+/// member functions pass and return classes by value.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum CppAbi {
+	/// The Itanium C++ ABI used by GCC and Clang on x86-64 Linux.
+	Itanium,
+
+	/// The Itanium C++ ABI used by GCC and Clang on 32-bit x86 Linux.
+	///
+	/// Vtables match [`Self::Itanium`]. Only class results differ: the C
+	/// calling convention already returns every struct through a hidden
+	/// pointer, which the callee pops, exactly as the C++ ABI does.
+	ItaniumX86,
+
+	/// The Microsoft C++ ABI used by 64-bit MSVC-compatible Windows targets.
+	///
+	/// The x86-64 Windows calling convention is uniform, so ordinary function
+	/// pointer aliases model virtual slots, once classes passed or returned by
+	/// value are lowered to the pointers the C++ ABI actually passes.
+	Msvc,
+
+	/// The Microsoft C++ ABI used by 32-bit x86 MSVC-compatible targets.
+	///
+	/// Virtual member functions use `__thiscall` on this target. Keeping this
+	/// distinct from [`Self::Msvc`] prevents silently generating cdecl slots.
+	MsvcX86,
+}
+
+impl CppAbi {
+	const fn is_microsoft(self) -> bool {
+		matches!(self, Self::Msvc | Self::MsvcX86)
+	}
+
+	/// Whether a by-value argument of a class with `traits` is passed as the
+	/// address of a temporary copy the caller made, where a C struct of the
+	/// same layout would be passed directly.
+	///
+	/// The callee may modify that temporary. Under the Microsoft ABI it also
+	/// destroys it, under the Itanium ABI the caller does.
+	pub(crate) fn passes_record_indirectly(self, traits: RecordCallTraits) -> bool {
+		match self {
+			Self::Itanium | Self::ItaniumX86 => !traits.itanium_passes_as_c_struct(),
+			Self::Msvc => !traits.msvc_x64_passes_as_c_struct(),
+
+			// The caller constructs such an argument directly in its outgoing
+			// argument area, which is where a C struct's bytes would be copied.
+			Self::MsvcX86 => false,
+		}
+	}
+
+	/// How a virtual member function returns a class with `traits` by value.
+	pub(crate) fn record_return(self, traits: RecordCallTraits) -> RecordReturn {
+		match self {
+			Self::Itanium if !traits.itanium_passes_as_c_struct() => RecordReturn::BeforeThis,
+			Self::Itanium | Self::ItaniumX86 => RecordReturn::Direct,
+
+			// Every class, however trivial, is returned from an instance method
+			// through a result pointer which follows `this`.
+			Self::Msvc | Self::MsvcX86 => RecordReturn::AfterThis,
 		}
 	}
 }
@@ -131,196 +230,6 @@ pub(crate) enum CppVtableError {
 struct Cursor(CXCursor);
 
 impl Cursor {
-	unsafe fn kind(self) -> CXCursorKind {
-		unsafe { clang_getCursorKind(self.0) }
-	}
-
-	unsafe fn is_null(self) -> bool {
-		unsafe { clang_Cursor_isNull(self.0) != 0 }
-	}
-
-	unsafe fn is_definition(self) -> bool {
-		unsafe { clang_isCursorDefinition(self.0) != 0 }
-	}
-
-	unsafe fn is_anonymous(self) -> bool {
-		unsafe { clang_Cursor_isAnonymous(self.0) != 0 }
-	}
-
-	unsafe fn is_virtual_method(self) -> bool {
-		unsafe { clang_CXXMethod_isVirtual(self.0) != 0 }
-	}
-
-	unsafe fn semantic_parent(self) -> Self {
-		Self(unsafe { clang_getCursorSemanticParent(self.0) })
-	}
-
-	unsafe fn specialized_template(self) -> Self {
-		Self(unsafe { clang_getSpecializedCursorTemplate(self.0) })
-	}
-
-	unsafe fn cursor_type(self) -> Type {
-		Type(unsafe { clang_getCursorType(self.0) })
-	}
-
-	unsafe fn usr(self) -> String {
-		unsafe { cx_string(clang_getCursorUSR(self.0)) }
-	}
-
-	unsafe fn display_name(self) -> String {
-		unsafe { cx_string(clang_getCursorDisplayName(self.0)) }
-	}
-
-	/// The value of this integer constant expression or variable initializer.
-	unsafe fn evaluate_unsigned(self) -> Option<u64> {
-		let result = unsafe { clang_Cursor_Evaluate(self.0) };
-
-		if result.is_null() {
-			return None;
-		}
-
-		let value = (unsafe { clang_EvalResult_getKind(result) } == CXEval_Int)
-			.then(|| unsafe { clang_EvalResult_getAsUnsigned(result) } as u64);
-
-		unsafe { clang_EvalResult_dispose(result) };
-
-		value
-	}
-
-	/// Whether this record is a class template specialization (explicit, or
-	/// the instantiation named by a base specifier), or a member class of one.
-	unsafe fn is_template_specialization(self) -> bool {
-		unsafe {
-			matches!(
-				self.kind(),
-				CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
-			) && !self.specialized_template().is_null()
-		}
-	}
-
-	/// Whether a class template or partial specialization encloses this cursor.
-	unsafe fn has_dependent_context(self) -> bool {
-		let mut current = unsafe { self.semantic_parent() };
-
-		while !unsafe { current.is_null() } {
-			match unsafe { current.kind() } {
-				CXCursor_TranslationUnit => return false,
-				CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization => {
-					return true;
-				}
-				_ => {}
-			}
-
-			current = unsafe { current.semantic_parent() };
-		}
-
-		false
-	}
-
-	unsafe fn template_role(self, children: &RecordChildren) -> TemplateRole {
-		if unsafe {
-			matches!(
-				self.kind(),
-				CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization
-			)
-		} {
-			return TemplateRole::Pattern;
-		}
-
-		if unsafe { self.has_dependent_context() } {
-			return TemplateRole::DependentMember;
-		}
-
-		if !unsafe { self.is_template_specialization() } {
-			return TemplateRole::None;
-		}
-
-		// libclang exposes the members of an explicit specialization, but none
-		// of an explicit instantiation (`template class X<int>;`), whose layout
-		// comes from its template. Only an empty body needs the tokens.
-		if children.has_members {
-			return TemplateRole::ExplicitSpecialization;
-		}
-
-		match unsafe { self.leading_tokens(2) }.as_slice() {
-			[template, angle] if template == "template" && angle == "<" => {
-				TemplateRole::ExplicitSpecialization
-			}
-			[template, key]
-				if template == "template"
-					&& matches!(key.as_str(), "class" | "struct" | "union") =>
-			{
-				TemplateRole::ExplicitInstantiation
-			}
-			_ => TemplateRole::UnclassifiedSpecialization,
-		}
-	}
-
-	unsafe fn leading_tokens(self, count: usize) -> Vec<String> {
-		let translation_unit = unsafe { clang_Cursor_getTranslationUnit(self.0) };
-		let extent = unsafe { clang_getCursorExtent(self.0) };
-		let mut tokens = null_mut();
-		let mut token_count = 0;
-
-		unsafe {
-			clang_tokenize(
-				translation_unit,
-				extent,
-				&raw mut tokens,
-				&raw mut token_count,
-			)
-		};
-
-		if tokens.is_null() {
-			return Vec::new();
-		}
-
-		let spellings = unsafe { &*slice_from_raw_parts(tokens, token_count as usize) }
-			.iter()
-			.take(count)
-			.map(|token| unsafe { cx_string(clang_getTokenSpelling(translation_unit, *token)) })
-			.collect();
-
-		unsafe { clang_disposeTokens(translation_unit, tokens, token_count) };
-
-		spellings
-	}
-
-	unsafe fn collect_record(
-		self,
-		source_path: Option<PathBuf>,
-	) -> Result<Option<Record>, CppVtableError> {
-		let name = unsafe { self.spelling() };
-		if name.is_empty() {
-			return Ok(None);
-		}
-
-		let qualified_name = unsafe { self.qualified_name() };
-		let mut children = RecordChildren::default();
-		unsafe {
-			clang_visitChildren(
-				self.0,
-				collect_record_child_visitor,
-				(&raw mut children).cast(),
-			)
-		};
-		if let Some(error) = children.error.take() {
-			return Err(error);
-		}
-
-		Ok(Some(Record {
-			usr: unsafe { self.usr() },
-			name,
-			qualified_name,
-			namespaces: unsafe { self.namespaces() },
-			source_path,
-			template: unsafe { self.template_role(&children) },
-			bases: children.bases,
-			virtual_methods: children.virtual_methods,
-			member_names: children.member_names,
-		}))
-	}
-
 	unsafe fn collect_base(self) -> BaseRecord {
 		let base_type = unsafe { self.cursor_type() };
 		let canonical_type = unsafe { base_type.canonical() };
@@ -359,6 +268,41 @@ impl Cursor {
 			is_virtual,
 			target,
 		}
+	}
+
+	unsafe fn collect_record(
+		self,
+		source_path: Option<PathBuf>,
+	) -> Result<Option<Record>, CppVtableError> {
+		let name = unsafe { self.spelling() };
+		if name.is_empty() {
+			return Ok(None);
+		}
+
+		let qualified_name = unsafe { self.qualified_name() };
+		let mut children = RecordChildren::default();
+		unsafe {
+			clang_visitChildren(
+				self.0,
+				collect_record_child_visitor,
+				(&raw mut children).cast(),
+			)
+		};
+		if let Some(error) = children.error.take() {
+			return Err(error);
+		}
+
+		Ok(Some(Record {
+			usr: unsafe { self.usr() },
+			name,
+			qualified_name,
+			namespaces: unsafe { self.namespaces() },
+			source_path,
+			template: unsafe { self.template_role(&children) },
+			bases: children.bases,
+			virtual_methods: children.virtual_methods,
+			member_names: children.member_names,
+		}))
 	}
 
 	unsafe fn collect_virtual_method(
@@ -439,6 +383,112 @@ impl Cursor {
 		})
 	}
 
+	unsafe fn cursor_type(self) -> Type {
+		Type(unsafe { clang_getCursorType(self.0) })
+	}
+
+	unsafe fn display_name(self) -> String {
+		unsafe { cx_string(clang_getCursorDisplayName(self.0)) }
+	}
+
+	/// The value of this integer constant expression or variable initializer.
+	unsafe fn evaluate_unsigned(self) -> Option<u64> {
+		let result = unsafe { clang_Cursor_Evaluate(self.0) };
+
+		if result.is_null() {
+			return None;
+		}
+
+		let value = (unsafe { clang_EvalResult_getKind(result) } == CXEval_Int)
+			.then(|| unsafe { clang_EvalResult_getAsUnsigned(result) } as u64);
+
+		unsafe { clang_EvalResult_dispose(result) };
+
+		value
+	}
+
+	/// Whether a class template or partial specialization encloses this cursor.
+	unsafe fn has_dependent_context(self) -> bool {
+		let mut current = unsafe { self.semantic_parent() };
+
+		while !unsafe { current.is_null() } {
+			match unsafe { current.kind() } {
+				CXCursor_TranslationUnit => return false,
+
+				CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization => {
+					return true;
+				}
+
+				_ => {}
+			}
+
+			current = unsafe { current.semantic_parent() };
+		}
+
+		false
+	}
+
+	unsafe fn is_anonymous(self) -> bool {
+		unsafe { clang_Cursor_isAnonymous(self.0) != 0 }
+	}
+
+	unsafe fn is_definition(self) -> bool {
+		unsafe { clang_isCursorDefinition(self.0) != 0 }
+	}
+
+	unsafe fn is_null(self) -> bool {
+		unsafe { clang_Cursor_isNull(self.0) != 0 }
+	}
+
+	/// Whether this record is a class template specialization (explicit, or
+	/// the instantiation named by a base specifier), or a member class of one.
+	unsafe fn is_template_specialization(self) -> bool {
+		unsafe {
+			matches!(
+				self.kind(),
+				CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
+			) && !self.specialized_template().is_null()
+		}
+	}
+
+	unsafe fn is_virtual_method(self) -> bool {
+		unsafe { clang_CXXMethod_isVirtual(self.0) != 0 }
+	}
+
+	unsafe fn kind(self) -> CXCursorKind {
+		unsafe { clang_getCursorKind(self.0) }
+	}
+
+	unsafe fn leading_tokens(self, count: usize) -> Vec<String> {
+		let translation_unit = unsafe { clang_Cursor_getTranslationUnit(self.0) };
+		let extent = unsafe { clang_getCursorExtent(self.0) };
+		let mut tokens = null_mut();
+		let mut token_count = 0;
+
+		unsafe {
+			clang_tokenize(
+				translation_unit,
+				extent,
+				&raw mut tokens,
+				&raw mut token_count,
+			)
+		};
+
+		if tokens.is_null() {
+			return Vec::new();
+		}
+
+		let spellings = unsafe { &*slice_from_raw_parts(tokens, token_count as usize) }
+			.iter()
+			.take(count)
+			.map(|token| unsafe { cx_string(clang_getTokenSpelling(translation_unit, *token)) })
+			.collect();
+
+		unsafe { clang_disposeTokens(translation_unit, tokens, token_count) };
+
+		spellings
+	}
+
 	unsafe fn method_reference(self) -> MethodReference {
 		let name = unsafe { self.spelling() };
 		let parent = unsafe { self.semantic_parent().qualified_name() };
@@ -451,6 +501,26 @@ impl Cursor {
 			},
 			display_name: unsafe { self.display_name() },
 		}
+	}
+
+	unsafe fn namespaces(self) -> Vec<String> {
+		let mut namespaces = Vec::new();
+		let mut current = unsafe { self.semantic_parent() };
+		while !unsafe { current.is_null() } {
+			let kind = unsafe { current.kind() };
+			if kind == CXCursor_TranslationUnit {
+				break;
+			}
+			if kind == CXCursor_Namespace {
+				let spelling = unsafe { current.spelling() };
+				if !spelling.is_empty() {
+					namespaces.push(spelling);
+				}
+			}
+			current = unsafe { current.semantic_parent() };
+		}
+		namespaces.reverse();
+		namespaces
 	}
 
 	/// The record key: the `::`-joined scopes and name, where every class
@@ -478,50 +548,19 @@ impl Cursor {
 		let segment = match unsafe { self.kind() } {
 			CXCursor_Namespace | CXCursor_ClassTemplate => unsafe { self.spelling() },
 			CXCursor_ClassTemplatePartialSpecialization => unsafe { self.display_name() },
+
 			CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
 				if unsafe { self.is_template_specialization() } =>
 			unsafe { self.display_name() },
+
 			CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl => unsafe {
 				self.spelling()
 			},
+
 			_ => return None,
 		};
 
 		(!segment.is_empty()).then_some(segment)
-	}
-
-	unsafe fn namespaces(self) -> Vec<String> {
-		let mut namespaces = Vec::new();
-		let mut current = unsafe { self.semantic_parent() };
-		while !unsafe { current.is_null() } {
-			let kind = unsafe { current.kind() };
-			if kind == CXCursor_TranslationUnit {
-				break;
-			}
-			if kind == CXCursor_Namespace {
-				let spelling = unsafe { current.spelling() };
-				if !spelling.is_empty() {
-					namespaces.push(spelling);
-				}
-			}
-			current = unsafe { current.semantic_parent() };
-		}
-		namespaces.reverse();
-		namespaces
-	}
-
-	unsafe fn source_path(self) -> Option<PathBuf> {
-		let location = unsafe { clang_getCursorLocation(self.0) };
-		let mut file = null_mut();
-		unsafe {
-			clang_getSpellingLocation(location, &raw mut file, null_mut(), null_mut(), null_mut());
-		}
-		if file.is_null() {
-			return None;
-		}
-
-		let file_name = unsafe { cx_string(clang_getFileName(file)) };
-		(!file_name.is_empty()).then(|| PathBuf::from(file_name))
 	}
 
 	/// A spelling of this type declaration that is valid at global scope.
@@ -542,12 +581,14 @@ impl Cursor {
 				CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
 					if unsafe { current.is_template_specialization() } =>
 				unsafe { current.display_name() },
+
 				CXCursor_Namespace
 				| CXCursor_ClassDecl
 				| CXCursor_StructDecl
 				| CXCursor_UnionDecl
 				| CXCursor_ClassTemplate
 				| CXCursor_ClassTemplatePartialSpecialization => unsafe { current.spelling() },
+
 				_ => String::new(),
 			};
 			if !segment.is_empty() {
@@ -560,100 +601,138 @@ impl Cursor {
 		parts.join("::")
 	}
 
+	unsafe fn semantic_parent(self) -> Self {
+		Self(unsafe { clang_getCursorSemanticParent(self.0) })
+	}
+
+	unsafe fn source_path(self) -> Option<PathBuf> {
+		let location = unsafe { clang_getCursorLocation(self.0) };
+		let mut file = null_mut();
+		unsafe {
+			clang_getSpellingLocation(location, &raw mut file, null_mut(), null_mut(), null_mut());
+		}
+		if file.is_null() {
+			return None;
+		}
+
+		let file_name = unsafe { cx_string(clang_getFileName(file)) };
+		(!file_name.is_empty()).then(|| PathBuf::from(file_name))
+	}
+
+	unsafe fn specialized_template(self) -> Self {
+		Self(unsafe { clang_getSpecializedCursorTemplate(self.0) })
+	}
+
 	unsafe fn spelling(self) -> String {
 		unsafe { cx_string(clang_getCursorSpelling(self.0)) }
 	}
-}
 
-/// The C++ ABI rules which affect virtual destructor slots and how virtual
-/// member functions pass and return classes by value.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum CppAbi {
-	/// The Itanium C++ ABI used by GCC and Clang on x86-64 Linux.
-	Itanium,
+	unsafe fn template_role(self, children: &RecordChildren) -> TemplateRole {
+		if unsafe {
+			matches!(
+				self.kind(),
+				CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization
+			)
+		} {
+			return TemplateRole::Pattern;
+		}
 
-	/// The Itanium C++ ABI used by GCC and Clang on 32-bit x86 Linux.
-	///
-	/// Vtables match [`Self::Itanium`]. Only class results differ: the C
-	/// calling convention already returns every struct through a hidden
-	/// pointer, which the callee pops, exactly as the C++ ABI does.
-	ItaniumX86,
+		if unsafe { self.has_dependent_context() } {
+			return TemplateRole::DependentMember;
+		}
 
-	/// The Microsoft C++ ABI used by 64-bit MSVC-compatible Windows targets.
-	///
-	/// The x86-64 Windows calling convention is uniform, so ordinary function
-	/// pointer aliases model virtual slots, once classes passed or returned by
-	/// value are lowered to the pointers the C++ ABI actually passes.
-	Msvc,
+		if !unsafe { self.is_template_specialization() } {
+			return TemplateRole::None;
+		}
 
-	/// The Microsoft C++ ABI used by 32-bit x86 MSVC-compatible targets.
-	///
-	/// Virtual member functions use `__thiscall` on this target. Keeping this
-	/// distinct from [`Self::Msvc`] prevents silently generating cdecl slots.
-	MsvcX86,
-}
+		// libclang exposes the members of an explicit specialization, but none
+		// of an explicit instantiation (`template class X<int>;`), whose layout
+		// comes from its template. Only an empty body needs the tokens.
+		if children.has_members {
+			return TemplateRole::ExplicitSpecialization;
+		}
 
-impl CppAbi {
-	const fn is_microsoft(self) -> bool {
-		matches!(self, Self::Msvc | Self::MsvcX86)
-	}
+		match unsafe { self.leading_tokens(2) }.as_slice() {
+			[template, angle] if template == "template" && angle == "<" => {
+				TemplateRole::ExplicitSpecialization
+			}
 
-	/// Whether a by-value argument of a class with `traits` is passed as the
-	/// address of a temporary copy the caller made, where a C struct of the
-	/// same layout would be passed directly.
-	///
-	/// The callee may modify that temporary. Under the Microsoft ABI it also
-	/// destroys it, under the Itanium ABI the caller does.
-	pub(crate) fn passes_record_indirectly(self, traits: RecordCallTraits) -> bool {
-		match self {
-			Self::Itanium | Self::ItaniumX86 => !traits.itanium_passes_as_c_struct(),
-			Self::Msvc => !traits.msvc_x64_passes_as_c_struct(),
+			[template, key]
+				if template == "template"
+					&& matches!(key.as_str(), "class" | "struct" | "union") =>
+			{
+				TemplateRole::ExplicitInstantiation
+			}
 
-			// The caller constructs such an argument directly in its outgoing
-			// argument area, which is where a C struct's bytes would be copied.
-			Self::MsvcX86 => false,
+			_ => TemplateRole::UnclassifiedSpecialization,
 		}
 	}
 
-	/// How a virtual member function returns a class with `traits` by value.
-	pub(crate) fn record_return(self, traits: RecordCallTraits) -> RecordReturn {
-		match self {
-			Self::Itanium if !traits.itanium_passes_as_c_struct() => RecordReturn::BeforeThis,
-			Self::Itanium | Self::ItaniumX86 => RecordReturn::Direct,
-
-			// Every class, however trivial, is returned from an instance method
-			// through a result pointer which follows `this`.
-			Self::Msvc | Self::MsvcX86 => RecordReturn::AfterThis,
-		}
+	unsafe fn usr(self) -> String {
+		unsafe { cx_string(clang_getCursorUSR(self.0)) }
 	}
 }
 
-/// How a virtual member function returns a class by value.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum RecordReturn {
-	/// Exactly as a C function returns a struct of the same layout.
-	Direct,
+/// RAII owner for libclang's translation-unit creation context.
+///
+/// An index groups parsing work and must remain alive for every translation
+/// unit created from it. [`ParsedTranslationUnit`] declares it after the
+/// [`TranslationUnit`], so the translation unit is disposed first and the
+/// index afterward.
+struct Index(CXIndex);
 
-	/// Through a hidden pointer to uninitialized storage which the caller
-	/// passes before `this`. The callee constructs the result there and
-	/// returns the same pointer.
-	BeforeThis,
-
-	/// As [`Self::BeforeThis`], but the hidden pointer follows `this`.
-	AfterThis,
+impl Index {
+	unsafe fn new() -> Self {
+		Self(unsafe { clang_createIndex(0, 0) })
+	}
 }
 
-/// A class, struct, or union which a virtual member function takes or returns
-/// by value.
+impl Drop for Index {
+	fn drop(&mut self) {
+		unsafe { clang_disposeIndex(self.0) };
+	}
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct RecordValue {
-	/// The unqualified canonical type, spelled so it is valid at global scope.
-	/// It keys the record's [`RecordCallTraits`].
-	pub canonical_spelling: String,
+pub(crate) struct MethodReference {
+	pub usr: String,
+	pub qualified_name: String,
+	pub display_name: String,
+}
 
-	/// The declared spelling without top-level cv-qualifiers, as a probe
-	/// spells a pointer to it.
-	pub unqualified_spelling: String,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Parameter {
+	pub name: String,
+	pub type_spelling: String,
+
+	/// The record this parameter takes by value, if any.
+	pub record: Option<RecordValue>,
+}
+
+/// A parsed translation unit and the index which created it.
+///
+/// Fields drop in declaration order, so the translation unit is disposed
+/// before its index.
+struct ParsedTranslationUnit {
+	unit: TranslationUnit,
+	_index: Index,
+}
+
+/// One complete C++ class, struct, class template, or partial specialization definition.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Record {
+	pub usr: String,
+	pub name: String,
+	pub qualified_name: String,
+	pub namespaces: Vec<String>,
+	pub source_path: Option<PathBuf>,
+	pub template: TemplateRole,
+	pub bases: Vec<BaseRecord>,
+	pub virtual_methods: Vec<VirtualMethod>,
+
+	/// Names of the record's own member declarations, in order of first
+	/// declaration. The Microsoft ABI groups new virtual overloads by it.
+	pub member_names: Vec<String>,
 }
 
 /// The properties of a class which decide how the C++ ABIs pass it by value,
@@ -701,86 +780,6 @@ impl RecordCallTraits {
 	}
 }
 
-/// [`RecordCallTraits`] of records, keyed by [`RecordValue::canonical_spelling`].
-pub(crate) type RecordCallTraitIndex = BTreeMap<String, RecordCallTraits>;
-
-/// RAII owner for libclang's translation-unit creation context.
-///
-/// An index groups parsing work and must remain alive for every translation
-/// unit created from it. [`ParsedTranslationUnit`] declares it after the
-/// [`TranslationUnit`], so the translation unit is disposed first and the
-/// index afterward.
-struct Index(CXIndex);
-
-impl Index {
-	unsafe fn new() -> Self {
-		Self(unsafe { clang_createIndex(0, 0) })
-	}
-}
-
-impl Drop for Index {
-	fn drop(&mut self) {
-		unsafe { clang_disposeIndex(self.0) };
-	}
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct MethodReference {
-	pub usr: String,
-	pub qualified_name: String,
-	pub display_name: String,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct Parameter {
-	pub name: String,
-	pub type_spelling: String,
-
-	/// The record this parameter takes by value, if any.
-	pub record: Option<RecordValue>,
-}
-
-/// One complete C++ class, struct, class template, or partial specialization definition.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct Record {
-	pub usr: String,
-	pub name: String,
-	pub qualified_name: String,
-	pub namespaces: Vec<String>,
-	pub source_path: Option<PathBuf>,
-	pub template: TemplateRole,
-	pub bases: Vec<BaseRecord>,
-	pub virtual_methods: Vec<VirtualMethod>,
-
-	/// Names of the record's own member declarations, in order of first
-	/// declaration. The Microsoft ABI groups new virtual overloads by it.
-	pub member_names: Vec<String>,
-}
-
-/// How a record relates to C++ templates.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum TemplateRole {
-	/// An ordinary record, including a member of an explicit specialization.
-	None,
-
-	/// The definition of a class template or of a partial specialization.
-	Pattern,
-
-	/// A record nested in a [`Self::Pattern`]. Its layout depends on the
-	/// enclosing template's arguments.
-	DependentMember,
-
-	/// A full explicit specialization, `template <> class X<int> { ... };`.
-	ExplicitSpecialization,
-
-	/// An explicit instantiation, `template class X<int>;`. libclang exposes
-	/// no members for it; its template describes its layout.
-	ExplicitInstantiation,
-
-	/// A specialization without members whose kind is hidden by a macro.
-	UnclassifiedSpecialization,
-}
-
 #[derive(Default)]
 struct RecordChildren {
 	bases: Vec<BaseRecord>,
@@ -797,168 +796,19 @@ pub(crate) struct RecordIndex {
 	typedef_named_anonymous_records: BTreeSet<String>,
 }
 
-/// Whether and how the primary vtable of one record can be described.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum VtableModel {
-	/// Neither the record nor any base declares a virtual function.
-	NotPolymorphic,
-
-	/// Every primary vtable slot, in ABI order.
-	Modeled(VtableLayout),
-
-	/// The record may have a vtable, but its layout cannot be derived
-	/// faithfully from the collected metadata.
-	Unsupported { reason: String },
-}
-
-/// Primary-vtable slots, or why they are unknown.
-enum Slots {
-	Known(Vec<VtableSlot>),
-	Unknown(String),
-}
-
 impl RecordIndex {
-	/// Returns whether `qualified_name` declares or inherits any virtual slots.
-	///
-	/// This is ABI-independent. Records whose bases cannot be resolved report
-	/// an [`CppVtableError::Unsupported`] error.
-	pub(crate) fn has_virtual_slots(&self, qualified_name: &str) -> Result<bool, CppVtableError> {
-		match self.vtable_model(qualified_name, CppAbi::Itanium)? {
-			VtableModel::NotPolymorphic => Ok(false),
-			VtableModel::Modeled(_) => Ok(true),
-			VtableModel::Unsupported { reason } => Err(CppVtableError::Unsupported {
-				record: qualified_name.to_owned(),
-				reason,
-			}),
-		}
-	}
-
-	pub(crate) fn record(&self, qualified_name: &str) -> Option<&Record> {
-		self.records.get(qualified_name)
-	}
-
-	pub(crate) fn records(&self) -> &BTreeMap<String, Record> {
-		&self.records
-	}
-
-	/// Typedef names of unnamed records anywhere in the translation unit,
-	/// such as `typedef union { ... } pthread_mutex_t;`.
-	pub(crate) fn typedef_named_anonymous_records(&self) -> &BTreeSet<String> {
-		&self.typedef_named_anonymous_records
-	}
-
-	/// Computes the primary vtable address-point layout for `qualified_name`,
-	/// or explains why it cannot be derived.
-	pub(crate) fn vtable_model(
-		&self,
-		qualified_name: &str,
-		abi: CppAbi,
-	) -> Result<VtableModel, CppVtableError> {
-		if !self.records.contains_key(qualified_name) {
-			return Err(CppVtableError::MissingRecord(qualified_name.to_owned()));
-		}
-
-		let mut active = BTreeSet::new();
-
-		Ok(match self.record_slots(qualified_name, abi, &mut active)? {
-			Slots::Known(slots) if slots.is_empty() => VtableModel::NotPolymorphic,
-			Slots::Known(slots) => VtableModel::Modeled(VtableLayout {
-				record: qualified_name.to_owned(),
-				abi,
-				slots,
-			}),
-			Slots::Unknown(reason) => VtableModel::Unsupported { reason },
-		})
-	}
-
-	/// Computes the primary vtable address-point layout for `qualified_name`.
-	///
-	/// A record without virtual functions has an empty layout.
-	pub(crate) fn vtable_layout(
-		&self,
-		qualified_name: &str,
-		abi: CppAbi,
-	) -> Result<VtableLayout, CppVtableError> {
-		match self.vtable_model(qualified_name, abi)? {
-			VtableModel::Modeled(layout) => Ok(layout),
-			VtableModel::NotPolymorphic => Ok(VtableLayout {
-				record: qualified_name.to_owned(),
-				abi,
-				slots: Vec::new(),
-			}),
-			VtableModel::Unsupported { reason } => Err(CppVtableError::Unsupported {
-				record: qualified_name.to_owned(),
-				reason,
-			}),
-		}
-	}
-
-	fn record_slots(
-		&self,
-		qualified_name: &str,
-		abi: CppAbi,
+	fn guarded<T>(
 		active: &mut BTreeSet<String>,
-	) -> Result<Slots, CppVtableError> {
-		let Some(record) = self.records.get(qualified_name) else {
-			return Ok(Slots::Unknown(format!(
-				"the definition of `{qualified_name}` was not collected"
-			)));
-		};
-
-		match record.template {
-			TemplateRole::None | TemplateRole::ExplicitSpecialization => {}
-
-			// A template's own struct is generic, so it never gets a probe. It is
-			// still non-polymorphic when no instantiation can have a vtable.
-			TemplateRole::Pattern | TemplateRole::DependentMember => {
-				return Ok(
-					match self.instantiation_slots(qualified_name, abi, active)? {
-						Slots::Known(slots) if slots.is_empty() => Slots::Known(slots),
-						Slots::Known(_) | Slots::Unknown(_) => Slots::Unknown(format!(
-							"`{qualified_name}` depends on template arguments"
-						)),
-					},
-				);
-			}
-
-			TemplateRole::ExplicitInstantiation | TemplateRole::UnclassifiedSpecialization => {
-				return Ok(Slots::Unknown(format!(
-					"libclang exposes no members of `{qualified_name}`"
-				)));
-			}
+		qualified_name: &str,
+		compute: impl FnOnce(&mut BTreeSet<String>) -> Result<T, CppVtableError>,
+	) -> Result<T, CppVtableError> {
+		if !active.insert(qualified_name.to_owned()) {
+			return Err(CppVtableError::InheritanceCycle(qualified_name.to_owned()));
 		}
 
-		Self::guarded(active, qualified_name, |active| {
-			self.derived_slots(record, &record.bases, Some(record), abi, active)
-		})
-	}
-
-	/// The slots of an implicit (or explicit) instantiation of `pattern_name`.
-	///
-	/// Signatures inside a template depend on its arguments, so only templates
-	/// without virtual functions of their own are modeled. Their instantiations
-	/// contribute exactly the slots of their non-dependent bases.
-	fn instantiation_slots(
-		&self,
-		pattern_name: &str,
-		abi: CppAbi,
-		active: &mut BTreeSet<String>,
-	) -> Result<Slots, CppVtableError> {
-		let Some(pattern) = self.records.get(pattern_name) else {
-			return Ok(Slots::Unknown(format!(
-				"the definition of template `{pattern_name}` was not collected"
-			)));
-		};
-
-		if !pattern.virtual_methods.is_empty() {
-			return Ok(Slots::Unknown(format!(
-				"template `{pattern_name}` declares virtual functions"
-			)));
-		}
-
-		Self::guarded(active, pattern_name, |active| {
-			self.derived_slots(pattern, &pattern.bases, None, abi, active)
-		})
+		let result = compute(active);
+		active.remove(qualified_name);
+		result
 	}
 
 	fn base_slots(
@@ -971,7 +821,9 @@ impl RecordIndex {
 			BaseTarget::Dependent => Ok(Slots::Unknown(
 				"it depends on template parameters".to_owned(),
 			)),
+
 			BaseTarget::Record => self.record_slots(&base.qualified_name, abi, active),
+
 			BaseTarget::Specialization { pattern } => match self
 				.records
 				.get(&base.qualified_name)
@@ -980,9 +832,11 @@ impl RecordIndex {
 				Some(TemplateRole::ExplicitSpecialization) => {
 					self.record_slots(&base.qualified_name, abi, active)
 				}
+
 				Some(TemplateRole::UnclassifiedSpecialization) => {
 					self.record_slots(&base.qualified_name, abi, active)
 				}
+
 				_ => self.instantiation_slots(pattern, abi, active),
 			},
 		}
@@ -1055,19 +909,188 @@ impl RecordIndex {
 		Ok(Slots::Known(slots))
 	}
 
-	fn guarded<T>(
+	/// Returns whether `qualified_name` declares or inherits any virtual slots.
+	///
+	/// This is ABI-independent. Records whose bases cannot be resolved report
+	/// an [`CppVtableError::Unsupported`] error.
+	pub(crate) fn has_virtual_slots(&self, qualified_name: &str) -> Result<bool, CppVtableError> {
+		match self.vtable_model(qualified_name, CppAbi::Itanium)? {
+			VtableModel::NotPolymorphic => Ok(false),
+			VtableModel::Modeled(_) => Ok(true),
+
+			VtableModel::Unsupported { reason } => Err(CppVtableError::Unsupported {
+				record: qualified_name.to_owned(),
+				reason,
+			}),
+		}
+	}
+
+	/// The slots of an implicit (or explicit) instantiation of `pattern_name`.
+	///
+	/// Signatures inside a template depend on its arguments, so only templates
+	/// without virtual functions of their own are modeled. Their instantiations
+	/// contribute exactly the slots of their non-dependent bases.
+	fn instantiation_slots(
+		&self,
+		pattern_name: &str,
+		abi: CppAbi,
 		active: &mut BTreeSet<String>,
-		qualified_name: &str,
-		compute: impl FnOnce(&mut BTreeSet<String>) -> Result<T, CppVtableError>,
-	) -> Result<T, CppVtableError> {
-		if !active.insert(qualified_name.to_owned()) {
-			return Err(CppVtableError::InheritanceCycle(qualified_name.to_owned()));
+	) -> Result<Slots, CppVtableError> {
+		let Some(pattern) = self.records.get(pattern_name) else {
+			return Ok(Slots::Unknown(format!(
+				"the definition of template `{pattern_name}` was not collected"
+			)));
+		};
+
+		if !pattern.virtual_methods.is_empty() {
+			return Ok(Slots::Unknown(format!(
+				"template `{pattern_name}` declares virtual functions"
+			)));
 		}
 
-		let result = compute(active);
-		active.remove(qualified_name);
-		result
+		Self::guarded(active, pattern_name, |active| {
+			self.derived_slots(pattern, &pattern.bases, None, abi, active)
+		})
 	}
+
+	pub(crate) fn record(&self, qualified_name: &str) -> Option<&Record> {
+		self.records.get(qualified_name)
+	}
+
+	fn record_slots(
+		&self,
+		qualified_name: &str,
+		abi: CppAbi,
+		active: &mut BTreeSet<String>,
+	) -> Result<Slots, CppVtableError> {
+		let Some(record) = self.records.get(qualified_name) else {
+			return Ok(Slots::Unknown(format!(
+				"the definition of `{qualified_name}` was not collected"
+			)));
+		};
+
+		match record.template {
+			TemplateRole::None | TemplateRole::ExplicitSpecialization => {}
+
+			// A template's own struct is generic, so it never gets a probe. It is
+			// still non-polymorphic when no instantiation can have a vtable.
+			TemplateRole::Pattern | TemplateRole::DependentMember => {
+				return Ok(
+					match self.instantiation_slots(qualified_name, abi, active)? {
+						Slots::Known(slots) if slots.is_empty() => Slots::Known(slots),
+
+						Slots::Known(_) | Slots::Unknown(_) => Slots::Unknown(format!(
+							"`{qualified_name}` depends on template arguments"
+						)),
+					},
+				);
+			}
+
+			TemplateRole::ExplicitInstantiation | TemplateRole::UnclassifiedSpecialization => {
+				return Ok(Slots::Unknown(format!(
+					"libclang exposes no members of `{qualified_name}`"
+				)));
+			}
+		}
+
+		Self::guarded(active, qualified_name, |active| {
+			self.derived_slots(record, &record.bases, Some(record), abi, active)
+		})
+	}
+
+	pub(crate) fn records(&self) -> &BTreeMap<String, Record> {
+		&self.records
+	}
+
+	/// Typedef names of unnamed records anywhere in the translation unit,
+	/// such as `typedef union { ... } pthread_mutex_t;`.
+	pub(crate) fn typedef_named_anonymous_records(&self) -> &BTreeSet<String> {
+		&self.typedef_named_anonymous_records
+	}
+
+	/// Computes the primary vtable address-point layout for `qualified_name`.
+	///
+	/// A record without virtual functions has an empty layout.
+	pub(crate) fn vtable_layout(
+		&self,
+		qualified_name: &str,
+		abi: CppAbi,
+	) -> Result<VtableLayout, CppVtableError> {
+		match self.vtable_model(qualified_name, abi)? {
+			VtableModel::Modeled(layout) => Ok(layout),
+
+			VtableModel::NotPolymorphic => Ok(VtableLayout {
+				record: qualified_name.to_owned(),
+				abi,
+				slots: Vec::new(),
+			}),
+
+			VtableModel::Unsupported { reason } => Err(CppVtableError::Unsupported {
+				record: qualified_name.to_owned(),
+				reason,
+			}),
+		}
+	}
+
+	/// Computes the primary vtable address-point layout for `qualified_name`,
+	/// or explains why it cannot be derived.
+	pub(crate) fn vtable_model(
+		&self,
+		qualified_name: &str,
+		abi: CppAbi,
+	) -> Result<VtableModel, CppVtableError> {
+		if !self.records.contains_key(qualified_name) {
+			return Err(CppVtableError::MissingRecord(qualified_name.to_owned()));
+		}
+
+		let mut active = BTreeSet::new();
+
+		Ok(match self.record_slots(qualified_name, abi, &mut active)? {
+			Slots::Known(slots) if slots.is_empty() => VtableModel::NotPolymorphic,
+
+			Slots::Known(slots) => VtableModel::Modeled(VtableLayout {
+				record: qualified_name.to_owned(),
+				abi,
+				slots,
+			}),
+
+			Slots::Unknown(reason) => VtableModel::Unsupported { reason },
+		})
+	}
+}
+
+/// How a virtual member function returns a class by value.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum RecordReturn {
+	/// Exactly as a C function returns a struct of the same layout.
+	Direct,
+
+	/// Through a hidden pointer to uninitialized storage which the caller
+	/// passes before `this`. The callee constructs the result there and
+	/// returns the same pointer.
+	BeforeThis,
+
+	/// As [`Self::BeforeThis`], but the hidden pointer follows `this`.
+	AfterThis,
+}
+
+/// A class, struct, or union which a virtual member function takes or returns
+/// by value.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct RecordValue {
+	/// The unqualified canonical type, spelled so it is valid at global scope.
+	/// It keys the record's [`RecordCallTraits`].
+	pub canonical_spelling: String,
+
+	/// The declared spelling without top-level cv-qualifiers, as a probe
+	/// spells a pointer to it.
+	pub unqualified_spelling: String,
+}
+
+/// Primary-vtable slots, or why they are unknown.
+enum Slots {
+	Known(Vec<VtableSlot>),
+	Unknown(String),
 }
 
 struct SourceRootFilter {
@@ -1094,6 +1117,30 @@ impl SourceRootFilter {
 		self.cache.insert(source_path.to_path_buf(), included);
 		included
 	}
+}
+
+/// How a record relates to C++ templates.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum TemplateRole {
+	/// An ordinary record, including a member of an explicit specialization.
+	None,
+
+	/// The definition of a class template or of a partial specialization.
+	Pattern,
+
+	/// A record nested in a [`Self::Pattern`]. Its layout depends on the
+	/// enclosing template's arguments.
+	DependentMember,
+
+	/// A full explicit specialization, `template <> class X<int> { ... };`.
+	ExplicitSpecialization,
+
+	/// An explicit instantiation, `template class X<int>;`. libclang exposes
+	/// no members for it; its template describes its layout.
+	ExplicitInstantiation,
+
+	/// A specialization without members whose kind is hidden by a macro.
+	UnclassifiedSpecialization,
 }
 
 /// RAII owner for one parsed libclang translation unit.
@@ -1138,18 +1185,6 @@ impl Drop for TranslationUnit {
 struct Type(CXType);
 
 impl Type {
-	unsafe fn canonical(self) -> Self {
-		Self(unsafe { clang_getCanonicalType(self.0) })
-	}
-
-	unsafe fn declaration(self) -> Cursor {
-		Cursor(unsafe { clang_getTypeDeclaration(self.0) })
-	}
-
-	unsafe fn spelling(self) -> String {
-		unsafe { cx_string(clang_getTypeSpelling(self.0)) }
-	}
-
 	/// The record this type names, if it is a class, struct, or union rather
 	/// than a pointer, reference, or scalar. `spelling` is this type's own
 	/// globally qualified spelling.
@@ -1170,17 +1205,8 @@ impl Type {
 		})
 	}
 
-	unsafe fn globally_qualified_spelling(self) -> String {
-		let spelling = unsafe { self.spelling() };
-		let mut replacements = BTreeMap::new();
-		let mut visited = BTreeSet::new();
-		unsafe { self.collect_qualifications(&mut replacements, &mut visited) };
-
-		let mut qualified = spelling;
-		for (name, qualified_name) in replacements {
-			qualified = replace_unqualified_identifier(&qualified, &name, &qualified_name);
-		}
-		qualified
+	unsafe fn canonical(self) -> Self {
+		Self(unsafe { clang_getCanonicalType(self.0) })
 	}
 
 	unsafe fn collect_qualifications(
@@ -1214,6 +1240,7 @@ impl Type {
 					Self(clang_getPointeeType(self.0)).collect_qualifications(replacements, visited)
 				};
 			}
+
 			CXType_ConstantArray
 			| CXType_IncompleteArray
 			| CXType_VariableArray
@@ -1223,6 +1250,7 @@ impl Type {
 						.collect_qualifications(replacements, visited)
 				};
 			}
+
 			CXType_FunctionNoProto | CXType_FunctionProto => {
 				unsafe {
 					Self(clang_getResultType(self.0)).collect_qualifications(replacements, visited)
@@ -1235,9 +1263,11 @@ impl Type {
 					};
 				}
 			}
+
 			CXType_Elaborated => unsafe {
 				Self(clang_Type_getNamedType(self.0)).collect_qualifications(replacements, visited);
 			},
+
 			_ => {}
 		}
 
@@ -1248,6 +1278,27 @@ impl Type {
 				unsafe { Self(argument).collect_qualifications(replacements, visited) };
 			}
 		}
+	}
+
+	unsafe fn declaration(self) -> Cursor {
+		Cursor(unsafe { clang_getTypeDeclaration(self.0) })
+	}
+
+	unsafe fn globally_qualified_spelling(self) -> String {
+		let spelling = unsafe { self.spelling() };
+		let mut replacements = BTreeMap::new();
+		let mut visited = BTreeSet::new();
+		unsafe { self.collect_qualifications(&mut replacements, &mut visited) };
+
+		let mut qualified = spelling;
+		for (name, qualified_name) in replacements {
+			qualified = replace_unqualified_identifier(&qualified, &name, &qualified_name);
+		}
+		qualified
+	}
+
+	unsafe fn spelling(self) -> String {
+		unsafe { cx_string(clang_getTypeSpelling(self.0)) }
 	}
 }
 
@@ -1302,6 +1353,20 @@ impl VtableLayout {
 	}
 }
 
+/// Whether and how the primary vtable of one record can be described.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum VtableModel {
+	/// Neither the record nor any base declares a virtual function.
+	NotPolymorphic,
+
+	/// Every primary vtable slot, in ABI order.
+	Modeled(VtableLayout),
+
+	/// The record may have a vtable, but its layout cannot be derived
+	/// faithfully from the collected metadata.
+	Unsupported { reason: String },
+}
+
 /// Rendered C++ declarations that bindgen can consume as ordinary aliases and a struct.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct VtableProbe {
@@ -1329,12 +1394,6 @@ pub(crate) struct VtableSlot {
 }
 
 impl VtableSlot {
-	fn method(method: VirtualMethod, overload_index: usize) -> Self {
-		let mut slot = Self::new(VtableSlotKind::Method, method);
-		slot.overload_index = overload_index;
-		slot
-	}
-
 	fn new(kind: VtableSlotKind, method: VirtualMethod) -> Self {
 		let mut lineage = BTreeSet::from([method.usr.clone()]);
 		lineage.extend(
@@ -1350,6 +1409,12 @@ impl VtableSlot {
 			overload_index: 0,
 			lineage,
 		}
+	}
+
+	fn method(method: VirtualMethod, overload_index: usize) -> Self {
+		let mut slot = Self::new(VtableSlotKind::Method, method);
+		slot.overload_index = overload_index;
+		slot
 	}
 }
 
@@ -1495,6 +1560,7 @@ fn apply_record_methods(
 
 		match method.kind {
 			VirtualMethodKind::Destructor => slots.extend(new_destructor_slots(method, abi)),
+
 			VirtualMethodKind::Method => slots.push(VtableSlot::method(
 				method.clone(),
 				overload_indices[&declaration_index],
@@ -1503,6 +1569,52 @@ fn apply_record_methods(
 	}
 
 	Ok(None)
+}
+
+extern "C" fn call_trait_query_visitor(
+	cursor: CXCursor,
+	_parent: CXCursor,
+	data: CXClientData,
+) -> CXChildVisitResult {
+	let Some(queries) = (unsafe { data.cast::<CallTraitQueries>().as_mut() }) else {
+		return CXChildVisit_Break;
+	};
+
+	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+		let cursor = Cursor(cursor);
+
+		if cursor.kind() != CXCursor_VarDecl {
+			return Ok(());
+		}
+
+		let name = cursor.spelling();
+
+		if !name.starts_with(CALL_TRAITS_PREFIX) {
+			return Ok(());
+		}
+
+		let Some(value) = cursor.evaluate_unsigned() else {
+			return Err(CppVtableError::CallTraitEvaluation { query: name });
+		};
+
+		queries.values.insert(name, value);
+
+		Ok(())
+	}));
+
+	match result {
+		Ok(Ok(())) => CXChildVisit_Continue,
+
+		Ok(Err(error)) => {
+			queries.error = Some(error);
+			CXChildVisit_Break
+		}
+
+		Err(payload) => {
+			queries.error = Some(CppVtableError::TraversalPanic(panic_message(payload)));
+			CXChildVisit_Break
+		}
+	}
 }
 
 extern "C" fn collect_record_child_visitor(
@@ -1527,16 +1639,19 @@ extern "C" fn collect_record_child_visitor(
 				children.has_members = true;
 				children.bases.push(cursor.collect_base());
 			}
+
 			CXCursor_CXXMethod if cursor.is_virtual_method() => {
 				children
 					.virtual_methods
 					.push(cursor.collect_virtual_method(VirtualMethodKind::Method)?);
 			}
+
 			CXCursor_Destructor if cursor.is_virtual_method() => {
 				children
 					.virtual_methods
 					.push(cursor.collect_virtual_method(VirtualMethodKind::Destructor)?);
 			}
+
 			_ => {}
 		}
 
@@ -1557,40 +1672,17 @@ extern "C" fn collect_record_child_visitor(
 
 	match result {
 		Ok(Ok(())) => CXChildVisit_Continue,
+
 		Ok(Err(error)) => {
 			children.error = Some(error);
 			CXChildVisit_Break
 		}
+
 		Err(payload) => {
 			children.error = Some(CppVtableError::TraversalPanic(panic_message(payload)));
 			CXChildVisit_Break
 		}
 	}
-}
-
-/// Member declarations which introduce a name into their class, the way
-/// Clang's `NamedDecl` members order the Microsoft ABI's overload groups.
-fn is_named_member_kind(kind: CXCursorKind) -> bool {
-	matches!(
-		kind,
-		CXCursor_CXXMethod
-			| CXCursor_Constructor
-			| CXCursor_Destructor
-			| CXCursor_ConversionFunction
-			| CXCursor_FunctionTemplate
-			| CXCursor_FieldDecl
-			| CXCursor_VarDecl
-			| CXCursor_TypedefDecl
-			| CXCursor_TypeAliasDecl
-			| CXCursor_TypeAliasTemplateDecl
-			| CXCursor_ClassDecl
-			| CXCursor_StructDecl
-			| CXCursor_UnionDecl
-			| CXCursor_EnumDecl
-			| CXCursor_ClassTemplate
-			| CXCursor_ClassTemplatePartialSpecialization
-			| CXCursor_UsingDeclaration
-	)
 }
 
 extern "C" fn collect_record_visitor(
@@ -1675,10 +1767,12 @@ extern "C" fn collect_record_visitor(
 
 	match result {
 		Ok(Ok(())) => CXChildVisit_Recurse,
+
 		Ok(Err(error)) => {
 			collector.error = Some(error);
 			CXChildVisit_Break
 		}
+
 		Err(payload) => {
 			collector.error = Some(CppVtableError::TraversalPanic(panic_message(payload)));
 			CXChildVisit_Break
@@ -1746,32 +1840,274 @@ fn collect_records_with_source_root(
 	})
 }
 
-/// Names the constants [`query_record_call_traits`] evaluates.
-const CALL_TRAITS_PREFIX: &str = "__crys_record_call_traits_";
+fn comparable_path_components(path: &Path) -> Vec<String> {
+	let path = lexically_absolute_path(path);
+	path.components()
+		.map(|component| {
+			let component = component.as_os_str().to_string_lossy();
+			if cfg!(windows) {
+				component.to_lowercase()
+			} else {
+				component.into_owned()
+			}
+		})
+		.collect()
+}
 
-/// Computes the bits and size which make up a [`RecordCallTraits`].
+unsafe fn cx_string(value: CXString) -> String {
+	let pointer = unsafe { clang_getCString(value) };
+	let string = if pointer.is_null() {
+		String::new()
+	} else {
+		unsafe { CStr::from_ptr(pointer) }
+			.to_string_lossy()
+			.into_owned()
+	};
+	unsafe { clang_disposeString(value) };
+	string
+}
+
+fn ensure_libclang_is_loaded() -> Result<(), CppVtableError> {
+	if is_loaded() {
+		return Ok(());
+	}
+
+	static LIBCLANG: OnceLock<Result<Arc<SharedLibrary>, String>> = OnceLock::new();
+
+	let library = LIBCLANG.get_or_init(|| load_manually().map(Arc::new));
+
+	match library {
+		Ok(library) => {
+			set_library(Some(library.clone()));
+			Ok(())
+		}
+
+		Err(error) => Err(CppVtableError::LoadLibclang(error.clone())),
+	}
+}
+
+fn is_cpp_identifier_character(character: char) -> bool {
+	character == '_' || character.is_alphanumeric()
+}
+
+/// Member declarations which introduce a name into their class, the way
+/// Clang's `NamedDecl` members order the Microsoft ABI's overload groups.
+fn is_named_member_kind(kind: CXCursorKind) -> bool {
+	matches!(
+		kind,
+		CXCursor_CXXMethod
+			| CXCursor_Constructor
+			| CXCursor_Destructor
+			| CXCursor_ConversionFunction
+			| CXCursor_FunctionTemplate
+			| CXCursor_FieldDecl
+			| CXCursor_VarDecl
+			| CXCursor_TypedefDecl
+			| CXCursor_TypeAliasDecl
+			| CXCursor_TypeAliasTemplateDecl
+			| CXCursor_ClassDecl
+			| CXCursor_StructDecl
+			| CXCursor_UnionDecl
+			| CXCursor_EnumDecl
+			| CXCursor_ClassTemplate
+			| CXCursor_ClassTemplatePartialSpecialization
+			| CXCursor_UsingDeclaration
+	)
+}
+
+fn lexically_absolute_path(path: &Path) -> PathBuf {
+	let absolute = if path.is_absolute() {
+		path.to_path_buf()
+	} else if let Ok(current_dir) = std::env::current_dir() {
+		current_dir.join(path)
+	} else {
+		path.to_path_buf()
+	};
+
+	let mut normalized = PathBuf::new();
+
+	for component in absolute.components() {
+		match component {
+			std::path::Component::CurDir => {}
+
+			std::path::Component::ParentDir => {
+				normalized.pop();
+			}
+
+			_ => normalized.push(component.as_os_str()),
+		}
+	}
+
+	normalized
+}
+
+/// Spells a virtual method's result and parameters, `this` first, the way the
+/// C++ ABI actually passes them, with a note for each by-value class lowered
+/// to a pointer.
 ///
-/// Access control does not affect the ABI. The generator parses with it
-/// disabled, so private special members count as they should.
-///
-/// `__has_trivial_copy` is deprecated, but it is the only trait which judges
-/// the copy constructor alone: Clang's `__is_trivially_constructible` also
-/// requires a trivial destructor.
-const CALL_TRAITS_TEMPLATE: &str = r#"
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-builtins"
-template <class __crys_T>
-struct __crys_record_call_traits {
-	static constexpr unsigned long long bits =
-		(__is_constructible(__crys_T, const __crys_T &) ? 1ull : 0ull) |
-		(__has_trivial_copy(__crys_T) ? 2ull : 0ull) |
-		(__is_constructible(__crys_T, __crys_T &&) ? 4ull : 0ull) |
-		(__is_trivially_constructible(__crys_T, __crys_T &&) ? 8ull : 0ull) |
-		(__is_trivially_destructible(__crys_T) ? 16ull : 0ull);
-	static constexpr unsigned long long size = sizeof(__crys_T);
-};
-#pragma clang diagnostic pop
-"#;
+/// Bindgen would otherwise model a class like a C struct of the same layout.
+/// That is wrong for an argument the C++ ABI passes as the address of a
+/// temporary copy (see [`CppAbi::passes_record_indirectly`]), and for a result
+/// returned through a hidden pointer the C ABI would not use (see
+/// [`CppAbi::record_return`]).
+fn lower_method_signature(
+	method: &VirtualMethod,
+	this: String,
+	abi: CppAbi,
+	call_traits: &RecordCallTraitIndex,
+) -> Result<(String, Vec<String>, Vec<String>), CppVtableError> {
+	let traits = |record: &RecordValue| {
+		call_traits
+			.get(&record.canonical_spelling)
+			.copied()
+			.ok_or_else(|| CppVtableError::MissingCallTraits {
+				record: record.canonical_spelling.clone(),
+			})
+	};
+
+	let mut result_type = method.result_type.clone();
+	let mut parameters = vec![this];
+	let mut notes = Vec::new();
+
+	if let Some(record) = &method.result_record {
+		let position = match abi.record_return(traits(record)?) {
+			RecordReturn::Direct => None,
+			RecordReturn::BeforeThis => Some(0),
+			RecordReturn::AfterThis => Some(1),
+		};
+
+		if let Some(position) = position {
+			let pointer = format!("{} *", record.unqualified_spelling);
+
+			parameters.insert(position, pointer.clone());
+			result_type = pointer;
+			notes.push(format!(
+				"C++ returns `{}` by value. `arg{}` is the hidden result pointer: the callee \
+				 constructs the result in the uninitialized storage it points to, and returns it.",
+				record.unqualified_spelling,
+				position + 1,
+			));
+		}
+	}
+
+	for parameter in &method.parameters {
+		let Some(record) = &parameter.record else {
+			parameters.push(parameter.type_spelling.clone());
+			continue;
+		};
+
+		if !abi.passes_record_indirectly(traits(record)?) {
+			parameters.push(parameter.type_spelling.clone());
+			continue;
+		}
+
+		parameters.push(format!("{} *", record.unqualified_spelling));
+
+		let destroyed_by = if abi.is_microsoft() {
+			"the callee destroys it"
+		} else {
+			"the caller destroys it after the call"
+		};
+
+		notes.push(format!(
+			"C++ takes `{}` by value. `arg{}` points to a temporary copy the caller makes; the \
+			 callee may modify it, and {destroyed_by}.",
+			record.unqualified_spelling,
+			parameters.len(),
+		));
+	}
+
+	Ok((result_type, parameters, notes))
+}
+
+fn new_destructor_slots(method: &VirtualMethod, abi: CppAbi) -> Vec<VtableSlot> {
+	match abi {
+		CppAbi::Itanium | CppAbi::ItaniumX86 => vec![
+			VtableSlot::new(VtableSlotKind::ItaniumCompleteDestructor, method.clone()),
+			VtableSlot::new(VtableSlotKind::ItaniumDeletingDestructor, method.clone()),
+		],
+
+		CppAbi::Msvc | CppAbi::MsvcX86 => vec![VtableSlot::new(
+			VtableSlotKind::MsvcScalarDeletingDestructor,
+			method.clone(),
+		)],
+	}
+}
+
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+	if let Some(message) = payload.downcast_ref::<&str>() {
+		(*message).to_owned()
+	} else if let Some(message) = payload.downcast_ref::<String>() {
+		message.clone()
+	} else {
+		"unknown panic payload".to_owned()
+	}
+}
+
+/// Parses an unsaved C++ source file, failing on any error diagnostic.
+fn parse_translation_unit(
+	file_name: &Path,
+	contents: &str,
+	clang_args: &[String],
+) -> Result<ParsedTranslationUnit, CppVtableError> {
+	ensure_libclang_is_loaded()?;
+
+	let file_name_string = file_name.to_string_lossy().into_owned();
+	let file_name_c = to_c_string(&file_name_string, "unsaved source filename")?;
+	let contents_c = to_c_string(contents, "unsaved C++ source")?;
+	let argument_strings = clang_args
+		.iter()
+		.enumerate()
+		.map(|(index, argument)| to_c_string(argument, &format!("clang argument {index}")))
+		.collect::<Result<Vec<_>, _>>()?;
+	let argument_pointers = argument_strings
+		.iter()
+		.map(|argument| argument.as_ptr())
+		.collect::<Vec<_>>();
+
+	let index = unsafe { Index::new() };
+	let mut unsaved = CXUnsavedFile {
+		Filename: file_name_c.as_ptr(),
+		Contents: contents_c.as_ptr(),
+		Length: contents.len() as _,
+	};
+	let mut translation_unit = null_mut();
+	let flags = CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing;
+	let error = unsafe {
+		clang_parseTranslationUnit2(
+			index.0,
+			file_name_c.as_ptr(),
+			argument_pointers.as_ptr(),
+			argument_pointers.len() as _,
+			&raw mut unsaved,
+			1,
+			flags,
+			&raw mut translation_unit,
+		)
+	};
+
+	if error != CXError_Success || translation_unit.is_null() {
+		return Err(CppVtableError::ParseTranslationUnit {
+			path: file_name.to_path_buf(),
+			code: error,
+		});
+	}
+
+	let parsed = ParsedTranslationUnit {
+		unit: TranslationUnit(translation_unit),
+		_index: index,
+	};
+	let diagnostics = unsafe { parsed.unit.error_diagnostics() };
+
+	if !diagnostics.is_empty() {
+		return Err(CppVtableError::Diagnostics {
+			path: file_name.to_path_buf(),
+			diagnostics: diagnostics.join("\n"),
+		});
+	}
+
+	Ok(parsed)
+}
 
 /// Has Clang evaluate the [`RecordCallTraits`] of every record in `records`
 /// for the target `clang_args` select.
@@ -1854,225 +2190,127 @@ pub(crate) fn query_record_call_traits<'a>(
 	Ok(index)
 }
 
-#[derive(Default)]
-struct CallTraitQueries {
-	values: BTreeMap<String, u64>,
-	error: Option<CppVtableError>,
-}
-
-extern "C" fn call_trait_query_visitor(
-	cursor: CXCursor,
-	_parent: CXCursor,
-	data: CXClientData,
-) -> CXChildVisitResult {
-	let Some(queries) = (unsafe { data.cast::<CallTraitQueries>().as_mut() }) else {
-		return CXChildVisit_Break;
+/// Renders a typed synthetic vtable probe for one modeled layout.
+///
+/// `call_traits` must describe every record in
+/// [`VtableLayout::by_value_records`], as [`query_record_call_traits`] does.
+pub(crate) fn render_vtable_probe(
+	records: &RecordIndex,
+	layout: &VtableLayout,
+	call_traits: &RecordCallTraitIndex,
+) -> Result<VtableProbe, CppVtableError> {
+	let qualified_record_name = layout.record.as_str();
+	let abi = layout.abi;
+	let record = records
+		.record(qualified_record_name)
+		.ok_or_else(|| CppVtableError::MissingRecord(qualified_record_name.to_owned()))?;
+	let stem = vtable_probe_stem(qualified_record_name);
+	let record_identifier = stem.strip_prefix("__crys_vtable_").unwrap_or(&stem);
+	let this_type = if qualified_record_name.starts_with("::") {
+		qualified_record_name.to_owned()
+	} else {
+		format!("::{qualified_record_name}")
 	};
+	let mut aliases = String::new();
+	let mut fields = String::new();
+	let mut field_names = Vec::with_capacity(layout.slots.len());
 
-	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-		let cursor = Cursor(cursor);
+	for (index, slot) in layout.slots.iter().enumerate() {
+		let alias = format!("{stem}_slot_{index:03}_type");
+		let field = match slot.kind {
+			VtableSlotKind::Method => {
+				let method_name = sanitize_identifier_fragment(&slot.method.name);
+				let suffix = if slot.overload_index == 0 {
+					String::new()
+				} else {
+					slot.overload_index.to_string()
+				};
+				format!("{record_identifier}_{method_name}{suffix}")
+			}
 
-		if cursor.kind() != CXCursor_VarDecl {
-			return Ok(());
-		}
+			VtableSlotKind::ItaniumCompleteDestructor => {
+				format!("{record_identifier}_complete_destructor")
+			}
 
-		let name = cursor.spelling();
+			VtableSlotKind::ItaniumDeletingDestructor => {
+				format!("{record_identifier}_deleting_destructor")
+			}
 
-		if !name.starts_with(CALL_TRAITS_PREFIX) {
-			return Ok(());
-		}
+			VtableSlotKind::MsvcScalarDeletingDestructor => {
+				format!("{record_identifier}_destructor")
+			}
+		};
+		let (result_type, mut parameters, notes) = match slot.kind {
+			VtableSlotKind::Method => {
+				let this = if slot.method.is_const {
+					format!("const {this_type} *")
+				} else {
+					format!("{this_type} *")
+				};
+				lower_method_signature(&slot.method, this, abi, call_traits)?
+			}
 
-		let Some(value) = cursor.evaluate_unsigned() else {
-			return Err(CppVtableError::CallTraitEvaluation { query: name });
+			VtableSlotKind::ItaniumCompleteDestructor
+			| VtableSlotKind::ItaniumDeletingDestructor => (
+				"void".to_owned(),
+				vec![format!("{this_type} *")],
+				Vec::new(),
+			),
+
+			VtableSlotKind::MsvcScalarDeletingDestructor => (
+				"void *".to_owned(),
+				vec![format!("{this_type} *"), "unsigned int".to_owned()],
+				Vec::new(),
+			),
 		};
 
-		queries.values.insert(name, value);
-
-		Ok(())
-	}));
-
-	match result {
-		Ok(Ok(())) => CXChildVisit_Continue,
-		Ok(Err(error)) => {
-			queries.error = Some(error);
-			CXChildVisit_Break
+		if slot.kind == VtableSlotKind::Method && slot.method.is_variadic {
+			parameters.push("...".to_owned());
 		}
-		Err(payload) => {
-			queries.error = Some(CppVtableError::TraversalPanic(panic_message(payload)));
-			CXChildVisit_Break
-		}
-	}
-}
 
-/// A parsed translation unit and the index which created it.
-///
-/// Fields drop in declaration order, so the translation unit is disposed
-/// before its index.
-struct ParsedTranslationUnit {
-	unit: TranslationUnit,
-	_index: Index,
-}
-
-/// Parses an unsaved C++ source file, failing on any error diagnostic.
-fn parse_translation_unit(
-	file_name: &Path,
-	contents: &str,
-	clang_args: &[String],
-) -> Result<ParsedTranslationUnit, CppVtableError> {
-	ensure_libclang_is_loaded()?;
-
-	let file_name_string = file_name.to_string_lossy().into_owned();
-	let file_name_c = to_c_string(&file_name_string, "unsaved source filename")?;
-	let contents_c = to_c_string(contents, "unsaved C++ source")?;
-	let argument_strings = clang_args
-		.iter()
-		.enumerate()
-		.map(|(index, argument)| to_c_string(argument, &format!("clang argument {index}")))
-		.collect::<Result<Vec<_>, _>>()?;
-	let argument_pointers = argument_strings
-		.iter()
-		.map(|argument| argument.as_ptr())
-		.collect::<Vec<_>>();
-
-	let index = unsafe { Index::new() };
-	let mut unsaved = CXUnsavedFile {
-		Filename: file_name_c.as_ptr(),
-		Contents: contents_c.as_ptr(),
-		Length: contents.len() as _,
-	};
-	let mut translation_unit = null_mut();
-	let flags = CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing;
-	let error = unsafe {
-		clang_parseTranslationUnit2(
-			index.0,
-			file_name_c.as_ptr(),
-			argument_pointers.as_ptr(),
-			argument_pointers.len() as _,
-			&raw mut unsaved,
-			1,
-			flags,
-			&raw mut translation_unit,
-		)
-	};
-
-	if error != CXError_Success || translation_unit.is_null() {
-		return Err(CppVtableError::ParseTranslationUnit {
-			path: file_name.to_path_buf(),
-			code: error,
-		});
-	}
-
-	let parsed = ParsedTranslationUnit {
-		unit: TranslationUnit(translation_unit),
-		_index: index,
-	};
-	let diagnostics = unsafe { parsed.unit.error_diagnostics() };
-
-	if !diagnostics.is_empty() {
-		return Err(CppVtableError::Diagnostics {
-			path: file_name.to_path_buf(),
-			diagnostics: diagnostics.join("\n"),
-		});
-	}
-
-	Ok(parsed)
-}
-
-fn comparable_path_components(path: &Path) -> Vec<String> {
-	let path = lexically_absolute_path(path);
-	path.components()
-		.map(|component| {
-			let component = component.as_os_str().to_string_lossy();
-			if cfg!(windows) {
-				component.to_lowercase()
-			} else {
-				component.into_owned()
+		let calling_convention = match abi {
+			// MSVC variadic member functions use cdecl so the caller can clean
+			// the variable argument list; ordinary x86 member calls use thiscall.
+			CppAbi::MsvcX86 if slot.kind == VtableSlotKind::Method && slot.method.is_variadic => {
+				"__cdecl "
 			}
-		})
-		.collect()
-}
 
-unsafe fn cx_string(value: CXString) -> String {
-	let pointer = unsafe { clang_getCString(value) };
-	let string = if pointer.is_null() {
+			CppAbi::MsvcX86 => "__thiscall ",
+			CppAbi::Itanium | CppAbi::ItaniumX86 | CppAbi::Msvc => "",
+		};
+		let _ = writeln!(
+			aliases,
+			"using {alias} = auto ({calling_convention}*)({}) -> {result_type};",
+			parameters.join(", ")
+		);
+
+		// Bindgen carries these onto the generated field's documentation.
+		for (position, note) in notes.iter().enumerate() {
+			if position != 0 {
+				let _ = writeln!(fields, "    ///");
+			}
+
+			let _ = writeln!(fields, "    /// {note}");
+		}
+
+		let _ = writeln!(fields, "    {alias} {field};");
+		field_names.push(field);
+	}
+
+	let namespace_context = if record.namespaces.is_empty() {
 		String::new()
 	} else {
-		unsafe { CStr::from_ptr(pointer) }
-			.to_string_lossy()
-			.into_owned()
+		format!("using namespace ::{};\n\n", record.namespaces.join("::"))
 	};
-	unsafe { clang_disposeString(value) };
-	string
-}
+	let source = format!("{namespace_context}{aliases}\nstruct {stem} {{\n{fields}}};\n");
 
-fn ensure_libclang_is_loaded() -> Result<(), CppVtableError> {
-	if is_loaded() {
-		return Ok(());
-	}
-
-	static LIBCLANG: OnceLock<Result<Arc<SharedLibrary>, String>> = OnceLock::new();
-
-	let library = LIBCLANG.get_or_init(|| load_manually().map(Arc::new));
-
-	match library {
-		Ok(library) => {
-			set_library(Some(library.clone()));
-			Ok(())
-		}
-
-		Err(error) => Err(CppVtableError::LoadLibclang(error.clone())),
-	}
-}
-
-fn is_cpp_identifier_character(character: char) -> bool {
-	character == '_' || character.is_alphanumeric()
-}
-
-fn lexically_absolute_path(path: &Path) -> PathBuf {
-	let absolute = if path.is_absolute() {
-		path.to_path_buf()
-	} else if let Ok(current_dir) = std::env::current_dir() {
-		current_dir.join(path)
-	} else {
-		path.to_path_buf()
-	};
-
-	let mut normalized = PathBuf::new();
-
-	for component in absolute.components() {
-		match component {
-			std::path::Component::CurDir => {}
-			std::path::Component::ParentDir => {
-				normalized.pop();
-			}
-			_ => normalized.push(component.as_os_str()),
-		}
-	}
-
-	normalized
-}
-
-fn new_destructor_slots(method: &VirtualMethod, abi: CppAbi) -> Vec<VtableSlot> {
-	match abi {
-		CppAbi::Itanium | CppAbi::ItaniumX86 => vec![
-			VtableSlot::new(VtableSlotKind::ItaniumCompleteDestructor, method.clone()),
-			VtableSlot::new(VtableSlotKind::ItaniumDeletingDestructor, method.clone()),
-		],
-		CppAbi::Msvc | CppAbi::MsvcX86 => vec![VtableSlot::new(
-			VtableSlotKind::MsvcScalarDeletingDestructor,
-			method.clone(),
-		)],
-	}
-}
-
-fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
-	if let Some(message) = payload.downcast_ref::<&str>() {
-		(*message).to_owned()
-	} else if let Some(message) = payload.downcast_ref::<String>() {
-		message.clone()
-	} else {
-		"unknown panic payload".to_owned()
-	}
+	Ok(VtableProbe {
+		record: qualified_record_name.to_owned(),
+		stem,
+		field_names,
+		source,
+		layout: layout.clone(),
+	})
 }
 
 fn replace_slot_method(slot: &mut VtableSlot, method: &VirtualMethod) {
@@ -2115,202 +2353,6 @@ fn replace_unqualified_identifier(spelling: &str, name: &str, replacement: &str)
 
 	rendered.push_str(remaining);
 	rendered
-}
-
-/// Spells a virtual method's result and parameters, `this` first, the way the
-/// C++ ABI actually passes them, with a note for each by-value class lowered
-/// to a pointer.
-///
-/// Bindgen would otherwise model a class like a C struct of the same layout.
-/// That is wrong for an argument the C++ ABI passes as the address of a
-/// temporary copy (see [`CppAbi::passes_record_indirectly`]), and for a result
-/// returned through a hidden pointer the C ABI would not use (see
-/// [`CppAbi::record_return`]).
-fn lower_method_signature(
-	method: &VirtualMethod,
-	this: String,
-	abi: CppAbi,
-	call_traits: &RecordCallTraitIndex,
-) -> Result<(String, Vec<String>, Vec<String>), CppVtableError> {
-	let traits = |record: &RecordValue| {
-		call_traits
-			.get(&record.canonical_spelling)
-			.copied()
-			.ok_or_else(|| CppVtableError::MissingCallTraits {
-				record: record.canonical_spelling.clone(),
-			})
-	};
-
-	let mut result_type = method.result_type.clone();
-	let mut parameters = vec![this];
-	let mut notes = Vec::new();
-
-	if let Some(record) = &method.result_record {
-		let position = match abi.record_return(traits(record)?) {
-			RecordReturn::Direct => None,
-			RecordReturn::BeforeThis => Some(0),
-			RecordReturn::AfterThis => Some(1),
-		};
-
-		if let Some(position) = position {
-			let pointer = format!("{} *", record.unqualified_spelling);
-
-			parameters.insert(position, pointer.clone());
-			result_type = pointer;
-			notes.push(format!(
-				"C++ returns `{}` by value. `arg{}` is the hidden result pointer: the callee \
-				 constructs the result in the uninitialized storage it points to, and returns it.",
-				record.unqualified_spelling,
-				position + 1,
-			));
-		}
-	}
-
-	for parameter in &method.parameters {
-		let Some(record) = &parameter.record else {
-			parameters.push(parameter.type_spelling.clone());
-			continue;
-		};
-
-		if !abi.passes_record_indirectly(traits(record)?) {
-			parameters.push(parameter.type_spelling.clone());
-			continue;
-		}
-
-		parameters.push(format!("{} *", record.unqualified_spelling));
-
-		let destroyed_by = if abi.is_microsoft() {
-			"the callee destroys it"
-		} else {
-			"the caller destroys it after the call"
-		};
-
-		notes.push(format!(
-			"C++ takes `{}` by value. `arg{}` points to a temporary copy the caller makes; the \
-			 callee may modify it, and {destroyed_by}.",
-			record.unqualified_spelling,
-			parameters.len(),
-		));
-	}
-
-	Ok((result_type, parameters, notes))
-}
-
-/// Renders a typed synthetic vtable probe for one modeled layout.
-///
-/// `call_traits` must describe every record in
-/// [`VtableLayout::by_value_records`], as [`query_record_call_traits`] does.
-pub(crate) fn render_vtable_probe(
-	records: &RecordIndex,
-	layout: &VtableLayout,
-	call_traits: &RecordCallTraitIndex,
-) -> Result<VtableProbe, CppVtableError> {
-	let qualified_record_name = layout.record.as_str();
-	let abi = layout.abi;
-	let record = records
-		.record(qualified_record_name)
-		.ok_or_else(|| CppVtableError::MissingRecord(qualified_record_name.to_owned()))?;
-	let stem = vtable_probe_stem(qualified_record_name);
-	let record_identifier = stem.strip_prefix("__crys_vtable_").unwrap_or(&stem);
-	let this_type = if qualified_record_name.starts_with("::") {
-		qualified_record_name.to_owned()
-	} else {
-		format!("::{qualified_record_name}")
-	};
-	let mut aliases = String::new();
-	let mut fields = String::new();
-	let mut field_names = Vec::with_capacity(layout.slots.len());
-
-	for (index, slot) in layout.slots.iter().enumerate() {
-		let alias = format!("{stem}_slot_{index:03}_type");
-		let field = match slot.kind {
-			VtableSlotKind::Method => {
-				let method_name = sanitize_identifier_fragment(&slot.method.name);
-				let suffix = if slot.overload_index == 0 {
-					String::new()
-				} else {
-					slot.overload_index.to_string()
-				};
-				format!("{record_identifier}_{method_name}{suffix}")
-			}
-			VtableSlotKind::ItaniumCompleteDestructor => {
-				format!("{record_identifier}_complete_destructor")
-			}
-			VtableSlotKind::ItaniumDeletingDestructor => {
-				format!("{record_identifier}_deleting_destructor")
-			}
-			VtableSlotKind::MsvcScalarDeletingDestructor => {
-				format!("{record_identifier}_destructor")
-			}
-		};
-		let (result_type, mut parameters, notes) = match slot.kind {
-			VtableSlotKind::Method => {
-				let this = if slot.method.is_const {
-					format!("const {this_type} *")
-				} else {
-					format!("{this_type} *")
-				};
-				lower_method_signature(&slot.method, this, abi, call_traits)?
-			}
-			VtableSlotKind::ItaniumCompleteDestructor
-			| VtableSlotKind::ItaniumDeletingDestructor => (
-				"void".to_owned(),
-				vec![format!("{this_type} *")],
-				Vec::new(),
-			),
-			VtableSlotKind::MsvcScalarDeletingDestructor => (
-				"void *".to_owned(),
-				vec![format!("{this_type} *"), "unsigned int".to_owned()],
-				Vec::new(),
-			),
-		};
-
-		if slot.kind == VtableSlotKind::Method && slot.method.is_variadic {
-			parameters.push("...".to_owned());
-		}
-
-		let calling_convention = match abi {
-			// MSVC variadic member functions use cdecl so the caller can clean
-			// the variable argument list; ordinary x86 member calls use thiscall.
-			CppAbi::MsvcX86 if slot.kind == VtableSlotKind::Method && slot.method.is_variadic => {
-				"__cdecl "
-			}
-			CppAbi::MsvcX86 => "__thiscall ",
-			CppAbi::Itanium | CppAbi::ItaniumX86 | CppAbi::Msvc => "",
-		};
-		let _ = writeln!(
-			aliases,
-			"using {alias} = auto ({calling_convention}*)({}) -> {result_type};",
-			parameters.join(", ")
-		);
-
-		// Bindgen carries these onto the generated field's documentation.
-		for (position, note) in notes.iter().enumerate() {
-			if position != 0 {
-				let _ = writeln!(fields, "    ///");
-			}
-
-			let _ = writeln!(fields, "    /// {note}");
-		}
-
-		let _ = writeln!(fields, "    {alias} {field};");
-		field_names.push(field);
-	}
-
-	let namespace_context = if record.namespaces.is_empty() {
-		String::new()
-	} else {
-		format!("using namespace ::{};\n\n", record.namespaces.join("::"))
-	};
-	let source = format!("{namespace_context}{aliases}\nstruct {stem} {{\n{fields}}};\n");
-
-	Ok(VtableProbe {
-		record: qualified_record_name.to_owned(),
-		stem,
-		field_names,
-		source,
-		layout: layout.clone(),
-	})
 }
 
 fn sanitize_identifier_fragment(value: &str) -> String {
@@ -2372,91 +2414,12 @@ pub(crate) fn vtable_probe_stem(qualified_record_name: &str) -> String {
 
 	format!("__crys_vtable_{sanitized}")
 }
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use std::fs;
 	use std::sync::atomic::{AtomicUsize, Ordering};
-
-	static TEMP_FIXTURE_ID: AtomicUsize = AtomicUsize::new(0);
-
-	struct TempFixture(PathBuf);
-
-	impl TempFixture {
-		fn new() -> Self {
-			let id = TEMP_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
-			let path = std::env::temp_dir().join(format!(
-				"source-sdk-vtable-test-{}-{id}",
-				std::process::id()
-			));
-			fs::create_dir_all(&path).unwrap();
-			Self(path)
-		}
-	}
-
-	impl Drop for TempFixture {
-		fn drop(&mut self) {
-			let _ = fs::remove_dir_all(&self.0);
-		}
-	}
-
-	fn records(source: &str) -> RecordIndex {
-		collect_records(
-			"cpp_vtable_fixture.cpp",
-			source,
-			&["-x".to_owned(), "c++".to_owned(), "-std=c++17".to_owned()],
-		)
-		.unwrap()
-	}
-
-	fn probe(records: &RecordIndex, record: &str, abi: CppAbi) -> VtableProbe {
-		render_vtable_probe(
-			records,
-			&records.vtable_layout(record, abi).unwrap(),
-			&RecordCallTraitIndex::new(),
-		)
-		.unwrap()
-	}
-
-	fn target_arguments(target: &str) -> Vec<String> {
-		vec![
-			"-x".to_owned(),
-			"c++".to_owned(),
-			"-std=c++17".to_owned(),
-			format!("--target={target}"),
-		]
-	}
-
-	/// Renders `record`'s probe with the call traits Clang evaluates for
-	/// `target`, and checks that the probe is still valid C++ there.
-	fn lowered_probe(source: &str, record: &str, target: &str, abi: CppAbi) -> VtableProbe {
-		const FILE: &str = "call_lowering_fixture.cpp";
-
-		let arguments = target_arguments(target);
-		let index = collect_records(FILE, source, &arguments).unwrap();
-		let layout = index.vtable_layout(record, abi).unwrap();
-		let traits =
-			query_record_call_traits(FILE, source, &arguments, layout.by_value_records()).unwrap();
-		let probe = render_vtable_probe(&index, &layout, &traits).unwrap();
-
-		collect_records(FILE, &format!("{source}\n{}", probe.source), &arguments).unwrap();
-
-		probe
-	}
-
-	/// The alias of the slot named `field`, from `using` to `;`.
-	fn slot_alias<'a>(probe: &'a VtableProbe, field: &str) -> &'a str {
-		let position = probe
-			.field_names
-			.iter()
-			.position(|name| name == field)
-			.unwrap_or_else(|| panic!("no slot {field:?} in {:?}", probe.field_names));
-		let alias = format!("using {}_slot_{position:03}_type = ", probe.stem);
-		let start = probe.source.find(&alias).unwrap() + alias.len();
-		let end = start + probe.source[start..].find(";\n").unwrap();
-
-		&probe.source[start..end]
-	}
 
 	/// A class with a user-provided copy constructor, like `CBaseHandle`.
 	const CALL_LOWERING_FIXTURE: &str = r#"
@@ -2485,6 +2448,1161 @@ mod tests {
 			virtual void by_const_alias(const HandleAlias value) = 0;
 		};
 		"#;
+
+	static TEMP_FIXTURE_ID: AtomicUsize = AtomicUsize::new(0);
+
+	struct TempFixture(PathBuf);
+
+	impl TempFixture {
+		fn new() -> Self {
+			let id = TEMP_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+			let path = std::env::temp_dir().join(format!(
+				"source-sdk-vtable-test-{}-{id}",
+				std::process::id()
+			));
+			fs::create_dir_all(&path).unwrap();
+			Self(path)
+		}
+	}
+
+	impl Drop for TempFixture {
+		fn drop(&mut self) {
+			let _ = fs::remove_dir_all(&self.0);
+		}
+	}
+
+	#[test]
+	fn bindgen_can_consume_the_rendered_aliases_and_struct() {
+		let fixture = r#"
+			struct ProbeTarget {
+				virtual int call(double value) const = 0;
+			};
+			"#;
+		let index = records(fixture);
+		let probe = probe(&index, "ProbeTarget", CppAbi::Itanium);
+		let source = format!("{fixture}\n{}", probe.source);
+		let bindings = bindgen::builder()
+			.header_contents("cpp_vtable_bindgen_fixture.hpp", &source)
+			.clang_args(["-x", "c++", "-std=c++17"])
+			.allowlist_type("__crys_vtable_ProbeTarget")
+			.generate()
+			.unwrap()
+			.to_string();
+
+		assert!(bindings.contains("pub type __crys_vtable_ProbeTarget_slot_000_type"));
+		assert!(bindings.contains("pub struct __crys_vtable_ProbeTarget"));
+		assert!(bindings.contains("pub ProbeTarget_call:"));
+	}
+
+	#[test]
+	fn clang_evaluates_the_special_members_which_decide_call_lowering() {
+		let values = ["::Handle", "::Plain", "::Assigned", "::Owner"].map(|spelling| RecordValue {
+			canonical_spelling: spelling.to_owned(),
+			unqualified_spelling: spelling.to_owned(),
+		});
+
+		for target in ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"] {
+			let traits = query_record_call_traits(
+				"call_traits_fixture.cpp",
+				CALL_LOWERING_FIXTURE,
+				&target_arguments(target),
+				&values,
+			)
+			.unwrap();
+
+			// Without a move constructor, `T &&` selects the copy constructor.
+			assert_eq!(
+				traits["::Handle"],
+				RecordCallTraits {
+					copy_constructible: true,
+					trivial_copy_constructor: false,
+					move_constructible: true,
+					trivially_move_constructible: false,
+					trivially_destructible: true,
+					size: 4,
+				}
+			);
+			assert_eq!(
+				traits["::Plain"],
+				RecordCallTraits {
+					copy_constructible: true,
+					trivial_copy_constructor: true,
+					move_constructible: true,
+					trivially_move_constructible: true,
+					trivially_destructible: true,
+					size: 12,
+				}
+			);
+			assert!(!traits["::Handle"].itanium_passes_as_c_struct());
+			assert!(!traits["::Handle"].msvc_x64_passes_as_c_struct());
+			assert!(traits["::Plain"].itanium_passes_as_c_struct());
+			assert!(traits["::Plain"].msvc_x64_passes_as_c_struct());
+
+			// A copy assignment operator never affects how a class is passed.
+			assert!(traits["::Assigned"].itanium_passes_as_c_struct());
+			assert!(traits["::Assigned"].msvc_x64_passes_as_c_struct());
+
+			// MSVC passes a register-sized class with a destructor directly.
+			assert!(traits["::Owner"].trivial_copy_constructor);
+			assert!(!traits["::Owner"].trivially_destructible);
+			assert!(!traits["::Owner"].itanium_passes_as_c_struct());
+			assert!(traits["::Owner"].msvc_x64_passes_as_c_struct());
+		}
+	}
+
+	#[test]
+	fn collects_by_value_records_through_aliases_and_qualifiers() {
+		let index = records(CALL_LOWERING_FIXTURE);
+		let methods = &index.record("Interface").unwrap().virtual_methods;
+		let record = |canonical: &str, unqualified: &str| {
+			Some(RecordValue {
+				canonical_spelling: canonical.to_owned(),
+				unqualified_spelling: unqualified.to_owned(),
+			})
+		};
+
+		assert_eq!(methods[0].parameters[0].record, None);
+		assert_eq!(
+			methods[0].parameters[1].record,
+			record("::Handle", "::Handle")
+		);
+		assert_eq!(methods[0].result_record, None);
+		assert_eq!(methods[1].result_record, record("::Plain", "::Plain"));
+		assert_eq!(methods[5].parameters[0].record, None);
+		assert_eq!(
+			methods[6].parameters[0].type_spelling,
+			"const ::HandleAlias"
+		);
+		assert_eq!(
+			methods[6].parameters[0].record,
+			record("::Handle", "::HandleAlias")
+		);
+	}
+
+	#[test]
+	fn collects_inline_virtual_method_metadata() {
+		let records = records(
+			r#"
+			namespace fixture {
+			class Inline {
+			public:
+				virtual int value(double amount, ...) const { return static_cast<int>(amount); }
+			};
+			}
+			"#,
+		);
+		let record = records.record("fixture::Inline").unwrap();
+		assert_eq!(record.name, "Inline");
+		assert!(
+			record
+				.source_path
+				.as_ref()
+				.unwrap()
+				.ends_with("cpp_vtable_fixture.cpp")
+		);
+		assert!(record.bases.is_empty());
+		assert_eq!(record.virtual_methods.len(), 1);
+
+		let method = &record.virtual_methods[0];
+		assert_eq!(method.name, "value");
+		assert_eq!(method.qualified_name, "fixture::Inline::value");
+		assert_eq!(method.kind, VirtualMethodKind::Method);
+		assert!(method.is_const);
+		assert_eq!(method.result_type, "int");
+		assert_eq!(
+			method.parameters,
+			[Parameter {
+				name: "amount".to_owned(),
+				type_spelling: "double".to_owned(),
+				record: None,
+			}]
+		);
+		assert!(method.is_variadic);
+		assert!(method.overrides.is_empty());
+	}
+
+	#[test]
+	fn derived_destructor_replaces_the_inherited_destructor_group() {
+		let index = records(
+			r#"
+			struct Base {
+				virtual ~Base() = default;
+			};
+			struct Derived : Base {
+				~Derived() override = default;
+			};
+			"#,
+		);
+		let derived = index.record("Derived").unwrap();
+		assert_eq!(derived.virtual_methods.len(), 1);
+		assert_eq!(
+			derived.virtual_methods[0].kind,
+			VirtualMethodKind::Destructor
+		);
+
+		let layout = index.vtable_layout("Derived", CppAbi::Itanium).unwrap();
+		assert_eq!(layout.slots.len(), 2);
+		assert!(
+			layout
+				.slots
+				.iter()
+				.all(|slot| slot.method.qualified_name == "Derived::~Derived")
+		);
+	}
+
+	#[test]
+	fn distinguishes_nonpolymorphic_inheritance_from_inherited_virtual_slots() {
+		let records = records(
+			r#"
+			struct PlainLeft {};
+			struct PlainRight {};
+			struct PlainMultiple : PlainLeft, PlainRight {};
+			struct PlainVirtual : virtual PlainLeft {};
+			struct PlainChain : PlainMultiple {};
+			struct Polymorphic { virtual void call() = 0; };
+			struct InheritedPolymorphic : PlainLeft, Polymorphic {};
+			"#,
+		);
+
+		for record in [
+			"PlainLeft",
+			"PlainRight",
+			"PlainMultiple",
+			"PlainVirtual",
+			"PlainChain",
+		] {
+			assert!(
+				!records.has_virtual_slots(record).unwrap(),
+				"{record} unexpectedly has virtual slots"
+			);
+		}
+		assert!(records.has_virtual_slots("Polymorphic").unwrap());
+		assert!(records.has_virtual_slots("InheritedPolymorphic").unwrap());
+	}
+
+	#[test]
+	fn expands_destructor_at_its_declaration_position() {
+		let records = records(
+			r#"
+			struct Ordered {
+				virtual void first() = 0;
+				virtual ~Ordered() {}
+				virtual int last(char value) = 0;
+			};
+			"#,
+		);
+		let record = records.record("Ordered").unwrap();
+		assert_eq!(
+			record
+				.virtual_methods
+				.iter()
+				.map(|method| method.name.as_str())
+				.collect::<Vec<_>>(),
+			["first", "~Ordered", "last"]
+		);
+
+		let itanium = records.vtable_layout("Ordered", CppAbi::Itanium).unwrap();
+		assert_eq!(
+			itanium
+				.slots
+				.iter()
+				.map(|slot| slot.kind)
+				.collect::<Vec<_>>(),
+			[
+				VtableSlotKind::Method,
+				VtableSlotKind::ItaniumCompleteDestructor,
+				VtableSlotKind::ItaniumDeletingDestructor,
+				VtableSlotKind::Method,
+			]
+		);
+		assert_eq!(itanium.slots[3].method.name, "last");
+
+		let msvc = records.vtable_layout("Ordered", CppAbi::Msvc).unwrap();
+		assert_eq!(
+			msvc.slots.iter().map(|slot| slot.kind).collect::<Vec<_>>(),
+			[
+				VtableSlotKind::Method,
+				VtableSlotKind::MsvcScalarDeletingDestructor,
+				VtableSlotKind::Method,
+			]
+		);
+	}
+
+	#[test]
+	fn globally_qualifies_nested_result_and_parameter_types() {
+		let fixture = r#"
+			struct Outer {
+				enum Result { Found, Missing };
+				using ResultAlias = Result;
+				virtual Result find(ResultAlias previous, const Result *fallback) = 0;
+			};
+			"#;
+		let index = records(fixture);
+		let method = &index.record("Outer").unwrap().virtual_methods[0];
+		assert_eq!(method.result_type, "::Outer::Result");
+		assert_eq!(method.parameters[0].type_spelling, "::Outer::ResultAlias");
+		assert_eq!(
+			method.parameters[1].type_spelling,
+			"const ::Outer::Result *"
+		);
+
+		let probe = probe(&index, "Outer", CppAbi::Itanium);
+		let _ = records(&format!("{fixture}\n{}", probe.source));
+	}
+
+	#[test]
+	fn includes_union_scopes_in_qualified_names() {
+		let records = records(
+			r#"
+			class CSteamID {
+				union SteamID_t {
+					struct SteamIDComponent_t { unsigned int m_unAccountID; } m_comp;
+					unsigned long long m_unAll64Bits;
+				} m_steamid;
+			};
+			"#,
+		);
+
+		assert!(
+			records
+				.record("CSteamID::SteamID_t::SteamIDComponent_t")
+				.is_some()
+		);
+		assert!(records.record("CSteamID::SteamIDComponent_t").is_none());
+	}
+
+	#[test]
+	fn itanium_passes_non_trivial_classes_by_pointer_and_returns_them_before_this() {
+		let probe = lowered_probe(
+			CALL_LOWERING_FIXTURE,
+			"Interface",
+			"x86_64-unknown-linux-gnu",
+			CppAbi::Itanium,
+		);
+
+		assert_eq!(
+			slot_alias(&probe, "Interface_accept"),
+			"auto (*)(::Interface *, const char *, ::Handle *, int) -> bool"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_position"),
+			"auto (*)(const ::Interface *) -> ::Plain"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_handle"),
+			"auto (*)(::Handle *, ::Interface *) -> ::Handle *"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_assigned"),
+			"auto (*)(::Interface *, ::Assigned) -> void"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_owner"),
+			"auto (*)(::Interface *, ::Owner *) -> void"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_by_reference"),
+			"auto (*)(::Interface *, const ::Handle &) -> void"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_by_const_alias"),
+			"auto (*)(::Interface *, ::HandleAlias *) -> void"
+		);
+		assert!(probe.source.contains(
+			"    /// C++ takes `::Handle` by value. `arg3` points to a temporary copy the caller \
+			 makes; the callee may modify it, and the caller destroys it after the call.\n    \
+			 __crys_vtable_Interface_slot_000_type Interface_accept;"
+		));
+		assert!(probe.source.contains(
+			"    /// C++ returns `::Handle` by value. `arg1` is the hidden result pointer"
+		));
+	}
+
+	#[test]
+	fn itanium_x86_returns_classes_as_c_structs() {
+		let probe = lowered_probe(
+			CALL_LOWERING_FIXTURE,
+			"Interface",
+			"i686-unknown-linux-gnu",
+			CppAbi::ItaniumX86,
+		);
+
+		assert_eq!(
+			slot_alias(&probe, "Interface_accept"),
+			"auto (*)(::Interface *, const char *, ::Handle *, int) -> bool"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_handle"),
+			"auto (*)(::Interface *) -> ::Handle"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_owner"),
+			"auto (*)(::Interface *, ::Owner *) -> void"
+		);
+	}
+
+	#[test]
+	fn keys_explicit_specializations_by_their_template_arguments() {
+		let records = records(
+			r#"
+			enum fieldtype_t { FIELD_INTEGER, FIELD_VECTOR, FIELD_POSITION_VECTOR };
+			class Vector { public: float x, y, z; };
+			class CBaseEntityOutput { public: ~CBaseEntityOutput(); protected: int m_Value; };
+
+			template <class Type, fieldtype_t fieldType>
+			class CEntityOutputTemplate : public CBaseEntityOutput {
+			public:
+				void Init(Type value) {}
+				class Iterator { int index; };
+			};
+
+			template <>
+			class CEntityOutputTemplate<class Vector, FIELD_VECTOR> : public CBaseEntityOutput {
+			public:
+				void Get(Vector &vec) {}
+				class Iterator { virtual void next(); };
+			};
+
+			template <>
+			class CEntityOutputTemplate<class Vector, FIELD_POSITION_VECTOR> : public CBaseEntityOutput {
+			public:
+				void Get(Vector &vec) {}
+			};
+
+			typedef CEntityOutputTemplate<int, FIELD_INTEGER> COutputInt;
+			typedef CEntityOutputTemplate<Vector, FIELD_VECTOR> COutputVector;
+
+			template class CEntityOutputTemplate<float, FIELD_INTEGER>;
+			"#,
+		);
+
+		let roles = [
+			("CEntityOutputTemplate", TemplateRole::Pattern),
+			(
+				"CEntityOutputTemplate::Iterator",
+				TemplateRole::DependentMember,
+			),
+			(
+				"CEntityOutputTemplate<class Vector, FIELD_VECTOR>",
+				TemplateRole::ExplicitSpecialization,
+			),
+			(
+				"CEntityOutputTemplate<class Vector, FIELD_VECTOR>::Iterator",
+				TemplateRole::None,
+			),
+			(
+				"CEntityOutputTemplate<class Vector, FIELD_POSITION_VECTOR>",
+				TemplateRole::ExplicitSpecialization,
+			),
+			(
+				"CEntityOutputTemplate<float, FIELD_INTEGER>",
+				TemplateRole::ExplicitInstantiation,
+			),
+			("CBaseEntityOutput", TemplateRole::None),
+		];
+
+		for (record, role) in roles {
+			assert_eq!(
+				records.record(record).map(|record| record.template),
+				Some(role),
+				"{record}"
+			);
+		}
+
+		for record in [
+			"CEntityOutputTemplate",
+			"CEntityOutputTemplate<class Vector, FIELD_VECTOR>",
+			"CBaseEntityOutput",
+		] {
+			assert_eq!(
+				records.vtable_model(record, CppAbi::Itanium).unwrap(),
+				VtableModel::NotPolymorphic,
+				"{record}"
+			);
+		}
+
+		// A member of an explicit specialization is a concrete record.
+		assert_eq!(
+			slot_names(
+				&records,
+				"CEntityOutputTemplate<class Vector, FIELD_VECTOR>::Iterator",
+				CppAbi::Msvc
+			),
+			["next()"]
+		);
+	}
+
+	/// Renders `record`'s probe with the call traits Clang evaluates for
+	/// `target`, and checks that the probe is still valid C++ there.
+	fn lowered_probe(source: &str, record: &str, target: &str, abi: CppAbi) -> VtableProbe {
+		const FILE: &str = "call_lowering_fixture.cpp";
+
+		let arguments = target_arguments(target);
+		let index = collect_records(FILE, source, &arguments).unwrap();
+		let layout = index.vtable_layout(record, abi).unwrap();
+		let traits =
+			query_record_call_traits(FILE, source, &arguments, layout.by_value_records()).unwrap();
+		let probe = render_vtable_probe(&index, &layout, &traits).unwrap();
+
+		collect_records(FILE, &format!("{source}\n{}", probe.source), &arguments).unwrap();
+
+		probe
+	}
+
+	/// Expected orders are Clang's own `-fdump-vtable-layouts` output for
+	/// `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu`.
+	#[test]
+	fn microsoft_abi_groups_and_reverses_new_overloads() {
+		let fixture = r#"
+			struct Vector { float x, y, z; };
+			struct IServerToolsLike {
+				virtual ~IServerToolsLike();
+				virtual bool GetKeyValue(const char *field) = 0;
+				virtual bool SetKeyValue(const char *field, const char *value) = 0;
+				virtual bool SetKeyValue(const char *field, float value) = 0;
+				virtual bool SetKeyValue(const char *field, const Vector &value) = 0;
+				virtual void Other() = 0;
+			};
+
+			struct S {
+				void f(double);
+				virtual void g();
+				virtual void f(int);
+				virtual ~S();
+				virtual void a();
+				int h;
+				virtual void h2();
+			};
+
+			struct B { virtual void f(int); virtual void z(); };
+			struct D : B {
+				virtual void f(double);
+				virtual void y();
+				virtual void f(char);
+				void f(int) override;
+				using B::z;
+				virtual void z(int);
+			};
+			"#;
+		let index = records(fixture);
+
+		assert_eq!(
+			slot_names(&index, "IServerToolsLike", CppAbi::Msvc),
+			[
+				"~scalar",
+				"GetKeyValue(const char *)",
+				"SetKeyValue(const char *, const Vector &)",
+				"SetKeyValue(const char *, float)",
+				"SetKeyValue(const char *, const char *)",
+				"Other()",
+			]
+		);
+		assert_eq!(
+			slot_names(&index, "IServerToolsLike", CppAbi::Itanium),
+			[
+				"~complete",
+				"~deleting",
+				"GetKeyValue(const char *)",
+				"SetKeyValue(const char *, const char *)",
+				"SetKeyValue(const char *, float)",
+				"SetKeyValue(const char *, const Vector &)",
+				"Other()",
+			]
+		);
+
+		assert_eq!(
+			slot_names(&index, "S", CppAbi::Msvc),
+			["f(int)", "g()", "~scalar", "a()", "h2()"]
+		);
+		assert_eq!(
+			slot_names(&index, "S", CppAbi::Itanium),
+			["g()", "f(int)", "~complete", "~deleting", "a()", "h2()"]
+		);
+
+		assert_eq!(
+			slot_names(&index, "D", CppAbi::Msvc),
+			["f(int)", "z()", "f(char)", "f(double)", "y()", "z(int)"]
+		);
+		assert_eq!(
+			slot_names(&index, "D", CppAbi::Itanium),
+			["f(int)", "z()", "f(double)", "y()", "f(char)", "z(int)"]
+		);
+
+		let _ = records(&format!(
+			"{fixture}\n{}",
+			probe(&index, "D", CppAbi::MsvcX86).source
+		));
+	}
+
+	#[test]
+	fn msvc_x64_passes_non_trivial_classes_by_pointer_and_returns_every_class_after_this() {
+		let probe = lowered_probe(
+			CALL_LOWERING_FIXTURE,
+			"Interface",
+			"x86_64-pc-windows-msvc",
+			CppAbi::Msvc,
+		);
+
+		assert_eq!(
+			slot_alias(&probe, "Interface_accept"),
+			"auto (*)(::Interface *, const char *, ::Handle *, int) -> bool"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_position"),
+			"auto (*)(const ::Interface *, ::Plain *) -> ::Plain *"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_handle"),
+			"auto (*)(::Interface *, ::Handle *) -> ::Handle *"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_assigned"),
+			"auto (*)(::Interface *, ::Assigned) -> void"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_owner"),
+			"auto (*)(::Interface *, ::Owner) -> void"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_by_const_alias"),
+			"auto (*)(::Interface *, ::HandleAlias *) -> void"
+		);
+		assert!(probe.source.contains(
+			"the callee may modify it, and the callee destroys it.\n    \
+			 __crys_vtable_Interface_slot_000_type Interface_accept;"
+		));
+
+		let source = format!("{CALL_LOWERING_FIXTURE}\n{}", probe.source);
+		let bindings = bindgen::builder()
+			.header_contents("call_lowering_bindgen_fixture.hpp", &source)
+			.clang_args(target_arguments("x86_64-pc-windows-msvc"))
+			.allowlist_type("__crys_vtable_Interface")
+			.generate()
+			.unwrap()
+			.to_string()
+			.split_whitespace()
+			.collect::<String>();
+
+		assert!(
+			bindings.contains("arg1:*constInterface,arg2:*mutPlain)->*mutPlain"),
+			"generated bindings:\n{bindings}"
+		);
+		assert!(
+			bindings.contains("isthehiddenresultpointer"),
+			"generated bindings:\n{bindings}"
+		);
+	}
+
+	#[test]
+	fn msvc_x86_passes_classes_in_place_and_returns_them_after_this() {
+		let probe = lowered_probe(
+			CALL_LOWERING_FIXTURE,
+			"Interface",
+			"i686-pc-windows-msvc",
+			CppAbi::MsvcX86,
+		);
+
+		assert_eq!(
+			slot_alias(&probe, "Interface_accept"),
+			"auto (__thiscall *)(::Interface *, const char *, ::Handle, int) -> bool"
+		);
+		assert_eq!(
+			slot_alias(&probe, "Interface_position"),
+			"auto (__thiscall *)(const ::Interface *, ::Plain *) -> ::Plain *"
+		);
+	}
+
+	#[test]
+	fn overload_field_names_follow_declaration_order_under_every_abi() {
+		let records = records(
+			r#"
+			struct Vector { float x, y, z; };
+			struct Tools {
+				virtual bool SetKeyValue(const char *field, const char *value) = 0;
+				virtual bool SetKeyValue(const char *field, float value) = 0;
+				virtual bool SetKeyValue(const char *field, const Vector &value) = 0;
+			};
+			struct MoreTools : Tools { virtual bool SetKeyValue(const char *field, int value) = 0; };
+			"#,
+		);
+
+		let named = |abi| {
+			let probe = probe(&records, "MoreTools", abi);
+			probe
+				.field_names
+				.iter()
+				.cloned()
+				.zip(
+					probe
+						.layout
+						.slots
+						.iter()
+						.map(|slot| slot.method.display_name.clone()),
+				)
+				.collect::<BTreeMap<_, _>>()
+		};
+
+		let itanium = named(CppAbi::Itanium);
+		assert_eq!(itanium, named(CppAbi::Msvc));
+		assert_eq!(
+			itanium["MoreTools_SetKeyValue"],
+			"SetKeyValue(const char *, const char *)"
+		);
+		assert_eq!(
+			itanium["MoreTools_SetKeyValue2"],
+			"SetKeyValue(const char *, const Vector &)"
+		);
+		assert_eq!(
+			itanium["MoreTools_SetKeyValue3"],
+			"SetKeyValue(const char *, int)"
+		);
+
+		assert_eq!(
+			probe(&records, "MoreTools", CppAbi::Msvc).field_names,
+			[
+				"MoreTools_SetKeyValue2",
+				"MoreTools_SetKeyValue1",
+				"MoreTools_SetKeyValue",
+				"MoreTools_SetKeyValue3"
+			]
+		);
+	}
+
+	#[test]
+	fn preserves_overloaded_virtuals_as_distinct_slots() {
+		let records = records(
+			r#"
+			struct Overloaded {
+				virtual void call(int value) = 0;
+				virtual void call(double value) = 0;
+			};
+			"#,
+		);
+		let layout = records
+			.vtable_layout("Overloaded", CppAbi::Itanium)
+			.unwrap();
+		assert_eq!(layout.slots.len(), 2);
+		assert_eq!(layout.slots[0].method.parameters[0].type_spelling, "int");
+		assert_eq!(layout.slots[1].method.parameters[0].type_spelling, "double");
+
+		let probe = probe(&records, "Overloaded", CppAbi::Itanium);
+		assert!(
+			probe
+				.source
+				.contains("__crys_vtable_Overloaded_slot_000_type")
+		);
+		assert!(
+			probe
+				.source
+				.contains("__crys_vtable_Overloaded_slot_001_type")
+		);
+		assert!(probe.source.contains("Overloaded_call;"));
+		assert!(probe.source.contains("Overloaded_call1;"));
+	}
+
+	fn probe(records: &RecordIndex, record: &str, abi: CppAbi) -> VtableProbe {
+		render_vtable_probe(
+			records,
+			&records.vtable_layout(record, abi).unwrap(),
+			&RecordCallTraitIndex::new(),
+		)
+		.unwrap()
+	}
+
+	fn records(source: &str) -> RecordIndex {
+		collect_records(
+			"cpp_vtable_fixture.cpp",
+			source,
+			&["-x".to_owned(), "c++".to_owned(), "-std=c++17".to_owned()],
+		)
+		.unwrap()
+	}
+
+	#[test]
+	fn records_typedef_names_of_unnamed_records() {
+		let records = records(
+			r#"
+			typedef union { char size[40]; long align; } pthread_mutex_t;
+			typedef struct { int x; } plain_anon_t;
+			typedef struct named_s { int y; } named_t;
+			namespace ns { typedef struct { int z; } nested_t; }
+			"#,
+		);
+
+		assert_eq!(
+			records
+				.typedef_named_anonymous_records()
+				.iter()
+				.map(String::as_str)
+				.collect::<Vec<_>>(),
+			["nested_t", "plain_anon_t", "pthread_mutex_t"]
+		);
+	}
+
+	#[test]
+	fn rendered_probe_keeps_user_type_spellings_valid_at_global_scope() {
+		let fixture = r#"
+			namespace fixture {
+			struct Argument {};
+			struct Typed {
+				virtual Argument * exchange(const Argument & value) = 0;
+			};
+			}
+			"#;
+		let index = records(fixture);
+		let method = &index.record("fixture::Typed").unwrap().virtual_methods[0];
+		assert_eq!(method.result_type, "::fixture::Argument *");
+		assert_eq!(
+			method.parameters[0].type_spelling,
+			"const ::fixture::Argument &"
+		);
+
+		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
+		assert!(probe.source.starts_with("using namespace ::fixture;"));
+		let _ = records(&format!("{fixture}\n{}", probe.source));
+	}
+
+	#[test]
+	fn rendering_a_by_value_class_without_its_call_traits_fails() {
+		let index = records(CALL_LOWERING_FIXTURE);
+		let layout = index.vtable_layout("Interface", CppAbi::Itanium).unwrap();
+
+		assert!(matches!(
+			render_vtable_probe(&index, &layout, &RecordCallTraitIndex::new()),
+			Err(CppVtableError::MissingCallTraits { ref record }) if record == "::Handle"
+		));
+	}
+
+	#[test]
+	fn renders_msvc_x86_slots_with_thiscall() {
+		let fixture = r#"
+			struct Win32Interface {
+				virtual int call(double value) const = 0;
+				virtual void log(const char *message, ...) = 0;
+				virtual ~Win32Interface() = default;
+			};
+			"#;
+		let index = records(fixture);
+		let probe = probe(&index, "Win32Interface", CppAbi::MsvcX86);
+
+		assert!(
+			probe
+				.source
+				.contains("auto (__thiscall *)(const ::Win32Interface *, double) -> int;")
+		);
+		assert!(
+			probe
+				.source
+				.contains("auto (__cdecl *)(::Win32Interface *, const char *, ...) -> void;")
+		);
+		assert!(
+			probe
+				.source
+				.contains("auto (__thiscall *)(::Win32Interface *, unsigned int) -> void *;")
+		);
+		assert_eq!(
+			probe.field_names,
+			[
+				"Win32Interface_call",
+				"Win32Interface_log",
+				"Win32Interface_destructor"
+			]
+		);
+
+		let source = format!("{fixture}\n{}", probe.source);
+		let bindings = bindgen::builder()
+			.header_contents("cpp_vtable_win32_fixture.hpp", &source)
+			.clang_args([
+				"-x",
+				"c++",
+				"-std=c++17",
+				"--target=i686-pc-windows-msvc",
+				"-fms-extensions",
+			])
+			.allowlist_type("__crys_vtable_Win32Interface")
+			.generate()
+			.unwrap()
+			.to_string();
+
+		assert!(
+			bindings.contains("extern \"thiscall\" fn"),
+			"generated bindings:\n{bindings}"
+		);
+		assert!(
+			bindings.contains("extern \"C\" fn"),
+			"generated bindings:\n{bindings}"
+		);
+	}
+
+	#[test]
+	fn renders_typed_destructor_slots_for_both_abis() {
+		let fixture = r#"
+			struct Destroyed {
+				virtual ~Destroyed() = default;
+			};
+			"#;
+		let index = records(fixture);
+		assert_eq!(vtable_probe_stem("Destroyed"), "__crys_vtable_Destroyed");
+
+		let itanium = probe(&index, "Destroyed", CppAbi::Itanium);
+		assert!(itanium.source.contains(
+			"using __crys_vtable_Destroyed_slot_000_type = auto (*)(::Destroyed *) -> void;"
+		));
+		assert!(itanium.source.contains("Destroyed_complete_destructor"));
+		assert!(itanium.source.contains("Destroyed_deleting_destructor"));
+
+		let msvc = probe(&index, "Destroyed", CppAbi::Msvc);
+		assert!(msvc.source.contains(
+			"using __crys_vtable_Destroyed_slot_000_type = auto (*)(::Destroyed *, unsigned int) -> void *;"
+		));
+		assert!(msvc.source.contains("Destroyed_destructor"));
+
+		// The probe is C++ source, rather than only a diagnostic description.
+		// Have libclang parse both renderings to guard their function-pointer syntax.
+		let _ = records(&format!("{fixture}\n{}", itanium.source));
+		let _ = records(&format!("{fixture}\n{}", msvc.source));
+	}
+
+	#[test]
+	fn replaces_primary_base_slot_for_override_and_appends_new_virtual() {
+		let records = records(
+			r#"
+			namespace fixture {
+			struct Base {
+				virtual int keep(double value) = 0;
+				virtual int replace(int value) = 0;
+			};
+			struct Derived : Base {
+				int replace(int value) override { return value; }
+				virtual void added() = 0;
+			};
+			}
+			"#,
+		);
+		let derived = records.record("fixture::Derived").unwrap();
+		assert_eq!(
+			derived.bases,
+			[BaseRecord {
+				qualified_name: "fixture::Base".to_owned(),
+				type_spelling: "Base".to_owned(),
+				is_virtual: false,
+				target: BaseTarget::Record,
+			}]
+		);
+		assert_eq!(derived.virtual_methods[0].name, "replace");
+		assert_eq!(derived.virtual_methods[0].overrides.len(), 1);
+		assert_eq!(
+			derived.virtual_methods[0].overrides[0].qualified_name,
+			"fixture::Base::replace"
+		);
+
+		let layout = records
+			.vtable_layout("fixture::Derived", CppAbi::Itanium)
+			.unwrap();
+		assert_eq!(
+			layout
+				.slots
+				.iter()
+				.map(|slot| slot.method.qualified_name.as_str())
+				.collect::<Vec<_>>(),
+			[
+				"fixture::Base::keep",
+				"fixture::Derived::replace",
+				"fixture::Derived::added"
+			]
+		);
+
+		let probe = probe(&records, "fixture::Derived", CppAbi::Itanium);
+		assert_eq!(probe.stem, "__crys_vtable_fixture__Derived");
+		assert!(probe.source.contains("::fixture::Derived *"));
+		assert!(probe.source.contains("fixture__Derived_keep"));
+		assert!(probe.source.contains("fixture__Derived_replace"));
+		assert!(probe.source.contains("fixture__Derived_added"));
+	}
+
+	#[test]
+	fn reports_covariant_overriders_as_unsupported() {
+		let records = records(
+			r#"
+			struct Result { int value; };
+			struct Derived : Result { virtual void other(); };
+			struct Base { virtual Result *get(); };
+			struct Covariant : Base { Derived *get() override; };
+			"#,
+		);
+
+		assert!(matches!(
+			records.vtable_model("Covariant", CppAbi::Itanium).unwrap(),
+			VtableModel::Unsupported { ref reason } if reason.contains("covariant")
+		));
+	}
+
+	#[test]
+	fn reports_multiple_and_virtual_inheritance_as_unsupported() {
+		let records = records(
+			r#"
+			struct Left { virtual void left() = 0; };
+			struct Right { virtual void right() = 0; };
+			struct Multiple : Left, Right {};
+			struct Virtual : virtual Left {};
+			struct PlainBase { int value; };
+			struct DataFirst : PlainBase, Left { virtual void own() = 0; };
+			"#,
+		);
+
+		for record in ["Multiple", "Virtual"] {
+			for abi in [CppAbi::Itanium, CppAbi::Msvc] {
+				assert!(
+					matches!(
+						records.vtable_model(record, abi).unwrap(),
+						VtableModel::Unsupported { .. }
+					),
+					"{record} {abi:?}"
+				);
+			}
+		}
+
+		let multiple = records
+			.vtable_layout("Multiple", CppAbi::Itanium)
+			.unwrap_err();
+		assert!(
+			matches!(multiple, CppVtableError::Unsupported { ref reason, .. } if reason.contains("more than one polymorphic base"))
+		);
+
+		let virtual_base = records
+			.vtable_layout("Virtual", CppAbi::Itanium)
+			.unwrap_err();
+		assert!(
+			matches!(virtual_base, CppVtableError::Unsupported { ref reason, .. } if reason.contains("virtual base"))
+		);
+
+		// A single polymorphic base supplies the primary vtable in both ABIs,
+		// even after a non-polymorphic base.
+		let data_first = records.vtable_layout("DataFirst", CppAbi::Itanium).unwrap();
+		assert_eq!(
+			data_first
+				.slots
+				.iter()
+				.map(|slot| slot.method.qualified_name.as_str())
+				.collect::<Vec<_>>(),
+			["Left::left", "DataFirst::own"]
+		);
+	}
+
+	#[test]
+	fn reports_template_dependent_vtables_as_unsupported() {
+		let records = records(
+			r#"
+			struct Plain { int value; };
+			template <class T> struct Factory { virtual T *create() = 0; };
+			struct UsesFactory : Factory<Plain> { Plain *create() override; };
+
+			template <class Base> struct Mixin : Base { };
+			struct UsesMixin : Mixin<Plain> { virtual void run(); };
+
+			template <class T> struct Outer { struct Inner { virtual void run(); T value; }; };
+			"#,
+		);
+
+		for record in ["UsesFactory", "UsesMixin", "Factory", "Outer::Inner"] {
+			assert!(
+				matches!(
+					records.vtable_model(record, CppAbi::Itanium).unwrap(),
+					VtableModel::Unsupported { .. }
+				),
+				"{record}"
+			);
+		}
+
+		assert_eq!(
+			records.vtable_model("Outer", CppAbi::Itanium).unwrap(),
+			VtableModel::NotPolymorphic
+		);
+	}
+
+	#[test]
+	fn resolves_bases_through_non_polymorphic_template_instantiations() {
+		let records = records(
+			r#"
+			struct IFace {
+				virtual ~IFace() {}
+				virtual void run() = 0;
+			};
+
+			// Source's `CNetworkVarBase` shape: a non-polymorphic CRTP template.
+			template <class Type, class Changer> class NetworkVarBase { protected: Type m_Value; };
+
+			// A template adding data, but no virtual functions, to a concrete base.
+			template <class T> class Holder : public IFace { public: T value; };
+
+			class Entity : public IFace {
+			public:
+				class NetworkVar_health : public NetworkVarBase<int, NetworkVar_health> {
+				public:
+					virtual void changed();
+				};
+
+				void run() override;
+				virtual void think();
+			};
+
+			class Held : public Holder<int> {
+			public:
+				void run() override;
+				virtual void extra();
+			};
+
+			template class Holder<float>;
+			class HeldExplicit : public Holder<float> { public: virtual void extra(); };
+			"#,
+		);
+
+		assert_eq!(
+			slot_names(&records, "Entity::NetworkVar_health", CppAbi::Itanium),
+			["changed()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Held", CppAbi::Itanium),
+			["~complete", "~deleting", "run()", "extra()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Held", CppAbi::Msvc),
+			["~scalar", "run()", "extra()"]
+		);
+		assert_eq!(
+			slot_names(&records, "HeldExplicit", CppAbi::Msvc),
+			["~scalar", "run()", "extra()"]
+		);
+		assert_eq!(
+			records
+				.vtable_layout("Held", CppAbi::Itanium)
+				.unwrap()
+				.slots[2]
+				.method
+				.qualified_name,
+			"Held::run"
+		);
+
+		// The template itself cannot have a probe: its layout is generic.
+		assert!(matches!(
+			records.vtable_model("Holder", CppAbi::Itanium).unwrap(),
+			VtableModel::Unsupported { .. }
+		));
+	}
+
+	/// The alias of the slot named `field`, from `using` to `;`.
+	fn slot_alias<'a>(probe: &'a VtableProbe, field: &str) -> &'a str {
+		let position = probe
+			.field_names
+			.iter()
+			.position(|name| name == field)
+			.unwrap_or_else(|| panic!("no slot {field:?} in {:?}", probe.field_names));
+		let alias = format!("using {}_slot_{position:03}_type = ", probe.stem);
+		let start = probe.source.find(&alias).unwrap() + alias.len();
+		let end = start + probe.source[start..].find(";\n").unwrap();
+
+		&probe.source[start..end]
+	}
 
 	fn slot_names(records: &RecordIndex, record: &str, abi: CppAbi) -> Vec<String> {
 		records
@@ -2582,1086 +3700,12 @@ mod tests {
 		);
 	}
 
-	#[test]
-	fn collects_inline_virtual_method_metadata() {
-		let records = records(
-			r#"
-			namespace fixture {
-			class Inline {
-			public:
-				virtual int value(double amount, ...) const { return static_cast<int>(amount); }
-			};
-			}
-			"#,
-		);
-		let record = records.record("fixture::Inline").unwrap();
-		assert_eq!(record.name, "Inline");
-		assert!(
-			record
-				.source_path
-				.as_ref()
-				.unwrap()
-				.ends_with("cpp_vtable_fixture.cpp")
-		);
-		assert!(record.bases.is_empty());
-		assert_eq!(record.virtual_methods.len(), 1);
-
-		let method = &record.virtual_methods[0];
-		assert_eq!(method.name, "value");
-		assert_eq!(method.qualified_name, "fixture::Inline::value");
-		assert_eq!(method.kind, VirtualMethodKind::Method);
-		assert!(method.is_const);
-		assert_eq!(method.result_type, "int");
-		assert_eq!(
-			method.parameters,
-			[Parameter {
-				name: "amount".to_owned(),
-				type_spelling: "double".to_owned(),
-				record: None,
-			}]
-		);
-		assert!(method.is_variadic);
-		assert!(method.overrides.is_empty());
-	}
-
-	#[test]
-	fn expands_destructor_at_its_declaration_position() {
-		let records = records(
-			r#"
-			struct Ordered {
-				virtual void first() = 0;
-				virtual ~Ordered() {}
-				virtual int last(char value) = 0;
-			};
-			"#,
-		);
-		let record = records.record("Ordered").unwrap();
-		assert_eq!(
-			record
-				.virtual_methods
-				.iter()
-				.map(|method| method.name.as_str())
-				.collect::<Vec<_>>(),
-			["first", "~Ordered", "last"]
-		);
-
-		let itanium = records.vtable_layout("Ordered", CppAbi::Itanium).unwrap();
-		assert_eq!(
-			itanium
-				.slots
-				.iter()
-				.map(|slot| slot.kind)
-				.collect::<Vec<_>>(),
-			[
-				VtableSlotKind::Method,
-				VtableSlotKind::ItaniumCompleteDestructor,
-				VtableSlotKind::ItaniumDeletingDestructor,
-				VtableSlotKind::Method,
-			]
-		);
-		assert_eq!(itanium.slots[3].method.name, "last");
-
-		let msvc = records.vtable_layout("Ordered", CppAbi::Msvc).unwrap();
-		assert_eq!(
-			msvc.slots.iter().map(|slot| slot.kind).collect::<Vec<_>>(),
-			[
-				VtableSlotKind::Method,
-				VtableSlotKind::MsvcScalarDeletingDestructor,
-				VtableSlotKind::Method,
-			]
-		);
-	}
-
-	#[test]
-	fn replaces_primary_base_slot_for_override_and_appends_new_virtual() {
-		let records = records(
-			r#"
-			namespace fixture {
-			struct Base {
-				virtual int keep(double value) = 0;
-				virtual int replace(int value) = 0;
-			};
-			struct Derived : Base {
-				int replace(int value) override { return value; }
-				virtual void added() = 0;
-			};
-			}
-			"#,
-		);
-		let derived = records.record("fixture::Derived").unwrap();
-		assert_eq!(
-			derived.bases,
-			[BaseRecord {
-				qualified_name: "fixture::Base".to_owned(),
-				type_spelling: "Base".to_owned(),
-				is_virtual: false,
-				target: BaseTarget::Record,
-			}]
-		);
-		assert_eq!(derived.virtual_methods[0].name, "replace");
-		assert_eq!(derived.virtual_methods[0].overrides.len(), 1);
-		assert_eq!(
-			derived.virtual_methods[0].overrides[0].qualified_name,
-			"fixture::Base::replace"
-		);
-
-		let layout = records
-			.vtable_layout("fixture::Derived", CppAbi::Itanium)
-			.unwrap();
-		assert_eq!(
-			layout
-				.slots
-				.iter()
-				.map(|slot| slot.method.qualified_name.as_str())
-				.collect::<Vec<_>>(),
-			[
-				"fixture::Base::keep",
-				"fixture::Derived::replace",
-				"fixture::Derived::added"
-			]
-		);
-
-		let probe = probe(&records, "fixture::Derived", CppAbi::Itanium);
-		assert_eq!(probe.stem, "__crys_vtable_fixture__Derived");
-		assert!(probe.source.contains("::fixture::Derived *"));
-		assert!(probe.source.contains("fixture__Derived_keep"));
-		assert!(probe.source.contains("fixture__Derived_replace"));
-		assert!(probe.source.contains("fixture__Derived_added"));
-	}
-
-	#[test]
-	fn preserves_overloaded_virtuals_as_distinct_slots() {
-		let records = records(
-			r#"
-			struct Overloaded {
-				virtual void call(int value) = 0;
-				virtual void call(double value) = 0;
-			};
-			"#,
-		);
-		let layout = records
-			.vtable_layout("Overloaded", CppAbi::Itanium)
-			.unwrap();
-		assert_eq!(layout.slots.len(), 2);
-		assert_eq!(layout.slots[0].method.parameters[0].type_spelling, "int");
-		assert_eq!(layout.slots[1].method.parameters[0].type_spelling, "double");
-
-		let probe = probe(&records, "Overloaded", CppAbi::Itanium);
-		assert!(
-			probe
-				.source
-				.contains("__crys_vtable_Overloaded_slot_000_type")
-		);
-		assert!(
-			probe
-				.source
-				.contains("__crys_vtable_Overloaded_slot_001_type")
-		);
-		assert!(probe.source.contains("Overloaded_call;"));
-		assert!(probe.source.contains("Overloaded_call1;"));
-	}
-
-	#[test]
-	fn rendered_probe_keeps_user_type_spellings_valid_at_global_scope() {
-		let fixture = r#"
-			namespace fixture {
-			struct Argument {};
-			struct Typed {
-				virtual Argument * exchange(const Argument & value) = 0;
-			};
-			}
-			"#;
-		let index = records(fixture);
-		let method = &index.record("fixture::Typed").unwrap().virtual_methods[0];
-		assert_eq!(method.result_type, "::fixture::Argument *");
-		assert_eq!(
-			method.parameters[0].type_spelling,
-			"const ::fixture::Argument &"
-		);
-
-		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
-		assert!(probe.source.starts_with("using namespace ::fixture;"));
-		let _ = records(&format!("{fixture}\n{}", probe.source));
-	}
-
-	#[test]
-	fn globally_qualifies_nested_result_and_parameter_types() {
-		let fixture = r#"
-			struct Outer {
-				enum Result { Found, Missing };
-				using ResultAlias = Result;
-				virtual Result find(ResultAlias previous, const Result *fallback) = 0;
-			};
-			"#;
-		let index = records(fixture);
-		let method = &index.record("Outer").unwrap().virtual_methods[0];
-		assert_eq!(method.result_type, "::Outer::Result");
-		assert_eq!(method.parameters[0].type_spelling, "::Outer::ResultAlias");
-		assert_eq!(
-			method.parameters[1].type_spelling,
-			"const ::Outer::Result *"
-		);
-
-		let probe = probe(&index, "Outer", CppAbi::Itanium);
-		let _ = records(&format!("{fixture}\n{}", probe.source));
-	}
-
-	#[test]
-	fn bindgen_can_consume_the_rendered_aliases_and_struct() {
-		let fixture = r#"
-			struct ProbeTarget {
-				virtual int call(double value) const = 0;
-			};
-			"#;
-		let index = records(fixture);
-		let probe = probe(&index, "ProbeTarget", CppAbi::Itanium);
-		let source = format!("{fixture}\n{}", probe.source);
-		let bindings = bindgen::builder()
-			.header_contents("cpp_vtable_bindgen_fixture.hpp", &source)
-			.clang_args(["-x", "c++", "-std=c++17"])
-			.allowlist_type("__crys_vtable_ProbeTarget")
-			.generate()
-			.unwrap()
-			.to_string();
-
-		assert!(bindings.contains("pub type __crys_vtable_ProbeTarget_slot_000_type"));
-		assert!(bindings.contains("pub struct __crys_vtable_ProbeTarget"));
-		assert!(bindings.contains("pub ProbeTarget_call:"));
-	}
-
-	#[test]
-	fn renders_typed_destructor_slots_for_both_abis() {
-		let fixture = r#"
-			struct Destroyed {
-				virtual ~Destroyed() = default;
-			};
-			"#;
-		let index = records(fixture);
-		assert_eq!(vtable_probe_stem("Destroyed"), "__crys_vtable_Destroyed");
-
-		let itanium = probe(&index, "Destroyed", CppAbi::Itanium);
-		assert!(itanium.source.contains(
-			"using __crys_vtable_Destroyed_slot_000_type = auto (*)(::Destroyed *) -> void;"
-		));
-		assert!(itanium.source.contains("Destroyed_complete_destructor"));
-		assert!(itanium.source.contains("Destroyed_deleting_destructor"));
-
-		let msvc = probe(&index, "Destroyed", CppAbi::Msvc);
-		assert!(msvc.source.contains(
-			"using __crys_vtable_Destroyed_slot_000_type = auto (*)(::Destroyed *, unsigned int) -> void *;"
-		));
-		assert!(msvc.source.contains("Destroyed_destructor"));
-
-		// The probe is C++ source, rather than only a diagnostic description.
-		// Have libclang parse both renderings to guard their function-pointer syntax.
-		let _ = records(&format!("{fixture}\n{}", itanium.source));
-		let _ = records(&format!("{fixture}\n{}", msvc.source));
-	}
-
-	#[test]
-	fn renders_msvc_x86_slots_with_thiscall() {
-		let fixture = r#"
-			struct Win32Interface {
-				virtual int call(double value) const = 0;
-				virtual void log(const char *message, ...) = 0;
-				virtual ~Win32Interface() = default;
-			};
-			"#;
-		let index = records(fixture);
-		let probe = probe(&index, "Win32Interface", CppAbi::MsvcX86);
-
-		assert!(
-			probe
-				.source
-				.contains("auto (__thiscall *)(const ::Win32Interface *, double) -> int;")
-		);
-		assert!(
-			probe
-				.source
-				.contains("auto (__cdecl *)(::Win32Interface *, const char *, ...) -> void;")
-		);
-		assert!(
-			probe
-				.source
-				.contains("auto (__thiscall *)(::Win32Interface *, unsigned int) -> void *;")
-		);
-		assert_eq!(
-			probe.field_names,
-			[
-				"Win32Interface_call",
-				"Win32Interface_log",
-				"Win32Interface_destructor"
-			]
-		);
-
-		let source = format!("{fixture}\n{}", probe.source);
-		let bindings = bindgen::builder()
-			.header_contents("cpp_vtable_win32_fixture.hpp", &source)
-			.clang_args([
-				"-x",
-				"c++",
-				"-std=c++17",
-				"--target=i686-pc-windows-msvc",
-				"-fms-extensions",
-			])
-			.allowlist_type("__crys_vtable_Win32Interface")
-			.generate()
-			.unwrap()
-			.to_string();
-
-		assert!(
-			bindings.contains("extern \"thiscall\" fn"),
-			"generated bindings:\n{bindings}"
-		);
-		assert!(
-			bindings.contains("extern \"C\" fn"),
-			"generated bindings:\n{bindings}"
-		);
-	}
-
-	#[test]
-	fn collects_by_value_records_through_aliases_and_qualifiers() {
-		let index = records(CALL_LOWERING_FIXTURE);
-		let methods = &index.record("Interface").unwrap().virtual_methods;
-		let record = |canonical: &str, unqualified: &str| {
-			Some(RecordValue {
-				canonical_spelling: canonical.to_owned(),
-				unqualified_spelling: unqualified.to_owned(),
-			})
-		};
-
-		assert_eq!(methods[0].parameters[0].record, None);
-		assert_eq!(
-			methods[0].parameters[1].record,
-			record("::Handle", "::Handle")
-		);
-		assert_eq!(methods[0].result_record, None);
-		assert_eq!(methods[1].result_record, record("::Plain", "::Plain"));
-		assert_eq!(methods[5].parameters[0].record, None);
-		assert_eq!(
-			methods[6].parameters[0].type_spelling,
-			"const ::HandleAlias"
-		);
-		assert_eq!(
-			methods[6].parameters[0].record,
-			record("::Handle", "::HandleAlias")
-		);
-	}
-
-	#[test]
-	fn clang_evaluates_the_special_members_which_decide_call_lowering() {
-		let values = ["::Handle", "::Plain", "::Assigned", "::Owner"].map(|spelling| RecordValue {
-			canonical_spelling: spelling.to_owned(),
-			unqualified_spelling: spelling.to_owned(),
-		});
-
-		for target in ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"] {
-			let traits = query_record_call_traits(
-				"call_traits_fixture.cpp",
-				CALL_LOWERING_FIXTURE,
-				&target_arguments(target),
-				&values,
-			)
-			.unwrap();
-
-			// Without a move constructor, `T &&` selects the copy constructor.
-			assert_eq!(
-				traits["::Handle"],
-				RecordCallTraits {
-					copy_constructible: true,
-					trivial_copy_constructor: false,
-					move_constructible: true,
-					trivially_move_constructible: false,
-					trivially_destructible: true,
-					size: 4,
-				}
-			);
-			assert_eq!(
-				traits["::Plain"],
-				RecordCallTraits {
-					copy_constructible: true,
-					trivial_copy_constructor: true,
-					move_constructible: true,
-					trivially_move_constructible: true,
-					trivially_destructible: true,
-					size: 12,
-				}
-			);
-			assert!(!traits["::Handle"].itanium_passes_as_c_struct());
-			assert!(!traits["::Handle"].msvc_x64_passes_as_c_struct());
-			assert!(traits["::Plain"].itanium_passes_as_c_struct());
-			assert!(traits["::Plain"].msvc_x64_passes_as_c_struct());
-
-			// A copy assignment operator never affects how a class is passed.
-			assert!(traits["::Assigned"].itanium_passes_as_c_struct());
-			assert!(traits["::Assigned"].msvc_x64_passes_as_c_struct());
-
-			// MSVC passes a register-sized class with a destructor directly.
-			assert!(traits["::Owner"].trivial_copy_constructor);
-			assert!(!traits["::Owner"].trivially_destructible);
-			assert!(!traits["::Owner"].itanium_passes_as_c_struct());
-			assert!(traits["::Owner"].msvc_x64_passes_as_c_struct());
-		}
-	}
-
-	#[test]
-	fn itanium_passes_non_trivial_classes_by_pointer_and_returns_them_before_this() {
-		let probe = lowered_probe(
-			CALL_LOWERING_FIXTURE,
-			"Interface",
-			"x86_64-unknown-linux-gnu",
-			CppAbi::Itanium,
-		);
-
-		assert_eq!(
-			slot_alias(&probe, "Interface_accept"),
-			"auto (*)(::Interface *, const char *, ::Handle *, int) -> bool"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_position"),
-			"auto (*)(const ::Interface *) -> ::Plain"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_handle"),
-			"auto (*)(::Handle *, ::Interface *) -> ::Handle *"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_assigned"),
-			"auto (*)(::Interface *, ::Assigned) -> void"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_owner"),
-			"auto (*)(::Interface *, ::Owner *) -> void"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_by_reference"),
-			"auto (*)(::Interface *, const ::Handle &) -> void"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_by_const_alias"),
-			"auto (*)(::Interface *, ::HandleAlias *) -> void"
-		);
-		assert!(probe.source.contains(
-			"    /// C++ takes `::Handle` by value. `arg3` points to a temporary copy the caller \
-			 makes; the callee may modify it, and the caller destroys it after the call.\n    \
-			 __crys_vtable_Interface_slot_000_type Interface_accept;"
-		));
-		assert!(probe.source.contains(
-			"    /// C++ returns `::Handle` by value. `arg1` is the hidden result pointer"
-		));
-	}
-
-	#[test]
-	fn itanium_x86_returns_classes_as_c_structs() {
-		let probe = lowered_probe(
-			CALL_LOWERING_FIXTURE,
-			"Interface",
-			"i686-unknown-linux-gnu",
-			CppAbi::ItaniumX86,
-		);
-
-		assert_eq!(
-			slot_alias(&probe, "Interface_accept"),
-			"auto (*)(::Interface *, const char *, ::Handle *, int) -> bool"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_handle"),
-			"auto (*)(::Interface *) -> ::Handle"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_owner"),
-			"auto (*)(::Interface *, ::Owner *) -> void"
-		);
-	}
-
-	#[test]
-	fn msvc_x64_passes_non_trivial_classes_by_pointer_and_returns_every_class_after_this() {
-		let probe = lowered_probe(
-			CALL_LOWERING_FIXTURE,
-			"Interface",
-			"x86_64-pc-windows-msvc",
-			CppAbi::Msvc,
-		);
-
-		assert_eq!(
-			slot_alias(&probe, "Interface_accept"),
-			"auto (*)(::Interface *, const char *, ::Handle *, int) -> bool"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_position"),
-			"auto (*)(const ::Interface *, ::Plain *) -> ::Plain *"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_handle"),
-			"auto (*)(::Interface *, ::Handle *) -> ::Handle *"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_assigned"),
-			"auto (*)(::Interface *, ::Assigned) -> void"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_owner"),
-			"auto (*)(::Interface *, ::Owner) -> void"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_by_const_alias"),
-			"auto (*)(::Interface *, ::HandleAlias *) -> void"
-		);
-		assert!(probe.source.contains(
-			"the callee may modify it, and the callee destroys it.\n    \
-			 __crys_vtable_Interface_slot_000_type Interface_accept;"
-		));
-
-		let source = format!("{CALL_LOWERING_FIXTURE}\n{}", probe.source);
-		let bindings = bindgen::builder()
-			.header_contents("call_lowering_bindgen_fixture.hpp", &source)
-			.clang_args(target_arguments("x86_64-pc-windows-msvc"))
-			.allowlist_type("__crys_vtable_Interface")
-			.generate()
-			.unwrap()
-			.to_string()
-			.split_whitespace()
-			.collect::<String>();
-
-		assert!(
-			bindings.contains("arg1:*constInterface,arg2:*mutPlain)->*mutPlain"),
-			"generated bindings:\n{bindings}"
-		);
-		assert!(
-			bindings.contains("isthehiddenresultpointer"),
-			"generated bindings:\n{bindings}"
-		);
-	}
-
-	#[test]
-	fn msvc_x86_passes_classes_in_place_and_returns_them_after_this() {
-		let probe = lowered_probe(
-			CALL_LOWERING_FIXTURE,
-			"Interface",
-			"i686-pc-windows-msvc",
-			CppAbi::MsvcX86,
-		);
-
-		assert_eq!(
-			slot_alias(&probe, "Interface_accept"),
-			"auto (__thiscall *)(::Interface *, const char *, ::Handle, int) -> bool"
-		);
-		assert_eq!(
-			slot_alias(&probe, "Interface_position"),
-			"auto (__thiscall *)(const ::Interface *, ::Plain *) -> ::Plain *"
-		);
-	}
-
-	#[test]
-	fn rendering_a_by_value_class_without_its_call_traits_fails() {
-		let index = records(CALL_LOWERING_FIXTURE);
-		let layout = index.vtable_layout("Interface", CppAbi::Itanium).unwrap();
-
-		assert!(matches!(
-			render_vtable_probe(&index, &layout, &RecordCallTraitIndex::new()),
-			Err(CppVtableError::MissingCallTraits { ref record }) if record == "::Handle"
-		));
-	}
-
-	#[test]
-	fn derived_destructor_replaces_the_inherited_destructor_group() {
-		let index = records(
-			r#"
-			struct Base {
-				virtual ~Base() = default;
-			};
-			struct Derived : Base {
-				~Derived() override = default;
-			};
-			"#,
-		);
-		let derived = index.record("Derived").unwrap();
-		assert_eq!(derived.virtual_methods.len(), 1);
-		assert_eq!(
-			derived.virtual_methods[0].kind,
-			VirtualMethodKind::Destructor
-		);
-
-		let layout = index.vtable_layout("Derived", CppAbi::Itanium).unwrap();
-		assert_eq!(layout.slots.len(), 2);
-		assert!(
-			layout
-				.slots
-				.iter()
-				.all(|slot| slot.method.qualified_name == "Derived::~Derived")
-		);
-	}
-
-	#[test]
-	fn distinguishes_nonpolymorphic_inheritance_from_inherited_virtual_slots() {
-		let records = records(
-			r#"
-			struct PlainLeft {};
-			struct PlainRight {};
-			struct PlainMultiple : PlainLeft, PlainRight {};
-			struct PlainVirtual : virtual PlainLeft {};
-			struct PlainChain : PlainMultiple {};
-			struct Polymorphic { virtual void call() = 0; };
-			struct InheritedPolymorphic : PlainLeft, Polymorphic {};
-			"#,
-		);
-
-		for record in [
-			"PlainLeft",
-			"PlainRight",
-			"PlainMultiple",
-			"PlainVirtual",
-			"PlainChain",
-		] {
-			assert!(
-				!records.has_virtual_slots(record).unwrap(),
-				"{record} unexpectedly has virtual slots"
-			);
-		}
-		assert!(records.has_virtual_slots("Polymorphic").unwrap());
-		assert!(records.has_virtual_slots("InheritedPolymorphic").unwrap());
-	}
-
-	#[test]
-	fn reports_multiple_and_virtual_inheritance_as_unsupported() {
-		let records = records(
-			r#"
-			struct Left { virtual void left() = 0; };
-			struct Right { virtual void right() = 0; };
-			struct Multiple : Left, Right {};
-			struct Virtual : virtual Left {};
-			struct PlainBase { int value; };
-			struct DataFirst : PlainBase, Left { virtual void own() = 0; };
-			"#,
-		);
-
-		for record in ["Multiple", "Virtual"] {
-			for abi in [CppAbi::Itanium, CppAbi::Msvc] {
-				assert!(
-					matches!(
-						records.vtable_model(record, abi).unwrap(),
-						VtableModel::Unsupported { .. }
-					),
-					"{record} {abi:?}"
-				);
-			}
-		}
-
-		let multiple = records
-			.vtable_layout("Multiple", CppAbi::Itanium)
-			.unwrap_err();
-		assert!(
-			matches!(multiple, CppVtableError::Unsupported { ref reason, .. } if reason.contains("more than one polymorphic base"))
-		);
-
-		let virtual_base = records
-			.vtable_layout("Virtual", CppAbi::Itanium)
-			.unwrap_err();
-		assert!(
-			matches!(virtual_base, CppVtableError::Unsupported { ref reason, .. } if reason.contains("virtual base"))
-		);
-
-		// A single polymorphic base supplies the primary vtable in both ABIs,
-		// even after a non-polymorphic base.
-		let data_first = records.vtable_layout("DataFirst", CppAbi::Itanium).unwrap();
-		assert_eq!(
-			data_first
-				.slots
-				.iter()
-				.map(|slot| slot.method.qualified_name.as_str())
-				.collect::<Vec<_>>(),
-			["Left::left", "DataFirst::own"]
-		);
-	}
-	#[test]
-	fn keys_explicit_specializations_by_their_template_arguments() {
-		let records = records(
-			r#"
-			enum fieldtype_t { FIELD_INTEGER, FIELD_VECTOR, FIELD_POSITION_VECTOR };
-			class Vector { public: float x, y, z; };
-			class CBaseEntityOutput { public: ~CBaseEntityOutput(); protected: int m_Value; };
-
-			template <class Type, fieldtype_t fieldType>
-			class CEntityOutputTemplate : public CBaseEntityOutput {
-			public:
-				void Init(Type value) {}
-				class Iterator { int index; };
-			};
-
-			template <>
-			class CEntityOutputTemplate<class Vector, FIELD_VECTOR> : public CBaseEntityOutput {
-			public:
-				void Get(Vector &vec) {}
-				class Iterator { virtual void next(); };
-			};
-
-			template <>
-			class CEntityOutputTemplate<class Vector, FIELD_POSITION_VECTOR> : public CBaseEntityOutput {
-			public:
-				void Get(Vector &vec) {}
-			};
-
-			typedef CEntityOutputTemplate<int, FIELD_INTEGER> COutputInt;
-			typedef CEntityOutputTemplate<Vector, FIELD_VECTOR> COutputVector;
-
-			template class CEntityOutputTemplate<float, FIELD_INTEGER>;
-			"#,
-		);
-
-		let roles = [
-			("CEntityOutputTemplate", TemplateRole::Pattern),
-			(
-				"CEntityOutputTemplate::Iterator",
-				TemplateRole::DependentMember,
-			),
-			(
-				"CEntityOutputTemplate<class Vector, FIELD_VECTOR>",
-				TemplateRole::ExplicitSpecialization,
-			),
-			(
-				"CEntityOutputTemplate<class Vector, FIELD_VECTOR>::Iterator",
-				TemplateRole::None,
-			),
-			(
-				"CEntityOutputTemplate<class Vector, FIELD_POSITION_VECTOR>",
-				TemplateRole::ExplicitSpecialization,
-			),
-			(
-				"CEntityOutputTemplate<float, FIELD_INTEGER>",
-				TemplateRole::ExplicitInstantiation,
-			),
-			("CBaseEntityOutput", TemplateRole::None),
-		];
-
-		for (record, role) in roles {
-			assert_eq!(
-				records.record(record).map(|record| record.template),
-				Some(role),
-				"{record}"
-			);
-		}
-
-		for record in [
-			"CEntityOutputTemplate",
-			"CEntityOutputTemplate<class Vector, FIELD_VECTOR>",
-			"CBaseEntityOutput",
-		] {
-			assert_eq!(
-				records.vtable_model(record, CppAbi::Itanium).unwrap(),
-				VtableModel::NotPolymorphic,
-				"{record}"
-			);
-		}
-
-		// A member of an explicit specialization is a concrete record.
-		assert_eq!(
-			slot_names(
-				&records,
-				"CEntityOutputTemplate<class Vector, FIELD_VECTOR>::Iterator",
-				CppAbi::Msvc
-			),
-			["next()"]
-		);
-	}
-
-	#[test]
-	fn records_typedef_names_of_unnamed_records() {
-		let records = records(
-			r#"
-			typedef union { char size[40]; long align; } pthread_mutex_t;
-			typedef struct { int x; } plain_anon_t;
-			typedef struct named_s { int y; } named_t;
-			namespace ns { typedef struct { int z; } nested_t; }
-			"#,
-		);
-
-		assert_eq!(
-			records
-				.typedef_named_anonymous_records()
-				.iter()
-				.map(String::as_str)
-				.collect::<Vec<_>>(),
-			["nested_t", "plain_anon_t", "pthread_mutex_t"]
-		);
-	}
-
-	#[test]
-	fn includes_union_scopes_in_qualified_names() {
-		let records = records(
-			r#"
-			class CSteamID {
-				union SteamID_t {
-					struct SteamIDComponent_t { unsigned int m_unAccountID; } m_comp;
-					unsigned long long m_unAll64Bits;
-				} m_steamid;
-			};
-			"#,
-		);
-
-		assert!(
-			records
-				.record("CSteamID::SteamID_t::SteamIDComponent_t")
-				.is_some()
-		);
-		assert!(records.record("CSteamID::SteamIDComponent_t").is_none());
-	}
-
-	#[test]
-	fn resolves_bases_through_non_polymorphic_template_instantiations() {
-		let records = records(
-			r#"
-			struct IFace {
-				virtual ~IFace() {}
-				virtual void run() = 0;
-			};
-
-			// Source's `CNetworkVarBase` shape: a non-polymorphic CRTP template.
-			template <class Type, class Changer> class NetworkVarBase { protected: Type m_Value; };
-
-			// A template adding data, but no virtual functions, to a concrete base.
-			template <class T> class Holder : public IFace { public: T value; };
-
-			class Entity : public IFace {
-			public:
-				class NetworkVar_health : public NetworkVarBase<int, NetworkVar_health> {
-				public:
-					virtual void changed();
-				};
-
-				void run() override;
-				virtual void think();
-			};
-
-			class Held : public Holder<int> {
-			public:
-				void run() override;
-				virtual void extra();
-			};
-
-			template class Holder<float>;
-			class HeldExplicit : public Holder<float> { public: virtual void extra(); };
-			"#,
-		);
-
-		assert_eq!(
-			slot_names(&records, "Entity::NetworkVar_health", CppAbi::Itanium),
-			["changed()"]
-		);
-		assert_eq!(
-			slot_names(&records, "Held", CppAbi::Itanium),
-			["~complete", "~deleting", "run()", "extra()"]
-		);
-		assert_eq!(
-			slot_names(&records, "Held", CppAbi::Msvc),
-			["~scalar", "run()", "extra()"]
-		);
-		assert_eq!(
-			slot_names(&records, "HeldExplicit", CppAbi::Msvc),
-			["~scalar", "run()", "extra()"]
-		);
-		assert_eq!(
-			records
-				.vtable_layout("Held", CppAbi::Itanium)
-				.unwrap()
-				.slots[2]
-				.method
-				.qualified_name,
-			"Held::run"
-		);
-
-		// The template itself cannot have a probe: its layout is generic.
-		assert!(matches!(
-			records.vtable_model("Holder", CppAbi::Itanium).unwrap(),
-			VtableModel::Unsupported { .. }
-		));
-	}
-
-	#[test]
-	fn reports_template_dependent_vtables_as_unsupported() {
-		let records = records(
-			r#"
-			struct Plain { int value; };
-			template <class T> struct Factory { virtual T *create() = 0; };
-			struct UsesFactory : Factory<Plain> { Plain *create() override; };
-
-			template <class Base> struct Mixin : Base { };
-			struct UsesMixin : Mixin<Plain> { virtual void run(); };
-
-			template <class T> struct Outer { struct Inner { virtual void run(); T value; }; };
-			"#,
-		);
-
-		for record in ["UsesFactory", "UsesMixin", "Factory", "Outer::Inner"] {
-			assert!(
-				matches!(
-					records.vtable_model(record, CppAbi::Itanium).unwrap(),
-					VtableModel::Unsupported { .. }
-				),
-				"{record}"
-			);
-		}
-
-		assert_eq!(
-			records.vtable_model("Outer", CppAbi::Itanium).unwrap(),
-			VtableModel::NotPolymorphic
-		);
-	}
-
-	#[test]
-	fn reports_covariant_overriders_as_unsupported() {
-		let records = records(
-			r#"
-			struct Result { int value; };
-			struct Derived : Result { virtual void other(); };
-			struct Base { virtual Result *get(); };
-			struct Covariant : Base { Derived *get() override; };
-			"#,
-		);
-
-		assert!(matches!(
-			records.vtable_model("Covariant", CppAbi::Itanium).unwrap(),
-			VtableModel::Unsupported { ref reason } if reason.contains("covariant")
-		));
-	}
-
-	/// Expected orders are Clang's own `-fdump-vtable-layouts` output for
-	/// `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu`.
-	#[test]
-	fn microsoft_abi_groups_and_reverses_new_overloads() {
-		let fixture = r#"
-			struct Vector { float x, y, z; };
-			struct IServerToolsLike {
-				virtual ~IServerToolsLike();
-				virtual bool GetKeyValue(const char *field) = 0;
-				virtual bool SetKeyValue(const char *field, const char *value) = 0;
-				virtual bool SetKeyValue(const char *field, float value) = 0;
-				virtual bool SetKeyValue(const char *field, const Vector &value) = 0;
-				virtual void Other() = 0;
-			};
-
-			struct S {
-				void f(double);
-				virtual void g();
-				virtual void f(int);
-				virtual ~S();
-				virtual void a();
-				int h;
-				virtual void h2();
-			};
-
-			struct B { virtual void f(int); virtual void z(); };
-			struct D : B {
-				virtual void f(double);
-				virtual void y();
-				virtual void f(char);
-				void f(int) override;
-				using B::z;
-				virtual void z(int);
-			};
-			"#;
-		let index = records(fixture);
-
-		assert_eq!(
-			slot_names(&index, "IServerToolsLike", CppAbi::Msvc),
-			[
-				"~scalar",
-				"GetKeyValue(const char *)",
-				"SetKeyValue(const char *, const Vector &)",
-				"SetKeyValue(const char *, float)",
-				"SetKeyValue(const char *, const char *)",
-				"Other()",
-			]
-		);
-		assert_eq!(
-			slot_names(&index, "IServerToolsLike", CppAbi::Itanium),
-			[
-				"~complete",
-				"~deleting",
-				"GetKeyValue(const char *)",
-				"SetKeyValue(const char *, const char *)",
-				"SetKeyValue(const char *, float)",
-				"SetKeyValue(const char *, const Vector &)",
-				"Other()",
-			]
-		);
-
-		assert_eq!(
-			slot_names(&index, "S", CppAbi::Msvc),
-			["f(int)", "g()", "~scalar", "a()", "h2()"]
-		);
-		assert_eq!(
-			slot_names(&index, "S", CppAbi::Itanium),
-			["g()", "f(int)", "~complete", "~deleting", "a()", "h2()"]
-		);
-
-		assert_eq!(
-			slot_names(&index, "D", CppAbi::Msvc),
-			["f(int)", "z()", "f(char)", "f(double)", "y()", "z(int)"]
-		);
-		assert_eq!(
-			slot_names(&index, "D", CppAbi::Itanium),
-			["f(int)", "z()", "f(double)", "y()", "f(char)", "z(int)"]
-		);
-
-		let _ = records(&format!(
-			"{fixture}\n{}",
-			probe(&index, "D", CppAbi::MsvcX86).source
-		));
-	}
-
-	#[test]
-	fn overload_field_names_follow_declaration_order_under_every_abi() {
-		let records = records(
-			r#"
-			struct Vector { float x, y, z; };
-			struct Tools {
-				virtual bool SetKeyValue(const char *field, const char *value) = 0;
-				virtual bool SetKeyValue(const char *field, float value) = 0;
-				virtual bool SetKeyValue(const char *field, const Vector &value) = 0;
-			};
-			struct MoreTools : Tools { virtual bool SetKeyValue(const char *field, int value) = 0; };
-			"#,
-		);
-
-		let named = |abi| {
-			let probe = probe(&records, "MoreTools", abi);
-			probe
-				.field_names
-				.iter()
-				.cloned()
-				.zip(
-					probe
-						.layout
-						.slots
-						.iter()
-						.map(|slot| slot.method.display_name.clone()),
-				)
-				.collect::<BTreeMap<_, _>>()
-		};
-
-		let itanium = named(CppAbi::Itanium);
-		assert_eq!(itanium, named(CppAbi::Msvc));
-		assert_eq!(
-			itanium["MoreTools_SetKeyValue"],
-			"SetKeyValue(const char *, const char *)"
-		);
-		assert_eq!(
-			itanium["MoreTools_SetKeyValue2"],
-			"SetKeyValue(const char *, const Vector &)"
-		);
-		assert_eq!(
-			itanium["MoreTools_SetKeyValue3"],
-			"SetKeyValue(const char *, int)"
-		);
-
-		assert_eq!(
-			probe(&records, "MoreTools", CppAbi::Msvc).field_names,
-			[
-				"MoreTools_SetKeyValue2",
-				"MoreTools_SetKeyValue1",
-				"MoreTools_SetKeyValue",
-				"MoreTools_SetKeyValue3"
-			]
-		);
+	fn target_arguments(target: &str) -> Vec<String> {
+		vec![
+			"-x".to_owned(),
+			"c++".to_owned(),
+			"-std=c++17".to_owned(),
+			format!("--target={target}"),
+		]
 	}
 }

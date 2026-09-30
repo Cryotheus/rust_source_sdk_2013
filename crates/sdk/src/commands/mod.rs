@@ -37,15 +37,6 @@ mod route;
 #[cfg(test)]
 mod tests;
 
-pub use args::{ArgError, CommandArgs};
-pub use error::{
-	CommandBaseKind, InvalidCommandName, RegisterCommandError, RegisterCommandErrorKind,
-	UnregisterCommandError, UnregisterCommandErrorKind, validate_name,
-};
-pub use object::ConsoleCommand;
-pub use registrar::{CommandRegistrar, UnlinksBeforeUnload};
-pub use route::{ClientRoute, route_client_command};
-
 use crate::edicts::Edict;
 use crate::ffi::NotThreadSafe;
 use crate::server::{InterfaceError, Server};
@@ -54,29 +45,40 @@ use std::ffi::{CStr, CString, c_int};
 use std::fmt::Display;
 use std::marker::PhantomData;
 
-/// Runs a console command.
-///
-/// Commands can run inside one another, for example when a handler makes a
-/// client run a command, so state behind `&self` belongs in a `Cell` or
-/// `RefCell` whose borrows are not held across calls into the engine.
-///
-/// A panic is caught, logged to the server console, and reported to the
-/// invoker as a failure. It is never an unload, so a client cannot unload the
-/// plugin by making a handler panic.
-pub trait CommandHandler: 'static {
-	fn dispatch(&self, command: &CommandContext<'_>) -> CommandResult;
-}
+pub use args::{ArgError, CommandArgs};
+
+pub use error::{
+	CommandBaseKind, InvalidCommandName, RegisterCommandError, RegisterCommandErrorKind,
+	UnregisterCommandError, UnregisterCommandErrorKind, validate_name,
+};
+
+pub use object::ConsoleCommand;
+pub use registrar::{CommandRegistrar, UnlinksBeforeUnload};
+pub use route::{ClientRoute, route_client_command};
+pub use source_sdk_2013_declmacros::commands;
 
 /// A plain function handler, which keeps `ConsoleCommand<CommandFn>` nameable
 /// in a `static`.
 pub type CommandFn = for<'a, 'd> fn(&'a CommandContext<'d>) -> CommandResult;
 
-impl<F> CommandHandler for F
-where
-	F: Fn(&CommandContext<'_>) -> CommandResult + 'static,
-{
-	fn dispatch(&self, command: &CommandContext<'_>) -> CommandResult {
-		self(command)
+/// What a handler returns.
+pub type CommandResult = Result<(), CommandError>;
+
+/// The client that ran a command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Client<'d> {
+	edict: Edict<'d>,
+}
+
+impl<'d> Client<'d> {
+	/// The edict of the client's player.
+	pub const fn edict(self) -> Edict<'d> {
+		self.edict
+	}
+
+	/// The client's slot, one less than its edict's index.
+	pub fn slot(self) -> c_int {
+		self.edict.index() - 1
 	}
 }
 
@@ -104,88 +106,12 @@ pub enum CommandAccess {
 }
 
 impl CommandAccess {
-	const fn allows_server(self) -> bool {
-		matches!(self, Self::Server | Self::Everyone)
-	}
-
 	const fn allows_clients(self) -> bool {
 		matches!(self, Self::Clients | Self::Everyone)
 	}
-}
 
-/// The `FCVAR_*` flags a command may carry, from `public/tier1/iconvar.h`.
-///
-/// `FCVAR_GAMEDLL` cannot be expressed: the engine would then dispatch
-/// clients' invocations without saying who ran them (see the
-/// [module documentation](self)).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct CommandFlags(c_int);
-
-impl CommandFlags {
-	pub const NONE: Self = Self(0);
-
-	/// `FCVAR_HIDDEN`: left out of `find`, `cvarlist`, and completion.
-	pub const HIDDEN: Self = Self(1 << 4);
-
-	/// `FCVAR_CHEAT`: runnable only while `sv_cheats` is set. The engine checks
-	/// this for server-side invokers, and [`route_client_command`] for clients.
-	pub const CHEAT: Self = Self(1 << 14);
-
-	/// `FCVAR_DONTRECORD`: left out of demo recordings.
-	pub const DONT_RECORD: Self = Self(1 << 17);
-
-	/// `FCVAR_GAMEDLL`, which commands never report.
-	pub(crate) const GAME_DLL: c_int = 1 << 2;
-
-	pub const fn union(self, other: Self) -> Self {
-		Self(self.0 | other.0)
-	}
-
-	pub const fn contains(self, other: Self) -> bool {
-		self.0 & other.0 == other.0
-	}
-
-	pub const fn bits(self) -> c_int {
-		self.0
-	}
-}
-
-impl std::ops::BitOr for CommandFlags {
-	type Output = Self;
-
-	fn bitor(self, other: Self) -> Self {
-		self.union(other)
-	}
-}
-
-/// Where an invocation came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Invoker<'d> {
-	/// Not a client's string command: the console, rcon, a config file,
-	/// `ServerCommand`, a map's `point_servercommand`, or server-side code
-	/// dispatching the command directly.
-	Server,
-
-	/// A string command from a connected client, including one server code
-	/// made the client run.
-	Client(Client<'d>),
-}
-
-/// The client that ran a command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Client<'d> {
-	edict: Edict<'d>,
-}
-
-impl<'d> Client<'d> {
-	/// The edict of the client's player.
-	pub const fn edict(self) -> Edict<'d> {
-		self.edict
-	}
-
-	/// The client's slot, one less than its edict's index.
-	pub fn slot(self) -> c_int {
-		self.edict.index() - 1
+	const fn allows_server(self) -> bool {
+		matches!(self, Self::Server | Self::Everyone)
 	}
 }
 
@@ -199,10 +125,6 @@ pub struct CommandContext<'d> {
 }
 
 impl<'d> CommandContext<'d> {
-	pub const fn server(&self) -> Server<'d> {
-		self.server
-	}
-
 	pub const fn args(&self) -> CommandArgs<'d> {
 		self.args
 	}
@@ -227,6 +149,7 @@ impl<'d> CommandContext<'d> {
 
 		match self.invoker {
 			Invoker::Server => self.server.console_print(&line),
+
 			Invoker::Client(client) => self
 				.server
 				.valve_engine()?
@@ -234,6 +157,27 @@ impl<'d> CommandContext<'d> {
 		}
 
 		Ok(())
+	}
+
+	pub const fn server(&self) -> Server<'d> {
+		self.server
+	}
+}
+
+impl<'d> CommandContext<'d> {
+	pub(crate) const fn new(
+		server: Server<'d>,
+		args: CommandArgs<'d>,
+		invoker: Invoker<'d>,
+		name: &'static CStr,
+	) -> Self {
+		Self {
+			server,
+			args,
+			invoker,
+			name,
+			_not_thread_safe: PhantomData,
+		}
 	}
 }
 
@@ -246,20 +190,6 @@ impl std::fmt::Debug for CommandContext<'_> {
 			.finish_non_exhaustive()
 	}
 }
-
-/// Formats a message as a terminated line for the engine's print functions.
-fn line_from(message: impl Display) -> CString {
-	let mut bytes = message.to_string().into_bytes();
-
-	bytes.retain(|&byte| byte != 0);
-	bytes.push(b'\n');
-
-	// SAFETY: Every NUL was removed.
-	unsafe { CString::from_vec_unchecked(bytes) }
-}
-
-/// What a handler returns.
-pub type CommandResult = Result<(), CommandError>;
 
 /// Why an invocation failed. The invoker is shown the command's name and this
 /// error's message.
@@ -284,10 +214,6 @@ pub enum CommandError {
 }
 
 impl CommandError {
-	pub fn usage(usage: impl Into<Cow<'static, str>>) -> Self {
-		Self::Usage(usage.into())
-	}
-
 	pub fn denied(reason: impl Into<Cow<'static, str>>) -> Self {
 		Self::Denied(reason.into())
 	}
@@ -295,21 +221,99 @@ impl CommandError {
 	pub fn other(error: impl std::error::Error + 'static) -> Self {
 		Self::Other(Box::new(error))
 	}
+
+	pub fn usage(usage: impl Into<Cow<'static, str>>) -> Self {
+		Self::Usage(usage.into())
+	}
 }
 
-impl<'d> CommandContext<'d> {
-	pub(crate) const fn new(
-		server: Server<'d>,
-		args: CommandArgs<'d>,
-		invoker: Invoker<'d>,
-		name: &'static CStr,
-	) -> Self {
-		Self {
-			server,
-			args,
-			invoker,
-			name,
-			_not_thread_safe: PhantomData,
-		}
+/// The `FCVAR_*` flags a command may carry, from `public/tier1/iconvar.h`.
+///
+/// `FCVAR_GAMEDLL` cannot be expressed: the engine would then dispatch
+/// clients' invocations without saying who ran them (see the
+/// [module documentation](self)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct CommandFlags(c_int);
+
+impl CommandFlags {
+	/// `FCVAR_CHEAT`: runnable only while `sv_cheats` is set. The engine checks
+	/// this for server-side invokers, and [`route_client_command`] for clients.
+	pub const CHEAT: Self = Self(1 << 14);
+
+	/// `FCVAR_DONTRECORD`: left out of demo recordings.
+	pub const DONT_RECORD: Self = Self(1 << 17);
+
+	/// `FCVAR_GAMEDLL`, which commands never report.
+	pub(crate) const GAME_DLL: c_int = 1 << 2;
+
+	/// `FCVAR_HIDDEN`: left out of `find`, `cvarlist`, and completion.
+	pub const HIDDEN: Self = Self(1 << 4);
+
+	pub const NONE: Self = Self(0);
+
+	pub const fn bits(self) -> c_int {
+		self.0
 	}
+
+	pub const fn contains(self, other: Self) -> bool {
+		self.0 & other.0 == other.0
+	}
+
+	pub const fn union(self, other: Self) -> Self {
+		Self(self.0 | other.0)
+	}
+}
+
+impl std::ops::BitOr for CommandFlags {
+	type Output = Self;
+
+	fn bitor(self, other: Self) -> Self {
+		self.union(other)
+	}
+}
+
+/// Runs a console command.
+///
+/// Commands can run inside one another, for example when a handler makes a
+/// client run a command, so state behind `&self` belongs in a `Cell` or
+/// `RefCell` whose borrows are not held across calls into the engine.
+///
+/// A panic is caught, logged to the server console, and reported to the
+/// invoker as a failure. It is never an unload, so a client cannot unload the
+/// plugin by making a handler panic.
+pub trait CommandHandler: 'static {
+	fn dispatch(&self, command: &CommandContext<'_>) -> CommandResult;
+}
+
+impl<F> CommandHandler for F
+where
+	F: Fn(&CommandContext<'_>) -> CommandResult + 'static,
+{
+	fn dispatch(&self, command: &CommandContext<'_>) -> CommandResult {
+		self(command)
+	}
+}
+
+/// Where an invocation came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Invoker<'d> {
+	/// Not a client's string command: the console, rcon, a config file,
+	/// `ServerCommand`, a map's `point_servercommand`, or server-side code
+	/// dispatching the command directly.
+	Server,
+
+	/// A string command from a connected client, including one server code
+	/// made the client run.
+	Client(Client<'d>),
+}
+
+/// Formats a message as a terminated line for the engine's print functions.
+fn line_from(message: impl Display) -> CString {
+	let mut bytes = message.to_string().into_bytes();
+
+	bytes.retain(|&byte| byte != 0);
+	bytes.push(b'\n');
+
+	// SAFETY: Every NUL was removed.
+	unsafe { CString::from_vec_unchecked(bytes) }
 }

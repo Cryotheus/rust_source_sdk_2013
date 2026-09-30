@@ -69,76 +69,6 @@ pub struct CBaseCombatWeapon {
     pub m_OnCacheInteraction: COutputEvent,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_bFlipViewModel {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_hOwner {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_iClip1 {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_iClip2 {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_iState {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_iViewModelIndex {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatWeapon_NetworkVar_m_nViewModelIndex {
-    pub _address: u8,
-}
-#[repr(C)]
 pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_complete_destructor: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
@@ -1476,6 +1406,76 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_UsesCenterFireProjectile: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
     ) -> bool,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_bFlipViewModel {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_hOwner {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_iClip1 {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_iClip2 {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_iState {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_iViewModelIndex {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatWeapon_NetworkVar_m_nViewModelIndex {
+    pub _address: u8,
 }
 #[repr(C)]
 pub struct CDmgAccumulator {

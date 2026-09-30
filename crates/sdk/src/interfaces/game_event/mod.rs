@@ -21,6 +21,27 @@ pub use id::GameEventId;
 /// Name used to request [`sys::IGameEventManager2`] from an engine interface factory.
 pub const GAME_EVENT_MANAGER_INTERFACE_VERSION: &CStr = GameEventManager::<'static>::VERSION;
 
+/// The manager refused to register a listener.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("could not listen for `{}`; no such game event is registered", .name.to_string_lossy())]
+pub struct AddListenerError {
+	name: CString,
+}
+
+/// The manager refused to create an event.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("no game event named `{}` is registered", .name.to_string_lossy())]
+pub struct CreateEventError {
+	name: CString,
+}
+
+/// The manager refused to fire an event.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("the game event manager did not fire `{}`", .name.to_string_lossy())]
+pub struct FireEventError {
+	name: CString,
+}
+
 /// A game event, readable for `'e` (`IGameEvent`).
 ///
 /// Events delivered to a [`GameEventHandler`] live for the duration of the
@@ -248,30 +269,6 @@ impl<'e> GameEvent<'e> {
 		name.expect("IGameEvent::GetName returned null")
 	}
 
-	/// Runs a [`GameEventVisitor`] which collects the event's data [key]-[value] pairs into a [`Vec`].
-	///
-	/// [key]: GameEventDataKey
-	/// [value]: GameEventDataValue
-	pub fn pairs_to_vec(self) -> Vec<GameEventDataPair> {
-		#[repr(transparent)]
-		struct VisitorVecPairs(Vec<GameEventDataPair>);
-
-		impl GameEventVisitor for VisitorVecPairs {
-			type Break = !;
-
-			fn visit(
-				&mut self,
-				key: GameEventDataKey,
-				value: GameEventDataValue,
-			) -> ControlFlow<Self::Break> {
-				self.0.push(GameEventDataPair(key, value));
-				ControlFlow::Continue(())
-			}
-		}
-
-		self.visit_nb(VisitorVecPairs(Vec::new())).0
-	}
-
 	/// Runs a [`GameEventVisitor`] which collects the event's data [key]-[value] pairs into a [`HashMap`].
 	///
 	/// [key]: GameEventDataKey
@@ -294,6 +291,30 @@ impl<'e> GameEvent<'e> {
 		}
 
 		self.visit_nb(VisitorHashMapPairs(HashMap::new())).0
+	}
+
+	/// Runs a [`GameEventVisitor`] which collects the event's data [key]-[value] pairs into a [`Vec`].
+	///
+	/// [key]: GameEventDataKey
+	/// [value]: GameEventDataValue
+	pub fn pairs_to_vec(self) -> Vec<GameEventDataPair> {
+		#[repr(transparent)]
+		struct VisitorVecPairs(Vec<GameEventDataPair>);
+
+		impl GameEventVisitor for VisitorVecPairs {
+			type Break = !;
+
+			fn visit(
+				&mut self,
+				key: GameEventDataKey,
+				value: GameEventDataValue,
+			) -> ControlFlow<Self::Break> {
+				self.0.push(GameEventDataPair(key, value));
+				ControlFlow::Continue(())
+			}
+		}
+
+		self.visit_nb(VisitorVecPairs(Vec::new())).0
 	}
 
 	/// Runs a [`GameEventVisitor`] which collects the event's [data values] into a [`Vec`].
@@ -328,6 +349,13 @@ impl<'e> GameEvent<'e> {
 		executor.state
 	}
 
+	#[inline(always)]
+	fn visit_nb<V: GameEventVisitor<Break = !>>(self, visitor: V) -> V {
+		let ControlFlow::Continue(visitor) = self.visit(visitor);
+
+		visitor
+	}
+
 	/// # Safety
 	///
 	/// `object` must be a visitor laid out as `IGameEventVisitor2`, live for the call.
@@ -335,13 +363,6 @@ impl<'e> GameEvent<'e> {
 	unsafe fn visitor_exec(self, object: *mut sys::IGameEventVisitor2) -> bool {
 		// SAFETY: The event is live for `'e`, and the caller upholds the rest.
 		unsafe { vcall!(self.as_ptr() => IGameEvent_ForEventData(object)) }
-	}
-
-	#[inline(always)]
-	fn visit_nb<V: GameEventVisitor<Break = !>>(self, visitor: V) -> V {
-		let ControlFlow::Continue(visitor) = self.visit(visitor);
-
-		visitor
 	}
 }
 
@@ -357,6 +378,24 @@ impl<'s> OwnedGameEvent<'s> {
 	pub fn as_event(&self) -> GameEvent<'_> {
 		// SAFETY: The event stays allocated until `self` fires or frees it.
 		unsafe { GameEvent::from_raw(self.raw) }
+	}
+
+	/// Delivers the event to every listener, and to clients if `broadcast` is set.
+	///
+	/// Listeners run synchronously, so this may run arbitrary game and plugin
+	/// code, including this plugin's own listeners. The engine frees the event
+	/// either way.
+	#[doc(alias = "FireEvent")]
+	pub fn fire(self, broadcast: bool) -> Result<(), FireEventError> {
+		let this = ManuallyDrop::new(self);
+		let name = this.as_event().name().to_owned();
+
+		// SAFETY: The manager takes ownership of the event, which is not used again.
+		let fired = unsafe {
+			vcall!(this.manager.as_ptr() => IGameEventManager2_FireEvent(this.raw.as_ptr(), !broadcast))
+		};
+
+		fired.then_some(()).ok_or(FireEventError { name })
 	}
 
 	#[doc(alias = "SetBool")]
@@ -389,24 +428,6 @@ impl<'s> OwnedGameEvent<'s> {
 		// SAFETY: As for `set_bool`.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetUint64(key.as_ptr(), value)) };
 	}
-
-	/// Delivers the event to every listener, and to clients if `broadcast` is set.
-	///
-	/// Listeners run synchronously, so this may run arbitrary game and plugin
-	/// code, including this plugin's own listeners. The engine frees the event
-	/// either way.
-	#[doc(alias = "FireEvent")]
-	pub fn fire(self, broadcast: bool) -> Result<(), FireEventError> {
-		let this = ManuallyDrop::new(self);
-		let name = this.as_event().name().to_owned();
-
-		// SAFETY: The manager takes ownership of the event, which is not used again.
-		let fired = unsafe {
-			vcall!(this.manager.as_ptr() => IGameEventManager2_FireEvent(this.raw.as_ptr(), !broadcast))
-		};
-
-		fired.then_some(()).ok_or(FireEventError { name })
-	}
 }
 
 impl Drop for OwnedGameEvent<'_> {
@@ -416,243 +437,10 @@ impl Drop for OwnedGameEvent<'_> {
 	}
 }
 
-/// The manager refused to create an event.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("no game event named `{}` is registered", .name.to_string_lossy())]
-pub struct CreateEventError {
-	name: CString,
-}
-
-/// The manager refused to fire an event.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("the game event manager did not fire `{}`", .name.to_string_lossy())]
-pub struct FireEventError {
-	name: CString,
-}
-
-/// The manager refused to register a listener.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("could not listen for `{}`; no such game event is registered", .name.to_string_lossy())]
-pub struct AddListenerError {
-	name: CString,
-}
-
 interface! {
 	/// Creates, fires, and delivers game events (`IGameEventManager2`).
 	#[doc(alias = "IGameEventManager2")]
 	pub struct GameEventManager(sys::IGameEventManager2) = Engine c"GAMEEVENTSMANAGER002";
-}
-
-impl<'s> GameEventManager<'s> {
-	/// Registers a listener for an event name.
-	///
-	/// # Safety
-	///
-	/// The listener must be removed with [`Self::remove_listener`] before it is
-	/// dropped or the module containing it is unloaded, since the manager keeps
-	/// calling it through its address until then.
-	#[doc(alias = "AddListener")]
-	pub unsafe fn add_listener<H: GameEventHandler>(
-		self,
-		listener: Pin<&GameEventListener<H>>,
-		event: &CStr,
-		server_side: bool,
-	) -> Result<(), AddListenerError> {
-		// SAFETY: `Server::new` guarantees the interface is live, and the caller
-		// keeps the pinned listener registered no longer than it lives.
-		let added = unsafe {
-			vcall!(self.as_ptr() => IGameEventManager2_AddListener(listener.as_raw(), event.as_ptr(), server_side))
-		};
-
-		added.then_some(()).ok_or_else(|| AddListenerError {
-			name: event.to_owned(),
-		})
-	}
-
-	/// Whether a listener is registered for an event name.
-	#[doc(alias = "FindListener")]
-	pub fn is_listening<H: GameEventHandler>(
-		self,
-		listener: Pin<&GameEventListener<H>>,
-		event: &CStr,
-	) -> bool {
-		// SAFETY: As for `add_listener`. The manager only compares the address.
-		unsafe {
-			vcall!(self.as_ptr() => IGameEventManager2_FindListener(listener.as_raw(), event.as_ptr()))
-		}
-	}
-
-	/// Removes every registration of a listener. Removing a listener that is
-	/// not registered does nothing.
-	#[doc(alias = "RemoveListener")]
-	pub fn remove_listener<H: GameEventHandler>(self, listener: Pin<&GameEventListener<H>>) {
-		// SAFETY: As for `is_listening`.
-		unsafe { vcall!(self.as_ptr() => IGameEventManager2_RemoveListener(listener.as_raw())) };
-	}
-
-	/// Creates an event to fill in and fire.
-	#[doc(alias = "CreateEvent")]
-	pub fn create_event(self, name: &CStr) -> Result<OwnedGameEvent<'s>, CreateEventError> {
-		// SAFETY: As for `add_listener`.
-		let event = unsafe {
-			vcall!(self.as_ptr() => IGameEventManager2_CreateEvent(name.as_ptr(), false))
-		};
-
-		NonNull::new(event)
-			.map(|raw| OwnedGameEvent { raw, manager: self })
-			.ok_or_else(|| CreateEventError {
-				name: name.to_owned(),
-			})
-	}
-
-	/// Creates a copy of an event to fill in and fire.
-	#[doc(alias = "DuplicateEvent")]
-	pub fn duplicate_event(self, event: GameEvent<'_>) -> Option<OwnedGameEvent<'s>> {
-		// SAFETY: As for `add_listener`, and the event is live.
-		let duplicate =
-			unsafe { vcall!(self.as_ptr() => IGameEventManager2_DuplicateEvent(event.as_ptr())) };
-
-		NonNull::new(duplicate).map(|raw| OwnedGameEvent { raw, manager: self })
-	}
-
-	/// Encodes an event as the engine sends it to clients: its ID, then its
-	/// fields in the order its description lists them.
-	///
-	/// [`net::messages::GameEvent`](crate::net::messages::GameEvent) sends the
-	/// result to a single client. Returns `None` if the manager has no
-	/// description of the event, or the encoding exceeds 1024 bytes.
-	#[doc(alias = "SerializeEvent")]
-	pub fn serialize_event(self, event: GameEvent<'_>) -> Option<BitWriter> {
-		// `MAX_EVENT_BYTES`, the most the engine sends of an event.
-		let mut storage = [0u32; 1024 / 4];
-		let mut buffer = RawBfWrite::empty(&mut storage);
-
-		// SAFETY: As for `add_listener`, and the event is live. The engine writes
-		// through the buffer, within the bounds it describes, and marks it
-		// overflowed rather than exceed them.
-		let serialized = unsafe {
-			vcall!(self.as_ptr() => IGameEventManager2_SerializeEvent(
-				event.as_ptr(),
-				(&raw mut buffer).cast::<sys::bf_write>(),
-			))
-		};
-
-		// SAFETY: The buffer describes `storage`, which the call has finished
-		// writing.
-		serialized
-			.then(|| unsafe { RawBfWrite::read_back(NonNull::from(&mut buffer)) })
-			.flatten()
-	}
-
-	/// Loads event descriptions from a resource file.
-	///
-	/// # Safety
-	///
-	/// Loading a new event schema mutates shared manager state and may invalidate
-	/// events or borrowed data obtained from this manager. The caller must ensure
-	/// no such values are live or concurrently in use.
-	#[doc(alias = "LoadEventsFromFile")]
-	pub unsafe fn load_events_from_file(self, filename: &CStr) -> c_int {
-		// SAFETY: The caller upholds the contract.
-		unsafe { vcall!(self.as_ptr() => IGameEventManager2_LoadEventsFromFile(filename.as_ptr())) }
-	}
-
-	/// Removes every event description and listener.
-	///
-	/// # Safety
-	///
-	/// Reset removes the manager's event data. The caller must ensure no events
-	/// or values borrowed from them remain live or concurrently in use.
-	#[doc(alias = "Reset")]
-	pub unsafe fn reset(self) {
-		// SAFETY: The caller upholds the contract.
-		unsafe { vcall!(self.as_ptr() => IGameEventManager2_Reset()) }
-	}
-}
-
-/// Receives the game events a [`GameEventListener`] is registered for.
-pub trait GameEventHandler {
-	/// Called by the engine for each event the listener is registered for.
-	///
-	/// A panic cannot unwind into the engine and aborts the server, so catch
-	/// any the handler may raise.
-	fn fire_game_event(&self, event: GameEvent<'_>);
-}
-
-/// A Rust implementation of the engine's `IGameEventListener2`.
-///
-/// The manager keeps the address of a registered listener, so registering
-/// takes it pinned. The listener is `!Unpin` so it cannot move while pinned,
-/// and `!Send`/`!Sync` since the engine calls it on the server's main thread.
-#[repr(C)]
-pub struct GameEventListener<H> {
-	vtable: &'static GameEventListenerVtable,
-	handler: H,
-	_pinned: PhantomPinned,
-	_not_thread_safe: NotThreadSafe,
-}
-
-impl<H: GameEventHandler> GameEventListener<H> {
-	const VTABLE: GameEventListenerVtable = GameEventListenerVtable {
-		destructor: CppDestructors::new_noop(),
-		fire_game_event: Self::fire_game_event,
-	};
-
-	pub const fn new(handler: H) -> Self {
-		Self {
-			vtable: &Self::VTABLE,
-			handler,
-			_pinned: PhantomPinned,
-			_not_thread_safe: PhantomData,
-		}
-	}
-
-	pub const fn handler(&self) -> &H {
-		&self.handler
-	}
-
-	fn as_raw(self: Pin<&Self>) -> *mut sys::IGameEventListener2 {
-		// The engine only reads the vtable pointer, never writing to the listener.
-		ptr_from_pin(self).cast()
-	}
-
-	unsafe extern "C" fn fire_game_event(
-		this: *mut sys::IGameEventListener2,
-		event: *mut sys::IGameEvent,
-	) {
-		let Some(event) = NonNull::new(event) else {
-			return;
-		};
-
-		// SAFETY: The engine only calls listeners registered by `add_listener`,
-		// which are pinned instances of `Self` that outlive their registration.
-		let listener = unsafe { &*this.cast::<Self>() };
-
-		// SAFETY: The engine passes a live event for the duration of the call.
-		listener
-			.handler
-			.fire_game_event(unsafe { GameEvent::from_raw(event) });
-	}
-}
-
-impl<H: std::fmt::Debug> std::fmt::Debug for GameEventListener<H> {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("GameEventListener")
-			.field("handler", &self.handler)
-			.finish_non_exhaustive()
-	}
-}
-
-fn ptr_from_pin<T>(pinned: Pin<&T>) -> *mut T {
-	(&raw const *pinned.get_ref()).cast_mut()
-}
-
-/// The `IGameEventListener2` vtable of a [`GameEventListener`].
-#[repr(C)]
-struct GameEventListenerVtable {
-	destructor: CppDestructors,
-	fire_game_event:
-		unsafe extern "C" fn(this: *mut sys::IGameEventListener2, event: *mut sys::IGameEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -831,6 +619,7 @@ impl GameEventDataValue {
 		match UserId::from_raw(int) {
 			Ok(user_id) => Some(user_id),
 			Err(error) if error.is_sentinel() => None, //suppressed
+
 			Err(error) => {
 				panic!("Game event value was an integer {int}, but not a valid user ID {error}")
 			}
@@ -882,6 +671,87 @@ impl GameEventDataValue {
 	}
 }
 
+/// Receives the game events a [`GameEventListener`] is registered for.
+pub trait GameEventHandler {
+	/// Called by the engine for each event the listener is registered for.
+	///
+	/// A panic cannot unwind into the engine and aborts the server, so catch
+	/// any the handler may raise.
+	fn fire_game_event(&self, event: GameEvent<'_>);
+}
+
+/// A Rust implementation of the engine's `IGameEventListener2`.
+///
+/// The manager keeps the address of a registered listener, so registering
+/// takes it pinned. The listener is `!Unpin` so it cannot move while pinned,
+/// and `!Send`/`!Sync` since the engine calls it on the server's main thread.
+#[repr(C)]
+pub struct GameEventListener<H> {
+	vtable: &'static GameEventListenerVtable,
+	handler: H,
+	_pinned: PhantomPinned,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl<H: GameEventHandler> GameEventListener<H> {
+	const VTABLE: GameEventListenerVtable = GameEventListenerVtable {
+		destructor: CppDestructors::new_noop(),
+		fire_game_event: Self::fire_game_event,
+	};
+
+	pub const fn new(handler: H) -> Self {
+		Self {
+			vtable: &Self::VTABLE,
+			handler,
+			_pinned: PhantomPinned,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	unsafe extern "C" fn fire_game_event(
+		this: *mut sys::IGameEventListener2,
+		event: *mut sys::IGameEvent,
+	) {
+		let Some(event) = NonNull::new(event) else {
+			return;
+		};
+
+		// SAFETY: The engine only calls listeners registered by `add_listener`,
+		// which are pinned instances of `Self` that outlive their registration.
+		let listener = unsafe { &*this.cast::<Self>() };
+
+		// SAFETY: The engine passes a live event for the duration of the call.
+		listener
+			.handler
+			.fire_game_event(unsafe { GameEvent::from_raw(event) });
+	}
+
+	fn as_raw(self: Pin<&Self>) -> *mut sys::IGameEventListener2 {
+		// The engine only reads the vtable pointer, never writing to the listener.
+		ptr_from_pin(self).cast()
+	}
+
+	pub const fn handler(&self) -> &H {
+		&self.handler
+	}
+}
+
+impl<H: std::fmt::Debug> std::fmt::Debug for GameEventListener<H> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("GameEventListener")
+			.field("handler", &self.handler)
+			.finish_non_exhaustive()
+	}
+}
+
+/// The `IGameEventListener2` vtable of a [`GameEventListener`].
+#[repr(C)]
+struct GameEventListenerVtable {
+	destructor: CppDestructors,
+	fire_game_event:
+		unsafe extern "C" fn(this: *mut sys::IGameEventListener2, event: *mut sys::IGameEvent),
+}
+
 /// Types that can consume an iterator of key-pairs emitted by the Source SDK's Game Event key-value iterator.
 pub trait GameEventVisitor {
 	type Break;
@@ -916,6 +786,137 @@ impl GameEventVistorVtable {
 		assert!(offset_of!(Self, visit_local) == 0);
 		assert!(size_of::<Self>() == size_of::<*const ()>() * 7);
 	};
+}
+
+impl<'s> GameEventManager<'s> {
+	/// Registers a listener for an event name.
+	///
+	/// # Safety
+	///
+	/// The listener must be removed with [`Self::remove_listener`] before it is
+	/// dropped or the module containing it is unloaded, since the manager keeps
+	/// calling it through its address until then.
+	#[doc(alias = "AddListener")]
+	pub unsafe fn add_listener<H: GameEventHandler>(
+		self,
+		listener: Pin<&GameEventListener<H>>,
+		event: &CStr,
+		server_side: bool,
+	) -> Result<(), AddListenerError> {
+		// SAFETY: `Server::new` guarantees the interface is live, and the caller
+		// keeps the pinned listener registered no longer than it lives.
+		let added = unsafe {
+			vcall!(self.as_ptr() => IGameEventManager2_AddListener(listener.as_raw(), event.as_ptr(), server_side))
+		};
+
+		added.then_some(()).ok_or_else(|| AddListenerError {
+			name: event.to_owned(),
+		})
+	}
+
+	/// Creates an event to fill in and fire.
+	#[doc(alias = "CreateEvent")]
+	pub fn create_event(self, name: &CStr) -> Result<OwnedGameEvent<'s>, CreateEventError> {
+		// SAFETY: As for `add_listener`.
+		let event = unsafe {
+			vcall!(self.as_ptr() => IGameEventManager2_CreateEvent(name.as_ptr(), false))
+		};
+
+		NonNull::new(event)
+			.map(|raw| OwnedGameEvent { raw, manager: self })
+			.ok_or_else(|| CreateEventError {
+				name: name.to_owned(),
+			})
+	}
+
+	/// Creates a copy of an event to fill in and fire.
+	#[doc(alias = "DuplicateEvent")]
+	pub fn duplicate_event(self, event: GameEvent<'_>) -> Option<OwnedGameEvent<'s>> {
+		// SAFETY: As for `add_listener`, and the event is live.
+		let duplicate =
+			unsafe { vcall!(self.as_ptr() => IGameEventManager2_DuplicateEvent(event.as_ptr())) };
+
+		NonNull::new(duplicate).map(|raw| OwnedGameEvent { raw, manager: self })
+	}
+
+	/// Whether a listener is registered for an event name.
+	#[doc(alias = "FindListener")]
+	pub fn is_listening<H: GameEventHandler>(
+		self,
+		listener: Pin<&GameEventListener<H>>,
+		event: &CStr,
+	) -> bool {
+		// SAFETY: As for `add_listener`. The manager only compares the address.
+		unsafe {
+			vcall!(self.as_ptr() => IGameEventManager2_FindListener(listener.as_raw(), event.as_ptr()))
+		}
+	}
+
+	/// Loads event descriptions from a resource file.
+	///
+	/// # Safety
+	///
+	/// Loading a new event schema mutates shared manager state and may invalidate
+	/// events or borrowed data obtained from this manager. The caller must ensure
+	/// no such values are live or concurrently in use.
+	#[doc(alias = "LoadEventsFromFile")]
+	pub unsafe fn load_events_from_file(self, filename: &CStr) -> c_int {
+		// SAFETY: The caller upholds the contract.
+		unsafe { vcall!(self.as_ptr() => IGameEventManager2_LoadEventsFromFile(filename.as_ptr())) }
+	}
+
+	/// Removes every registration of a listener. Removing a listener that is
+	/// not registered does nothing.
+	#[doc(alias = "RemoveListener")]
+	pub fn remove_listener<H: GameEventHandler>(self, listener: Pin<&GameEventListener<H>>) {
+		// SAFETY: As for `is_listening`.
+		unsafe { vcall!(self.as_ptr() => IGameEventManager2_RemoveListener(listener.as_raw())) };
+	}
+
+	/// Removes every event description and listener.
+	///
+	/// # Safety
+	///
+	/// Reset removes the manager's event data. The caller must ensure no events
+	/// or values borrowed from them remain live or concurrently in use.
+	#[doc(alias = "Reset")]
+	pub unsafe fn reset(self) {
+		// SAFETY: The caller upholds the contract.
+		unsafe { vcall!(self.as_ptr() => IGameEventManager2_Reset()) }
+	}
+
+	/// Encodes an event as the engine sends it to clients: its ID, then its
+	/// fields in the order its description lists them.
+	///
+	/// [`net::messages::GameEvent`](crate::net::messages::GameEvent) sends the
+	/// result to a single client. Returns `None` if the manager has no
+	/// description of the event, or the encoding exceeds 1024 bytes.
+	#[doc(alias = "SerializeEvent")]
+	pub fn serialize_event(self, event: GameEvent<'_>) -> Option<BitWriter> {
+		// `MAX_EVENT_BYTES`, the most the engine sends of an event.
+		let mut storage = [0u32; 1024 / 4];
+		let mut buffer = RawBfWrite::empty(&mut storage);
+
+		// SAFETY: As for `add_listener`, and the event is live. The engine writes
+		// through the buffer, within the bounds it describes, and marks it
+		// overflowed rather than exceed them.
+		let serialized = unsafe {
+			vcall!(self.as_ptr() => IGameEventManager2_SerializeEvent(
+				event.as_ptr(),
+				(&raw mut buffer).cast::<sys::bf_write>(),
+			))
+		};
+
+		// SAFETY: The buffer describes `storage`, which the call has finished
+		// writing.
+		serialized
+			.then(|| unsafe { RawBfWrite::read_back(NonNull::from(&mut buffer)) })
+			.flatten()
+	}
+}
+
+fn ptr_from_pin<T>(pinned: Pin<&T>) -> *mut T {
+	(&raw const *pinned.get_ref()).cast_mut()
 }
 
 macro_rules! visit_methods {
@@ -992,83 +993,6 @@ macro_rules! visit_methods {
 	};
 }
 
-/// Structure required C++ implementation.
-#[repr(C)]
-struct VisitorExecutor<V: GameEventVisitor> {
-	vtable: &'static GameEventVistorVtable,
-	state: ControlFlow<V::Break, V>,
-}
-
-impl<V: GameEventVisitor> VisitorExecutor<V> {
-	fn new(visitor: V) -> Self {
-		Self {
-			vtable: &Self::VTABLE,
-			state: ControlFlow::Continue(visitor),
-		}
-	}
-
-	unsafe fn visit(this: *mut c_void, name: *const c_char, value: GameEventDataValue) -> bool {
-		assert!(!name.is_null());
-
-		let exec = unsafe { this.cast::<Self>().as_mut() }.expect("Visitor object is null");
-
-		let ControlFlow::Continue(visitor) = &mut exec.state else {
-			panic!();
-		};
-
-		if let ControlFlow::Break(output) =
-			visitor.visit(unsafe { GameEventDataKey::from_ptr(name) }, value)
-		{
-			exec.state = ControlFlow::Break(output);
-
-			false
-		} else {
-			true
-		}
-	}
-
-	visit_methods!(visit);
-}
-
-#[repr(C)]
-struct VisitKeyFinder<'a> {
-	vtable: &'static GameEventVistorVtable,
-	state: ControlFlow<GameEventDataValue, &'a str>,
-}
-
-impl<'a> VisitKeyFinder<'a> {
-	fn new(key: &'a str) -> Self {
-		Self {
-			vtable: &Self::VTABLE,
-			state: ControlFlow::Continue(key),
-		}
-	}
-
-	unsafe fn visit(this: *mut c_void, name: *const c_char, value: GameEventDataValue) -> bool {
-		assert!(!name.is_null());
-
-		let finder = unsafe { this.cast::<Self>().as_mut() }.expect("Visitor object is null");
-
-		let Ok(name) = unsafe { CStr::from_ptr(name) }.to_str() else {
-			panic!("Invalid UTF-8 yielded IGameEvent KeyValues visitor {name:?}")
-		};
-
-		let ControlFlow::Continue(key) = finder.state else {
-			unreachable!()
-		};
-
-		if key == name {
-			finder.state = ControlFlow::Break(value);
-
-			false
-		} else {
-			true
-		}
-	}
-
-	visit_methods!(visit);
-}
-
 // IGameEvent declares a virtual destructor before GetName. It occupies one slot
 // under Win64 MSVC and two slots under the Itanium ABI used on x86-64 Linux.
 // Keep this assertion beside the safe wrapper so regenerating an incorrect sys
@@ -1122,6 +1046,83 @@ const _: () = {
 	);
 };
 
+#[repr(C)]
+struct VisitKeyFinder<'a> {
+	vtable: &'static GameEventVistorVtable,
+	state: ControlFlow<GameEventDataValue, &'a str>,
+}
+
+impl<'a> VisitKeyFinder<'a> {
+	fn new(key: &'a str) -> Self {
+		Self {
+			vtable: &Self::VTABLE,
+			state: ControlFlow::Continue(key),
+		}
+	}
+
+	unsafe fn visit(this: *mut c_void, name: *const c_char, value: GameEventDataValue) -> bool {
+		assert!(!name.is_null());
+
+		let finder = unsafe { this.cast::<Self>().as_mut() }.expect("Visitor object is null");
+
+		let Ok(name) = unsafe { CStr::from_ptr(name) }.to_str() else {
+			panic!("Invalid UTF-8 yielded IGameEvent KeyValues visitor {name:?}")
+		};
+
+		let ControlFlow::Continue(key) = finder.state else {
+			unreachable!()
+		};
+
+		if key == name {
+			finder.state = ControlFlow::Break(value);
+
+			false
+		} else {
+			true
+		}
+	}
+
+	visit_methods!(visit);
+}
+
+/// Structure required C++ implementation.
+#[repr(C)]
+struct VisitorExecutor<V: GameEventVisitor> {
+	vtable: &'static GameEventVistorVtable,
+	state: ControlFlow<V::Break, V>,
+}
+
+impl<V: GameEventVisitor> VisitorExecutor<V> {
+	fn new(visitor: V) -> Self {
+		Self {
+			vtable: &Self::VTABLE,
+			state: ControlFlow::Continue(visitor),
+		}
+	}
+
+	unsafe fn visit(this: *mut c_void, name: *const c_char, value: GameEventDataValue) -> bool {
+		assert!(!name.is_null());
+
+		let exec = unsafe { this.cast::<Self>().as_mut() }.expect("Visitor object is null");
+
+		let ControlFlow::Continue(visitor) = &mut exec.state else {
+			panic!();
+		};
+
+		if let ControlFlow::Break(output) =
+			visitor.visit(unsafe { GameEventDataKey::from_ptr(name) }, value)
+		{
+			exec.state = ControlFlow::Break(output);
+
+			false
+		} else {
+			true
+		}
+	}
+
+	visit_methods!(visit);
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -1138,6 +1139,53 @@ mod tests {
 		static FREED: Cell<usize> = const { Cell::new(0) };
 		static FIRED: Cell<usize> = const { Cell::new(0) };
 		static DELIVERED: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
+	}
+
+	unsafe extern "C" fn create_event(
+		_: *mut sys::IGameEventManager2,
+		name: *const c_char,
+		force: bool,
+	) -> *mut sys::IGameEvent {
+		assert!(!force);
+		if unsafe { CStr::from_ptr(name) } == c"player_regenerate" {
+			EVENT.with(|event| event.as_ptr())
+		} else {
+			null_mut()
+		}
+	}
+
+	unsafe extern "C" fn event_get_int(
+		_: *const sys::IGameEvent,
+		_: *const c_char,
+		_: c_int,
+	) -> c_int {
+		7
+	}
+
+	unsafe extern "C" fn event_is_empty(_: *mut sys::IGameEvent, key: *const c_char) -> bool {
+		let key = unsafe { CStr::from_ptr(key) };
+
+		key != c"userid"
+	}
+
+	unsafe extern "C" fn event_name(_: *const sys::IGameEvent) -> *const c_char {
+		c"player_regenerate".as_ptr()
+	}
+
+	unsafe extern "C" fn fire_event(
+		_: *mut sys::IGameEventManager2,
+		event: *mut sys::IGameEvent,
+		dont_broadcast: bool,
+	) -> bool {
+		assert!(dont_broadcast);
+		FIRED.set(FIRED.get() + 1);
+		// The engine delivers the event synchronously, then frees it.
+		unsafe { deliver(event) };
+		true
+	}
+
+	unsafe extern "C" fn free_event(_: *mut sys::IGameEventManager2, _: *mut sys::IGameEvent) {
+		FREED.set(FREED.get() + 1);
 	}
 
 	unsafe extern "C" fn record_add_listener(
@@ -1164,53 +1212,6 @@ mod tests {
 		REMOVE_CALLED.set(true);
 	}
 
-	unsafe extern "C" fn event_name(_: *const sys::IGameEvent) -> *const c_char {
-		c"player_regenerate".as_ptr()
-	}
-
-	unsafe extern "C" fn event_is_empty(_: *mut sys::IGameEvent, key: *const c_char) -> bool {
-		let key = unsafe { CStr::from_ptr(key) };
-
-		key != c"userid"
-	}
-
-	unsafe extern "C" fn event_get_int(
-		_: *const sys::IGameEvent,
-		_: *const c_char,
-		_: c_int,
-	) -> c_int {
-		7
-	}
-
-	unsafe extern "C" fn create_event(
-		_: *mut sys::IGameEventManager2,
-		name: *const c_char,
-		force: bool,
-	) -> *mut sys::IGameEvent {
-		assert!(!force);
-		if unsafe { CStr::from_ptr(name) } == c"player_regenerate" {
-			EVENT.with(|event| event.as_ptr())
-		} else {
-			null_mut()
-		}
-	}
-
-	unsafe extern "C" fn free_event(_: *mut sys::IGameEventManager2, _: *mut sys::IGameEvent) {
-		FREED.set(FREED.get() + 1);
-	}
-
-	unsafe extern "C" fn fire_event(
-		_: *mut sys::IGameEventManager2,
-		event: *mut sys::IGameEvent,
-		dont_broadcast: bool,
-	) -> bool {
-		assert!(dont_broadcast);
-		FIRED.set(FIRED.get() + 1);
-		// The engine delivers the event synchronously, then frees it.
-		unsafe { deliver(event) };
-		true
-	}
-
 	thread_local! {
 		static EVENT_VTABLE: Box<sys::IGameEvent__bindgen_vtable> = unsafe {
 			mock_vtable::<sys::IGameEvent__bindgen_vtable>(unexpected_call as *const (), |vtable| {
@@ -1221,13 +1222,6 @@ mod tests {
 		};
 		static EVENT: Cell<sys::IGameEvent> = Cell::new(sys::IGameEvent { vtable_: EVENT_VTABLE.with(|vtable| &raw const **vtable) });
 		static LISTENER: Cell<*mut sys::IGameEventListener2> = const { Cell::new(null_mut()) };
-	}
-
-	unsafe fn deliver(event: *mut sys::IGameEvent) {
-		let listener = LISTENER.get();
-		let fire = unsafe { (*(*listener).vtable_).IGameEventListener2_FireGameEvent };
-
-		unsafe { fire(listener, event) };
 	}
 
 	#[derive(Debug)]
@@ -1241,20 +1235,25 @@ mod tests {
 		}
 	}
 
-	fn mock_manager() -> Box<sys::IGameEventManager2__bindgen_vtable> {
-		unsafe {
-			mock_vtable::<sys::IGameEventManager2__bindgen_vtable>(
-				unexpected_call as *const (),
-				|vtable| {
-					(&raw mut (*vtable).IGameEventManager2_AddListener).write(record_add_listener);
-					(&raw mut (*vtable).IGameEventManager2_RemoveListener)
-						.write(record_remove_listener);
-					(&raw mut (*vtable).IGameEventManager2_CreateEvent).write(create_event);
-					(&raw mut (*vtable).IGameEventManager2_FreeEvent).write(free_event);
-					(&raw mut (*vtable).IGameEventManager2_FireEvent).write(fire_event);
-				},
-			)
-		}
+	unsafe fn deliver(event: *mut sys::IGameEvent) {
+		let listener = LISTENER.get();
+		let fire = unsafe { (*(*listener).vtable_).IGameEventListener2_FireGameEvent };
+
+		unsafe { fire(listener, event) };
+	}
+
+	#[test]
+	fn int_values_unwrap_as_user_ids() {
+		assert_eq!(
+			GameEventDataValue::Int(7).unwrap_user_id(),
+			UserId::new(7).unwrap()
+		);
+		assert_eq!(
+			GameEventDataValue::Int(7).unwrap_optional_user_id(),
+			UserId::new(7)
+		);
+		assert_eq!(GameEventDataValue::Int(0).unwrap_optional_user_id(), None);
+		assert_eq!(GameEventDataValue::Int(-1).unwrap_optional_user_id(), None);
 	}
 
 	#[test]
@@ -1300,18 +1299,20 @@ mod tests {
 		assert_eq!(RECEIVED_LISTENER.get(), listener_pointer);
 	}
 
-	#[test]
-	fn int_values_unwrap_as_user_ids() {
-		assert_eq!(
-			GameEventDataValue::Int(7).unwrap_user_id(),
-			UserId::new(7).unwrap()
-		);
-		assert_eq!(
-			GameEventDataValue::Int(7).unwrap_optional_user_id(),
-			UserId::new(7)
-		);
-		assert_eq!(GameEventDataValue::Int(0).unwrap_optional_user_id(), None);
-		assert_eq!(GameEventDataValue::Int(-1).unwrap_optional_user_id(), None);
+	fn mock_manager() -> Box<sys::IGameEventManager2__bindgen_vtable> {
+		unsafe {
+			mock_vtable::<sys::IGameEventManager2__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).IGameEventManager2_AddListener).write(record_add_listener);
+					(&raw mut (*vtable).IGameEventManager2_RemoveListener)
+						.write(record_remove_listener);
+					(&raw mut (*vtable).IGameEventManager2_CreateEvent).write(create_event);
+					(&raw mut (*vtable).IGameEventManager2_FreeEvent).write(free_event);
+					(&raw mut (*vtable).IGameEventManager2_FireEvent).write(fire_event);
+				},
+			)
+		}
 	}
 
 	#[test]

@@ -13,19 +13,19 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOriginRelative_close0",
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOrigin_close0",
     ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
     [
-        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOriginRelative_close0",
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOrigin_close0",
     ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOrigin_close0",
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOriginRelative_close0",
     ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
     [
-        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOrigin_close0",
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOriginRelative_close0",
     ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]

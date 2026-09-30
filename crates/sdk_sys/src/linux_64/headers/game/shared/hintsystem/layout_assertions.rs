@@ -3,6 +3,27 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CHintSystem_onresethints_t",
+    ][::std::mem::size_of::<CHintSystem_onresethints_t>() - 24usize];
+    [
+        "Alignment of CHintSystem_onresethints_t",
+    ][::std::mem::align_of::<CHintSystem_onresethints_t>() - 8usize];
+    [
+        "Offset of field: CHintSystem_onresethints_t::iHintID",
+    ][::std::mem::offset_of!(CHintSystem_onresethints_t, iHintID) - 0usize];
+    [
+        "Offset of field: CHintSystem_onresethints_t::flTimer",
+    ][::std::mem::offset_of!(CHintSystem_onresethints_t, flTimer) - 4usize];
+    [
+        "Offset of field: CHintSystem_onresethints_t::bOnlyIfClear",
+    ][::std::mem::offset_of!(CHintSystem_onresethints_t, bOnlyIfClear) - 8usize];
+    [
+        "Offset of field: CHintSystem_onresethints_t::pfnCallback",
+    ][::std::mem::offset_of!(CHintSystem_onresethints_t, pfnCallback) - 16usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of CHintSystem"][::std::mem::size_of::<CHintSystem>() - 88usize];
     ["Alignment of CHintSystem"][::std::mem::align_of::<CHintSystem>() - 8usize];
     [
@@ -29,25 +50,4 @@ const _: () = {
     [
         "Offset of field: CHintSystem::m_RegisteredResetHints",
     ][::std::mem::offset_of!(CHintSystem, m_RegisteredResetHints) - 56usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CHintSystem_onresethints_t",
-    ][::std::mem::size_of::<CHintSystem_onresethints_t>() - 24usize];
-    [
-        "Alignment of CHintSystem_onresethints_t",
-    ][::std::mem::align_of::<CHintSystem_onresethints_t>() - 8usize];
-    [
-        "Offset of field: CHintSystem_onresethints_t::iHintID",
-    ][::std::mem::offset_of!(CHintSystem_onresethints_t, iHintID) - 0usize];
-    [
-        "Offset of field: CHintSystem_onresethints_t::flTimer",
-    ][::std::mem::offset_of!(CHintSystem_onresethints_t, flTimer) - 4usize];
-    [
-        "Offset of field: CHintSystem_onresethints_t::bOnlyIfClear",
-    ][::std::mem::offset_of!(CHintSystem_onresethints_t, bOnlyIfClear) - 8usize];
-    [
-        "Offset of field: CHintSystem_onresethints_t::pfnCallback",
-    ][::std::mem::offset_of!(CHintSystem_onresethints_t, pfnCallback) - 16usize];
 };

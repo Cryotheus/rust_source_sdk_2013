@@ -13,11 +13,6 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
-pub type CUtlLinkedList_ElemType_t<T> = T;
-pub type CUtlLinkedList_IndexLocalType_t<I> = I;
-pub type CUtlLinkedList_IndexType_t<S> = S;
-pub type CUtlLinkedList_ListElem_t<T, S> = UtlLinkedListElem_t<T, S>;
-pub type CUtlLinkedList_MemoryAllocator_t<M> = M;
 pub type CUtlLinkedList__CUtlLinkedList_constiterator_t_ElemType_t = __BindgenOpaqueArray<
     [u8; 0usize],
 >;
@@ -33,6 +28,11 @@ pub type CUtlLinkedList__CUtlLinkedList_iterator_t_ElemType_t = __BindgenOpaqueA
 pub type CUtlLinkedList__CUtlLinkedList_iterator_t_IndexType_t = __BindgenOpaqueArray<
     [u8; 0usize],
 >;
+pub type CUtlLinkedList_ElemType_t<T> = T;
+pub type CUtlLinkedList_IndexLocalType_t<I> = I;
+pub type CUtlLinkedList_IndexType_t<S> = S;
+pub type CUtlLinkedList_ListElem_t<T, S> = UtlLinkedListElem_t<T, S>;
+pub type CUtlLinkedList_MemoryAllocator_t<M> = M;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CUtlLinkedList__CUtlLinkedList_constiterator_t<List_t> {

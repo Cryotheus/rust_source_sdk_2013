@@ -15,6 +15,48 @@ pub const ABSOLUTE_PLAYER_LIMIT: c_int = 255;
 
 const RAW_USER_ID_MAX: c_int = u16::MAX as c_int;
 
+/// An `int` which is not a [`UserId`].
+///
+/// `-1` is used as a sentinel value by the engine to indicate an unassigned
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct InvalidUserId(c_int);
+
+impl InvalidUserId {
+	/// Returns `true` if the underlying value represents any of the non-player states such as "no player" or "world" staes.
+	///
+	/// If `false` is returned, the value is seen as having originating from somewhere other than the engine,
+	/// and may be worthy of a panic.
+	pub const fn is_sentinel(&self) -> bool {
+		matches!(self.0, -1 | 0)
+	}
+}
+
+impl Display for InvalidUserId {
+	fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+		const C_INT_MIN: c_int = c_int::MIN;
+
+		match self.0 {
+			// Represents the user id of a player entity, even if they haven't been created yet
+			1..=RAW_USER_ID_MAX => unreachable!(),
+
+			// Sentinel used by the engine for unassigned user ids
+			-1 => write!(f, "No edict assigned"),
+
+			// All other negative values and zero are considered impossible representations.
+			value @ (C_INT_MIN..-1 | 0) => {
+				hint::cold_path();
+				write!(f, "Invalid UserId representation: {value}")
+			}
+
+			// Positive value greater than the 16-bit networkable value.
+			value => write!(f, "Non-networkable UserId {value}"),
+		}
+	}
+}
+
+impl Error for InvalidUserId {}
+
 /// The server's identifier for a connected client, as used by game events.
 ///
 /// The engine assigns each client a user ID when it connects. Game events
@@ -76,15 +118,17 @@ impl From<NonZero<u16>> for UserId {
 	}
 }
 
-impl From<UserId> for NonZero<u16> {
-	fn from(user_id: UserId) -> Self {
-		user_id.0
+impl TryFrom<c_int> for UserId {
+	type Error = InvalidUserId;
+
+	fn try_from(raw: c_int) -> Result<Self, Self::Error> {
+		Self::from_raw(raw)
 	}
 }
 
-impl From<UserId> for u16 {
+impl From<UserId> for NonZero<u16> {
 	fn from(user_id: UserId) -> Self {
-		user_id.get()
+		user_id.0
 	}
 }
 
@@ -94,82 +138,15 @@ impl From<UserId> for c_int {
 	}
 }
 
-impl TryFrom<c_int> for UserId {
-	type Error = InvalidUserId;
-
-	fn try_from(raw: c_int) -> Result<Self, Self::Error> {
-		Self::from_raw(raw)
+impl From<UserId> for u16 {
+	fn from(user_id: UserId) -> Self {
+		user_id.get()
 	}
 }
-
-/// An `int` which is not a [`UserId`].
-///
-/// `-1` is used as a sentinel value by the engine to indicate an unassigned
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct InvalidUserId(c_int);
-
-impl InvalidUserId {
-	/// Returns `true` if the underlying value represents any of the non-player states such as "no player" or "world" staes.
-	///
-	/// If `false` is returned, the value is seen as having originating from somewhere other than the engine,
-	/// and may be worthy of a panic.
-	pub const fn is_sentinel(&self) -> bool {
-		matches!(self.0, -1 | 0)
-	}
-}
-
-impl Display for InvalidUserId {
-	fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-		const C_INT_MIN: c_int = c_int::MIN;
-
-		match self.0 {
-			// Represents the user id of a player entity, even if they haven't been created yet
-			1..=RAW_USER_ID_MAX => unreachable!(),
-
-			// Sentinel used by the engine for unassigned user ids
-			-1 => write!(f, "No edict assigned"),
-
-			// All other negative values and zero are considered impossible representations.
-			value @ (C_INT_MIN..-1 | 0) => {
-				hint::cold_path();
-				write!(f, "Invalid UserId representation: {value}")
-			}
-
-			// Positive value greater than the 16-bit networkable value.
-			value => write!(f, "Non-networkable UserId {value}"),
-		}
-	}
-}
-
-impl Error for InvalidUserId {}
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn raw_conversion_accepts_only_non_zero_16_bit_values() {
-		assert_eq!(UserId::from_raw(-1), Err(InvalidUserId(-1)));
-		assert_eq!(UserId::from_raw(c_int::MIN), Err(InvalidUserId(c_int::MIN)));
-		assert_eq!(UserId::from_raw(0), Err(InvalidUserId(0)));
-		assert_eq!(UserId::from_raw(1).map(UserId::get), Ok(1));
-		assert_eq!(UserId::from_raw(65_535).map(UserId::get), Ok(u16::MAX));
-		assert_eq!(UserId::from_raw(65_536), Err(InvalidUserId(65_536)));
-		assert_eq!(UserId::new(0), None);
-		assert_eq!(UserId::new(7), UserId::from_raw(7).ok());
-
-		assert_eq!(UserId::try_from(0), Err(InvalidUserId(0)));
-		assert_eq!(UserId::try_from(-1), Err(InvalidUserId(-1)));
-		assert_eq!(
-			UserId::try_from(3),
-			Ok(UserId::from(NonZero::new(3).unwrap()))
-		);
-		assert_eq!(c_int::from(UserId::new(u16::MAX).unwrap()), 65_535);
-		assert_eq!(u16::from(UserId::new(7).unwrap()), 7);
-		assert_eq!(UserId::new(42).unwrap().to_raw(), 42);
-		assert_eq!(UserId::new(42).unwrap().to_string(), "42");
-	}
 
 	#[test]
 	fn invalid_user_ids_describe_why_they_are_invalid() {
@@ -197,5 +174,28 @@ mod tests {
 			InvalidUserId(c_int::MIN).to_string(),
 			format!("Invalid UserId representation: {}", c_int::MIN)
 		);
+	}
+
+	#[test]
+	fn raw_conversion_accepts_only_non_zero_16_bit_values() {
+		assert_eq!(UserId::from_raw(-1), Err(InvalidUserId(-1)));
+		assert_eq!(UserId::from_raw(c_int::MIN), Err(InvalidUserId(c_int::MIN)));
+		assert_eq!(UserId::from_raw(0), Err(InvalidUserId(0)));
+		assert_eq!(UserId::from_raw(1).map(UserId::get), Ok(1));
+		assert_eq!(UserId::from_raw(65_535).map(UserId::get), Ok(u16::MAX));
+		assert_eq!(UserId::from_raw(65_536), Err(InvalidUserId(65_536)));
+		assert_eq!(UserId::new(0), None);
+		assert_eq!(UserId::new(7), UserId::from_raw(7).ok());
+
+		assert_eq!(UserId::try_from(0), Err(InvalidUserId(0)));
+		assert_eq!(UserId::try_from(-1), Err(InvalidUserId(-1)));
+		assert_eq!(
+			UserId::try_from(3),
+			Ok(UserId::from(NonZero::new(3).unwrap()))
+		);
+		assert_eq!(c_int::from(UserId::new(u16::MAX).unwrap()), 65_535);
+		assert_eq!(u16::from(UserId::new(7).unwrap()), 7);
+		assert_eq!(UserId::new(42).unwrap().to_raw(), 42);
+		assert_eq!(UserId::new(42).unwrap().to_string(), "42");
 	}
 }

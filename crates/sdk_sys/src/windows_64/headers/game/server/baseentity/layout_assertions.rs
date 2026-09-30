@@ -3,344 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseEntity"][::std::mem::size_of::<CBaseEntity>() - 1152usize];
-    ["Alignment of CBaseEntity"][::std::mem::align_of::<CBaseEntity>() - 8usize];
-    [
-        "Offset of field: CBaseEntity::m_pfnMoveDone",
-    ][::std::mem::offset_of!(CBaseEntity, m_pfnMoveDone) - 8usize];
-    [
-        "Offset of field: CBaseEntity::m_pfnThink",
-    ][::std::mem::offset_of!(CBaseEntity, m_pfnThink) - 16usize];
-    [
-        "Offset of field: CBaseEntity::m_Network",
-    ][::std::mem::offset_of!(CBaseEntity, m_Network) - 24usize];
-    [
-        "Offset of field: CBaseEntity::m_iClassname",
-    ][::std::mem::offset_of!(CBaseEntity, m_iClassname) - 152usize];
-    [
-        "Offset of field: CBaseEntity::m_iGlobalname",
-    ][::std::mem::offset_of!(CBaseEntity, m_iGlobalname) - 160usize];
-    [
-        "Offset of field: CBaseEntity::m_iParent",
-    ][::std::mem::offset_of!(CBaseEntity, m_iParent) - 168usize];
-    [
-        "Offset of field: CBaseEntity::m_iHammerID",
-    ][::std::mem::offset_of!(CBaseEntity, m_iHammerID) - 176usize];
-    [
-        "Offset of field: CBaseEntity::m_flSpeed",
-    ][::std::mem::offset_of!(CBaseEntity, m_flSpeed) - 180usize];
-    [
-        "Offset of field: CBaseEntity::m_nRenderFX",
-    ][::std::mem::offset_of!(CBaseEntity, m_nRenderFX) - 184usize];
-    [
-        "Offset of field: CBaseEntity::m_nRenderMode",
-    ][::std::mem::offset_of!(CBaseEntity, m_nRenderMode) - 185usize];
-    [
-        "Offset of field: CBaseEntity::m_nModelIndex",
-    ][::std::mem::offset_of!(CBaseEntity, m_nModelIndex) - 186usize];
-    [
-        "Offset of field: CBaseEntity::m_clrRender",
-    ][::std::mem::offset_of!(CBaseEntity, m_clrRender) - 188usize];
-    [
-        "Offset of field: CBaseEntity::m_flPrevAnimTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flPrevAnimTime) - 192usize];
-    [
-        "Offset of field: CBaseEntity::m_flAnimTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flAnimTime) - 196usize];
-    [
-        "Offset of field: CBaseEntity::m_flSimulationTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flSimulationTime) - 200usize];
-    [
-        "Offset of field: CBaseEntity::m_ubInterpolationFrame",
-    ][::std::mem::offset_of!(CBaseEntity, m_ubInterpolationFrame) - 204usize];
-    [
-        "Offset of field: CBaseEntity::m_nLastThinkTick",
-    ][::std::mem::offset_of!(CBaseEntity, m_nLastThinkTick) - 208usize];
-    [
-        "Offset of field: CBaseEntity::m_PredictableID",
-    ][::std::mem::offset_of!(CBaseEntity, m_PredictableID) - 212usize];
-    [
-        "Offset of field: CBaseEntity::touchStamp",
-    ][::std::mem::offset_of!(CBaseEntity, touchStamp) - 216usize];
-    [
-        "Offset of field: CBaseEntity::m_aThinkFunctions",
-    ][::std::mem::offset_of!(CBaseEntity, m_aThinkFunctions) - 224usize];
-    [
-        "Offset of field: CBaseEntity::m_ResponseContexts",
-    ][::std::mem::offset_of!(CBaseEntity, m_ResponseContexts) - 256usize];
-    [
-        "Offset of field: CBaseEntity::m_iszResponseContext",
-    ][::std::mem::offset_of!(CBaseEntity, m_iszResponseContext) - 288usize];
-    [
-        "Offset of field: CBaseEntity::m_nNextThinkTick",
-    ][::std::mem::offset_of!(CBaseEntity, m_nNextThinkTick) - 296usize];
-    [
-        "Offset of field: CBaseEntity::m_fEffects",
-    ][::std::mem::offset_of!(CBaseEntity, m_fEffects) - 300usize];
-    [
-        "Offset of field: CBaseEntity::m_pfnTouch",
-    ][::std::mem::offset_of!(CBaseEntity, m_pfnTouch) - 304usize];
-    [
-        "Offset of field: CBaseEntity::m_pfnUse",
-    ][::std::mem::offset_of!(CBaseEntity, m_pfnUse) - 312usize];
-    [
-        "Offset of field: CBaseEntity::m_pfnBlocked",
-    ][::std::mem::offset_of!(CBaseEntity, m_pfnBlocked) - 320usize];
-    [
-        "Offset of field: CBaseEntity::m_pAttributes",
-    ][::std::mem::offset_of!(CBaseEntity, m_pAttributes) - 328usize];
-    [
-        "Offset of field: CBaseEntity::m_pLink",
-    ][::std::mem::offset_of!(CBaseEntity, m_pLink) - 336usize];
-    [
-        "Offset of field: CBaseEntity::m_target",
-    ][::std::mem::offset_of!(CBaseEntity, m_target) - 344usize];
-    [
-        "Offset of field: CBaseEntity::m_iMaxHealth",
-    ][::std::mem::offset_of!(CBaseEntity, m_iMaxHealth) - 352usize];
-    [
-        "Offset of field: CBaseEntity::m_iHealth",
-    ][::std::mem::offset_of!(CBaseEntity, m_iHealth) - 356usize];
-    [
-        "Offset of field: CBaseEntity::m_lifeState",
-    ][::std::mem::offset_of!(CBaseEntity, m_lifeState) - 360usize];
-    [
-        "Offset of field: CBaseEntity::m_takedamage",
-    ][::std::mem::offset_of!(CBaseEntity, m_takedamage) - 361usize];
-    [
-        "Offset of field: CBaseEntity::m_iszDamageFilterName",
-    ][::std::mem::offset_of!(CBaseEntity, m_iszDamageFilterName) - 368usize];
-    [
-        "Offset of field: CBaseEntity::m_hDamageFilter",
-    ][::std::mem::offset_of!(CBaseEntity, m_hDamageFilter) - 376usize];
-    [
-        "Offset of field: CBaseEntity::m_debugOverlays",
-    ][::std::mem::offset_of!(CBaseEntity, m_debugOverlays) - 380usize];
-    [
-        "Offset of field: CBaseEntity::m_pTimedOverlay",
-    ][::std::mem::offset_of!(CBaseEntity, m_pTimedOverlay) - 384usize];
-    [
-        "Offset of field: CBaseEntity::m_iszVScripts",
-    ][::std::mem::offset_of!(CBaseEntity, m_iszVScripts) - 392usize];
-    [
-        "Offset of field: CBaseEntity::m_iszScriptThinkFunction",
-    ][::std::mem::offset_of!(CBaseEntity, m_iszScriptThinkFunction) - 400usize];
-    [
-        "Offset of field: CBaseEntity::m_ScriptScope",
-    ][::std::mem::offset_of!(CBaseEntity, m_ScriptScope) - 408usize];
-    [
-        "Offset of field: CBaseEntity::m_hScriptInstance",
-    ][::std::mem::offset_of!(CBaseEntity, m_hScriptInstance) - 448usize];
-    [
-        "Offset of field: CBaseEntity::m_iszScriptId",
-    ][::std::mem::offset_of!(CBaseEntity, m_iszScriptId) - 456usize];
-    [
-        "Offset of field: CBaseEntity::m_pScriptModelKeyValues",
-    ][::std::mem::offset_of!(CBaseEntity, m_pScriptModelKeyValues) - 464usize];
-    [
-        "Offset of field: CBaseEntity::m_nSimulationTick",
-    ][::std::mem::offset_of!(CBaseEntity, m_nSimulationTick) - 472usize];
-    [
-        "Offset of field: CBaseEntity::m_spawnflags",
-    ][::std::mem::offset_of!(CBaseEntity, m_spawnflags) - 476usize];
-    [
-        "Offset of field: CBaseEntity::m_iEFlags",
-    ][::std::mem::offset_of!(CBaseEntity, m_iEFlags) - 480usize];
-    [
-        "Offset of field: CBaseEntity::m_fFlags",
-    ][::std::mem::offset_of!(CBaseEntity, m_fFlags) - 484usize];
-    [
-        "Offset of field: CBaseEntity::m_iName",
-    ][::std::mem::offset_of!(CBaseEntity, m_iName) - 488usize];
-    [
-        "Offset of field: CBaseEntity::m_DamageModifiers",
-    ][::std::mem::offset_of!(CBaseEntity, m_DamageModifiers) - 496usize];
-    [
-        "Offset of field: CBaseEntity::m_pParent",
-    ][::std::mem::offset_of!(CBaseEntity, m_pParent) - 544usize];
-    [
-        "Offset of field: CBaseEntity::m_nTransmitStateOwnedCounter",
-    ][::std::mem::offset_of!(CBaseEntity, m_nTransmitStateOwnedCounter) - 548usize];
-    [
-        "Offset of field: CBaseEntity::m_iParentAttachment",
-    ][::std::mem::offset_of!(CBaseEntity, m_iParentAttachment) - 549usize];
-    [
-        "Offset of field: CBaseEntity::m_MoveType",
-    ][::std::mem::offset_of!(CBaseEntity, m_MoveType) - 550usize];
-    [
-        "Offset of field: CBaseEntity::m_MoveCollide",
-    ][::std::mem::offset_of!(CBaseEntity, m_MoveCollide) - 551usize];
-    [
-        "Offset of field: CBaseEntity::m_hMoveParent",
-    ][::std::mem::offset_of!(CBaseEntity, m_hMoveParent) - 552usize];
-    [
-        "Offset of field: CBaseEntity::m_hMoveChild",
-    ][::std::mem::offset_of!(CBaseEntity, m_hMoveChild) - 556usize];
-    [
-        "Offset of field: CBaseEntity::m_hMovePeer",
-    ][::std::mem::offset_of!(CBaseEntity, m_hMovePeer) - 560usize];
-    [
-        "Offset of field: CBaseEntity::m_Collision",
-    ][::std::mem::offset_of!(CBaseEntity, m_Collision) - 568usize];
-    [
-        "Offset of field: CBaseEntity::m_hOwnerEntity",
-    ][::std::mem::offset_of!(CBaseEntity, m_hOwnerEntity) - 720usize];
-    [
-        "Offset of field: CBaseEntity::m_hEffectEntity",
-    ][::std::mem::offset_of!(CBaseEntity, m_hEffectEntity) - 724usize];
-    [
-        "Offset of field: CBaseEntity::m_CollisionGroup",
-    ][::std::mem::offset_of!(CBaseEntity, m_CollisionGroup) - 728usize];
-    [
-        "Offset of field: CBaseEntity::m_pPhysicsObject",
-    ][::std::mem::offset_of!(CBaseEntity, m_pPhysicsObject) - 736usize];
-    [
-        "Offset of field: CBaseEntity::m_flShadowCastDistance",
-    ][::std::mem::offset_of!(CBaseEntity, m_flShadowCastDistance) - 744usize];
-    [
-        "Offset of field: CBaseEntity::m_flDesiredShadowCastDistance",
-    ][::std::mem::offset_of!(CBaseEntity, m_flDesiredShadowCastDistance) - 748usize];
-    [
-        "Offset of field: CBaseEntity::m_iInitialTeamNum",
-    ][::std::mem::offset_of!(CBaseEntity, m_iInitialTeamNum) - 752usize];
-    [
-        "Offset of field: CBaseEntity::m_iTeamNum",
-    ][::std::mem::offset_of!(CBaseEntity, m_iTeamNum) - 756usize];
-    [
-        "Offset of field: CBaseEntity::m_nWaterTouch",
-    ][::std::mem::offset_of!(CBaseEntity, m_nWaterTouch) - 760usize];
-    [
-        "Offset of field: CBaseEntity::m_nSlimeTouch",
-    ][::std::mem::offset_of!(CBaseEntity, m_nSlimeTouch) - 761usize];
-    [
-        "Offset of field: CBaseEntity::m_nWaterType",
-    ][::std::mem::offset_of!(CBaseEntity, m_nWaterType) - 762usize];
-    [
-        "Offset of field: CBaseEntity::m_nWaterLevel",
-    ][::std::mem::offset_of!(CBaseEntity, m_nWaterLevel) - 763usize];
-    [
-        "Offset of field: CBaseEntity::m_flNavIgnoreUntilTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flNavIgnoreUntilTime) - 764usize];
-    [
-        "Offset of field: CBaseEntity::m_hGroundEntity",
-    ][::std::mem::offset_of!(CBaseEntity, m_hGroundEntity) - 768usize];
-    [
-        "Offset of field: CBaseEntity::m_flGroundChangeTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flGroundChangeTime) - 772usize];
-    [
-        "Offset of field: CBaseEntity::m_ModelName",
-    ][::std::mem::offset_of!(CBaseEntity, m_ModelName) - 776usize];
-    [
-        "Offset of field: CBaseEntity::m_vecBaseVelocity",
-    ][::std::mem::offset_of!(CBaseEntity, m_vecBaseVelocity) - 784usize];
-    [
-        "Offset of field: CBaseEntity::m_vecAbsVelocity",
-    ][::std::mem::offset_of!(CBaseEntity, m_vecAbsVelocity) - 796usize];
-    [
-        "Offset of field: CBaseEntity::m_vecAngVelocity",
-    ][::std::mem::offset_of!(CBaseEntity, m_vecAngVelocity) - 808usize];
-    [
-        "Offset of field: CBaseEntity::m_rgflCoordinateFrame",
-    ][::std::mem::offset_of!(CBaseEntity, m_rgflCoordinateFrame) - 820usize];
-    [
-        "Offset of field: CBaseEntity::m_pBlocker",
-    ][::std::mem::offset_of!(CBaseEntity, m_pBlocker) - 868usize];
-    [
-        "Offset of field: CBaseEntity::m_flGravity",
-    ][::std::mem::offset_of!(CBaseEntity, m_flGravity) - 872usize];
-    [
-        "Offset of field: CBaseEntity::m_flFriction",
-    ][::std::mem::offset_of!(CBaseEntity, m_flFriction) - 876usize];
-    [
-        "Offset of field: CBaseEntity::m_flElasticity",
-    ][::std::mem::offset_of!(CBaseEntity, m_flElasticity) - 880usize];
-    [
-        "Offset of field: CBaseEntity::m_flLocalTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flLocalTime) - 884usize];
-    [
-        "Offset of field: CBaseEntity::m_flVPhysicsUpdateLocalTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flVPhysicsUpdateLocalTime) - 888usize];
-    [
-        "Offset of field: CBaseEntity::m_flMoveDoneTime",
-    ][::std::mem::offset_of!(CBaseEntity, m_flMoveDoneTime) - 892usize];
-    [
-        "Offset of field: CBaseEntity::m_nPushEnumCount",
-    ][::std::mem::offset_of!(CBaseEntity, m_nPushEnumCount) - 896usize];
-    [
-        "Offset of field: CBaseEntity::m_vecAbsOrigin",
-    ][::std::mem::offset_of!(CBaseEntity, m_vecAbsOrigin) - 900usize];
-    [
-        "Offset of field: CBaseEntity::m_vecVelocity",
-    ][::std::mem::offset_of!(CBaseEntity, m_vecVelocity) - 912usize];
-    [
-        "Offset of field: CBaseEntity::m_iTextureFrameIndex",
-    ][::std::mem::offset_of!(CBaseEntity, m_iTextureFrameIndex) - 924usize];
-    [
-        "Offset of field: CBaseEntity::m_bSimulatedEveryTick",
-    ][::std::mem::offset_of!(CBaseEntity, m_bSimulatedEveryTick) - 925usize];
-    [
-        "Offset of field: CBaseEntity::m_bAnimatedEveryTick",
-    ][::std::mem::offset_of!(CBaseEntity, m_bAnimatedEveryTick) - 926usize];
-    [
-        "Offset of field: CBaseEntity::m_bAlternateSorting",
-    ][::std::mem::offset_of!(CBaseEntity, m_bAlternateSorting) - 927usize];
-    [
-        "Offset of field: CBaseEntity::m_OnUser1",
-    ][::std::mem::offset_of!(CBaseEntity, m_OnUser1) - 928usize];
-    [
-        "Offset of field: CBaseEntity::m_OnUser2",
-    ][::std::mem::offset_of!(CBaseEntity, m_OnUser2) - 960usize];
-    [
-        "Offset of field: CBaseEntity::m_OnUser3",
-    ][::std::mem::offset_of!(CBaseEntity, m_OnUser3) - 992usize];
-    [
-        "Offset of field: CBaseEntity::m_OnUser4",
-    ][::std::mem::offset_of!(CBaseEntity, m_OnUser4) - 1024usize];
-    [
-        "Offset of field: CBaseEntity::m_angAbsRotation",
-    ][::std::mem::offset_of!(CBaseEntity, m_angAbsRotation) - 1056usize];
-    [
-        "Offset of field: CBaseEntity::m_vecOrigin",
-    ][::std::mem::offset_of!(CBaseEntity, m_vecOrigin) - 1068usize];
-    [
-        "Offset of field: CBaseEntity::m_angRotation",
-    ][::std::mem::offset_of!(CBaseEntity, m_angRotation) - 1080usize];
-    [
-        "Offset of field: CBaseEntity::m_RefEHandle",
-    ][::std::mem::offset_of!(CBaseEntity, m_RefEHandle) - 1092usize];
-    [
-        "Offset of field: CBaseEntity::m_vecViewOffset",
-    ][::std::mem::offset_of!(CBaseEntity, m_vecViewOffset) - 1096usize];
-    [
-        "Offset of field: CBaseEntity::m_bDynamicModelAllowed",
-    ][::std::mem::offset_of!(CBaseEntity, m_bDynamicModelAllowed) - 1108usize];
-    [
-        "Offset of field: CBaseEntity::m_bDynamicModelPending",
-    ][::std::mem::offset_of!(CBaseEntity, m_bDynamicModelPending) - 1109usize];
-    [
-        "Offset of field: CBaseEntity::m_bDynamicModelSetBounds",
-    ][::std::mem::offset_of!(CBaseEntity, m_bDynamicModelSetBounds) - 1110usize];
-    [
-        "Offset of field: CBaseEntity::m_bIsPlayerSimulated",
-    ][::std::mem::offset_of!(CBaseEntity, m_bIsPlayerSimulated) - 1111usize];
-    [
-        "Offset of field: CBaseEntity::m_hPlayerSimulationOwner",
-    ][::std::mem::offset_of!(CBaseEntity, m_hPlayerSimulationOwner) - 1112usize];
-    [
-        "Offset of field: CBaseEntity::m_fDataObjectTypes",
-    ][::std::mem::offset_of!(CBaseEntity, m_fDataObjectTypes) - 1116usize];
-    [
-        "Offset of field: CBaseEntity::m_bForcePurgeFixedupStrings",
-    ][::std::mem::offset_of!(CBaseEntity, m_bForcePurgeFixedupStrings) - 1120usize];
-    [
-        "Offset of field: CBaseEntity::m_CalcAbsolutePositionMutex",
-    ][::std::mem::offset_of!(CBaseEntity, m_CalcAbsolutePositionMutex) - 1128usize];
-    [
-        "Offset of field: CBaseEntity::m_bTruceValidForEnt",
-    ][::std::mem::offset_of!(CBaseEntity, m_bTruceValidForEnt) - 1144usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CBaseEntity_NetworkVar_m_Collision",
     ][::std::mem::size_of::<CBaseEntity_NetworkVar_m_Collision>() - 152usize];
@@ -707,6 +369,344 @@ const _: () = {
     [
         "Alignment of CBaseEntity_NetworkVar_m_vecViewOffset",
     ][::std::mem::align_of::<CBaseEntity_NetworkVar_m_vecViewOffset>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CBaseEntity"][::std::mem::size_of::<CBaseEntity>() - 1152usize];
+    ["Alignment of CBaseEntity"][::std::mem::align_of::<CBaseEntity>() - 8usize];
+    [
+        "Offset of field: CBaseEntity::m_pfnMoveDone",
+    ][::std::mem::offset_of!(CBaseEntity, m_pfnMoveDone) - 8usize];
+    [
+        "Offset of field: CBaseEntity::m_pfnThink",
+    ][::std::mem::offset_of!(CBaseEntity, m_pfnThink) - 16usize];
+    [
+        "Offset of field: CBaseEntity::m_Network",
+    ][::std::mem::offset_of!(CBaseEntity, m_Network) - 24usize];
+    [
+        "Offset of field: CBaseEntity::m_iClassname",
+    ][::std::mem::offset_of!(CBaseEntity, m_iClassname) - 152usize];
+    [
+        "Offset of field: CBaseEntity::m_iGlobalname",
+    ][::std::mem::offset_of!(CBaseEntity, m_iGlobalname) - 160usize];
+    [
+        "Offset of field: CBaseEntity::m_iParent",
+    ][::std::mem::offset_of!(CBaseEntity, m_iParent) - 168usize];
+    [
+        "Offset of field: CBaseEntity::m_iHammerID",
+    ][::std::mem::offset_of!(CBaseEntity, m_iHammerID) - 176usize];
+    [
+        "Offset of field: CBaseEntity::m_flSpeed",
+    ][::std::mem::offset_of!(CBaseEntity, m_flSpeed) - 180usize];
+    [
+        "Offset of field: CBaseEntity::m_nRenderFX",
+    ][::std::mem::offset_of!(CBaseEntity, m_nRenderFX) - 184usize];
+    [
+        "Offset of field: CBaseEntity::m_nRenderMode",
+    ][::std::mem::offset_of!(CBaseEntity, m_nRenderMode) - 185usize];
+    [
+        "Offset of field: CBaseEntity::m_nModelIndex",
+    ][::std::mem::offset_of!(CBaseEntity, m_nModelIndex) - 186usize];
+    [
+        "Offset of field: CBaseEntity::m_clrRender",
+    ][::std::mem::offset_of!(CBaseEntity, m_clrRender) - 188usize];
+    [
+        "Offset of field: CBaseEntity::m_flPrevAnimTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flPrevAnimTime) - 192usize];
+    [
+        "Offset of field: CBaseEntity::m_flAnimTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flAnimTime) - 196usize];
+    [
+        "Offset of field: CBaseEntity::m_flSimulationTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flSimulationTime) - 200usize];
+    [
+        "Offset of field: CBaseEntity::m_ubInterpolationFrame",
+    ][::std::mem::offset_of!(CBaseEntity, m_ubInterpolationFrame) - 204usize];
+    [
+        "Offset of field: CBaseEntity::m_nLastThinkTick",
+    ][::std::mem::offset_of!(CBaseEntity, m_nLastThinkTick) - 208usize];
+    [
+        "Offset of field: CBaseEntity::m_PredictableID",
+    ][::std::mem::offset_of!(CBaseEntity, m_PredictableID) - 212usize];
+    [
+        "Offset of field: CBaseEntity::touchStamp",
+    ][::std::mem::offset_of!(CBaseEntity, touchStamp) - 216usize];
+    [
+        "Offset of field: CBaseEntity::m_aThinkFunctions",
+    ][::std::mem::offset_of!(CBaseEntity, m_aThinkFunctions) - 224usize];
+    [
+        "Offset of field: CBaseEntity::m_ResponseContexts",
+    ][::std::mem::offset_of!(CBaseEntity, m_ResponseContexts) - 256usize];
+    [
+        "Offset of field: CBaseEntity::m_iszResponseContext",
+    ][::std::mem::offset_of!(CBaseEntity, m_iszResponseContext) - 288usize];
+    [
+        "Offset of field: CBaseEntity::m_nNextThinkTick",
+    ][::std::mem::offset_of!(CBaseEntity, m_nNextThinkTick) - 296usize];
+    [
+        "Offset of field: CBaseEntity::m_fEffects",
+    ][::std::mem::offset_of!(CBaseEntity, m_fEffects) - 300usize];
+    [
+        "Offset of field: CBaseEntity::m_pfnTouch",
+    ][::std::mem::offset_of!(CBaseEntity, m_pfnTouch) - 304usize];
+    [
+        "Offset of field: CBaseEntity::m_pfnUse",
+    ][::std::mem::offset_of!(CBaseEntity, m_pfnUse) - 312usize];
+    [
+        "Offset of field: CBaseEntity::m_pfnBlocked",
+    ][::std::mem::offset_of!(CBaseEntity, m_pfnBlocked) - 320usize];
+    [
+        "Offset of field: CBaseEntity::m_pAttributes",
+    ][::std::mem::offset_of!(CBaseEntity, m_pAttributes) - 328usize];
+    [
+        "Offset of field: CBaseEntity::m_pLink",
+    ][::std::mem::offset_of!(CBaseEntity, m_pLink) - 336usize];
+    [
+        "Offset of field: CBaseEntity::m_target",
+    ][::std::mem::offset_of!(CBaseEntity, m_target) - 344usize];
+    [
+        "Offset of field: CBaseEntity::m_iMaxHealth",
+    ][::std::mem::offset_of!(CBaseEntity, m_iMaxHealth) - 352usize];
+    [
+        "Offset of field: CBaseEntity::m_iHealth",
+    ][::std::mem::offset_of!(CBaseEntity, m_iHealth) - 356usize];
+    [
+        "Offset of field: CBaseEntity::m_lifeState",
+    ][::std::mem::offset_of!(CBaseEntity, m_lifeState) - 360usize];
+    [
+        "Offset of field: CBaseEntity::m_takedamage",
+    ][::std::mem::offset_of!(CBaseEntity, m_takedamage) - 361usize];
+    [
+        "Offset of field: CBaseEntity::m_iszDamageFilterName",
+    ][::std::mem::offset_of!(CBaseEntity, m_iszDamageFilterName) - 368usize];
+    [
+        "Offset of field: CBaseEntity::m_hDamageFilter",
+    ][::std::mem::offset_of!(CBaseEntity, m_hDamageFilter) - 376usize];
+    [
+        "Offset of field: CBaseEntity::m_debugOverlays",
+    ][::std::mem::offset_of!(CBaseEntity, m_debugOverlays) - 380usize];
+    [
+        "Offset of field: CBaseEntity::m_pTimedOverlay",
+    ][::std::mem::offset_of!(CBaseEntity, m_pTimedOverlay) - 384usize];
+    [
+        "Offset of field: CBaseEntity::m_iszVScripts",
+    ][::std::mem::offset_of!(CBaseEntity, m_iszVScripts) - 392usize];
+    [
+        "Offset of field: CBaseEntity::m_iszScriptThinkFunction",
+    ][::std::mem::offset_of!(CBaseEntity, m_iszScriptThinkFunction) - 400usize];
+    [
+        "Offset of field: CBaseEntity::m_ScriptScope",
+    ][::std::mem::offset_of!(CBaseEntity, m_ScriptScope) - 408usize];
+    [
+        "Offset of field: CBaseEntity::m_hScriptInstance",
+    ][::std::mem::offset_of!(CBaseEntity, m_hScriptInstance) - 448usize];
+    [
+        "Offset of field: CBaseEntity::m_iszScriptId",
+    ][::std::mem::offset_of!(CBaseEntity, m_iszScriptId) - 456usize];
+    [
+        "Offset of field: CBaseEntity::m_pScriptModelKeyValues",
+    ][::std::mem::offset_of!(CBaseEntity, m_pScriptModelKeyValues) - 464usize];
+    [
+        "Offset of field: CBaseEntity::m_nSimulationTick",
+    ][::std::mem::offset_of!(CBaseEntity, m_nSimulationTick) - 472usize];
+    [
+        "Offset of field: CBaseEntity::m_spawnflags",
+    ][::std::mem::offset_of!(CBaseEntity, m_spawnflags) - 476usize];
+    [
+        "Offset of field: CBaseEntity::m_iEFlags",
+    ][::std::mem::offset_of!(CBaseEntity, m_iEFlags) - 480usize];
+    [
+        "Offset of field: CBaseEntity::m_fFlags",
+    ][::std::mem::offset_of!(CBaseEntity, m_fFlags) - 484usize];
+    [
+        "Offset of field: CBaseEntity::m_iName",
+    ][::std::mem::offset_of!(CBaseEntity, m_iName) - 488usize];
+    [
+        "Offset of field: CBaseEntity::m_DamageModifiers",
+    ][::std::mem::offset_of!(CBaseEntity, m_DamageModifiers) - 496usize];
+    [
+        "Offset of field: CBaseEntity::m_pParent",
+    ][::std::mem::offset_of!(CBaseEntity, m_pParent) - 544usize];
+    [
+        "Offset of field: CBaseEntity::m_nTransmitStateOwnedCounter",
+    ][::std::mem::offset_of!(CBaseEntity, m_nTransmitStateOwnedCounter) - 548usize];
+    [
+        "Offset of field: CBaseEntity::m_iParentAttachment",
+    ][::std::mem::offset_of!(CBaseEntity, m_iParentAttachment) - 549usize];
+    [
+        "Offset of field: CBaseEntity::m_MoveType",
+    ][::std::mem::offset_of!(CBaseEntity, m_MoveType) - 550usize];
+    [
+        "Offset of field: CBaseEntity::m_MoveCollide",
+    ][::std::mem::offset_of!(CBaseEntity, m_MoveCollide) - 551usize];
+    [
+        "Offset of field: CBaseEntity::m_hMoveParent",
+    ][::std::mem::offset_of!(CBaseEntity, m_hMoveParent) - 552usize];
+    [
+        "Offset of field: CBaseEntity::m_hMoveChild",
+    ][::std::mem::offset_of!(CBaseEntity, m_hMoveChild) - 556usize];
+    [
+        "Offset of field: CBaseEntity::m_hMovePeer",
+    ][::std::mem::offset_of!(CBaseEntity, m_hMovePeer) - 560usize];
+    [
+        "Offset of field: CBaseEntity::m_Collision",
+    ][::std::mem::offset_of!(CBaseEntity, m_Collision) - 568usize];
+    [
+        "Offset of field: CBaseEntity::m_hOwnerEntity",
+    ][::std::mem::offset_of!(CBaseEntity, m_hOwnerEntity) - 720usize];
+    [
+        "Offset of field: CBaseEntity::m_hEffectEntity",
+    ][::std::mem::offset_of!(CBaseEntity, m_hEffectEntity) - 724usize];
+    [
+        "Offset of field: CBaseEntity::m_CollisionGroup",
+    ][::std::mem::offset_of!(CBaseEntity, m_CollisionGroup) - 728usize];
+    [
+        "Offset of field: CBaseEntity::m_pPhysicsObject",
+    ][::std::mem::offset_of!(CBaseEntity, m_pPhysicsObject) - 736usize];
+    [
+        "Offset of field: CBaseEntity::m_flShadowCastDistance",
+    ][::std::mem::offset_of!(CBaseEntity, m_flShadowCastDistance) - 744usize];
+    [
+        "Offset of field: CBaseEntity::m_flDesiredShadowCastDistance",
+    ][::std::mem::offset_of!(CBaseEntity, m_flDesiredShadowCastDistance) - 748usize];
+    [
+        "Offset of field: CBaseEntity::m_iInitialTeamNum",
+    ][::std::mem::offset_of!(CBaseEntity, m_iInitialTeamNum) - 752usize];
+    [
+        "Offset of field: CBaseEntity::m_iTeamNum",
+    ][::std::mem::offset_of!(CBaseEntity, m_iTeamNum) - 756usize];
+    [
+        "Offset of field: CBaseEntity::m_nWaterTouch",
+    ][::std::mem::offset_of!(CBaseEntity, m_nWaterTouch) - 760usize];
+    [
+        "Offset of field: CBaseEntity::m_nSlimeTouch",
+    ][::std::mem::offset_of!(CBaseEntity, m_nSlimeTouch) - 761usize];
+    [
+        "Offset of field: CBaseEntity::m_nWaterType",
+    ][::std::mem::offset_of!(CBaseEntity, m_nWaterType) - 762usize];
+    [
+        "Offset of field: CBaseEntity::m_nWaterLevel",
+    ][::std::mem::offset_of!(CBaseEntity, m_nWaterLevel) - 763usize];
+    [
+        "Offset of field: CBaseEntity::m_flNavIgnoreUntilTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flNavIgnoreUntilTime) - 764usize];
+    [
+        "Offset of field: CBaseEntity::m_hGroundEntity",
+    ][::std::mem::offset_of!(CBaseEntity, m_hGroundEntity) - 768usize];
+    [
+        "Offset of field: CBaseEntity::m_flGroundChangeTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flGroundChangeTime) - 772usize];
+    [
+        "Offset of field: CBaseEntity::m_ModelName",
+    ][::std::mem::offset_of!(CBaseEntity, m_ModelName) - 776usize];
+    [
+        "Offset of field: CBaseEntity::m_vecBaseVelocity",
+    ][::std::mem::offset_of!(CBaseEntity, m_vecBaseVelocity) - 784usize];
+    [
+        "Offset of field: CBaseEntity::m_vecAbsVelocity",
+    ][::std::mem::offset_of!(CBaseEntity, m_vecAbsVelocity) - 796usize];
+    [
+        "Offset of field: CBaseEntity::m_vecAngVelocity",
+    ][::std::mem::offset_of!(CBaseEntity, m_vecAngVelocity) - 808usize];
+    [
+        "Offset of field: CBaseEntity::m_rgflCoordinateFrame",
+    ][::std::mem::offset_of!(CBaseEntity, m_rgflCoordinateFrame) - 820usize];
+    [
+        "Offset of field: CBaseEntity::m_pBlocker",
+    ][::std::mem::offset_of!(CBaseEntity, m_pBlocker) - 868usize];
+    [
+        "Offset of field: CBaseEntity::m_flGravity",
+    ][::std::mem::offset_of!(CBaseEntity, m_flGravity) - 872usize];
+    [
+        "Offset of field: CBaseEntity::m_flFriction",
+    ][::std::mem::offset_of!(CBaseEntity, m_flFriction) - 876usize];
+    [
+        "Offset of field: CBaseEntity::m_flElasticity",
+    ][::std::mem::offset_of!(CBaseEntity, m_flElasticity) - 880usize];
+    [
+        "Offset of field: CBaseEntity::m_flLocalTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flLocalTime) - 884usize];
+    [
+        "Offset of field: CBaseEntity::m_flVPhysicsUpdateLocalTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flVPhysicsUpdateLocalTime) - 888usize];
+    [
+        "Offset of field: CBaseEntity::m_flMoveDoneTime",
+    ][::std::mem::offset_of!(CBaseEntity, m_flMoveDoneTime) - 892usize];
+    [
+        "Offset of field: CBaseEntity::m_nPushEnumCount",
+    ][::std::mem::offset_of!(CBaseEntity, m_nPushEnumCount) - 896usize];
+    [
+        "Offset of field: CBaseEntity::m_vecAbsOrigin",
+    ][::std::mem::offset_of!(CBaseEntity, m_vecAbsOrigin) - 900usize];
+    [
+        "Offset of field: CBaseEntity::m_vecVelocity",
+    ][::std::mem::offset_of!(CBaseEntity, m_vecVelocity) - 912usize];
+    [
+        "Offset of field: CBaseEntity::m_iTextureFrameIndex",
+    ][::std::mem::offset_of!(CBaseEntity, m_iTextureFrameIndex) - 924usize];
+    [
+        "Offset of field: CBaseEntity::m_bSimulatedEveryTick",
+    ][::std::mem::offset_of!(CBaseEntity, m_bSimulatedEveryTick) - 925usize];
+    [
+        "Offset of field: CBaseEntity::m_bAnimatedEveryTick",
+    ][::std::mem::offset_of!(CBaseEntity, m_bAnimatedEveryTick) - 926usize];
+    [
+        "Offset of field: CBaseEntity::m_bAlternateSorting",
+    ][::std::mem::offset_of!(CBaseEntity, m_bAlternateSorting) - 927usize];
+    [
+        "Offset of field: CBaseEntity::m_OnUser1",
+    ][::std::mem::offset_of!(CBaseEntity, m_OnUser1) - 928usize];
+    [
+        "Offset of field: CBaseEntity::m_OnUser2",
+    ][::std::mem::offset_of!(CBaseEntity, m_OnUser2) - 960usize];
+    [
+        "Offset of field: CBaseEntity::m_OnUser3",
+    ][::std::mem::offset_of!(CBaseEntity, m_OnUser3) - 992usize];
+    [
+        "Offset of field: CBaseEntity::m_OnUser4",
+    ][::std::mem::offset_of!(CBaseEntity, m_OnUser4) - 1024usize];
+    [
+        "Offset of field: CBaseEntity::m_angAbsRotation",
+    ][::std::mem::offset_of!(CBaseEntity, m_angAbsRotation) - 1056usize];
+    [
+        "Offset of field: CBaseEntity::m_vecOrigin",
+    ][::std::mem::offset_of!(CBaseEntity, m_vecOrigin) - 1068usize];
+    [
+        "Offset of field: CBaseEntity::m_angRotation",
+    ][::std::mem::offset_of!(CBaseEntity, m_angRotation) - 1080usize];
+    [
+        "Offset of field: CBaseEntity::m_RefEHandle",
+    ][::std::mem::offset_of!(CBaseEntity, m_RefEHandle) - 1092usize];
+    [
+        "Offset of field: CBaseEntity::m_vecViewOffset",
+    ][::std::mem::offset_of!(CBaseEntity, m_vecViewOffset) - 1096usize];
+    [
+        "Offset of field: CBaseEntity::m_bDynamicModelAllowed",
+    ][::std::mem::offset_of!(CBaseEntity, m_bDynamicModelAllowed) - 1108usize];
+    [
+        "Offset of field: CBaseEntity::m_bDynamicModelPending",
+    ][::std::mem::offset_of!(CBaseEntity, m_bDynamicModelPending) - 1109usize];
+    [
+        "Offset of field: CBaseEntity::m_bDynamicModelSetBounds",
+    ][::std::mem::offset_of!(CBaseEntity, m_bDynamicModelSetBounds) - 1110usize];
+    [
+        "Offset of field: CBaseEntity::m_bIsPlayerSimulated",
+    ][::std::mem::offset_of!(CBaseEntity, m_bIsPlayerSimulated) - 1111usize];
+    [
+        "Offset of field: CBaseEntity::m_hPlayerSimulationOwner",
+    ][::std::mem::offset_of!(CBaseEntity, m_hPlayerSimulationOwner) - 1112usize];
+    [
+        "Offset of field: CBaseEntity::m_fDataObjectTypes",
+    ][::std::mem::offset_of!(CBaseEntity, m_fDataObjectTypes) - 1116usize];
+    [
+        "Offset of field: CBaseEntity::m_bForcePurgeFixedupStrings",
+    ][::std::mem::offset_of!(CBaseEntity, m_bForcePurgeFixedupStrings) - 1120usize];
+    [
+        "Offset of field: CBaseEntity::m_CalcAbsolutePositionMutex",
+    ][::std::mem::offset_of!(CBaseEntity, m_CalcAbsolutePositionMutex) - 1128usize];
+    [
+        "Offset of field: CBaseEntity::m_bTruceValidForEnt",
+    ][::std::mem::offset_of!(CBaseEntity, m_bTruceValidForEnt) - 1144usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

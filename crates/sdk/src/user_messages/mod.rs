@@ -23,14 +23,25 @@ use std::ffi::{CStr, c_int};
 use std::mem::offset_of;
 use std::ptr::NonNull;
 
-/// A user message: its registered name and its payload.
-pub trait UserMessage {
-	/// The name the game registered the message under, such as `Fade`.
-	fn name(&self) -> &CStr;
-
-	/// Writes the payload, as the game's own sender does.
-	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError>;
-}
+const _: () = {
+	assert!(
+		offset_of!(RecipientFilterVtable, is_reliable)
+			== offset_of!(
+				sys::IRecipientFilter__bindgen_vtable,
+				IRecipientFilter_IsReliable
+			)
+	);
+	assert!(
+		offset_of!(RecipientFilterVtable, recipient_index)
+			== offset_of!(
+				sys::IRecipientFilter__bindgen_vtable,
+				IRecipientFilter_GetRecipientIndex
+			)
+	);
+	assert!(
+		size_of::<RecipientFilterVtable>() == size_of::<sys::IRecipientFilter__bindgen_vtable>()
+	);
+};
 
 /// Any user message, from its name and payload.
 ///
@@ -52,6 +63,82 @@ impl UserMessage for RawUserMessage<'_> {
 	}
 }
 
+/// A [`Recipients`] with the layout of an `IRecipientFilter`, which the engine
+/// calls through its vtable while it sends a message.
+#[repr(C)]
+struct RecipientFilter<'a> {
+	vtable: &'static RecipientFilterVtable,
+	recipients: &'a Recipients,
+}
+
+impl<'a> RecipientFilter<'a> {
+	/// The engine never deletes a filter it is given.
+	const VTABLE: RecipientFilterVtable = RecipientFilterVtable {
+		destructor: CppDestructors::new_noop(),
+		is_reliable: Self::is_reliable,
+		is_init_message: Self::is_init_message,
+		recipient_count: Self::recipient_count,
+		recipient_index: Self::recipient_index,
+	};
+
+	fn new(recipients: &'a Recipients) -> Self {
+		Self {
+			vtable: &Self::VTABLE,
+			recipients,
+		}
+	}
+
+	unsafe extern "C" fn is_init_message(_: *const sys::IRecipientFilter) -> bool {
+		false
+	}
+
+	unsafe extern "C" fn is_reliable(this: *const sys::IRecipientFilter) -> bool {
+		// SAFETY: The engine calls it on the filter it was given.
+		unsafe { Self::recipients(this) }.reliable
+	}
+
+	unsafe extern "C" fn recipient_count(this: *const sys::IRecipientFilter) -> c_int {
+		// SAFETY: As for `is_reliable`.
+		let players = &unsafe { Self::recipients(this) }.players;
+
+		c_int::try_from(players.len()).unwrap_or(c_int::MAX)
+	}
+
+	unsafe extern "C" fn recipient_index(this: *const sys::IRecipientFilter, slot: c_int) -> c_int {
+		// SAFETY: As for `is_reliable`.
+		let players = &unsafe { Self::recipients(this) }.players;
+
+		usize::try_from(slot)
+			.ok()
+			.and_then(|slot| players.get(slot))
+			.copied()
+			.unwrap_or(-1)
+	}
+
+	/// # Safety
+	///
+	/// `this` must be a live filter made by [`RecipientFilter::new`].
+	unsafe fn recipients<'b>(this: *const sys::IRecipientFilter) -> &'b Recipients {
+		// SAFETY: As the caller promises. The filter only lends out what it
+		// borrows, for the call.
+		unsafe { (*this.cast::<RecipientFilter<'b>>()).recipients }
+	}
+
+	fn as_raw(&self) -> *mut sys::IRecipientFilter {
+		// The engine only reads through the pointer.
+		(&raw const *self).cast_mut().cast()
+	}
+}
+
+#[repr(C)]
+struct RecipientFilterVtable {
+	destructor: CppDestructors,
+	is_reliable: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> bool,
+	is_init_message: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> bool,
+	recipient_count: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> c_int,
+	recipient_index: unsafe extern "C" fn(this: *const sys::IRecipientFilter, slot: c_int) -> c_int,
+}
+
 /// The clients a user message goes to, by player index, for the engine's
 /// `IRecipientFilter`.
 ///
@@ -70,14 +157,6 @@ impl Recipients {
 			players: Vec::new(),
 			reliable: false,
 		}
-	}
-
-	/// One client.
-	pub fn player(client: Edict<'_>) -> Self {
-		let mut recipients = Self::new();
-
-		recipients.add(client);
-		recipients
 	}
 
 	/// Every player slot in use.
@@ -101,11 +180,12 @@ impl Recipients {
 		Ok(recipients)
 	}
 
-	/// Sends the message in each client's reliable stream, in order with the
-	/// other reliable messages, instead of dropping it when the packet is full.
-	pub fn reliable(mut self) -> Self {
-		self.reliable = true;
-		self
+	/// One client.
+	pub fn player(client: Edict<'_>) -> Self {
+		let mut recipients = Self::new();
+
+		recipients.add(client);
+		recipients
 	}
 
 	/// Adds a client, once.
@@ -117,109 +197,29 @@ impl Recipients {
 		}
 	}
 
+	pub fn is_empty(&self) -> bool {
+		self.players.is_empty()
+	}
+
 	pub fn len(&self) -> usize {
 		self.players.len()
 	}
 
-	pub fn is_empty(&self) -> bool {
-		self.players.is_empty()
+	/// Sends the message in each client's reliable stream, in order with the
+	/// other reliable messages, instead of dropping it when the packet is full.
+	pub fn reliable(mut self) -> Self {
+		self.reliable = true;
+		self
 	}
 }
 
-/// A [`Recipients`] with the layout of an `IRecipientFilter`, which the engine
-/// calls through its vtable while it sends a message.
-#[repr(C)]
-struct RecipientFilter<'a> {
-	vtable: &'static RecipientFilterVtable,
-	recipients: &'a Recipients,
-}
+/// A user message: its registered name and its payload.
+pub trait UserMessage {
+	/// The name the game registered the message under, such as `Fade`.
+	fn name(&self) -> &CStr;
 
-#[repr(C)]
-struct RecipientFilterVtable {
-	destructor: CppDestructors,
-	is_reliable: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> bool,
-	is_init_message: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> bool,
-	recipient_count: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> c_int,
-	recipient_index: unsafe extern "C" fn(this: *const sys::IRecipientFilter, slot: c_int) -> c_int,
-}
-
-const _: () = {
-	assert!(
-		offset_of!(RecipientFilterVtable, is_reliable)
-			== offset_of!(
-				sys::IRecipientFilter__bindgen_vtable,
-				IRecipientFilter_IsReliable
-			)
-	);
-	assert!(
-		offset_of!(RecipientFilterVtable, recipient_index)
-			== offset_of!(
-				sys::IRecipientFilter__bindgen_vtable,
-				IRecipientFilter_GetRecipientIndex
-			)
-	);
-	assert!(
-		size_of::<RecipientFilterVtable>() == size_of::<sys::IRecipientFilter__bindgen_vtable>()
-	);
-};
-
-impl<'a> RecipientFilter<'a> {
-	/// The engine never deletes a filter it is given.
-	const VTABLE: RecipientFilterVtable = RecipientFilterVtable {
-		destructor: CppDestructors::new_noop(),
-		is_reliable: Self::is_reliable,
-		is_init_message: Self::is_init_message,
-		recipient_count: Self::recipient_count,
-		recipient_index: Self::recipient_index,
-	};
-
-	fn new(recipients: &'a Recipients) -> Self {
-		Self {
-			vtable: &Self::VTABLE,
-			recipients,
-		}
-	}
-
-	fn as_raw(&self) -> *mut sys::IRecipientFilter {
-		// The engine only reads through the pointer.
-		(&raw const *self).cast_mut().cast()
-	}
-
-	/// # Safety
-	///
-	/// `this` must be a live filter made by [`RecipientFilter::new`].
-	unsafe fn recipients<'b>(this: *const sys::IRecipientFilter) -> &'b Recipients {
-		// SAFETY: As the caller promises. The filter only lends out what it
-		// borrows, for the call.
-		unsafe { (*this.cast::<RecipientFilter<'b>>()).recipients }
-	}
-
-	unsafe extern "C" fn is_reliable(this: *const sys::IRecipientFilter) -> bool {
-		// SAFETY: The engine calls it on the filter it was given.
-		unsafe { Self::recipients(this) }.reliable
-	}
-
-	unsafe extern "C" fn is_init_message(_: *const sys::IRecipientFilter) -> bool {
-		false
-	}
-
-	unsafe extern "C" fn recipient_count(this: *const sys::IRecipientFilter) -> c_int {
-		// SAFETY: As for `is_reliable`.
-		let players = &unsafe { Self::recipients(this) }.players;
-
-		c_int::try_from(players.len()).unwrap_or(c_int::MAX)
-	}
-
-	unsafe extern "C" fn recipient_index(this: *const sys::IRecipientFilter, slot: c_int) -> c_int {
-		// SAFETY: As for `is_reliable`.
-		let players = &unsafe { Self::recipients(this) }.players;
-
-		usize::try_from(slot)
-			.ok()
-			.and_then(|slot| players.get(slot))
-			.copied()
-			.unwrap_or(-1)
-	}
+	/// Writes the payload, as the game's own sender does.
+	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError>;
 }
 
 /// Why a user message could not be sent.
@@ -249,6 +249,30 @@ pub enum UserMessageError {
 
 	#[error("the entity is not networked, so no client knows it")]
 	NotNetworked,
+}
+
+/// Copies a payload into the buffer a message began with, then ends it.
+fn finish(
+	engine: *mut sys::IVEngineServer,
+	buffer: *mut sys::bf_write,
+	data: &BitWriter,
+) -> Result<(), UserMessageError> {
+	let buffer = NonNull::new(buffer).ok_or(UserMessageError::NotStarted)?;
+
+	// SAFETY: The engine's message buffer stays allocated, and only this
+	// writes to it, until `MessageEnd`.
+	let copied = unsafe { RawBfWrite::append(buffer.cast(), data) };
+
+	// A begun message must end, or the engine refuses the next. An overflowed
+	// one is dropped rather than sent.
+	//
+	// SAFETY: A message is in progress.
+	unsafe { vcall!(engine => IVEngineServer_MessageEnd()) };
+
+	match copied {
+		true => Ok(()),
+		false => Err(UserMessageError::Overflow),
+	}
 }
 
 /// Sends a user message to every client `recipients` names, as the game's
@@ -281,6 +305,7 @@ pub fn send(
 				bytes: data.byte_len(),
 			});
 		}
+
 		_ => EncodeError::check_len("user message data", data.byte_len(), MAX_MESSAGE_DATA_BYTES)?,
 	}
 
@@ -332,30 +357,6 @@ pub fn send_entity_message(
 	};
 
 	finish(engine.as_ptr(), buffer, data)
-}
-
-/// Copies a payload into the buffer a message began with, then ends it.
-fn finish(
-	engine: *mut sys::IVEngineServer,
-	buffer: *mut sys::bf_write,
-	data: &BitWriter,
-) -> Result<(), UserMessageError> {
-	let buffer = NonNull::new(buffer).ok_or(UserMessageError::NotStarted)?;
-
-	// SAFETY: The engine's message buffer stays allocated, and only this
-	// writes to it, until `MessageEnd`.
-	let copied = unsafe { RawBfWrite::append(buffer.cast(), data) };
-
-	// A begun message must end, or the engine refuses the next. An overflowed
-	// one is dropped rather than sent.
-	//
-	// SAFETY: A message is in progress.
-	unsafe { vcall!(engine => IVEngineServer_MessageEnd()) };
-
-	match copied {
-		true => Ok(()),
-		false => Err(UserMessageError::Overflow),
-	}
 }
 
 #[cfg(test)]

@@ -36,11 +36,13 @@ impl ModulePath {
 			match component {
 				Component::Normal(segment) => source_segments.push(segment),
 				Component::CurDir => {}
+
 				Component::ParentDir => {
 					return Err(ModulePathError::ParentTraversal {
 						path: path.to_owned(),
 					});
 				}
+
 				Component::Prefix(_) | Component::RootDir => {
 					return Err(ModulePathError::Absolute {
 						path: path.to_owned(),
@@ -153,14 +155,6 @@ impl ModuleTree {
 		Self::default()
 	}
 
-	pub fn is_empty(&self) -> bool {
-		self.leaves.is_empty()
-	}
-
-	pub fn len(&self) -> usize {
-		self.leaves.len()
-	}
-
 	/// Adds a generated Rust file at an already-derived module path.
 	pub fn insert(&mut self, module: ModulePath, file: File) -> Result<(), ModuleTreeError> {
 		if file.shebang.is_some() {
@@ -189,6 +183,42 @@ impl ModuleTree {
 
 		self.leaves.insert(module, file);
 		Ok(())
+	}
+
+	/// Derives a module path from `header` and adds its generated Rust file.
+	pub fn insert_header(
+		&mut self,
+		header: impl AsRef<Path>,
+		file: File,
+	) -> Result<ModulePath, ModuleTreeError> {
+		let module = ModulePath::from_header_path(header)?;
+		self.insert(module.clone(), file)?;
+		Ok(module)
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.leaves.is_empty()
+	}
+
+	pub fn len(&self) -> usize {
+		self.leaves.len()
+	}
+
+	/// Renders all files using paths relative to a future output directory.
+	///
+	/// Every source leaf is represented by a directory containing `mod.rs`.
+	/// Anonymous const items, as emitted by bindgen's layout tests, are moved to
+	/// a sibling `layout_assertions.rs` and included from the leaf module.
+	pub fn render(&self) -> BTreeMap<PathBuf, String> {
+		let mut root = OutputNode::default();
+
+		for (module, file) in &self.leaves {
+			root.insert(module.as_segments(), file);
+		}
+
+		let mut rendered = BTreeMap::new();
+		root.render(Path::new(""), &mut rendered);
+		rendered
 	}
 
 	fn validate_child_module_names(
@@ -225,34 +255,6 @@ impl ModuleTree {
 		}
 
 		Ok(())
-	}
-
-	/// Derives a module path from `header` and adds its generated Rust file.
-	pub fn insert_header(
-		&mut self,
-		header: impl AsRef<Path>,
-		file: File,
-	) -> Result<ModulePath, ModuleTreeError> {
-		let module = ModulePath::from_header_path(header)?;
-		self.insert(module.clone(), file)?;
-		Ok(module)
-	}
-
-	/// Renders all files using paths relative to a future output directory.
-	///
-	/// Every source leaf is represented by a directory containing `mod.rs`.
-	/// Anonymous const items, as emitted by bindgen's layout tests, are moved to
-	/// a sibling `layout_assertions.rs` and included from the leaf module.
-	pub fn render(&self) -> BTreeMap<PathBuf, String> {
-		let mut root = OutputNode::default();
-
-		for (module, file) in &self.leaves {
-			root.insert(module.as_segments(), file);
-		}
-
-		let mut rendered = BTreeMap::new();
-		root.render(Path::new(""), &mut rendered);
-		rendered
 	}
 
 	/// Writes the complete module tree below `output_dir`.
@@ -317,37 +319,6 @@ pub enum ModuleWriteError {
 	},
 }
 
-/// Separates bindgen-style anonymous layout assertion constants from the rest
-/// of a generated Rust file.
-pub fn split_layout_assertions(file: &File) -> (File, File) {
-	let mut bindings: File = parse_quote! {};
-	bindings.attrs = file.attrs.clone();
-	bindings.items = Vec::with_capacity(file.items.len());
-	let mut assertions: File = parse_quote! {};
-
-	for item in file.items.iter().cloned() {
-		if is_layout_assertion(&item) {
-			assertions.items.push(item);
-		} else {
-			bindings.items.push(item);
-		}
-	}
-
-	bindings
-		.items
-		.sort_by_cached_key(ItemOrder::module_item_order);
-	assertions
-		.items
-		.sort_by_cached_key(ItemOrder::module_item_order);
-
-	(bindings, assertions)
-}
-
-/// Returns whether `item` has bindgen's layout-assertion shape.
-pub fn is_layout_assertion(item: &Item) -> bool {
-	matches!(item, Item::Const(item) if item.ident == "_")
-}
-
 #[derive(Default)]
 struct OutputNode<'file> {
 	leaf: Option<&'file File>,
@@ -403,49 +374,39 @@ impl<'file> OutputNode<'file> {
 	}
 }
 
-fn sanitize_identifier(source: &str) -> String {
-	let mut sanitized = String::with_capacity(source.len());
-
-	for character in source.chars() {
-		if character.is_ascii_alphanumeric() || character == '_' {
-			sanitized.push(character);
-		} else {
-			sanitized.push('_');
+fn collect_use_binding_names(
+	tree: &syn::UseTree,
+	parent: Option<&str>,
+	names: &mut BTreeSet<String>,
+) {
+	match tree {
+		syn::UseTree::Path(path) => {
+			let ident = path.ident.to_string();
+			collect_use_binding_names(&path.tree, Some(&ident), names);
 		}
-	}
 
-	if sanitized.as_bytes().first().is_some_and(u8::is_ascii_digit) {
-		sanitized.insert(0, '_');
-	}
-
-	if sanitized.is_empty() || sanitized == "_" {
-		sanitized.push_str("module");
-	}
-
-	if is_rust_keyword(&sanitized) {
-		sanitized.push('_');
-	}
-
-	sanitized
-}
-
-fn module_paths_equal_portably(left: &ModulePath, right: &ModulePath) -> bool {
-	left.segments.len() == right.segments.len()
-		&& left
-			.segments
-			.iter()
-			.zip(&right.segments)
-			.all(|(left, right)| left.eq_ignore_ascii_case(right))
-}
-
-fn module_paths_have_case_collision(left: &ModulePath, right: &ModulePath) -> bool {
-	for (left, right) in left.segments.iter().zip(&right.segments) {
-		if left == right {
-			continue;
+		syn::UseTree::Name(name) if name.ident == "self" => {
+			if let Some(parent) = parent {
+				names.insert(parent.to_owned());
+			}
 		}
-		return left.eq_ignore_ascii_case(right);
+
+		syn::UseTree::Name(name) => {
+			names.insert(name.ident.to_string());
+		}
+
+		syn::UseTree::Rename(rename) => {
+			names.insert(rename.rename.to_string());
+		}
+
+		syn::UseTree::Group(group) => {
+			for tree in &group.items {
+				collect_use_binding_names(tree, parent, names);
+			}
+		}
+
+		syn::UseTree::Glob(_) => {}
 	}
-	false
 }
 
 fn immediate_descendant<'path>(
@@ -457,76 +418,9 @@ fn immediate_descendant<'path>(
 		.then(|| descendant.segments[ancestor.segments.len()].as_str())
 }
 
-fn type_namespace_item_names(file: &File) -> BTreeSet<String> {
-	let mut names = BTreeSet::new();
-
-	for item in &file.items {
-		let ident = match item {
-			Item::Enum(item) => Some(&item.ident),
-			Item::ExternCrate(item) => Some(
-				item.rename
-					.as_ref()
-					.map_or(&item.ident, |(_, rename)| rename),
-			),
-			Item::Mod(item) => Some(&item.ident),
-			Item::Struct(item) => Some(&item.ident),
-			Item::Trait(item) => Some(&item.ident),
-			Item::TraitAlias(item) => Some(&item.ident),
-			Item::Type(item) => Some(&item.ident),
-			Item::Union(item) => Some(&item.ident),
-			_ => None,
-		};
-		if let Some(ident) = ident {
-			names.insert(ident.to_string());
-		}
-
-		match item {
-			Item::ForeignMod(item) => {
-				for item in &item.items {
-					if let syn::ForeignItem::Type(item) = item {
-						names.insert(item.ident.to_string());
-					}
-				}
-			}
-			// A use target's namespace cannot be determined from syntax alone.
-			// Conservatively reserve explicit bindings; glob imports are the one
-			// case for which no local names are available to validate.
-			Item::Use(item) => collect_use_binding_names(&item.tree, None, &mut names),
-			_ => {}
-		}
-	}
-
-	names
-}
-
-fn collect_use_binding_names(
-	tree: &syn::UseTree,
-	parent: Option<&str>,
-	names: &mut BTreeSet<String>,
-) {
-	match tree {
-		syn::UseTree::Path(path) => {
-			let ident = path.ident.to_string();
-			collect_use_binding_names(&path.tree, Some(&ident), names);
-		}
-		syn::UseTree::Name(name) if name.ident == "self" => {
-			if let Some(parent) = parent {
-				names.insert(parent.to_owned());
-			}
-		}
-		syn::UseTree::Name(name) => {
-			names.insert(name.ident.to_string());
-		}
-		syn::UseTree::Rename(rename) => {
-			names.insert(rename.rename.to_string());
-		}
-		syn::UseTree::Group(group) => {
-			for tree in &group.items {
-				collect_use_binding_names(tree, parent, names);
-			}
-		}
-		syn::UseTree::Glob(_) => {}
-	}
+/// Returns whether `item` has bindgen's layout-assertion shape.
+pub fn is_layout_assertion(item: &Item) -> bool {
+	matches!(item, Item::Const(item) if item.ident == "_")
 }
 
 fn is_rust_keyword(identifier: &str) -> bool {
@@ -588,68 +482,138 @@ fn is_rust_keyword(identifier: &str) -> bool {
 	)
 }
 
+fn module_paths_equal_portably(left: &ModulePath, right: &ModulePath) -> bool {
+	left.segments.len() == right.segments.len()
+		&& left
+			.segments
+			.iter()
+			.zip(&right.segments)
+			.all(|(left, right)| left.eq_ignore_ascii_case(right))
+}
+
+fn module_paths_have_case_collision(left: &ModulePath, right: &ModulePath) -> bool {
+	for (left, right) in left.segments.iter().zip(&right.segments) {
+		if left == right {
+			continue;
+		}
+		return left.eq_ignore_ascii_case(right);
+	}
+	false
+}
+
+fn sanitize_identifier(source: &str) -> String {
+	let mut sanitized = String::with_capacity(source.len());
+
+	for character in source.chars() {
+		if character.is_ascii_alphanumeric() || character == '_' {
+			sanitized.push(character);
+		} else {
+			sanitized.push('_');
+		}
+	}
+
+	if sanitized.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+		sanitized.insert(0, '_');
+	}
+
+	if sanitized.is_empty() || sanitized == "_" {
+		sanitized.push_str("module");
+	}
+
+	if is_rust_keyword(&sanitized) {
+		sanitized.push('_');
+	}
+
+	sanitized
+}
+
+/// Separates bindgen-style anonymous layout assertion constants from the rest
+/// of a generated Rust file.
+pub fn split_layout_assertions(file: &File) -> (File, File) {
+	let mut bindings: File = parse_quote! {};
+	bindings.attrs = file.attrs.clone();
+	bindings.items = Vec::with_capacity(file.items.len());
+	let mut assertions: File = parse_quote! {};
+
+	for item in file.items.iter().cloned() {
+		if is_layout_assertion(&item) {
+			assertions.items.push(item);
+		} else {
+			bindings.items.push(item);
+		}
+	}
+
+	bindings
+		.items
+		.sort_by_cached_key(ItemOrder::module_item_order);
+	assertions
+		.items
+		.sort_by_cached_key(ItemOrder::module_item_order);
+
+	(bindings, assertions)
+}
+
+fn type_namespace_item_names(file: &File) -> BTreeSet<String> {
+	let mut names = BTreeSet::new();
+
+	for item in &file.items {
+		let ident = match item {
+			Item::Enum(item) => Some(&item.ident),
+
+			Item::ExternCrate(item) => Some(
+				item.rename
+					.as_ref()
+					.map_or(&item.ident, |(_, rename)| rename),
+			),
+
+			Item::Mod(item) => Some(&item.ident),
+			Item::Struct(item) => Some(&item.ident),
+			Item::Trait(item) => Some(&item.ident),
+			Item::TraitAlias(item) => Some(&item.ident),
+			Item::Type(item) => Some(&item.ident),
+			Item::Union(item) => Some(&item.ident),
+			_ => None,
+		};
+		if let Some(ident) = ident {
+			names.insert(ident.to_string());
+		}
+
+		match item {
+			Item::ForeignMod(item) => {
+				for item in &item.items {
+					if let syn::ForeignItem::Type(item) = item {
+						names.insert(item.ident.to_string());
+					}
+				}
+			}
+
+			// A use target's namespace cannot be determined from syntax alone.
+			// Conservatively reserve explicit bindings; glob imports are the one
+			// case for which no local names are available to validate.
+			Item::Use(item) => collect_use_binding_names(&item.tree, None, &mut names),
+
+			_ => {}
+		}
+	}
+
+	names
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 
 	#[test]
-	fn sanitizes_header_paths_into_rust_modules() {
-		let path = ModulePath::from_header_path("Public API/9-lives/type.generated.hpp").unwrap();
-
-		assert_eq!(
-			path.as_segments(),
-			["Public_API", "_9_lives", "type_generated"]
-		);
-		assert_eq!(path.to_string(), "Public_API::_9_lives::type_generated");
-		assert_eq!(
-			path.to_relative_dir(),
-			PathBuf::from("Public_API")
-				.join("_9_lives")
-				.join("type_generated")
-		);
-
-		let keyword = ModulePath::from_header_path("async/mod.h").unwrap();
-		assert_eq!(keyword.as_segments(), ["async_", "mod_"]);
-	}
-
-	#[test]
-	fn rejects_paths_outside_the_source_root() {
-		assert!(matches!(
-			ModulePath::from_header_path("../outside.h"),
-			Err(ModulePathError::ParentTraversal { .. })
-		));
-		assert!(matches!(
-			ModulePath::from_header_path(Path::new("/absolute/header.h")),
-			Err(ModulePathError::Absolute { .. })
-		));
-	}
-
-	#[test]
-	fn rejects_duplicate_sanitized_module_paths() {
+	fn allows_value_item_to_share_a_name_with_child_module() {
 		let mut tree = ModuleTree::new();
-		tree.insert_header("api/foo-bar.hpp", parse_quote! {})
+		tree.insert_header("api.h", parse_quote! { pub fn detail() {} })
 			.unwrap();
+		tree.insert_header("api/detail.h", parse_quote! {}).unwrap();
 
-		let error = tree
-			.insert_header("api/foo_bar.h", parse_quote! {})
-			.unwrap_err();
-
-		assert!(matches!(
-			error,
-			ModuleTreeError::DuplicateModulePath { module } if module.to_string() == "api::foo_bar"
-		));
-	}
-
-	#[test]
-	fn rejects_case_only_module_collisions_on_every_host() {
-		let mut tree = ModuleTree::new();
-		tree.insert_header("Public/API.h", parse_quote! {}).unwrap();
-
-		let error = tree
-			.insert_header("public/api.hpp", parse_quote! {})
-			.unwrap_err();
-
-		assert!(matches!(error, ModuleTreeError::DuplicateModulePath { .. }));
+		let rendered = tree.render();
+		let api = rendered.get(&PathBuf::from("api").join("mod.rs")).unwrap();
+		assert!(api.contains("pub mod detail;"), "{api}");
+		assert!(api.contains("pub fn detail()"), "{api}");
 	}
 
 	#[test]
@@ -669,37 +633,15 @@ mod tests {
 	}
 
 	#[test]
-	fn rejects_type_item_that_conflicts_with_existing_child_module() {
+	fn rejects_case_only_module_collisions_on_every_host() {
 		let mut tree = ModuleTree::new();
-		tree.insert_header("api/detail/types.h", parse_quote! {})
-			.unwrap();
+		tree.insert_header("Public/API.h", parse_quote! {}).unwrap();
 
 		let error = tree
-			.insert_header("api.h", parse_quote! { pub struct detail; })
+			.insert_header("public/api.hpp", parse_quote! {})
 			.unwrap_err();
 
-		assert!(matches!(
-			error,
-			ModuleTreeError::ChildModuleItemCollision { module, name }
-				if module.to_string() == "api" && name == "detail"
-		));
-	}
-
-	#[test]
-	fn rejects_new_child_module_that_conflicts_with_existing_type_item() {
-		let mut tree = ModuleTree::new();
-		tree.insert_header("api.h", parse_quote! { pub type detail = usize; })
-			.unwrap();
-
-		let error = tree
-			.insert_header("api/detail.h", parse_quote! {})
-			.unwrap_err();
-
-		assert!(matches!(
-			error,
-			ModuleTreeError::ChildModuleItemCollision { module, name }
-				if module.to_string() == "api" && name == "detail"
-		));
+		assert!(matches!(error, ModuleTreeError::DuplicateModulePath { .. }));
 	}
 
 	#[test]
@@ -723,16 +665,86 @@ mod tests {
 	}
 
 	#[test]
-	fn allows_value_item_to_share_a_name_with_child_module() {
+	fn rejects_duplicate_sanitized_module_paths() {
 		let mut tree = ModuleTree::new();
-		tree.insert_header("api.h", parse_quote! { pub fn detail() {} })
+		tree.insert_header("api/foo-bar.hpp", parse_quote! {})
 			.unwrap();
-		tree.insert_header("api/detail.h", parse_quote! {}).unwrap();
 
-		let rendered = tree.render();
-		let api = rendered.get(&PathBuf::from("api").join("mod.rs")).unwrap();
-		assert!(api.contains("pub mod detail;"), "{api}");
-		assert!(api.contains("pub fn detail()"), "{api}");
+		let error = tree
+			.insert_header("api/foo_bar.h", parse_quote! {})
+			.unwrap_err();
+
+		assert!(matches!(
+			error,
+			ModuleTreeError::DuplicateModulePath { module } if module.to_string() == "api::foo_bar"
+		));
+	}
+
+	#[test]
+	fn rejects_new_child_module_that_conflicts_with_existing_type_item() {
+		let mut tree = ModuleTree::new();
+		tree.insert_header("api.h", parse_quote! { pub type detail = usize; })
+			.unwrap();
+
+		let error = tree
+			.insert_header("api/detail.h", parse_quote! {})
+			.unwrap_err();
+
+		assert!(matches!(
+			error,
+			ModuleTreeError::ChildModuleItemCollision { module, name }
+				if module.to_string() == "api" && name == "detail"
+		));
+	}
+
+	#[test]
+	fn rejects_paths_outside_the_source_root() {
+		assert!(matches!(
+			ModulePath::from_header_path("../outside.h"),
+			Err(ModulePathError::ParentTraversal { .. })
+		));
+		assert!(matches!(
+			ModulePath::from_header_path(Path::new("/absolute/header.h")),
+			Err(ModulePathError::Absolute { .. })
+		));
+	}
+
+	#[test]
+	fn rejects_type_item_that_conflicts_with_existing_child_module() {
+		let mut tree = ModuleTree::new();
+		tree.insert_header("api/detail/types.h", parse_quote! {})
+			.unwrap();
+
+		let error = tree
+			.insert_header("api.h", parse_quote! { pub struct detail; })
+			.unwrap_err();
+
+		assert!(matches!(
+			error,
+			ModuleTreeError::ChildModuleItemCollision { module, name }
+				if module.to_string() == "api" && name == "detail"
+		));
+	}
+
+	#[test]
+	fn rendering_is_independent_of_leaf_insertion_order() {
+		let mut forward = ModuleTree::new();
+		forward
+			.insert_header("zeta/z.h", parse_quote! { pub struct Z; })
+			.unwrap();
+		forward
+			.insert_header("alpha/a.h", parse_quote! { pub struct A; })
+			.unwrap();
+
+		let mut reverse = ModuleTree::new();
+		reverse
+			.insert_header("alpha/a.h", parse_quote! { pub struct A; })
+			.unwrap();
+		reverse
+			.insert_header("zeta/z.h", parse_quote! { pub struct Z; })
+			.unwrap();
+
+		assert_eq!(forward.render(), reverse.render());
 	}
 
 	#[test]
@@ -794,23 +806,22 @@ mod tests {
 	}
 
 	#[test]
-	fn rendering_is_independent_of_leaf_insertion_order() {
-		let mut forward = ModuleTree::new();
-		forward
-			.insert_header("zeta/z.h", parse_quote! { pub struct Z; })
-			.unwrap();
-		forward
-			.insert_header("alpha/a.h", parse_quote! { pub struct A; })
-			.unwrap();
+	fn sanitizes_header_paths_into_rust_modules() {
+		let path = ModulePath::from_header_path("Public API/9-lives/type.generated.hpp").unwrap();
 
-		let mut reverse = ModuleTree::new();
-		reverse
-			.insert_header("alpha/a.h", parse_quote! { pub struct A; })
-			.unwrap();
-		reverse
-			.insert_header("zeta/z.h", parse_quote! { pub struct Z; })
-			.unwrap();
+		assert_eq!(
+			path.as_segments(),
+			["Public_API", "_9_lives", "type_generated"]
+		);
+		assert_eq!(path.to_string(), "Public_API::_9_lives::type_generated");
+		assert_eq!(
+			path.to_relative_dir(),
+			PathBuf::from("Public_API")
+				.join("_9_lives")
+				.join("type_generated")
+		);
 
-		assert_eq!(forward.render(), reverse.render());
+		let keyword = ModulePath::from_header_path("async/mod.h").unwrap();
+		assert_eq!(keyword.as_segments(), ["async_", "mod_"]);
 	}
 }

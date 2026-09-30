@@ -4,6 +4,143 @@
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of CBaseCombatWeapon_NetworkVar_m_bFlipViewModel",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_bFlipViewModel>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_bFlipViewModel",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_bFlipViewModel>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack>()
+        - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack>()
+        - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_hOwner",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_hOwner>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_hOwner",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_hOwner>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_iClip1",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iClip1>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_iClip1",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iClip1>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_iClip2",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iClip2>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_iClip2",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iClip2>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType>()
+        - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_iState",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iState>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_iState",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iState>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_iViewModelIndex",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iViewModelIndex>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_iViewModelIndex",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iViewModelIndex>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex>()
+        - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatWeapon_NetworkVar_m_nViewModelIndex",
+    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_nViewModelIndex>() - 1usize];
+    [
+        "Alignment of CBaseCombatWeapon_NetworkVar_m_nViewModelIndex",
+    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_nViewModelIndex>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of CBaseCombatWeapon",
     ][::std::mem::size_of::<CBaseCombatWeapon>() - 1792usize];
     [
@@ -157,143 +294,6 @@ const _: () = {
     [
         "Offset of field: CBaseCombatWeapon::m_OnCacheInteraction",
     ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnCacheInteraction) - 1760usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_bFlipViewModel",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_bFlipViewModel>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_bFlipViewModel",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_bFlipViewModel>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack>()
-        - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_flNextPrimaryAttack>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack>()
-        - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_flNextSecondaryAttack>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_flTimeWeaponIdle>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_hOwner",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_hOwner>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_hOwner",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_hOwner>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_iClip1",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iClip1>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_iClip1",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iClip1>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_iClip2",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iClip2>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_iClip2",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iClip2>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iPrimaryAmmoType>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType>()
-        - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iSecondaryAmmoType>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_iState",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iState>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_iState",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iState>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_iViewModelIndex",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iViewModelIndex>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_iViewModelIndex",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iViewModelIndex>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_iWorldModelIndex>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex>()
-        - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_nCustomViewmodelModelIndex>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatWeapon_NetworkVar_m_nViewModelIndex",
-    ][::std::mem::size_of::<CBaseCombatWeapon_NetworkVar_m_nViewModelIndex>() - 1usize];
-    [
-        "Alignment of CBaseCombatWeapon_NetworkVar_m_nViewModelIndex",
-    ][::std::mem::align_of::<CBaseCombatWeapon_NetworkVar_m_nViewModelIndex>() - 1usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

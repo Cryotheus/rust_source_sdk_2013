@@ -13,10 +13,10 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
+pub type CUtlBuffer__bindgen_ty_1 = ::std::os::raw::c_uint;
 pub type CUtlBuffer_BufferFlags_t = ::std::os::raw::c_uint;
 pub type CUtlBuffer_SeekType_t = ::std::os::raw::c_uint;
 pub type CUtlBuffer_UtlBufferOverflowFunc_t = __BindgenOpaqueArray8<[u8; 16usize]>;
-pub type CUtlBuffer__bindgen_ty_1 = ::std::os::raw::c_uint;
 pub const CUtlBuffer_BufferFlags_t_AUTO_TABS_DISABLED: CUtlBuffer_BufferFlags_t = 16;
 pub const CUtlBuffer_BufferFlags_t_CONTAINS_CRLF: CUtlBuffer_BufferFlags_t = 4;
 pub const CUtlBuffer_BufferFlags_t_EXTERNAL_GROWABLE: CUtlBuffer_BufferFlags_t = 2;
@@ -57,6 +57,14 @@ pub struct CUtlCharConversion {
     pub m_pReplacements: [CUtlCharConversion_ConversionInfo_t; 256usize],
 }
 #[repr(C)]
+pub struct CUtlCharConversion__bindgen_vtable {
+    pub CUtlCharConversion_FindConversion: unsafe extern "C" fn(
+        arg1: *mut CUtlCharConversion,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *mut ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_char,
+}
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CUtlCharConversion_ConversionArray_t {
     pub m_nActualChar: ::std::os::raw::c_char,
@@ -67,13 +75,5 @@ pub struct CUtlCharConversion_ConversionArray_t {
 pub struct CUtlCharConversion_ConversionInfo_t {
     pub m_nLength: ::std::os::raw::c_int,
     pub m_pReplacementString: *const ::std::os::raw::c_char,
-}
-#[repr(C)]
-pub struct CUtlCharConversion__bindgen_vtable {
-    pub CUtlCharConversion_FindConversion: unsafe extern "C" fn(
-        arg1: *mut CUtlCharConversion,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: *mut ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_char,
 }
 include!("layout_assertions.rs");

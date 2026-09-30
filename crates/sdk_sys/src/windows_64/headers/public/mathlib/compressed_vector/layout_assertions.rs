@@ -21,11 +21,12 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of float16"][::std::mem::size_of::<float16>() - 2usize];
-    ["Alignment of float16"][::std::mem::align_of::<float16>() - 2usize];
     [
-        "Offset of field: float16::m_storage",
-    ][::std::mem::offset_of!(float16, m_storage) - 0usize];
+        "Size of float16_float16bits__bindgen_ty_1",
+    ][::std::mem::size_of::<float16_float16bits__bindgen_ty_1>() - 2usize];
+    [
+        "Alignment of float16_float16bits__bindgen_ty_1",
+    ][::std::mem::align_of::<float16_float16bits__bindgen_ty_1>() - 2usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -45,11 +46,11 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of float16_float16bits__bindgen_ty_1",
-    ][::std::mem::size_of::<float16_float16bits__bindgen_ty_1>() - 2usize];
+        "Size of float16_float32bits__bindgen_ty_1",
+    ][::std::mem::size_of::<float16_float32bits__bindgen_ty_1>() - 4usize];
     [
-        "Alignment of float16_float16bits__bindgen_ty_1",
-    ][::std::mem::align_of::<float16_float16bits__bindgen_ty_1>() - 2usize];
+        "Alignment of float16_float32bits__bindgen_ty_1",
+    ][::std::mem::align_of::<float16_float32bits__bindgen_ty_1>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -68,10 +69,9 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of float16"][::std::mem::size_of::<float16>() - 2usize];
+    ["Alignment of float16"][::std::mem::align_of::<float16>() - 2usize];
     [
-        "Size of float16_float32bits__bindgen_ty_1",
-    ][::std::mem::size_of::<float16_float32bits__bindgen_ty_1>() - 4usize];
-    [
-        "Alignment of float16_float32bits__bindgen_ty_1",
-    ][::std::mem::align_of::<float16_float32bits__bindgen_ty_1>() - 4usize];
+        "Offset of field: float16::m_storage",
+    ][::std::mem::offset_of!(float16, m_storage) - 0usize];
 };

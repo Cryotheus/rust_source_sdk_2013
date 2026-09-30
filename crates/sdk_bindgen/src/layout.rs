@@ -13,32 +13,15 @@ use quote::ToTokens;
 use std::collections::{BTreeMap, BTreeSet};
 use syn::parse::{ParseStream, Parser};
 use syn::visit::Visit;
+
 use syn::{
 	BinOp, Expr, File, GenericArgument, GenericParam, Generics, Item, Lit, PathArguments, Stmt,
 	Type,
 };
 
-/// Target facts which decide the size and alignment of Rust primitives.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) struct TargetLayout {
-	pub pointer_width: u64,
-	pub c_long_width: u64,
-
-	/// Alignment of `u64`, `i64`, and `f64`, which is 4 on i686 Linux.
-	pub int64_align: u64,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-struct Layout {
-	size: u64,
-	align: u64,
-}
-
-impl Layout {
-	const fn new(size: u64, align: u64) -> Self {
-		Self { size, align }
-	}
-}
+/// Generated items whose Rust definition does not describe their C++ layout,
+/// keyed by item name, with the first mismatch found for each.
+pub(crate) type LayoutMismatches = BTreeMap<String, String>;
 
 /// C++ facts which bindgen asserted for one Rust type.
 #[derive(Debug, Clone, Default)]
@@ -51,168 +34,6 @@ struct Asserted {
 impl Asserted {
 	fn layout(&self) -> Option<Layout> {
 		Some(Layout::new(self.size?, self.align?))
-	}
-}
-
-/// Generated items whose Rust definition does not describe their C++ layout,
-/// keyed by item name, with the first mismatch found for each.
-pub(crate) type LayoutMismatches = BTreeMap<String, String>;
-
-/// Finds the generated items whose C++ declarations must become opaque for
-/// every layout assertion in `syntax` to hold and every name to resolve.
-///
-/// A type whose own assertions fail is reported; a type that is only wrong
-/// because it contains such a type is not, because the evaluation continues
-/// with the asserted C++ layout of each reported type. An item naming an
-/// undefined type (a template parameter bindgen never bound) is reported by
-/// its own name, which may be a nested type alias of the record to blame.
-pub(crate) fn find_layout_mismatches(syntax: &File, target: TargetLayout) -> LayoutMismatches {
-	let mut unresolved = LayoutMismatches::new();
-
-	for (item, name) in unresolved_type_names(syntax) {
-		unresolved
-			.entry(item.clone())
-			.or_insert_with(|| format!("`{item}` refers to `{name}`, which is not defined"));
-	}
-
-	// Records which become opaque for an unbound name are left out of the
-	// evaluation, so nothing containing them is blamed in their stead.
-	let mut evaluator = Evaluator::new(syntax, target, unresolved.keys().cloned().collect());
-	let keys = evaluator.asserted.keys().cloned().collect::<Vec<_>>();
-
-	for key in keys {
-		let type_ = evaluator.asserted_types[&key].clone();
-		let _ = evaluator.layout_of(&type_);
-	}
-
-	let mut mismatches = evaluator.mismatches;
-	mismatches.extend(unresolved);
-	mismatches
-}
-
-/// Removes type aliases which name an undefined type and which no other item
-/// refers to, returning their names.
-///
-/// Bindgen still emits the member typedefs of a class template it was told to
-/// keep opaque, such as `CUtlMap<K, T>::CTree`, with the template's parameters
-/// unbound. Once nothing uses them, they are only dead, uncompilable code.
-pub(crate) fn remove_unreferenced_broken_aliases(syntax: &mut File) -> Vec<String> {
-	let mut removed = Vec::new();
-
-	loop {
-		let broken = unresolved_type_names(syntax)
-			.into_iter()
-			.map(|(item, _)| item)
-			.filter(|item| {
-				syntax
-					.items
-					.iter()
-					.any(|candidate| matches!(candidate, Item::Type(alias) if alias.ident == item))
-			})
-			.collect::<BTreeSet<_>>();
-
-		let referenced = referenced_elsewhere(syntax, &broken);
-		let unreferenced = broken
-			.difference(&referenced)
-			.cloned()
-			.collect::<BTreeSet<_>>();
-
-		if unreferenced.is_empty() {
-			return removed;
-		}
-
-		syntax.items.retain(
-			|item| !matches!(item, Item::Type(alias) if unreferenced.contains(&alias.ident.to_string())),
-		);
-		removed.extend(unreferenced);
-	}
-}
-
-/// The names in `candidates` which an item other than their own definition mentions.
-fn referenced_elsewhere(syntax: &File, candidates: &BTreeSet<String>) -> BTreeSet<String> {
-	struct Mentions<'a> {
-		candidates: &'a BTreeSet<String>,
-		found: BTreeSet<String>,
-	}
-
-	impl<'ast> Visit<'ast> for Mentions<'_> {
-		fn visit_ident(&mut self, ident: &'ast proc_macro2::Ident) {
-			let name = ident.to_string();
-
-			if self.candidates.contains(&name) {
-				self.found.insert(name);
-			}
-		}
-
-		fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-			for token in mac.tokens.clone() {
-				if let TokenTree::Ident(ident) = token {
-					self.visit_ident(&ident);
-				}
-			}
-
-			syn::visit::visit_macro(self, mac);
-		}
-	}
-
-	let mut found = BTreeSet::new();
-
-	for item in &syntax.items {
-		let own = match item {
-			Item::Type(alias) => Some(alias.ident.to_string()),
-			_ => None,
-		};
-
-		let mut mentions = Mentions {
-			candidates,
-			found: BTreeSet::new(),
-		};
-
-		mentions.visit_item(item);
-
-		if let Some(own) = &own {
-			mentions.found.remove(own);
-		}
-
-		found.extend(mentions.found);
-	}
-
-	found
-}
-
-#[derive(Clone, Copy)]
-enum RecordKind {
-	Struct,
-	Union,
-}
-
-#[derive(Clone)]
-struct Record<'a> {
-	kind: RecordKind,
-	generics: &'a Generics,
-	fields: Vec<&'a syn::Field>,
-	packed: Option<u64>,
-	align: Option<u64>,
-}
-
-#[derive(Debug)]
-enum Unknown {
-	Name(String),
-	Shape(String),
-	Cycle(String),
-
-	/// Depends on a record which is already being made opaque.
-	Deferred,
-}
-
-impl std::fmt::Display for Unknown {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Name(name) => write!(f, "`{name}` is not defined"),
-			Self::Shape(shape) => write!(f, "the layout of `{shape}` is not computable"),
-			Self::Cycle(name) => write!(f, "`{name}` contains itself"),
-			Self::Deferred => f.write_str("it depends on a record which is being made opaque"),
-		}
 	}
 }
 
@@ -283,6 +104,7 @@ impl<'a> Evaluator<'a> {
 						match fact {
 							Fact::Size(size) => entry.size = Some(size),
 							Fact::Align(align) => entry.align = Some(align),
+
 							Fact::Offset(field, offset) => {
 								entry.offsets.insert(field, offset);
 							}
@@ -308,102 +130,6 @@ impl<'a> Evaluator<'a> {
 			in_progress: BTreeSet::new(),
 			mismatches: BTreeMap::new(),
 		}
-	}
-
-	/// The layout of a concrete type. A type whose Rust layout contradicts
-	/// its C++ assertions is recorded, and its asserted layout is used.
-	fn layout_of(&mut self, type_: &Type) -> Result<Layout, Unknown> {
-		let key = type_key(type_);
-
-		if let Some(result) = self.memo.get(&key) {
-			return result
-				.clone()
-				.map_err(|problem| problem.map_or(Unknown::Deferred, Unknown::Shape));
-		}
-
-		if !self.in_progress.insert(key.clone()) {
-			return Err(Unknown::Cycle(key));
-		}
-
-		let computed = self.compute(type_);
-		self.in_progress.remove(&key);
-
-		let result = match self.asserted.get(&key).cloned() {
-			None => computed,
-			Some(_) if matches!(computed, Err(Unknown::Deferred)) => computed,
-			Some(asserted) => {
-				let problem = match &computed {
-					Err(unknown) => Some(unknown.to_string()),
-					Ok(layout) => self.contradiction(type_, *layout, &asserted),
-				};
-
-				match problem {
-					None => computed,
-					Some(problem) => {
-						if let Some(owner) = defining_name(type_) {
-							self.mismatches.entry(owner).or_insert(problem);
-						}
-
-						asserted.layout().ok_or_else(|| Unknown::Shape(key.clone()))
-					}
-				}
-			}
-		};
-
-		let memo = match &result {
-			Ok(layout) => Ok(*layout),
-			Err(Unknown::Deferred) => Err(None),
-			Err(unknown) => Err(Some(unknown.to_string())),
-		};
-
-		self.memo.insert(key, memo);
-		result
-	}
-
-	fn contradiction(
-		&mut self,
-		type_: &Type,
-		layout: Layout,
-		asserted: &Asserted,
-	) -> Option<String> {
-		if asserted.size.is_some_and(|size| size != layout.size) {
-			return Some(format!(
-				"its Rust size is {}, but C++ says {}",
-				layout.size,
-				asserted.size.unwrap_or_default()
-			));
-		}
-
-		if asserted.align.is_some_and(|align| align != layout.align) {
-			return Some(format!(
-				"its Rust alignment is {}, but C++ says {}",
-				layout.align,
-				asserted.align.unwrap_or_default()
-			));
-		}
-
-		if asserted.offsets.is_empty() {
-			return None;
-		}
-
-		let offsets = match self.field_offsets(type_) {
-			Ok(offsets) => offsets,
-			Err(unknown) => return Some(unknown.to_string()),
-		};
-
-		for (field, expected) in &asserted.offsets {
-			match offsets.get(field) {
-				Some(actual) if actual == expected => {}
-				Some(actual) => {
-					return Some(format!(
-						"its Rust field `{field}` is at offset {actual}, but C++ says {expected}"
-					));
-				}
-				None => return Some(format!("it has no Rust field `{field}`")),
-			}
-		}
-
-		None
 	}
 
 	fn compute(&mut self, type_: &Type) -> Result<Layout, Unknown> {
@@ -444,16 +170,19 @@ impl<'a> Evaluator<'a> {
 						.as_slice(),
 				) {
 					(true, ["std", "marker", "PhantomData"]) => Ok(Layout::new(0, 1)),
+
 					(true, ["std", "mem", "ManuallyDrop"] | ["std", "cell", "UnsafeCell"]) => {
 						match arguments.as_slice() {
 							[inner] => self.layout_of(inner),
 							_ => Err(Unknown::Shape(type_key(type_))),
 						}
 					}
+
 					(true, ["std", "option", "Option"]) => match arguments.as_slice() {
 						[Type::FnPtr(_)] => Ok(pointer),
 						_ => Err(Unknown::Shape(type_key(type_))),
 					},
+
 					(false, [name]) => self.named(name, &arguments),
 					_ => Err(Unknown::Name(segments.join("::"))),
 				}
@@ -461,6 +190,141 @@ impl<'a> Evaluator<'a> {
 
 			_ => Err(Unknown::Shape(type_key(type_))),
 		}
+	}
+
+	fn contradiction(
+		&mut self,
+		type_: &Type,
+		layout: Layout,
+		asserted: &Asserted,
+	) -> Option<String> {
+		if asserted.size.is_some_and(|size| size != layout.size) {
+			return Some(format!(
+				"its Rust size is {}, but C++ says {}",
+				layout.size,
+				asserted.size.unwrap_or_default()
+			));
+		}
+
+		if asserted.align.is_some_and(|align| align != layout.align) {
+			return Some(format!(
+				"its Rust alignment is {}, but C++ says {}",
+				layout.align,
+				asserted.align.unwrap_or_default()
+			));
+		}
+
+		if asserted.offsets.is_empty() {
+			return None;
+		}
+
+		let offsets = match self.field_offsets(type_) {
+			Ok(offsets) => offsets,
+			Err(unknown) => return Some(unknown.to_string()),
+		};
+
+		for (field, expected) in &asserted.offsets {
+			match offsets.get(field) {
+				Some(actual) if actual == expected => {}
+
+				Some(actual) => {
+					return Some(format!(
+						"its Rust field `{field}` is at offset {actual}, but C++ says {expected}"
+					));
+				}
+
+				None => return Some(format!("it has no Rust field `{field}`")),
+			}
+		}
+
+		None
+	}
+
+	fn field_offsets(&mut self, type_: &Type) -> Result<BTreeMap<String, u64>, Unknown> {
+		let Type::Path(path) = type_ else {
+			return Err(Unknown::Shape(type_key(type_)));
+		};
+
+		let last = path.path.segments.last().expect("a path has a segment");
+		let name = last.ident.to_string();
+		let Some(record) = self.records.get(&name).cloned() else {
+			return Err(Unknown::Name(name));
+		};
+
+		let substitutions = bind(record.generics, &type_arguments(&last.arguments))
+			.ok_or_else(|| Unknown::Shape(name.clone()))?;
+		let mut layouts = Vec::new();
+		let mut names = Vec::new();
+
+		for (index, field) in record.fields.iter().enumerate() {
+			layouts.push(self.layout_of(&substitute(&field.ty, &substitutions))?);
+			names.push(
+				field
+					.ident
+					.as_ref()
+					.map(ToString::to_string)
+					.unwrap_or_else(|| index.to_string()),
+			);
+		}
+
+		let offsets = match record.kind {
+			RecordKind::Struct => place_fields(&layouts, record.packed, record.align).1,
+			RecordKind::Union => vec![0; layouts.len()],
+		};
+
+		Ok(names.into_iter().zip(offsets).collect())
+	}
+
+	/// The layout of a concrete type. A type whose Rust layout contradicts
+	/// its C++ assertions is recorded, and its asserted layout is used.
+	fn layout_of(&mut self, type_: &Type) -> Result<Layout, Unknown> {
+		let key = type_key(type_);
+
+		if let Some(result) = self.memo.get(&key) {
+			return result
+				.clone()
+				.map_err(|problem| problem.map_or(Unknown::Deferred, Unknown::Shape));
+		}
+
+		if !self.in_progress.insert(key.clone()) {
+			return Err(Unknown::Cycle(key));
+		}
+
+		let computed = self.compute(type_);
+		self.in_progress.remove(&key);
+
+		let result = match self.asserted.get(&key).cloned() {
+			None => computed,
+			Some(_) if matches!(computed, Err(Unknown::Deferred)) => computed,
+
+			Some(asserted) => {
+				let problem = match &computed {
+					Err(unknown) => Some(unknown.to_string()),
+					Ok(layout) => self.contradiction(type_, *layout, &asserted),
+				};
+
+				match problem {
+					None => computed,
+
+					Some(problem) => {
+						if let Some(owner) = defining_name(type_) {
+							self.mismatches.entry(owner).or_insert(problem);
+						}
+
+						asserted.layout().ok_or_else(|| Unknown::Shape(key.clone()))
+					}
+				}
+			}
+		};
+
+		let memo = match &result {
+			Ok(layout) => Ok(*layout),
+			Err(Unknown::Deferred) => Err(None),
+			Err(unknown) => Err(Some(unknown.to_string())),
+		};
+
+		self.memo.insert(key, memo);
+		result
 	}
 
 	fn named(&mut self, name: &str, arguments: &[Type]) -> Result<Layout, Unknown> {
@@ -499,6 +363,7 @@ impl<'a> Evaluator<'a> {
 
 		Ok(match record.kind {
 			RecordKind::Struct => place_fields(&layouts, record.packed, record.align).0,
+
 			RecordKind::Union => {
 				let pack = record.packed.unwrap_or(u64::MAX);
 				let align = layouts
@@ -511,41 +376,6 @@ impl<'a> Evaluator<'a> {
 				Layout::new(size.next_multiple_of(align), align)
 			}
 		})
-	}
-
-	fn field_offsets(&mut self, type_: &Type) -> Result<BTreeMap<String, u64>, Unknown> {
-		let Type::Path(path) = type_ else {
-			return Err(Unknown::Shape(type_key(type_)));
-		};
-
-		let last = path.path.segments.last().expect("a path has a segment");
-		let name = last.ident.to_string();
-		let Some(record) = self.records.get(&name).cloned() else {
-			return Err(Unknown::Name(name));
-		};
-
-		let substitutions = bind(record.generics, &type_arguments(&last.arguments))
-			.ok_or_else(|| Unknown::Shape(name.clone()))?;
-		let mut layouts = Vec::new();
-		let mut names = Vec::new();
-
-		for (index, field) in record.fields.iter().enumerate() {
-			layouts.push(self.layout_of(&substitute(&field.ty, &substitutions))?);
-			names.push(
-				field
-					.ident
-					.as_ref()
-					.map(ToString::to_string)
-					.unwrap_or_else(|| index.to_string()),
-			);
-		}
-
-		let offsets = match record.kind {
-			RecordKind::Struct => place_fields(&layouts, record.packed, record.align).1,
-			RecordKind::Union => vec![0; layouts.len()],
-		};
-
-		Ok(names.into_iter().zip(offsets).collect())
 	}
 
 	fn primitive(&self, segments: &[String]) -> Option<Layout> {
@@ -573,74 +403,212 @@ impl<'a> Evaluator<'a> {
 	}
 }
 
-/// Places fields by C rules, limited by `packed` and raised by `align`.
-fn place_fields(fields: &[Layout], packed: Option<u64>, align: Option<u64>) -> (Layout, Vec<u64>) {
-	let pack = packed.unwrap_or(u64::MAX);
-	let mut offset = 0_u64;
-	let mut record_align = align.unwrap_or(1);
-	let mut offsets = Vec::with_capacity(fields.len());
-
-	for field in fields {
-		let field_align = field.align.min(pack);
-		offset = offset.next_multiple_of(field_align);
-		offsets.push(offset);
-		offset += field.size;
-		record_align = record_align.max(field_align);
-	}
-
-	(
-		Layout::new(offset.next_multiple_of(record_align), record_align),
-		offsets,
-	)
-}
-
-fn repr_modifiers(attributes: &[syn::Attribute]) -> (Option<u64>, Option<u64>) {
-	let mut packed = None;
-	let mut align = None;
-
-	for attribute in attributes
-		.iter()
-		.filter(|attribute| attribute.path().is_ident("repr"))
-	{
-		let syn::Meta::List(list) = &attribute.meta else {
-			continue;
-		};
-		let mut tokens = list.tokens.clone().into_iter().peekable();
-
-		while let Some(token) = tokens.next() {
-			let TokenTree::Ident(ident) = token else {
-				continue;
-			};
-			let argument = match tokens.peek() {
-				Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Parenthesis => {
-					let value = group
-						.stream()
-						.to_string()
-						.trim_end_matches("usize")
-						.trim()
-						.parse::<u64>()
-						.ok();
-					tokens.next();
-					value
-				}
-				_ => None,
-			};
-
-			if ident == "packed" {
-				packed = Some(argument.unwrap_or(1));
-			} else if ident == "align" {
-				align = argument;
-			}
-		}
-	}
-
-	(packed, align)
-}
-
 enum Fact {
 	Size(u64),
 	Align(u64),
 	Offset(String, u64),
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct Layout {
+	size: u64,
+	align: u64,
+}
+
+impl Layout {
+	const fn new(size: u64, align: u64) -> Self {
+		Self { size, align }
+	}
+}
+
+#[derive(Clone)]
+struct Record<'a> {
+	kind: RecordKind,
+	generics: &'a Generics,
+	fields: Vec<&'a syn::Field>,
+	packed: Option<u64>,
+	align: Option<u64>,
+}
+
+#[derive(Clone, Copy)]
+enum RecordKind {
+	Struct,
+	Union,
+}
+
+/// Target facts which decide the size and alignment of Rust primitives.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct TargetLayout {
+	pub pointer_width: u64,
+	pub c_long_width: u64,
+
+	/// Alignment of `u64`, `i64`, and `f64`, which is 4 on i686 Linux.
+	pub int64_align: u64,
+}
+
+#[derive(Debug)]
+enum Unknown {
+	Name(String),
+	Shape(String),
+	Cycle(String),
+
+	/// Depends on a record which is already being made opaque.
+	Deferred,
+}
+
+impl std::fmt::Display for Unknown {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Name(name) => write!(f, "`{name}` is not defined"),
+			Self::Shape(shape) => write!(f, "the layout of `{shape}` is not computable"),
+			Self::Cycle(name) => write!(f, "`{name}` contains itself"),
+			Self::Deferred => f.write_str("it depends on a record which is being made opaque"),
+		}
+	}
+}
+
+fn bind(generics: &Generics, arguments: &[Type]) -> Option<BTreeMap<String, Type>> {
+	let parameters = generics
+		.params
+		.iter()
+		.filter_map(|parameter| match parameter {
+			GenericParam::Type(parameter) => Some(parameter.ident.to_string()),
+			_ => None,
+		})
+		.collect::<Vec<_>>();
+
+	(parameters.len() == arguments.len()).then(|| {
+		parameters
+			.into_iter()
+			.zip(arguments.iter().cloned())
+			.collect()
+	})
+}
+
+/// `use self::original as renamed;` within the generated file itself.
+fn collect_local_renames(tree: &syn::UseTree, renames: &mut BTreeMap<String, String>) {
+	match tree {
+		syn::UseTree::Path(path) if path.ident == "self" => {
+			collect_local_renames(&path.tree, renames)
+		}
+
+		syn::UseTree::Rename(rename) => {
+			renames.insert(rename.rename.to_string(), rename.ident.to_string());
+		}
+
+		syn::UseTree::Group(group) => {
+			for tree in &group.items {
+				collect_local_renames(tree, renames);
+			}
+		}
+
+		_ => {}
+	}
+}
+
+fn collect_use_names(tree: &syn::UseTree, names: &mut BTreeSet<String>) {
+	match tree {
+		syn::UseTree::Path(path) => collect_use_names(&path.tree, names),
+
+		syn::UseTree::Name(name) => {
+			names.insert(name.ident.to_string());
+		}
+
+		syn::UseTree::Rename(rename) => {
+			names.insert(rename.rename.to_string());
+		}
+
+		syn::UseTree::Group(group) => {
+			for tree in &group.items {
+				collect_use_names(tree, names);
+			}
+		}
+
+		syn::UseTree::Glob(_) => {}
+	}
+}
+
+/// The generated item which defines `type_`: a struct, union, or alias name.
+fn defining_name(type_: &Type) -> Option<String> {
+	match type_ {
+		Type::Path(path) if path.qself.is_none() && path.path.leading_colon.is_none() => path
+			.path
+			.segments
+			.last()
+			.map(|segment| segment.ident.to_string()),
+
+		Type::Paren(inner) => defining_name(&inner.elem),
+		Type::Group(inner) => defining_name(&inner.elem),
+		_ => None,
+	}
+}
+
+/// Finds the generated items whose C++ declarations must become opaque for
+/// every layout assertion in `syntax` to hold and every name to resolve.
+///
+/// A type whose own assertions fail is reported; a type that is only wrong
+/// because it contains such a type is not, because the evaluation continues
+/// with the asserted C++ layout of each reported type. An item naming an
+/// undefined type (a template parameter bindgen never bound) is reported by
+/// its own name, which may be a nested type alias of the record to blame.
+pub(crate) fn find_layout_mismatches(syntax: &File, target: TargetLayout) -> LayoutMismatches {
+	let mut unresolved = LayoutMismatches::new();
+
+	for (item, name) in unresolved_type_names(syntax) {
+		unresolved
+			.entry(item.clone())
+			.or_insert_with(|| format!("`{item}` refers to `{name}`, which is not defined"));
+	}
+
+	// Records which become opaque for an unbound name are left out of the
+	// evaluation, so nothing containing them is blamed in their stead.
+	let mut evaluator = Evaluator::new(syntax, target, unresolved.keys().cloned().collect());
+	let keys = evaluator.asserted.keys().cloned().collect::<Vec<_>>();
+
+	for key in keys {
+		let type_ = evaluator.asserted_types[&key].clone();
+		let _ = evaluator.layout_of(&type_);
+	}
+
+	let mut mismatches = evaluator.mismatches;
+	mismatches.extend(unresolved);
+	mismatches
+}
+
+fn integer(expr: &Expr) -> Option<u64> {
+	match expr {
+		Expr::Lit(literal) => match &literal.lit {
+			Lit::Int(integer) => integer.base10_parse().ok(),
+			_ => None,
+		},
+
+		Expr::Paren(inner) => integer(&inner.expr),
+		Expr::Group(inner) => integer(&inner.expr),
+		_ => None,
+	}
+}
+
+fn is_primitive_name(name: &str) -> bool {
+	matches!(
+		name,
+		"bool"
+			| "char"
+			| "str"
+			| "u8"
+			| "u16"
+			| "u32"
+			| "u64"
+			| "u128"
+			| "usize"
+			| "i8"
+			| "i16"
+			| "i32"
+			| "i64"
+			| "i128"
+			| "isize"
+			| "f32"
+			| "f64"
+	)
 }
 
 /// The facts in one of bindgen's `const _: () = { [..][size_of::<T>() - N]; };` blocks.
@@ -718,49 +686,159 @@ fn layout_assertions(expr: &Expr) -> Vec<(Type, Fact)> {
 	facts
 }
 
-fn integer(expr: &Expr) -> Option<u64> {
-	match expr {
-		Expr::Lit(literal) => match &literal.lit {
-			Lit::Int(integer) => integer.base10_parse().ok(),
+/// Places fields by C rules, limited by `packed` and raised by `align`.
+fn place_fields(fields: &[Layout], packed: Option<u64>, align: Option<u64>) -> (Layout, Vec<u64>) {
+	let pack = packed.unwrap_or(u64::MAX);
+	let mut offset = 0_u64;
+	let mut record_align = align.unwrap_or(1);
+	let mut offsets = Vec::with_capacity(fields.len());
+
+	for field in fields {
+		let field_align = field.align.min(pack);
+		offset = offset.next_multiple_of(field_align);
+		offsets.push(offset);
+		offset += field.size;
+		record_align = record_align.max(field_align);
+	}
+
+	(
+		Layout::new(offset.next_multiple_of(record_align), record_align),
+		offsets,
+	)
+}
+
+/// The names in `candidates` which an item other than their own definition mentions.
+fn referenced_elsewhere(syntax: &File, candidates: &BTreeSet<String>) -> BTreeSet<String> {
+	struct Mentions<'a> {
+		candidates: &'a BTreeSet<String>,
+		found: BTreeSet<String>,
+	}
+
+	impl<'ast> Visit<'ast> for Mentions<'_> {
+		fn visit_ident(&mut self, ident: &'ast proc_macro2::Ident) {
+			let name = ident.to_string();
+
+			if self.candidates.contains(&name) {
+				self.found.insert(name);
+			}
+		}
+
+		fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+			for token in mac.tokens.clone() {
+				if let TokenTree::Ident(ident) = token {
+					self.visit_ident(&ident);
+				}
+			}
+
+			syn::visit::visit_macro(self, mac);
+		}
+	}
+
+	let mut found = BTreeSet::new();
+
+	for item in &syntax.items {
+		let own = match item {
+			Item::Type(alias) => Some(alias.ident.to_string()),
 			_ => None,
-		},
-		Expr::Paren(inner) => integer(&inner.expr),
-		Expr::Group(inner) => integer(&inner.expr),
-		_ => None,
+		};
+
+		let mut mentions = Mentions {
+			candidates,
+			found: BTreeSet::new(),
+		};
+
+		mentions.visit_item(item);
+
+		if let Some(own) = &own {
+			mentions.found.remove(own);
+		}
+
+		found.extend(mentions.found);
+	}
+
+	found
+}
+
+/// Removes type aliases which name an undefined type and which no other item
+/// refers to, returning their names.
+///
+/// Bindgen still emits the member typedefs of a class template it was told to
+/// keep opaque, such as `CUtlMap<K, T>::CTree`, with the template's parameters
+/// unbound. Once nothing uses them, they are only dead, uncompilable code.
+pub(crate) fn remove_unreferenced_broken_aliases(syntax: &mut File) -> Vec<String> {
+	let mut removed = Vec::new();
+
+	loop {
+		let broken = unresolved_type_names(syntax)
+			.into_iter()
+			.map(|(item, _)| item)
+			.filter(|item| {
+				syntax
+					.items
+					.iter()
+					.any(|candidate| matches!(candidate, Item::Type(alias) if alias.ident == item))
+			})
+			.collect::<BTreeSet<_>>();
+
+		let referenced = referenced_elsewhere(syntax, &broken);
+		let unreferenced = broken
+			.difference(&referenced)
+			.cloned()
+			.collect::<BTreeSet<_>>();
+
+		if unreferenced.is_empty() {
+			return removed;
+		}
+
+		syntax.items.retain(
+			|item| !matches!(item, Item::Type(alias) if unreferenced.contains(&alias.ident.to_string())),
+		);
+		removed.extend(unreferenced);
 	}
 }
 
-fn type_arguments(arguments: &PathArguments) -> Vec<Type> {
-	let PathArguments::AngleBracketed(arguments) = arguments else {
-		return Vec::new();
-	};
+fn repr_modifiers(attributes: &[syn::Attribute]) -> (Option<u64>, Option<u64>) {
+	let mut packed = None;
+	let mut align = None;
 
-	arguments
-		.args
+	for attribute in attributes
 		.iter()
-		.filter_map(|argument| match argument {
-			GenericArgument::Type(type_) => Some(type_.clone()),
-			_ => None,
-		})
-		.collect()
-}
+		.filter(|attribute| attribute.path().is_ident("repr"))
+	{
+		let syn::Meta::List(list) = &attribute.meta else {
+			continue;
+		};
+		let mut tokens = list.tokens.clone().into_iter().peekable();
 
-fn bind(generics: &Generics, arguments: &[Type]) -> Option<BTreeMap<String, Type>> {
-	let parameters = generics
-		.params
-		.iter()
-		.filter_map(|parameter| match parameter {
-			GenericParam::Type(parameter) => Some(parameter.ident.to_string()),
-			_ => None,
-		})
-		.collect::<Vec<_>>();
+		while let Some(token) = tokens.next() {
+			let TokenTree::Ident(ident) = token else {
+				continue;
+			};
+			let argument = match tokens.peek() {
+				Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Parenthesis => {
+					let value = group
+						.stream()
+						.to_string()
+						.trim_end_matches("usize")
+						.trim()
+						.parse::<u64>()
+						.ok();
+					tokens.next();
+					value
+				}
 
-	(parameters.len() == arguments.len()).then(|| {
-		parameters
-			.into_iter()
-			.zip(arguments.iter().cloned())
-			.collect()
-	})
+				_ => None,
+			};
+
+			if ident == "packed" {
+				packed = Some(argument.unwrap_or(1));
+			} else if ident == "align" {
+				align = argument;
+			}
+		}
+	}
+
+	(packed, align)
 }
 
 /// Replaces generic parameters wherever they can affect a layout. Pointee and
@@ -814,22 +892,23 @@ fn substitute(type_: &Type, substitutions: &BTreeMap<String, Type>) -> Type {
 	substituted
 }
 
-fn type_key(type_: &Type) -> String {
-	type_.to_token_stream().to_string()
+fn type_arguments(arguments: &PathArguments) -> Vec<Type> {
+	let PathArguments::AngleBracketed(arguments) = arguments else {
+		return Vec::new();
+	};
+
+	arguments
+		.args
+		.iter()
+		.filter_map(|argument| match argument {
+			GenericArgument::Type(type_) => Some(type_.clone()),
+			_ => None,
+		})
+		.collect()
 }
 
-/// The generated item which defines `type_`: a struct, union, or alias name.
-fn defining_name(type_: &Type) -> Option<String> {
-	match type_ {
-		Type::Path(path) if path.qself.is_none() && path.path.leading_colon.is_none() => path
-			.path
-			.segments
-			.last()
-			.map(|segment| segment.ident.to_string()),
-		Type::Paren(inner) => defining_name(&inner.elem),
-		Type::Group(inner) => defining_name(&inner.elem),
-		_ => None,
-	}
+fn type_key(type_: &Type) -> String {
+	type_.to_token_stream().to_string()
 }
 
 /// `(item, name)` pairs for single-segment type names which neither an item
@@ -869,15 +948,19 @@ fn unresolved_type_names(syntax: &File) -> Vec<(String, String)> {
 			Item::Struct(item) => {
 				defined.insert(item.ident.to_string());
 			}
+
 			Item::Union(item) => {
 				defined.insert(item.ident.to_string());
 			}
+
 			Item::Enum(item) => {
 				defined.insert(item.ident.to_string());
 			}
+
 			Item::Type(item) => {
 				defined.insert(item.ident.to_string());
 			}
+
 			Item::Use(item) => collect_use_names(&item.tree, &mut defined),
 			_ => {}
 		}
@@ -916,65 +999,6 @@ fn unresolved_type_names(syntax: &File) -> Vec<(String, String)> {
 	}
 
 	unresolved
-}
-
-/// `use self::original as renamed;` within the generated file itself.
-fn collect_local_renames(tree: &syn::UseTree, renames: &mut BTreeMap<String, String>) {
-	match tree {
-		syn::UseTree::Path(path) if path.ident == "self" => {
-			collect_local_renames(&path.tree, renames)
-		}
-		syn::UseTree::Rename(rename) => {
-			renames.insert(rename.rename.to_string(), rename.ident.to_string());
-		}
-		syn::UseTree::Group(group) => {
-			for tree in &group.items {
-				collect_local_renames(tree, renames);
-			}
-		}
-		_ => {}
-	}
-}
-
-fn collect_use_names(tree: &syn::UseTree, names: &mut BTreeSet<String>) {
-	match tree {
-		syn::UseTree::Path(path) => collect_use_names(&path.tree, names),
-		syn::UseTree::Name(name) => {
-			names.insert(name.ident.to_string());
-		}
-		syn::UseTree::Rename(rename) => {
-			names.insert(rename.rename.to_string());
-		}
-		syn::UseTree::Group(group) => {
-			for tree in &group.items {
-				collect_use_names(tree, names);
-			}
-		}
-		syn::UseTree::Glob(_) => {}
-	}
-}
-
-fn is_primitive_name(name: &str) -> bool {
-	matches!(
-		name,
-		"bool"
-			| "char"
-			| "str"
-			| "u8"
-			| "u16"
-			| "u32"
-			| "u64"
-			| "u128"
-			| "usize"
-			| "i8"
-			| "i16"
-			| "i32"
-			| "i64"
-			| "i128"
-			| "isize"
-			| "f32"
-			| "f64"
-	)
 }
 
 #[cfg(test)]
@@ -1071,6 +1095,36 @@ mod tests {
 	}
 
 	#[test]
+	fn removes_only_broken_aliases_nothing_uses() {
+		let mut syntax: File = parse_quote! {
+			#[repr(C)]
+			pub struct CUtlRBTree<T, I> { pub root: I, pub elements: *mut T }
+			pub type CUtlMap_CTree = CUtlRBTree<T, I>;
+			pub type CUtlHash_Buckets = CUtlRBTree<T, A>;
+			#[repr(C)]
+			pub struct UsesHash { pub buckets: *mut CUtlHash_Buckets }
+			pub type Broken = CUtlRBTree<T, u16>;
+			pub type NamesBroken = Broken;
+			#[repr(C)]
+			pub struct CUtlMap { pub _bindgen_opaque_blob: [u64; 5usize] }
+		};
+
+		// A broken alias something still names must stay, so the record
+		// using it is blamed instead.
+		assert_eq!(
+			remove_unreferenced_broken_aliases(&mut syntax),
+			["CUtlMap_CTree"]
+		);
+		assert_eq!(syntax.items.len(), 6);
+		assert_eq!(
+			find_layout_mismatches(&syntax, LINUX_64)
+				.keys()
+				.collect::<Vec<_>>(),
+			["Broken", "CUtlHash_Buckets"]
+		);
+	}
+
+	#[test]
 	fn reports_tail_padding_reuse_on_the_derived_record_only() {
 		// `Derived::extra` lives in the tail padding of the non-POD base.
 		let syntax: File = parse_quote! {
@@ -1106,6 +1160,34 @@ mod tests {
 	}
 
 	#[test]
+	fn reports_the_record_owning_an_unbound_template_parameter() {
+		let syntax: File = parse_quote! {
+			#[repr(C)]
+			pub struct CUtlRBTree<T, I> { pub root: I, pub elements: *mut T }
+			pub type CUtlMap_CTree = CUtlRBTree<T, I>;
+			pub type CUtlMap_ElemType_t<T> = T;
+			#[repr(C)]
+			pub struct CUtlMap { pub m_Tree: CUtlMap_CTree }
+			#[repr(C)]
+			pub struct CUtlHash<C> { pub m_Buckets: CUtlVector<T, A>, pub m_Compare: C }
+			#[repr(C)]
+			pub struct CUtlVector<T, A> { pub memory: A, pub elements: *mut T }
+			pub type Linked_const_iterator = Linked_iterator_t<List_t>;
+			#[repr(C)]
+			pub struct Linked { pub head: u16 }
+			#[repr(C)]
+			pub struct Linked_iterator_t<List_t> { pub list: *const List_t }
+		};
+
+		let mismatches = find_layout_mismatches(&syntax, LINUX_64);
+		assert_eq!(
+			mismatches.keys().collect::<Vec<_>>(),
+			["CUtlHash", "CUtlMap_CTree", "Linked_const_iterator"],
+			"{mismatches:?}"
+		);
+	}
+
+	#[test]
 	fn reports_the_template_behind_a_wrong_specialization() {
 		// `#pragma pack(4)` is lost on the template, so its instantiation is over-aligned.
 		let syntax: File = parse_quote! {
@@ -1136,64 +1218,6 @@ mod tests {
 		assert_eq!(
 			mismatches.keys().collect::<Vec<_>>(),
 			["serializedstudioptr_t"],
-			"{mismatches:?}"
-		);
-	}
-
-	#[test]
-	fn removes_only_broken_aliases_nothing_uses() {
-		let mut syntax: File = parse_quote! {
-			#[repr(C)]
-			pub struct CUtlRBTree<T, I> { pub root: I, pub elements: *mut T }
-			pub type CUtlMap_CTree = CUtlRBTree<T, I>;
-			pub type CUtlHash_Buckets = CUtlRBTree<T, A>;
-			#[repr(C)]
-			pub struct UsesHash { pub buckets: *mut CUtlHash_Buckets }
-			pub type Broken = CUtlRBTree<T, u16>;
-			pub type NamesBroken = Broken;
-			#[repr(C)]
-			pub struct CUtlMap { pub _bindgen_opaque_blob: [u64; 5usize] }
-		};
-
-		// A broken alias something still names must stay, so the record
-		// using it is blamed instead.
-		assert_eq!(
-			remove_unreferenced_broken_aliases(&mut syntax),
-			["CUtlMap_CTree"]
-		);
-		assert_eq!(syntax.items.len(), 6);
-		assert_eq!(
-			find_layout_mismatches(&syntax, LINUX_64)
-				.keys()
-				.collect::<Vec<_>>(),
-			["Broken", "CUtlHash_Buckets"]
-		);
-	}
-
-	#[test]
-	fn reports_the_record_owning_an_unbound_template_parameter() {
-		let syntax: File = parse_quote! {
-			#[repr(C)]
-			pub struct CUtlRBTree<T, I> { pub root: I, pub elements: *mut T }
-			pub type CUtlMap_CTree = CUtlRBTree<T, I>;
-			pub type CUtlMap_ElemType_t<T> = T;
-			#[repr(C)]
-			pub struct CUtlMap { pub m_Tree: CUtlMap_CTree }
-			#[repr(C)]
-			pub struct CUtlHash<C> { pub m_Buckets: CUtlVector<T, A>, pub m_Compare: C }
-			#[repr(C)]
-			pub struct CUtlVector<T, A> { pub memory: A, pub elements: *mut T }
-			pub type Linked_const_iterator = Linked_iterator_t<List_t>;
-			#[repr(C)]
-			pub struct Linked { pub head: u16 }
-			#[repr(C)]
-			pub struct Linked_iterator_t<List_t> { pub list: *const List_t }
-		};
-
-		let mismatches = find_layout_mismatches(&syntax, LINUX_64);
-		assert_eq!(
-			mismatches.keys().collect::<Vec<_>>(),
-			["CUtlHash", "CUtlMap_CTree", "Linked_const_iterator"],
 			"{mismatches:?}"
 		);
 	}

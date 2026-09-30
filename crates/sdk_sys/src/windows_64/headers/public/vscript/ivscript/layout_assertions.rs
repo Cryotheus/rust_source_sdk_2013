@@ -29,11 +29,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of IScriptVM"][::std::mem::size_of::<IScriptVM>() - 8usize];
-    ["Alignment of IScriptVM"][::std::mem::align_of::<IScriptVM>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of IScriptVM_CSquirrelNamedSlotToGetMethodDelegate",
     ][::std::mem::size_of::<IScriptVM_CSquirrelNamedSlotToGetMethodDelegate>()
@@ -59,6 +54,11 @@ const _: () = {
     [
         "Alignment of IScriptVM_ISquirrelMetamethodDelegate",
     ][::std::mem::align_of::<IScriptVM_ISquirrelMetamethodDelegate>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of IScriptVM"][::std::mem::size_of::<IScriptVM>() - 8usize];
+    ["Alignment of IScriptVM"][::std::mem::align_of::<IScriptVM>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -121,27 +121,6 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of ScriptFunctionBindingStorageType_t",
-    ][::std::mem::size_of::<ScriptFunctionBindingStorageType_t>() - 32usize];
-    [
-        "Alignment of ScriptFunctionBindingStorageType_t",
-    ][::std::mem::align_of::<ScriptFunctionBindingStorageType_t>() - 8usize];
-    [
-        "Offset of field: ScriptFunctionBindingStorageType_t::val_0",
-    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_0) - 0usize];
-    [
-        "Offset of field: ScriptFunctionBindingStorageType_t::val_1",
-    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_1) - 8usize];
-    [
-        "Offset of field: ScriptFunctionBindingStorageType_t::val_2",
-    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_2) - 16usize];
-    [
-        "Offset of field: ScriptFunctionBindingStorageType_t::val_3",
-    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_3) - 24usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
         "Size of ScriptFunctionBinding_t",
     ][::std::mem::size_of::<ScriptFunctionBinding_t>() - 112usize];
     [
@@ -159,6 +138,27 @@ const _: () = {
     [
         "Offset of field: ScriptFunctionBinding_t::m_flags",
     ][::std::mem::offset_of!(ScriptFunctionBinding_t, m_flags) - 104usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of ScriptFunctionBindingStorageType_t",
+    ][::std::mem::size_of::<ScriptFunctionBindingStorageType_t>() - 32usize];
+    [
+        "Alignment of ScriptFunctionBindingStorageType_t",
+    ][::std::mem::align_of::<ScriptFunctionBindingStorageType_t>() - 8usize];
+    [
+        "Offset of field: ScriptFunctionBindingStorageType_t::val_0",
+    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_0) - 0usize];
+    [
+        "Offset of field: ScriptFunctionBindingStorageType_t::val_1",
+    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_1) - 8usize];
+    [
+        "Offset of field: ScriptFunctionBindingStorageType_t::val_2",
+    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_2) - 16usize];
+    [
+        "Offset of field: ScriptFunctionBindingStorageType_t::val_3",
+    ][::std::mem::offset_of!(ScriptFunctionBindingStorageType_t, val_3) - 24usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

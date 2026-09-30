@@ -11,33 +11,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CUtlSymbolTable"][::std::mem::size_of::<CUtlSymbolTable>() - 88usize];
-    ["Alignment of CUtlSymbolTable"][::std::mem::align_of::<CUtlSymbolTable>() - 8usize];
-    [
-        "Offset of field: CUtlSymbolTable::m_Lookup",
-    ][::std::mem::offset_of!(CUtlSymbolTable, m_Lookup) - 0usize];
-    [
-        "Offset of field: CUtlSymbolTable::m_bInsensitive",
-    ][::std::mem::offset_of!(CUtlSymbolTable, m_bInsensitive) - 40usize];
-    [
-        "Offset of field: CUtlSymbolTable::m_pUserSearchString",
-    ][::std::mem::offset_of!(CUtlSymbolTable, m_pUserSearchString) - 48usize];
-    [
-        "Offset of field: CUtlSymbolTable::m_StringPools",
-    ][::std::mem::offset_of!(CUtlSymbolTable, m_StringPools) - 56usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of CUtlSymbolTableMT"][::std::mem::size_of::<CUtlSymbolTableMT>() - 104usize];
-    [
-        "Alignment of CUtlSymbolTableMT",
-    ][::std::mem::align_of::<CUtlSymbolTableMT>() - 8usize];
-    [
-        "Offset of field: CUtlSymbolTableMT::m_lock",
-    ][::std::mem::offset_of!(CUtlSymbolTableMT, m_lock) - 88usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CUtlSymbolTable_CLess",
     ][::std::mem::size_of::<CUtlSymbolTable_CLess>() - 1usize];
@@ -86,4 +59,31 @@ const _: () = {
     [
         "Offset of field: CUtlSymbolTable_StringPool_t::m_Data",
     ][::std::mem::offset_of!(CUtlSymbolTable_StringPool_t, m_Data) - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CUtlSymbolTable"][::std::mem::size_of::<CUtlSymbolTable>() - 88usize];
+    ["Alignment of CUtlSymbolTable"][::std::mem::align_of::<CUtlSymbolTable>() - 8usize];
+    [
+        "Offset of field: CUtlSymbolTable::m_Lookup",
+    ][::std::mem::offset_of!(CUtlSymbolTable, m_Lookup) - 0usize];
+    [
+        "Offset of field: CUtlSymbolTable::m_bInsensitive",
+    ][::std::mem::offset_of!(CUtlSymbolTable, m_bInsensitive) - 40usize];
+    [
+        "Offset of field: CUtlSymbolTable::m_pUserSearchString",
+    ][::std::mem::offset_of!(CUtlSymbolTable, m_pUserSearchString) - 48usize];
+    [
+        "Offset of field: CUtlSymbolTable::m_StringPools",
+    ][::std::mem::offset_of!(CUtlSymbolTable, m_StringPools) - 56usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CUtlSymbolTableMT"][::std::mem::size_of::<CUtlSymbolTableMT>() - 104usize];
+    [
+        "Alignment of CUtlSymbolTableMT",
+    ][::std::mem::align_of::<CUtlSymbolTableMT>() - 8usize];
+    [
+        "Offset of field: CUtlSymbolTableMT::m_lock",
+    ][::std::mem::offset_of!(CUtlSymbolTableMT, m_lock) - 88usize];
 };

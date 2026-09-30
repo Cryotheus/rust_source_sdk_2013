@@ -1,11 +1,10 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod artifact;
+pub mod config;
 
 #[cfg(feature = "bindings")]
 pub mod bindings;
-
-pub mod config;
 
 #[cfg(feature = "determinism")]
 pub mod determinism;

@@ -13,15 +13,8 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
-pub type KeyValuesUnpackDestinationTypes_t = ::std::os::raw::c_uint;
 pub type KeyValues_types_t = ::std::os::raw::c_uint;
-pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_FLOAT: KeyValuesUnpackDestinationTypes_t = 0;
-pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_FOUR_FLOATS: KeyValuesUnpackDestinationTypes_t = 5;
-pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_INT: KeyValuesUnpackDestinationTypes_t = 4;
-pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_STRING: KeyValuesUnpackDestinationTypes_t = 3;
-pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_TWO_FLOATS: KeyValuesUnpackDestinationTypes_t = 6;
-pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_VECTOR: KeyValuesUnpackDestinationTypes_t = 1;
-pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_VECTOR_COLOR: KeyValuesUnpackDestinationTypes_t = 2;
+pub type KeyValuesUnpackDestinationTypes_t = ::std::os::raw::c_uint;
 pub const KeyValues_types_t_TYPE_COLOR: KeyValues_types_t = 6;
 pub const KeyValues_types_t_TYPE_FLOAT: KeyValues_types_t = 3;
 pub const KeyValues_types_t_TYPE_INT: KeyValues_types_t = 2;
@@ -31,6 +24,13 @@ pub const KeyValues_types_t_TYPE_PTR: KeyValues_types_t = 4;
 pub const KeyValues_types_t_TYPE_STRING: KeyValues_types_t = 1;
 pub const KeyValues_types_t_TYPE_UINT64: KeyValues_types_t = 7;
 pub const KeyValues_types_t_TYPE_WSTRING: KeyValues_types_t = 5;
+pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_FLOAT: KeyValuesUnpackDestinationTypes_t = 0;
+pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_FOUR_FLOATS: KeyValuesUnpackDestinationTypes_t = 5;
+pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_INT: KeyValuesUnpackDestinationTypes_t = 4;
+pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_STRING: KeyValuesUnpackDestinationTypes_t = 3;
+pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_TWO_FLOATS: KeyValuesUnpackDestinationTypes_t = 6;
+pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_VECTOR: KeyValuesUnpackDestinationTypes_t = 1;
+pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_VECTOR_COLOR: KeyValuesUnpackDestinationTypes_t = 2;
 #[repr(C)]
 #[derive(Debug)]
 pub struct CKeyValuesGrowableStringTable {
@@ -71,13 +71,12 @@ pub struct KeyValues {
     pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 64usize]>,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct KeyValuesUnpackStructure {
-    pub m_pKeyName: *const ::std::os::raw::c_char,
-    pub m_pKeyDefault: *const ::std::os::raw::c_char,
-    pub m_eDataType: KeyValuesUnpackDestinationTypes_t,
-    pub m_nFieldOffset: usize,
-    pub m_nFieldSize: usize,
+#[derive(Copy, Clone)]
+pub union KeyValues__bindgen_ty_1 {
+    pub m_iValue: ::std::os::raw::c_int,
+    pub m_flValue: f32,
+    pub m_pValue: *mut ::std::os::raw::c_void,
+    pub m_Color: [::std::os::raw::c_uchar; 4usize],
 }
 #[repr(C)]
 #[derive(Debug)]
@@ -85,11 +84,12 @@ pub struct KeyValues_AutoDelete {
     pub m_pKeyValues: *mut KeyValues,
 }
 #[repr(C)]
-#[derive(Copy, Clone)]
-pub union KeyValues__bindgen_ty_1 {
-    pub m_iValue: ::std::os::raw::c_int,
-    pub m_flValue: f32,
-    pub m_pValue: *mut ::std::os::raw::c_void,
-    pub m_Color: [::std::os::raw::c_uchar; 4usize],
+#[derive(Debug, Copy, Clone)]
+pub struct KeyValuesUnpackStructure {
+    pub m_pKeyName: *const ::std::os::raw::c_char,
+    pub m_pKeyDefault: *const ::std::os::raw::c_char,
+    pub m_eDataType: KeyValuesUnpackDestinationTypes_t,
+    pub m_nFieldOffset: usize,
+    pub m_nFieldSize: usize,
 }
 include!("layout_assertions.rs");

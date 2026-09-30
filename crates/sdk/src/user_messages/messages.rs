@@ -13,12 +13,6 @@ use std::ffi::CStr;
 /// Fixed-point fraction bits of fade times (`SCREENFADE_FRACBITS`).
 const FADE_FRACTION_BITS: u32 = 9;
 
-/// Seconds as the unsigned 7.9 fixed point fades use, clamped to its range,
-/// as `FixedUnsigned16` does.
-fn fade_time(seconds: f32) -> u16 {
-	(seconds * (1 << FADE_FRACTION_BITS) as f32).clamp(0.0, u16::MAX.into()) as u16
-}
-
 /// Fades the screen to or from a color (`Fade`), as `env_fade` does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fade {
@@ -30,31 +24,6 @@ pub struct Fade {
 
 	pub flags: FadeFlags,
 	pub color: Color32,
-}
-
-/// How a [`Fade`] behaves (`FFADE_*`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct FadeFlags(pub u16);
-
-impl FadeFlags {
-	/// From the color to clear.
-	pub const IN: Self = Self(0x1);
-
-	/// From clear to the color.
-	pub const OUT: Self = Self(0x2);
-
-	/// Multiplies the screen by the color instead of blending it.
-	pub const MODULATE: Self = Self(0x4);
-
-	/// Holds the color until another fade replaces it.
-	pub const STAY_OUT: Self = Self(0x8);
-
-	/// Replaces every other fade.
-	pub const PURGE: Self = Self(0x10);
-
-	pub const fn union(self, other: Self) -> Self {
-		Self(self.0 | other.0)
-	}
 }
 
 impl UserMessage for Fade {
@@ -76,62 +45,94 @@ impl UserMessage for Fade {
 	}
 }
 
-/// What a [`Shake`] does (`ShakeCommand_t`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum ShakeCommand {
-	Start = 0,
-	Stop = 1,
-	/// Changes the amplitude of a shake in progress.
-	Amplitude = 2,
-	/// Changes the frequency of a shake in progress.
-	Frequency = 3,
-	/// Only rumbles controllers.
-	StartRumbleOnly = 4,
-	/// Shakes without rumbling controllers.
-	StartNoRumble = 5,
+/// How a [`Fade`] behaves (`FFADE_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct FadeFlags(pub u16);
+
+impl FadeFlags {
+	/// From the color to clear.
+	pub const IN: Self = Self(0x1);
+
+	/// Multiplies the screen by the color instead of blending it.
+	pub const MODULATE: Self = Self(0x4);
+
+	/// From clear to the color.
+	pub const OUT: Self = Self(0x2);
+
+	/// Replaces every other fade.
+	pub const PURGE: Self = Self(0x10);
+
+	/// Holds the color until another fade replaces it.
+	pub const STAY_OUT: Self = Self(0x8);
+
+	pub const fn union(self, other: Self) -> Self {
+		Self(self.0 | other.0)
+	}
 }
 
-/// Shakes the screen (`Shake`), as `env_shake` does.
+/// Turns a TF2 player's view (`ForcePlayerViewAngles`), as teleporters do.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Shake {
-	pub command: ShakeCommand,
-
-	/// Up to 16.
-	pub amplitude: f32,
-
-	/// Up to 255.
-	pub frequency: f32,
-
-	/// Seconds.
-	pub duration: f32,
+pub struct ForcePlayerViewAngles {
+	/// The player's index.
+	pub player: u8,
+	pub angles: QAngle,
 }
 
-impl UserMessage for Shake {
+impl UserMessage for ForcePlayerViewAngles {
 	fn name(&self) -> &CStr {
-		c"Shake"
+		c"ForcePlayerViewAngles"
 	}
 
 	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		out.write_u8(self.command as u8);
-		out.write_f32(self.amplitude);
-		out.write_f32(self.frequency);
-		out.write_f32(self.duration);
+		// Flags, which the game always sends as 1.
+		out.write_u8(1);
+		out.write_u8(self.player);
+		out.write_bit_angles(self.angles);
 		Ok(())
 	}
 }
 
-/// How a [`HudText`] appears (the `effect` of `hudtextparms_t`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[repr(u8)]
-pub enum HudTextEffect {
-	/// Fades in and out.
-	#[default]
-	Fade = 0,
-	/// Fades in and out, flickering between the two colors.
-	Flicker = 1,
-	/// Types out each character in the second color.
-	ScanOut = 2,
+/// A hint in the HUD's hint box (`HintText`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HintText<'a> {
+	pub text: &'a CStr,
+}
+
+impl UserMessage for HintText<'_> {
+	fn name(&self) -> &CStr {
+		c"HintText"
+	}
+
+	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
+		out.write_cstr(self.text);
+		Ok(())
+	}
+}
+
+/// TF2's notification with an icon (`HudNotifyCustom`), as
+/// `CTFGameRules::SendHudNotification` sends it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HudNotification<'a> {
+	pub text: &'a CStr,
+
+	/// The icon's name, such as `ico_notify_flag_moving`.
+	pub icon: &'a CStr,
+
+	/// The team whose color the notification takes, or 0 for none.
+	pub team: u8,
+}
+
+impl UserMessage for HudNotification<'_> {
+	fn name(&self) -> &CStr {
+		c"HudNotifyCustom"
+	}
+
+	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
+		out.write_cstr(self.text);
+		out.write_cstr(self.icon);
+		out.write_u8(self.team);
+		Ok(())
+	}
 }
 
 /// Text on the HUD (`HudMsg`), as `game_text` shows it.
@@ -188,42 +189,35 @@ impl UserMessage for HudText<'_> {
 	}
 }
 
-/// Where a [`TextMsg`] prints (`HUD_PRINT*`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// How a [`HudText`] appears (the `effect` of `hudtextparms_t`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
-pub enum TextDestination {
-	/// The top-left notification area.
-	Notify = 1,
-	Console = 2,
-	Chat = 3,
-	Center = 4,
+pub enum HudTextEffect {
+	/// Fades in and out.
+	#[default]
+	Fade = 0,
+	/// Fades in and out, flickering between the two colors.
+	Flicker = 1,
+	/// Types out each character in the second color.
+	ScanOut = 2,
 }
 
-/// A localizable message, with up to four arguments for its `%s1`…`%s4`
-/// (`TextMsg`), as `ClientPrint` sends it.
-///
-/// A message starting with `#` is a localization token, such as
-/// `#TF_Arena_NoRespawning`.
+/// A hint about a key binding (`KeyHintText`), as `env_hudhint` shows it.
+/// Empty text hides it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TextMsg<'a> {
-	pub destination: TextDestination,
-	pub message: &'a CStr,
-	pub arguments: [&'a CStr; 4],
+pub struct KeyHintText<'a> {
+	pub text: &'a CStr,
 }
 
-impl UserMessage for TextMsg<'_> {
+impl UserMessage for KeyHintText<'_> {
 	fn name(&self) -> &CStr {
-		c"TextMsg"
+		c"KeyHintText"
 	}
 
 	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		out.write_u8(self.destination as u8);
-		out.write_cstr(self.message);
-
-		for argument in self.arguments {
-			out.write_cstr(argument);
-		}
-
+		// Clients read one string.
+		out.write_u8(1);
+		out.write_cstr(self.text);
 		Ok(())
 	}
 }
@@ -264,87 +258,87 @@ impl UserMessage for SayText2<'_> {
 	}
 }
 
-/// A hint in the HUD's hint box (`HintText`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HintText<'a> {
-	pub text: &'a CStr,
-}
-
-impl UserMessage for HintText<'_> {
-	fn name(&self) -> &CStr {
-		c"HintText"
-	}
-
-	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		out.write_cstr(self.text);
-		Ok(())
-	}
-}
-
-/// A hint about a key binding (`KeyHintText`), as `env_hudhint` shows it.
-/// Empty text hides it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KeyHintText<'a> {
-	pub text: &'a CStr,
-}
-
-impl UserMessage for KeyHintText<'_> {
-	fn name(&self) -> &CStr {
-		c"KeyHintText"
-	}
-
-	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		// Clients read one string.
-		out.write_u8(1);
-		out.write_cstr(self.text);
-		Ok(())
-	}
-}
-
-/// TF2's notification with an icon (`HudNotifyCustom`), as
-/// `CTFGameRules::SendHudNotification` sends it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HudNotification<'a> {
-	pub text: &'a CStr,
-
-	/// The icon's name, such as `ico_notify_flag_moving`.
-	pub icon: &'a CStr,
-
-	/// The team whose color the notification takes, or 0 for none.
-	pub team: u8,
-}
-
-impl UserMessage for HudNotification<'_> {
-	fn name(&self) -> &CStr {
-		c"HudNotifyCustom"
-	}
-
-	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		out.write_cstr(self.text);
-		out.write_cstr(self.icon);
-		out.write_u8(self.team);
-		Ok(())
-	}
-}
-
-/// Turns a TF2 player's view (`ForcePlayerViewAngles`), as teleporters do.
+/// Shakes the screen (`Shake`), as `env_shake` does.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ForcePlayerViewAngles {
-	/// The player's index.
-	pub player: u8,
-	pub angles: QAngle,
+pub struct Shake {
+	pub command: ShakeCommand,
+
+	/// Up to 16.
+	pub amplitude: f32,
+
+	/// Up to 255.
+	pub frequency: f32,
+
+	/// Seconds.
+	pub duration: f32,
 }
 
-impl UserMessage for ForcePlayerViewAngles {
+impl UserMessage for Shake {
 	fn name(&self) -> &CStr {
-		c"ForcePlayerViewAngles"
+		c"Shake"
 	}
 
 	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		// Flags, which the game always sends as 1.
-		out.write_u8(1);
-		out.write_u8(self.player);
-		out.write_bit_angles(self.angles);
+		out.write_u8(self.command as u8);
+		out.write_f32(self.amplitude);
+		out.write_f32(self.frequency);
+		out.write_f32(self.duration);
+		Ok(())
+	}
+}
+
+/// What a [`Shake`] does (`ShakeCommand_t`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum ShakeCommand {
+	Start = 0,
+	Stop = 1,
+	/// Changes the amplitude of a shake in progress.
+	Amplitude = 2,
+	/// Changes the frequency of a shake in progress.
+	Frequency = 3,
+	/// Only rumbles controllers.
+	StartRumbleOnly = 4,
+	/// Shakes without rumbling controllers.
+	StartNoRumble = 5,
+}
+
+/// Where a [`TextMsg`] prints (`HUD_PRINT*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum TextDestination {
+	/// The top-left notification area.
+	Notify = 1,
+	Console = 2,
+	Chat = 3,
+	Center = 4,
+}
+
+/// A localizable message, with up to four arguments for its `%s1`…`%s4`
+/// (`TextMsg`), as `ClientPrint` sends it.
+///
+/// A message starting with `#` is a localization token, such as
+/// `#TF_Arena_NoRespawning`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextMsg<'a> {
+	pub destination: TextDestination,
+	pub message: &'a CStr,
+	pub arguments: [&'a CStr; 4],
+}
+
+impl UserMessage for TextMsg<'_> {
+	fn name(&self) -> &CStr {
+		c"TextMsg"
+	}
+
+	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
+		out.write_u8(self.destination as u8);
+		out.write_cstr(self.message);
+
+		for argument in self.arguments {
+			out.write_cstr(argument);
+		}
+
 		Ok(())
 	}
 }
@@ -385,15 +379,21 @@ impl UserMessage for VguiMenu<'_> {
 	}
 }
 
+/// Seconds as the unsigned 7.9 fixed point fades use, clamped to its range,
+/// as `FixedUnsigned16` does.
+fn fade_time(seconds: f32) -> u16 {
+	(seconds * (1 << FADE_FRACTION_BITS) as f32).clamp(0.0, u16::MAX.into()) as u16
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 
-	fn payload(message: &impl UserMessage) -> BitWriter {
-		let mut out = BitWriter::new();
-
-		message.write(&mut out).unwrap();
-		out
+	#[test]
+	fn fade_times_clamp_to_their_range() {
+		assert_eq!(fade_time(-1.0), 0);
+		assert_eq!(fade_time(1000.0), u16::MAX);
+		assert_eq!(fade_time(f32::NAN), 0);
 	}
 
 	#[test]
@@ -423,11 +423,11 @@ mod tests {
 		assert_eq!(payload(&shake).byte_len(), 13);
 	}
 
-	#[test]
-	fn fade_times_clamp_to_their_range() {
-		assert_eq!(fade_time(-1.0), 0);
-		assert_eq!(fade_time(1000.0), u16::MAX);
-		assert_eq!(fade_time(f32::NAN), 0);
+	fn payload(message: &impl UserMessage) -> BitWriter {
+		let mut out = BitWriter::new();
+
+		message.write(&mut out).unwrap();
+		out
 	}
 
 	#[test]

@@ -27,13 +27,6 @@ pub struct CPredictableId_bitfields {
 impl CPredictableId_bitfields {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn ack(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u32)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn ack_raw(this: *const Self) -> ::std::os::raw::c_uint {
         unsafe {
             ::std::mem::transmute(
@@ -44,13 +37,6 @@ impl CPredictableId_bitfields {
                     1u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn command(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<6usize, 10u8>() as u32)
         }
     }
     #[inline]
@@ -69,13 +55,6 @@ impl CPredictableId_bitfields {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn hash(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<16usize, 12u8>() as u32)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn hash_raw(this: *const Self) -> ::std::os::raw::c_uint {
         unsafe {
             ::std::mem::transmute(
@@ -86,13 +65,6 @@ impl CPredictableId_bitfields {
                     12u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn instance(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<28usize, 4u8>() as u32)
         }
     }
     #[inline]
@@ -163,13 +135,6 @@ impl CPredictableId_bitfields {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn player(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 5u8>() as u32)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn player_raw(this: *const Self) -> ::std::os::raw::c_uint {
         unsafe {
             ::std::mem::transmute(
@@ -180,14 +145,6 @@ impl CPredictableId_bitfields {
                     5u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_ack(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
         }
     }
     #[inline]
@@ -205,14 +162,6 @@ impl CPredictableId_bitfields {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_command(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<6usize, 10u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_command_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -222,14 +171,6 @@ impl CPredictableId_bitfields {
                 6usize,
                 10u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_hash(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<16usize, 12u8>(val as u64)
         }
     }
     #[inline]
@@ -247,14 +188,6 @@ impl CPredictableId_bitfields {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_instance(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<28usize, 4u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_instance_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -268,14 +201,6 @@ impl CPredictableId_bitfields {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_player(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<1usize, 5u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_player_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -285,6 +210,81 @@ impl CPredictableId_bitfields {
                 1usize,
                 5u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn ack(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn command(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<6usize, 10u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn hash(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<16usize, 12u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn instance(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<28usize, 4u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn player(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 5u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_ack(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_command(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<6usize, 10u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_hash(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<16usize, 12u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_instance(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<28usize, 4u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_player(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<1usize, 5u8>(val as u64)
         }
     }
 }

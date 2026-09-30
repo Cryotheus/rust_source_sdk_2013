@@ -12,6 +12,54 @@ use std::ptr::{self, NonNull};
 /// The largest key value [`ServerTools::key_value`] reads, including its terminator.
 const KEY_VALUE_CAPACITY: usize = 1024;
 
+/// Iterator over every entity, from [`ServerTools::entities`].
+#[derive(Debug, Clone)]
+pub struct Entities<'s> {
+	tools: ServerTools<'s>,
+	state: IterState,
+}
+
+impl<'s> Iterator for Entities<'s> {
+	type Item = Entity<'s>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let tools = self.tools.as_ptr();
+
+		// SAFETY: As for `ServerTools::entity_by_index`. The previous entity is
+		// still allocated, since entities are not freed immediately during `'s`.
+		let entity = match self.state {
+			IterState::First => unsafe { vcall!(tools => IServerTools_FirstEntity()) },
+
+			IterState::After(previous) => unsafe {
+				vcall!(tools => IServerTools_NextEntity(previous.as_ptr()))
+			},
+
+			IterState::Done => return None,
+		};
+
+		match NonNull::new(entity) {
+			Some(entity) => {
+				self.state = IterState::After(entity);
+
+				// SAFETY: As for `ServerTools::entity_by_index`.
+				Some(unsafe { Entity::from_raw(entity) })
+			}
+
+			None => {
+				self.state = IterState::Done;
+				None
+			}
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+enum IterState {
+	First,
+	After(NonNull<sys::CBaseEntity>),
+	Done,
+}
+
 /// Entity enumeration and manipulation meant for tools (`IServerTools`).
 ///
 /// Unlike edict lookups, this reaches server-only entities too.
@@ -297,85 +345,6 @@ impl<'s> ServerTools<'s> {
 		found.then(|| cstring_from_buffer(&buffer))
 	}
 
-	/// Requests Source's deferred removal of an entity.
-	///
-	/// The entity stays allocated, and may still appear in iteration, until
-	/// the engine frees it at the end of the frame. Physics callbacks may also
-	/// defer setting its deletion flag; check
-	/// [`Entity::is_marked_for_deletion`] for the current state.
-	///
-	/// Refuses the world, players, and soundscapes, which the game keeps using
-	/// after they are freed. Other entities the game keeps pointers to, such as
-	/// the game rules or a team, crash the server the same way once freed.
-	#[doc(alias = "RemoveEntity")]
-	#[doc(alias = "UTIL_Remove")]
-	pub fn remove(self, entity: Entity<'_>) -> Result<(), ProtectedEntity> {
-		if entity.is_protected() {
-			return Err(ProtectedEntity);
-		}
-
-		if !entity.is_marked_for_deletion() {
-			// SAFETY: As for `entity_by_index`. Removal is deferred.
-			unsafe { vcall!(self.as_ptr() => IServerTools_RemoveEntity(entity.as_ptr())) };
-		}
-
-		Ok(())
-	}
-
-	/// Sets one of an entity's key values, as a map's entity lump does before
-	/// the entity spawns. Returns whether the entity knew the key.
-	///
-	/// The key and value are copied first, since the game writes into keys
-	/// containing `#`.
-	#[doc(alias = "SetKeyValue")]
-	pub fn set_key_value(self, entity: Entity<'_>, key: &CStr, value: &CStr) -> bool {
-		let key = key.to_owned();
-		let value = value.to_owned();
-
-		// SAFETY: As for `entity_by_index`. The game may write into the copies,
-		// which are only used for the call.
-		unsafe {
-			vcall!(self.as_ptr() => IServerTools_SetKeyValue(entity.as_ptr(), key.as_ptr(), value.as_ptr()))
-		}
-	}
-
-	/// Moves an entity through Source's `Teleport` method, which also updates
-	/// its physics state and may move child entities. Each argument left as
-	/// `None` is unchanged.
-	#[doc(alias = "Teleport")]
-	pub fn teleport(
-		self,
-		entity: Entity<'_>,
-		origin: Option<Vector>,
-		angles: Option<QAngle>,
-		velocity: Option<Vector>,
-	) -> Result<(), TeleportError> {
-		entity.teleport(self.game.teleport_vtable_slot(), origin, angles, velocity)
-	}
-
-	/// # Safety
-	///
-	/// As for [`Entity::accept_input`], apart from the string, which this
-	/// pools when the input may keep it.
-	unsafe fn send_input(
-		self,
-		target: Entity<'_>,
-		input: inputs::CheckedInput<'_>,
-		value: InputValue<'_>,
-		activator: Option<Entity<'_>>,
-		caller: Option<Entity<'_>>,
-	) -> Result<(), InputError> {
-		let variant = inputs::to_variant(input, value, |string| self.pool_string(string))?;
-
-		// SAFETY: The caller upholds the contract, and strings the input may
-		// keep are pooled.
-		if unsafe { target.accept_input(input.name(), variant, activator, caller) } {
-			Ok(())
-		} else {
-			Err(InputError::Rejected)
-		}
-	}
-
 	/// Adds a string to the game's string pool (`AllocPooledString`), where it
 	/// stays until the level ends, or the next round restart for a string equal
 	/// to a removed template entity's unique name.
@@ -414,6 +383,85 @@ impl<'s> ServerTools<'s> {
 
 		(set && copy.to_bytes().eq_ignore_ascii_case(string.to_bytes())).then_some(pooled)
 	}
+
+	/// Requests Source's deferred removal of an entity.
+	///
+	/// The entity stays allocated, and may still appear in iteration, until
+	/// the engine frees it at the end of the frame. Physics callbacks may also
+	/// defer setting its deletion flag; check
+	/// [`Entity::is_marked_for_deletion`] for the current state.
+	///
+	/// Refuses the world, players, and soundscapes, which the game keeps using
+	/// after they are freed. Other entities the game keeps pointers to, such as
+	/// the game rules or a team, crash the server the same way once freed.
+	#[doc(alias = "RemoveEntity")]
+	#[doc(alias = "UTIL_Remove")]
+	pub fn remove(self, entity: Entity<'_>) -> Result<(), ProtectedEntity> {
+		if entity.is_protected() {
+			return Err(ProtectedEntity);
+		}
+
+		if !entity.is_marked_for_deletion() {
+			// SAFETY: As for `entity_by_index`. Removal is deferred.
+			unsafe { vcall!(self.as_ptr() => IServerTools_RemoveEntity(entity.as_ptr())) };
+		}
+
+		Ok(())
+	}
+
+	/// # Safety
+	///
+	/// As for [`Entity::accept_input`], apart from the string, which this
+	/// pools when the input may keep it.
+	unsafe fn send_input(
+		self,
+		target: Entity<'_>,
+		input: inputs::CheckedInput<'_>,
+		value: InputValue<'_>,
+		activator: Option<Entity<'_>>,
+		caller: Option<Entity<'_>>,
+	) -> Result<(), InputError> {
+		let variant = inputs::to_variant(input, value, |string| self.pool_string(string))?;
+
+		// SAFETY: The caller upholds the contract, and strings the input may
+		// keep are pooled.
+		if unsafe { target.accept_input(input.name(), variant, activator, caller) } {
+			Ok(())
+		} else {
+			Err(InputError::Rejected)
+		}
+	}
+
+	/// Sets one of an entity's key values, as a map's entity lump does before
+	/// the entity spawns. Returns whether the entity knew the key.
+	///
+	/// The key and value are copied first, since the game writes into keys
+	/// containing `#`.
+	#[doc(alias = "SetKeyValue")]
+	pub fn set_key_value(self, entity: Entity<'_>, key: &CStr, value: &CStr) -> bool {
+		let key = key.to_owned();
+		let value = value.to_owned();
+
+		// SAFETY: As for `entity_by_index`. The game may write into the copies,
+		// which are only used for the call.
+		unsafe {
+			vcall!(self.as_ptr() => IServerTools_SetKeyValue(entity.as_ptr(), key.as_ptr(), value.as_ptr()))
+		}
+	}
+
+	/// Moves an entity through Source's `Teleport` method, which also updates
+	/// its physics state and may move child entities. Each argument left as
+	/// `None` is unchanged.
+	#[doc(alias = "Teleport")]
+	pub fn teleport(
+		self,
+		entity: Entity<'_>,
+		origin: Option<Vector>,
+		angles: Option<QAngle>,
+		velocity: Option<Vector>,
+	) -> Result<(), TeleportError> {
+		entity.teleport(self.game.teleport_vtable_slot(), origin, angles, velocity)
+	}
 }
 
 // SAFETY: `sys::IServerTools` is the class exported under `VSERVERTOOLS003`.
@@ -430,59 +478,15 @@ unsafe impl<'s> Interface<'s> for ServerTools<'s> {
 	}
 }
 
-/// Iterator over every entity, from [`ServerTools::entities`].
-#[derive(Debug, Clone)]
-pub struct Entities<'s> {
-	tools: ServerTools<'s>,
-	state: IterState,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum IterState {
-	First,
-	After(NonNull<sys::CBaseEntity>),
-	Done,
-}
-
-impl<'s> Iterator for Entities<'s> {
-	type Item = Entity<'s>;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		let tools = self.tools.as_ptr();
-
-		// SAFETY: As for `ServerTools::entity_by_index`. The previous entity is
-		// still allocated, since entities are not freed immediately during `'s`.
-		let entity = match self.state {
-			IterState::First => unsafe { vcall!(tools => IServerTools_FirstEntity()) },
-			IterState::After(previous) => unsafe {
-				vcall!(tools => IServerTools_NextEntity(previous.as_ptr()))
-			},
-			IterState::Done => return None,
-		};
-
-		match NonNull::new(entity) {
-			Some(entity) => {
-				self.state = IterState::After(entity);
-
-				// SAFETY: As for `ServerTools::entity_by_index`.
-				Some(unsafe { Entity::from_raw(entity) })
-			}
-
-			None => {
-				self.state = IterState::Done;
-				None
-			}
-		}
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use crate::entities::FTYPEDESC_KEY;
+
 	use crate::entities::test_support::{
 		MockEntity, base_entity_fields, data_map, field, set_datamap,
 	};
+
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ptr::null_mut;
@@ -492,6 +496,38 @@ mod tests {
 		static LIST: Cell<*mut sys::CGlobalEntityList> = const { Cell::new(null_mut()) };
 		static REMOVALS: Cell<usize> = const { Cell::new(0) };
 		static KEYS_READ: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
+	}
+
+	fn embedded(map: *mut sys::datamap_t, offset: usize, count: u16) -> sys::typedescription_t {
+		let mut embedded = field();
+
+		embedded.fieldType = sys::_fieldtypes_FIELD_EMBEDDED;
+		embedded.fieldOffset[0] = offset as c_int;
+		embedded.fieldSize = count;
+		embedded.td = map;
+		embedded
+	}
+
+	unsafe extern "C" fn entity_by_hammer_id(
+		_: *mut sys::IServerTools,
+		id: c_int,
+	) -> *mut sys::CBaseEntity {
+		if id == 1234 { ENTITY.get() } else { null_mut() }
+	}
+
+	unsafe extern "C" fn entity_by_index(
+		_: *mut sys::IServerTools,
+		index: c_int,
+	) -> *mut sys::CBaseEntity {
+		if index == 1 { ENTITY.get() } else { null_mut() }
+	}
+
+	unsafe extern "C" fn entity_list(_: *mut sys::IServerTools) -> *mut sys::CGlobalEntityList {
+		LIST.get()
+	}
+
+	unsafe extern "C" fn first_entity(_: *mut sys::IServerTools) -> *mut sys::CBaseEntity {
+		ENTITY.get()
 	}
 
 	/// Formats every key but `missing` as `100`, as for an integer field.
@@ -515,8 +551,111 @@ mod tests {
 		found
 	}
 
-	unsafe extern "C" fn first_entity(_: *mut sys::IServerTools) -> *mut sys::CBaseEntity {
-		ENTITY.get()
+	fn key(
+		name: &'static CStr,
+		field_type: sys::fieldtype_t,
+		offset: usize,
+	) -> sys::typedescription_t {
+		let mut key = field();
+
+		key.fieldType = field_type;
+		key.fieldOffset[0] = offset as c_int;
+		key.fieldSize = 1;
+		key.flags = FTYPEDESC_KEY;
+		key.externalName = name.as_ptr();
+		key
+	}
+
+	#[test]
+	fn key_values_of_string_fields_are_read_from_the_field() {
+		use sys::{
+			_fieldtypes_FIELD_INTEGER as INTEGER, _fieldtypes_FIELD_MODELNAME as MODELNAME,
+			_fieldtypes_FIELD_SOUNDNAME as SOUNDNAME, _fieldtypes_FIELD_STRING as STRING,
+		};
+
+		let mut mock = MockEntity::new(1 | 9 << 16);
+		let raw = mock.as_ptr();
+		let set_string = |offset: usize, string: &'static CStr| unsafe {
+			raw.byte_add(offset)
+				.cast::<sys::string_t>()
+				.write(sys::string_t {
+					pszValue: string.as_ptr(),
+				})
+		};
+
+		// An embedded object at 128, and an array of two at 192.
+		let inner = data_map(c"CInner", vec![key(c"model", MODELNAME, 8)], null_mut());
+		let mut base_fields = base_entity_fields().to_vec();
+
+		base_fields.extend([
+			key(c"damagefilter", STRING, 64),
+			key(c"unset", STRING, 72),
+			key(c"shadowed", STRING, 80),
+			key(c"health", INTEGER, 88),
+			key(c"message", SOUNDNAME, 96),
+		]);
+
+		let base = data_map(c"CBaseEntity", base_fields, null_mut());
+		let derived = data_map(
+			c"CTestEntity",
+			vec![
+				key(c"Shadowed", INTEGER, 104),
+				embedded(inner, 192, 2),
+				embedded(inner, 128, 1),
+				key(c"model", STRING, 112),
+			],
+			base,
+		);
+
+		set_datamap(derived);
+		set_string(64, c"Pooled_Filter_Name");
+		set_string(80, c"base string");
+		set_string(96, c"ambient.sound");
+		set_string(112, c"models/derived.mdl");
+		set_string(136, c"models/embedded.mdl");
+		set_string(200, c"models/array.mdl");
+		KEYS_READ.take();
+
+		let vtable = unsafe {
+			mock_vtable::<sys::IServerTools__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| (&raw mut (*vtable).IServerTools_GetKeyValue).write(get_key_value),
+			)
+		};
+
+		let mut interface = sys::IServerTools {
+			vtable_: &raw const *vtable,
+		};
+		let tools =
+			unsafe { ServerTools::from_raw(NonNull::from(&mut interface), Game::TeamFortress2) };
+		let entity = mock.entity();
+		let read = |key: &CStr| tools.key_value(entity, key);
+
+		assert_eq!(
+			read(c"damagefilter").as_deref(),
+			Some(c"Pooled_Filter_Name")
+		);
+		assert_eq!(
+			read(c"DamageFilter").as_deref(),
+			Some(c"Pooled_Filter_Name")
+		);
+		assert_eq!(read(c"unset").as_deref(), Some(c""));
+		assert_eq!(read(c"message").as_deref(), Some(c"ambient.sound"));
+
+		// The single embedded object is searched before the later field, and the
+		// array is not searched.
+		assert_eq!(read(c"MODEL").as_deref(), Some(c"models/embedded.mdl"));
+		assert_eq!(KEYS_READ.take(), Vec::<CString>::new());
+
+		// Other types, and string fields a derived class's field shadows, are
+		// formatted by the game.
+		assert_eq!(read(c"health").as_deref(), Some(c"100"));
+		assert_eq!(read(c"shadowed").as_deref(), Some(c"100"));
+		assert_eq!(read(c"missing"), None);
+		assert_eq!(
+			KEYS_READ.take(),
+			[c"health", c"shadowed", c"missing"].map(CStr::to_owned)
+		);
 	}
 
 	unsafe extern "C" fn next_entity(
@@ -524,24 +663,6 @@ mod tests {
 		_: *mut sys::CBaseEntity,
 	) -> *mut sys::CBaseEntity {
 		null_mut()
-	}
-
-	unsafe extern "C" fn entity_by_index(
-		_: *mut sys::IServerTools,
-		index: c_int,
-	) -> *mut sys::CBaseEntity {
-		if index == 1 { ENTITY.get() } else { null_mut() }
-	}
-
-	unsafe extern "C" fn entity_by_hammer_id(
-		_: *mut sys::IServerTools,
-		id: c_int,
-	) -> *mut sys::CBaseEntity {
-		if id == 1234 { ENTITY.get() } else { null_mut() }
-	}
-
-	unsafe extern "C" fn entity_list(_: *mut sys::IServerTools) -> *mut sys::CGlobalEntityList {
-		LIST.get()
 	}
 
 	unsafe extern "C" fn remove_entity(_: *mut sys::IServerTools, entity: *mut sys::CBaseEntity) {
@@ -643,122 +764,5 @@ mod tests {
 
 		ENTITY.set(null_mut());
 		LIST.set(null_mut());
-	}
-
-	fn key(
-		name: &'static CStr,
-		field_type: sys::fieldtype_t,
-		offset: usize,
-	) -> sys::typedescription_t {
-		let mut key = field();
-
-		key.fieldType = field_type;
-		key.fieldOffset[0] = offset as c_int;
-		key.fieldSize = 1;
-		key.flags = FTYPEDESC_KEY;
-		key.externalName = name.as_ptr();
-		key
-	}
-
-	fn embedded(map: *mut sys::datamap_t, offset: usize, count: u16) -> sys::typedescription_t {
-		let mut embedded = field();
-
-		embedded.fieldType = sys::_fieldtypes_FIELD_EMBEDDED;
-		embedded.fieldOffset[0] = offset as c_int;
-		embedded.fieldSize = count;
-		embedded.td = map;
-		embedded
-	}
-
-	#[test]
-	fn key_values_of_string_fields_are_read_from_the_field() {
-		use sys::{
-			_fieldtypes_FIELD_INTEGER as INTEGER, _fieldtypes_FIELD_MODELNAME as MODELNAME,
-			_fieldtypes_FIELD_SOUNDNAME as SOUNDNAME, _fieldtypes_FIELD_STRING as STRING,
-		};
-
-		let mut mock = MockEntity::new(1 | 9 << 16);
-		let raw = mock.as_ptr();
-		let set_string = |offset: usize, string: &'static CStr| unsafe {
-			raw.byte_add(offset)
-				.cast::<sys::string_t>()
-				.write(sys::string_t {
-					pszValue: string.as_ptr(),
-				})
-		};
-
-		// An embedded object at 128, and an array of two at 192.
-		let inner = data_map(c"CInner", vec![key(c"model", MODELNAME, 8)], null_mut());
-		let mut base_fields = base_entity_fields().to_vec();
-
-		base_fields.extend([
-			key(c"damagefilter", STRING, 64),
-			key(c"unset", STRING, 72),
-			key(c"shadowed", STRING, 80),
-			key(c"health", INTEGER, 88),
-			key(c"message", SOUNDNAME, 96),
-		]);
-
-		let base = data_map(c"CBaseEntity", base_fields, null_mut());
-		let derived = data_map(
-			c"CTestEntity",
-			vec![
-				key(c"Shadowed", INTEGER, 104),
-				embedded(inner, 192, 2),
-				embedded(inner, 128, 1),
-				key(c"model", STRING, 112),
-			],
-			base,
-		);
-
-		set_datamap(derived);
-		set_string(64, c"Pooled_Filter_Name");
-		set_string(80, c"base string");
-		set_string(96, c"ambient.sound");
-		set_string(112, c"models/derived.mdl");
-		set_string(136, c"models/embedded.mdl");
-		set_string(200, c"models/array.mdl");
-		KEYS_READ.take();
-
-		let vtable = unsafe {
-			mock_vtable::<sys::IServerTools__bindgen_vtable>(
-				unexpected_call as *const (),
-				|vtable| (&raw mut (*vtable).IServerTools_GetKeyValue).write(get_key_value),
-			)
-		};
-
-		let mut interface = sys::IServerTools {
-			vtable_: &raw const *vtable,
-		};
-		let tools =
-			unsafe { ServerTools::from_raw(NonNull::from(&mut interface), Game::TeamFortress2) };
-		let entity = mock.entity();
-		let read = |key: &CStr| tools.key_value(entity, key);
-
-		assert_eq!(
-			read(c"damagefilter").as_deref(),
-			Some(c"Pooled_Filter_Name")
-		);
-		assert_eq!(
-			read(c"DamageFilter").as_deref(),
-			Some(c"Pooled_Filter_Name")
-		);
-		assert_eq!(read(c"unset").as_deref(), Some(c""));
-		assert_eq!(read(c"message").as_deref(), Some(c"ambient.sound"));
-
-		// The single embedded object is searched before the later field, and the
-		// array is not searched.
-		assert_eq!(read(c"MODEL").as_deref(), Some(c"models/embedded.mdl"));
-		assert_eq!(KEYS_READ.take(), Vec::<CString>::new());
-
-		// Other types, and string fields a derived class's field shadows, are
-		// formatted by the game.
-		assert_eq!(read(c"health").as_deref(), Some(c"100"));
-		assert_eq!(read(c"shadowed").as_deref(), Some(c"100"));
-		assert_eq!(read(c"missing"), None);
-		assert_eq!(
-			KEYS_READ.take(),
-			[c"health", c"shadowed", c"missing"].map(CStr::to_owned)
-		);
 	}
 }

@@ -22,12 +22,6 @@ pub struct CBaseEntityList {
     pub m_freeNonNetworkableList: CBaseEntityList_CEntInfoList,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntityList_CEntInfoList {
-    pub m_pHead: *mut CEntInfo,
-    pub m_pTail: *mut CEntInfo,
-}
-#[repr(C)]
 pub struct CBaseEntityList__bindgen_vtable {
     /// C++ takes `::CBaseHandle` by value. `arg3` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
     pub CBaseEntityList_OnAddEntity: unsafe extern "C" fn(
@@ -41,6 +35,12 @@ pub struct CBaseEntityList__bindgen_vtable {
         arg2: *mut IHandleEntity,
         arg3: *mut CBaseHandle,
     ),
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntityList_CEntInfoList {
+    pub m_pHead: *mut CEntInfo,
+    pub m_pTail: *mut CEntInfo,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

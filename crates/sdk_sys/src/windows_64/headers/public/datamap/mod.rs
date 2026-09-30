@@ -11,9 +11,9 @@
     unused_imports,
     unused_qualifications
 )]
-pub use self::_fieldtypes as fieldtype_t;
 #[allow(unused_imports)]
 use super::super::super::__bindgen_prelude::*;
+pub use self::_fieldtypes as fieldtype_t;
 pub type _fieldtypes = ::std::os::raw::c_int;
 pub type inputfunc_t = ::std::option::Option<
     unsafe extern "C" fn(data: *mut inputdata_t),

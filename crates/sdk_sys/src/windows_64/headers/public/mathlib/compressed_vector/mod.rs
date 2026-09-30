@@ -65,14 +65,6 @@ impl Quaternion48 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_wneg(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<47usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_wneg_raw(this: *mut Self, val: ::std::os::raw::c_ushort) {
         unsafe {
             let val: u16 = ::std::mem::transmute(val);
@@ -82,14 +74,6 @@ impl Quaternion48 {
                 47usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_x(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 16u8>(val as u64)
         }
     }
     #[inline]
@@ -107,14 +91,6 @@ impl Quaternion48 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_y(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<16usize, 16u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_y_raw(this: *mut Self, val: ::std::os::raw::c_ushort) {
         unsafe {
             let val: u16 = ::std::mem::transmute(val);
@@ -128,14 +104,6 @@ impl Quaternion48 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_z(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<32usize, 15u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_z_raw(this: *mut Self, val: ::std::os::raw::c_ushort) {
         unsafe {
             let val: u16 = ::std::mem::transmute(val);
@@ -145,13 +113,6 @@ impl Quaternion48 {
                 32usize,
                 15u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn wneg(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<47usize, 1u8>() as u16)
         }
     }
     #[inline]
@@ -170,13 +131,6 @@ impl Quaternion48 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn x(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 16u8>() as u16)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn x_raw(this: *const Self) -> ::std::os::raw::c_ushort {
         unsafe {
             ::std::mem::transmute(
@@ -187,13 +141,6 @@ impl Quaternion48 {
                     16u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u16,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn y(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<16usize, 16u8>() as u16)
         }
     }
     #[inline]
@@ -212,13 +159,6 @@ impl Quaternion48 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn z(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<32usize, 15u8>() as u16)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn z_raw(this: *const Self) -> ::std::os::raw::c_ushort {
         unsafe {
             ::std::mem::transmute(
@@ -229,6 +169,66 @@ impl Quaternion48 {
                     15u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u16,
             )
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_wneg(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<47usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_x(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 16u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_y(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<16usize, 16u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_z(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<32usize, 15u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn wneg(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<47usize, 1u8>() as u16)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn x(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 16u8>() as u16)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn y(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<16usize, 16u8>() as u16)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn z(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<32usize, 15u8>() as u16)
         }
     }
 }
@@ -284,14 +284,6 @@ impl Quaternion64 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_wneg(&mut self, val: uint64) {
-        unsafe {
-            let val: u64 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<63usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_wneg_raw(this: *mut Self, val: uint64) {
         unsafe {
             let val: u64 = ::std::mem::transmute(val);
@@ -301,14 +293,6 @@ impl Quaternion64 {
                 63usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_x(&mut self, val: uint64) {
-        unsafe {
-            let val: u64 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 21u8>(val as u64)
         }
     }
     #[inline]
@@ -326,14 +310,6 @@ impl Quaternion64 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_y(&mut self, val: uint64) {
-        unsafe {
-            let val: u64 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<21usize, 21u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_y_raw(this: *mut Self, val: uint64) {
         unsafe {
             let val: u64 = ::std::mem::transmute(val);
@@ -347,14 +323,6 @@ impl Quaternion64 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_z(&mut self, val: uint64) {
-        unsafe {
-            let val: u64 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<42usize, 21u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_z_raw(this: *mut Self, val: uint64) {
         unsafe {
             let val: u64 = ::std::mem::transmute(val);
@@ -364,13 +332,6 @@ impl Quaternion64 {
                 42usize,
                 21u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn wneg(&self) -> uint64 {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<63usize, 1u8>() as u64)
         }
     }
     #[inline]
@@ -389,13 +350,6 @@ impl Quaternion64 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn x(&self) -> uint64 {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 21u8>() as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn x_raw(this: *const Self) -> uint64 {
         unsafe {
             ::std::mem::transmute(
@@ -406,13 +360,6 @@ impl Quaternion64 {
                     21u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u64,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn y(&self) -> uint64 {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<21usize, 21u8>() as u64)
         }
     }
     #[inline]
@@ -431,13 +378,6 @@ impl Quaternion64 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn z(&self) -> uint64 {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<42usize, 21u8>() as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn z_raw(this: *const Self) -> uint64 {
         unsafe {
             ::std::mem::transmute(
@@ -448,6 +388,66 @@ impl Quaternion64 {
                     21u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u64,
             )
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_wneg(&mut self, val: uint64) {
+        unsafe {
+            let val: u64 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<63usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_x(&mut self, val: uint64) {
+        unsafe {
+            let val: u64 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 21u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_y(&mut self, val: uint64) {
+        unsafe {
+            let val: u64 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<21usize, 21u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_z(&mut self, val: uint64) {
+        unsafe {
+            let val: u64 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<42usize, 21u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn wneg(&self) -> uint64 {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<63usize, 1u8>() as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn x(&self) -> uint64 {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 21u8>() as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn y(&self) -> uint64 {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<21usize, 21u8>() as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn z(&self) -> uint64 {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<42usize, 21u8>() as u64)
         }
     }
 }
@@ -478,13 +478,6 @@ pub struct float16_float16bits__bindgen_ty_1 {
 impl float16_float16bits__bindgen_ty_1 {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn biased_exponent(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<10usize, 5u8>() as u16)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn biased_exponent_raw(this: *const Self) -> ::std::os::raw::c_ushort {
         unsafe {
             ::std::mem::transmute(
@@ -495,13 +488,6 @@ impl float16_float16bits__bindgen_ty_1 {
                     5u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u16,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn mantissa(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 10u8>() as u16)
         }
     }
     #[inline]
@@ -556,14 +542,6 @@ impl float16_float16bits__bindgen_ty_1 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_biased_exponent(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<10usize, 5u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_biased_exponent_raw(
         this: *mut Self,
         val: ::std::os::raw::c_ushort,
@@ -576,14 +554,6 @@ impl float16_float16bits__bindgen_ty_1 {
                 10usize,
                 5u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_mantissa(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 10u8>(val as u64)
         }
     }
     #[inline]
@@ -601,14 +571,6 @@ impl float16_float16bits__bindgen_ty_1 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_sign(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<15usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_sign_raw(this: *mut Self, val: ::std::os::raw::c_ushort) {
         unsafe {
             let val: u16 = ::std::mem::transmute(val);
@@ -618,13 +580,6 @@ impl float16_float16bits__bindgen_ty_1 {
                 15usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn sign(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<15usize, 1u8>() as u16)
         }
     }
     #[inline]
@@ -639,6 +594,51 @@ impl float16_float16bits__bindgen_ty_1 {
                     1u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u16,
             )
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn biased_exponent(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<10usize, 5u8>() as u16)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn mantissa(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 10u8>() as u16)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_biased_exponent(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<10usize, 5u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_mantissa(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 10u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_sign(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<15usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn sign(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<15usize, 1u8>() as u16)
         }
     }
 }
@@ -657,13 +657,6 @@ pub struct float16_float32bits__bindgen_ty_1 {
 impl float16_float32bits__bindgen_ty_1 {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn biased_exponent(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<23usize, 8u8>() as u32)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn biased_exponent_raw(this: *const Self) -> ::std::os::raw::c_uint {
         unsafe {
             ::std::mem::transmute(
@@ -674,13 +667,6 @@ impl float16_float32bits__bindgen_ty_1 {
                     8u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn mantissa(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 23u8>() as u32)
         }
     }
     #[inline]
@@ -735,14 +721,6 @@ impl float16_float32bits__bindgen_ty_1 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_biased_exponent(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<23usize, 8u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_biased_exponent_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -752,14 +730,6 @@ impl float16_float32bits__bindgen_ty_1 {
                 23usize,
                 8u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_mantissa(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 23u8>(val as u64)
         }
     }
     #[inline]
@@ -777,14 +747,6 @@ impl float16_float32bits__bindgen_ty_1 {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_sign(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<31usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_sign_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -794,13 +756,6 @@ impl float16_float32bits__bindgen_ty_1 {
                 31usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn sign(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<31usize, 1u8>() as u32)
         }
     }
     #[inline]
@@ -815,6 +770,51 @@ impl float16_float32bits__bindgen_ty_1 {
                     1u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn biased_exponent(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<23usize, 8u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn mantissa(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 23u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_biased_exponent(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<23usize, 8u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_mantissa(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 23u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_sign(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<31usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn sign(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<31usize, 1u8>() as u32)
         }
     }
 }

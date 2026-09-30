@@ -1,13 +1,14 @@
 //! Reusable pieces of a Rust-backed `ISmmPlugin` implementation.
 
 use crate::MetamodVersion;
-pub use crate::sys::plugin::PluginCallbacks;
 use crate::sys::plugin::{self as raw, PluginMetadata as RawMetadata};
 use std::ffi::{CStr, c_char, c_void};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 use std::slice;
+
+pub use crate::sys::plugin::PluginCallbacks;
 
 /// A callback-scoped view of a possibly uninitialized C output buffer.
 pub struct ErrorBuffer<'callback> {
@@ -17,6 +18,14 @@ pub struct ErrorBuffer<'callback> {
 }
 
 impl<'callback> ErrorBuffer<'callback> {
+	pub const fn empty() -> Self {
+		Self {
+			buffer: None,
+			capacity: 0,
+			_lifetime: PhantomData,
+		}
+	}
+
 	/// Creates a view over a buffer supplied by C++.
 	///
 	/// # Safety
@@ -34,14 +43,6 @@ impl<'callback> ErrorBuffer<'callback> {
 		Self {
 			buffer: NonNull::new(buffer.cast()),
 			capacity,
-			_lifetime: PhantomData,
-		}
-	}
-
-	pub const fn empty() -> Self {
-		Self {
-			buffer: None,
-			capacity: 0,
 			_lifetime: PhantomData,
 		}
 	}

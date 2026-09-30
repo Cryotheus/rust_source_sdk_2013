@@ -15,9 +15,6 @@ use std::ffi::{CStr, c_int, c_short};
 use std::fmt::{self, Display, Formatter};
 use std::mem::MaybeUninit;
 
-/// `FTYPEDESC_INPUT` from `public/datamap.h`: the field is an input.
-const FTYPEDESC_INPUT: c_short = 0x0008;
-
 /// Inputs that run code the caller chooses or spawn entities from templates.
 /// Both can free entities immediately: a template entity that fails to spawn
 /// empties the engine's whole pending-deletion list, and VScript can do that,
@@ -30,6 +27,13 @@ const CODE_OR_SPAWN_INPUTS: [&[u8]; 5] = [
 	b"ForceSpawnAtEntityOrigin",
 ];
 
+/// `FTYPEDESC_INPUT` from `public/datamap.h`: the field is an input.
+const FTYPEDESC_INPUT: c_short = 0x0008;
+
+/// Inputs that remove their target. The engine keeps using a player's or the
+/// world's entity, so removing one crashes the server once it is freed.
+const KILL_INPUTS: [&[u8]; 2] = [b"Kill", b"KillHierarchy"];
+
 /// Spawn inputs of NPC makers, which immediately remove a `prop_physics`
 /// blocking the spawn.
 const NPC_MAKER_SPAWN_INPUTS: [&[u8]; 4] = [
@@ -39,13 +43,158 @@ const NPC_MAKER_SPAWN_INPUTS: [&[u8]; 4] = [
 	b"SpawnMultiple",
 ];
 
-/// Inputs that remove their target. The engine keeps using a player's or the
-/// world's entity, so removing one crashes the server once it is freed.
-const KILL_INPUTS: [&[u8]; 2] = [b"Kill", b"KillHierarchy"];
-
 /// The procedural entity name that looks through the first player's crosshair
 /// without checking that there is one (`FindEntityProcedural`).
 const PICKER_NAME: &[u8] = b"!picker";
+
+/// An input found and checked before being sent.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CheckedInput<'s> {
+	/// The name the input is declared with, which VScript's `Input<Name>`
+	/// hooks are looked up by, case-sensitively.
+	name: &'s CStr,
+	declared: InputType,
+	frees_entities: bool,
+	kills: bool,
+	target_is_protected: bool,
+}
+
+impl<'s> CheckedInput<'s> {
+	pub(crate) const fn name(self) -> &'s CStr {
+		self.name
+	}
+}
+
+/// An input was not sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InputError {
+	/// Input names are ASCII, and compared ignoring case.
+	#[error("the input name is empty or not ASCII")]
+	InvalidName,
+
+	#[error("the entity is marked for deletion")]
+	MarkedForDeletion,
+
+	#[error("the value contains a non-finite component")]
+	NonFinite,
+
+	#[error("the entity has no such input")]
+	UnknownInput,
+
+	#[error("the input takes {expected}, which the value cannot be converted to")]
+	TypeMismatch { expected: InputType },
+
+	/// The input runs code the caller chooses or spawns entities, either of
+	/// which can free entities immediately. See
+	/// [`ServerTools::accept_input`](crate::interfaces::ServerTools::accept_input).
+	#[error("the input can free entities immediately, so it is only sent unchecked")]
+	FreesEntities,
+
+	/// The input would remove the world, a player, or a soundscape, which the
+	/// game keeps using after they are freed.
+	#[error("the input would remove the world, a player, or a soundscape")]
+	ProtectedEntity,
+
+	/// The game resolves `"!picker"` through the first player's crosshair
+	/// without checking that there is a first player.
+	#[error("the value \"!picker\" can make the game dereference a missing player")]
+	PickerName,
+
+	/// Adding a string to the pool needs the world entity of a loaded map.
+	#[error("the string could not be added to the game's string pool")]
+	NotPooled,
+
+	/// `AcceptInput` refused the input, although the checks before the call
+	/// expected it to accept it.
+	#[error("the entity rejected the input")]
+	Rejected,
+}
+
+/// The type of value an input declares, which [`InputValue`]s are converted
+/// to.
+#[doc(alias = "fieldtype_t")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InputType {
+	/// The input ignores its value.
+	Void,
+	Bool,
+	Int,
+	Float,
+	String,
+	Vector,
+	Color,
+	Entity,
+
+	/// The handler reads the value as it arrives (`FIELD_INPUT`).
+	Any,
+
+	/// A type no [`InputValue`] converts to, by its `fieldtype_t`.
+	Other(i64),
+}
+
+impl InputType {
+	fn from_raw(raw: sys::fieldtype_t) -> Self {
+		match raw {
+			sys::_fieldtypes_FIELD_VOID => Self::Void,
+			sys::_fieldtypes_FIELD_BOOLEAN => Self::Bool,
+			sys::_fieldtypes_FIELD_INTEGER => Self::Int,
+			sys::_fieldtypes_FIELD_FLOAT => Self::Float,
+			sys::_fieldtypes_FIELD_STRING => Self::String,
+			sys::_fieldtypes_FIELD_VECTOR => Self::Vector,
+			sys::_fieldtypes_FIELD_COLOR32 => Self::Color,
+			sys::_fieldtypes_FIELD_EHANDLE => Self::Entity,
+			sys::_fieldtypes_FIELD_INPUT => Self::Any,
+			other => Self::Other(i64::from(other)),
+		}
+	}
+
+	/// Whether `AcceptInput` accepts a value for this type: the value already
+	/// has it, `variant_t::Convert` converts it, or the input takes a string
+	/// and gets no value.
+	fn accepts(self, value: InputValue<'_>) -> bool {
+		use InputValue as V;
+
+		matches!(
+			(self, value),
+			(Self::Void | Self::Any, _)
+				| (Self::String, V::Void | V::String(_) | V::Entity(_))
+				| (
+					Self::Bool,
+					V::Bool(_) | V::Int(_) | V::Float(_) | V::String(_)
+				)
+				| (
+					Self::Int | Self::Float,
+					V::Int(_) | V::Float(_) | V::String(_)
+				)
+				| (Self::Vector, V::Vector(_) | V::String(_))
+				| (Self::Color, V::Color(_) | V::String(_))
+				| (Self::Entity, V::Entity(_) | V::String(_))
+		)
+	}
+
+	/// Whether the input's handler, or its field, may keep a string value.
+	/// Every other type converts it before the handler runs.
+	const fn keeps_strings(self) -> bool {
+		matches!(self, Self::String | Self::Any)
+	}
+}
+
+impl Display for InputType {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Void => f.write_str("no value"),
+			Self::Bool => f.write_str("a boolean"),
+			Self::Int => f.write_str("an integer"),
+			Self::Float => f.write_str("a float"),
+			Self::String => f.write_str("a string"),
+			Self::Vector => f.write_str("a vector"),
+			Self::Color => f.write_str("a color"),
+			Self::Entity => f.write_str("an entity"),
+			Self::Any => f.write_str("any value"),
+			Self::Other(raw) => write!(f, "field type {raw}"),
+		}
+	}
+}
 
 /// The value an input carries (`variant_t`).
 ///
@@ -141,153 +290,27 @@ impl InputValue<'_> {
 	}
 }
 
-/// The type of value an input declares, which [`InputValue`]s are converted
-/// to.
-#[doc(alias = "fieldtype_t")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum InputType {
-	/// The input ignores its value.
-	Void,
-	Bool,
-	Int,
-	Float,
-	String,
-	Vector,
-	Color,
-	Entity,
-
-	/// The handler reads the value as it arrives (`FIELD_INPUT`).
-	Any,
-
-	/// A type no [`InputValue`] converts to, by its `fieldtype_t`.
-	Other(i64),
-}
-
-impl InputType {
-	fn from_raw(raw: sys::fieldtype_t) -> Self {
-		match raw {
-			sys::_fieldtypes_FIELD_VOID => Self::Void,
-			sys::_fieldtypes_FIELD_BOOLEAN => Self::Bool,
-			sys::_fieldtypes_FIELD_INTEGER => Self::Int,
-			sys::_fieldtypes_FIELD_FLOAT => Self::Float,
-			sys::_fieldtypes_FIELD_STRING => Self::String,
-			sys::_fieldtypes_FIELD_VECTOR => Self::Vector,
-			sys::_fieldtypes_FIELD_COLOR32 => Self::Color,
-			sys::_fieldtypes_FIELD_EHANDLE => Self::Entity,
-			sys::_fieldtypes_FIELD_INPUT => Self::Any,
-			other => Self::Other(i64::from(other)),
-		}
+/// Refuses inputs known to free entities immediately or to crash the server.
+pub(crate) fn check_guards(
+	target: Entity<'_>,
+	input: CheckedInput<'_>,
+	value: InputValue<'_>,
+) -> Result<(), InputError> {
+	if input.frees_entities {
+		return Err(InputError::FreesEntities);
 	}
 
-	/// Whether `AcceptInput` accepts a value for this type: the value already
-	/// has it, `variant_t::Convert` converts it, or the input takes a string
-	/// and gets no value.
-	fn accepts(self, value: InputValue<'_>) -> bool {
-		use InputValue as V;
-
-		matches!(
-			(self, value),
-			(Self::Void | Self::Any, _)
-				| (Self::String, V::Void | V::String(_) | V::Entity(_))
-				| (
-					Self::Bool,
-					V::Bool(_) | V::Int(_) | V::Float(_) | V::String(_)
-				)
-				| (
-					Self::Int | Self::Float,
-					V::Int(_) | V::Float(_) | V::String(_)
-				)
-				| (Self::Vector, V::Vector(_) | V::String(_))
-				| (Self::Color, V::Color(_) | V::String(_))
-				| (Self::Entity, V::Entity(_) | V::String(_))
-		)
+	if input.kills && (input.target_is_protected || target.index() == Some(0)) {
+		return Err(InputError::ProtectedEntity);
 	}
 
-	/// Whether the input's handler, or its field, may keep a string value.
-	/// Every other type converts it before the handler runs.
-	const fn keeps_strings(self) -> bool {
-		matches!(self, Self::String | Self::Any)
+	if let InputValue::String(string) = value
+		&& string.to_bytes().eq_ignore_ascii_case(PICKER_NAME)
+	{
+		return Err(InputError::PickerName);
 	}
-}
 
-impl Display for InputType {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		match self {
-			Self::Void => f.write_str("no value"),
-			Self::Bool => f.write_str("a boolean"),
-			Self::Int => f.write_str("an integer"),
-			Self::Float => f.write_str("a float"),
-			Self::String => f.write_str("a string"),
-			Self::Vector => f.write_str("a vector"),
-			Self::Color => f.write_str("a color"),
-			Self::Entity => f.write_str("an entity"),
-			Self::Any => f.write_str("any value"),
-			Self::Other(raw) => write!(f, "field type {raw}"),
-		}
-	}
-}
-
-/// An input was not sent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum InputError {
-	/// Input names are ASCII, and compared ignoring case.
-	#[error("the input name is empty or not ASCII")]
-	InvalidName,
-
-	#[error("the entity is marked for deletion")]
-	MarkedForDeletion,
-
-	#[error("the value contains a non-finite component")]
-	NonFinite,
-
-	#[error("the entity has no such input")]
-	UnknownInput,
-
-	#[error("the input takes {expected}, which the value cannot be converted to")]
-	TypeMismatch { expected: InputType },
-
-	/// The input runs code the caller chooses or spawns entities, either of
-	/// which can free entities immediately. See
-	/// [`ServerTools::accept_input`](crate::interfaces::ServerTools::accept_input).
-	#[error("the input can free entities immediately, so it is only sent unchecked")]
-	FreesEntities,
-
-	/// The input would remove the world, a player, or a soundscape, which the
-	/// game keeps using after they are freed.
-	#[error("the input would remove the world, a player, or a soundscape")]
-	ProtectedEntity,
-
-	/// The game resolves `"!picker"` through the first player's crosshair
-	/// without checking that there is a first player.
-	#[error("the value \"!picker\" can make the game dereference a missing player")]
-	PickerName,
-
-	/// Adding a string to the pool needs the world entity of a loaded map.
-	#[error("the string could not be added to the game's string pool")]
-	NotPooled,
-
-	/// `AcceptInput` refused the input, although the checks before the call
-	/// expected it to accept it.
-	#[error("the entity rejected the input")]
-	Rejected,
-}
-
-/// An input found and checked before being sent.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CheckedInput<'s> {
-	/// The name the input is declared with, which VScript's `Input<Name>`
-	/// hooks are looked up by, case-sensitively.
-	name: &'s CStr,
-	declared: InputType,
-	frees_entities: bool,
-	kills: bool,
-	target_is_protected: bool,
-}
-
-impl<'s> CheckedInput<'s> {
-	pub(crate) const fn name(self) -> &'s CStr {
-		self.name
-	}
+	Ok(())
 }
 
 /// Finds the input `AcceptInput` would dispatch and checks that it takes the
@@ -355,29 +378,6 @@ pub(crate) fn check_input<'s>(
 	})
 }
 
-/// Refuses inputs known to free entities immediately or to crash the server.
-pub(crate) fn check_guards(
-	target: Entity<'_>,
-	input: CheckedInput<'_>,
-	value: InputValue<'_>,
-) -> Result<(), InputError> {
-	if input.frees_entities {
-		return Err(InputError::FreesEntities);
-	}
-
-	if input.kills && (input.target_is_protected || target.index() == Some(0)) {
-		return Err(InputError::ProtectedEntity);
-	}
-
-	if let InputValue::String(string) = value
-		&& string.to_bytes().eq_ignore_ascii_case(PICKER_NAME)
-	{
-		return Err(InputError::PickerName);
-	}
-
-	Ok(())
-}
-
 /// Builds the `variant_t` for a value sent to a checked input, pooling a
 /// string the input may keep through `pool`.
 pub(crate) fn to_variant(
@@ -392,6 +392,7 @@ pub(crate) fn to_variant(
 	let (value, string) = match value {
 		// `MAKE_STRING("")` and `AllocPooledString("")` both give a null string.
 		InputValue::String(string) if string.is_empty() => (value, null),
+
 		InputValue::String(string) if input.declared.keeps_strings() => {
 			(value, pool(string).ok_or(InputError::NotPooled)?)
 		}
@@ -418,10 +419,12 @@ pub(crate) fn to_variant(
 mod tests {
 	use super::*;
 	use crate::entities::FTYPEDESC_KEY;
+
 	use crate::entities::test_support::{
 		MOCK_NAME_OFFSET, MockEntity, ReceivedInput, base_entity_fields, data_map as map, field,
 		leak, set_accepts, set_datamap, take_inputs,
 	};
+
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::interfaces::ServerTools;
 	use crate::server::Game;
@@ -445,55 +448,6 @@ mod tests {
 		static POOL: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
 		static POOL_MODE: Cell<Pool> = const { Cell::new(Pool::Works) };
 		static KEYS_SET: Cell<usize> = const { Cell::new(0) };
-	}
-
-	unsafe extern "C" fn entity_by_index(
-		_: *mut sys::IServerTools,
-		index: c_int,
-	) -> *mut sys::CBaseEntity {
-		if index == 0 { WORLD.get() } else { null_mut() }
-	}
-
-	/// Pools strings case-insensitively, as `CGameStringPool` does, into the
-	/// entity's name, as `KeyValue("targetname", ...)` does.
-	unsafe extern "C" fn set_key_value(
-		_: *mut sys::IServerTools,
-		entity: *mut sys::CBaseEntity,
-		key: *const c_char,
-		value: *const c_char,
-	) -> bool {
-		KEYS_SET.set(KEYS_SET.get() + 1);
-
-		if unsafe { CStr::from_ptr(key) } != c"targetname" {
-			return false;
-		}
-
-		let mode = POOL_MODE.get();
-		let value = match mode {
-			Pool::Works => unsafe { CStr::from_ptr(value) },
-			Pool::FailsAfterWriting | Pool::WritesOtherString => c"something else",
-		};
-
-		let pooled = POOL.with_borrow_mut(|pool| {
-			let index = pool
-				.iter()
-				.position(|pooled| pooled.to_bytes().eq_ignore_ascii_case(value.to_bytes()))
-				.unwrap_or_else(|| {
-					pool.push(value.to_owned());
-					pool.len() - 1
-				});
-
-			pool[index].as_ptr()
-		});
-
-		unsafe {
-			entity
-				.byte_add(MOCK_NAME_OFFSET)
-				.cast::<sys::string_t>()
-				.write(sys::string_t { pszValue: pooled })
-		};
-
-		mode != Pool::FailsAfterWriting
 	}
 
 	struct Mocks {
@@ -524,231 +478,37 @@ mod tests {
 		}
 	}
 
+	#[test]
+	fn declared_types_describe_themselves() {
+		assert_eq!(
+			InputType::from_raw(sys::_fieldtypes_FIELD_INPUT),
+			InputType::Any
+		);
+		assert_eq!(
+			InputType::from_raw(sys::_fieldtypes_FIELD_TIME),
+			InputType::Other(16)
+		);
+		assert_eq!(InputType::Other(16).to_string(), "field type 16");
+		assert!(!InputType::Other(16).accepts(InputValue::String(c"1")));
+		assert_eq!(
+			InputError::TypeMismatch {
+				expected: InputType::Color
+			}
+			.to_string(),
+			"the input takes a color, which the value cannot be converted to"
+		);
+	}
+
 	/// A mock entity, for as long as the mocks live.
 	fn entity(mock: &mut MockEntity) -> Entity<'static> {
 		unsafe { Entity::from_raw(NonNull::new(mock.as_ptr()).unwrap()) }
 	}
 
-	fn input(name: &'static CStr, field_type: sys::fieldtype_t) -> sys::typedescription_t {
-		let mut input = field();
-
-		input.fieldType = field_type;
-		input.externalName = name.as_ptr();
-		input.flags = FTYPEDESC_INPUT;
-		input
-	}
-
-	fn mocks() -> Mocks {
-		use sys::{
-			_fieldtypes_FIELD_BOOLEAN as BOOLEAN, _fieldtypes_FIELD_COLOR32 as COLOR32,
-			_fieldtypes_FIELD_EHANDLE as EHANDLE, _fieldtypes_FIELD_FLOAT as FLOAT,
-			_fieldtypes_FIELD_INPUT as INPUT, _fieldtypes_FIELD_INTEGER as INTEGER,
-			_fieldtypes_FIELD_STRING as STRING, _fieldtypes_FIELD_VECTOR as VECTOR,
-			_fieldtypes_FIELD_VOID as VOID,
-		};
-
-		let world = MockEntity::new(0);
-		let target = MockEntity::new(7 | 3 << 16);
-		let other = MockEntity::new(9 | 4 << 16);
-		let mut base_fields = base_entity_fields().to_vec();
-
-		// A key the map sets, which is not an input.
-		let mut key = field();
-
-		key.fieldType = STRING;
-		key.externalName = c"targetname".as_ptr();
-		key.flags = FTYPEDESC_KEY;
-
-		base_fields.extend([
-			key,
-			input(c"Kill", VOID),
-			input(c"KillHierarchy", VOID),
-			input(c"Color", COLOR32),
-			input(c"SetTeam", INTEGER),
-			input(c"RunScriptCode", STRING),
-			input(c"SetDamageFilter", STRING),
-		]);
-
-		let base = map(c"CBaseEntity", base_fields, null_mut());
-		let test = map(
-			c"CTestEntity",
-			vec![
-				input(c"Value", INPUT),
-				input(c"SetTeam", STRING),
-				input(c"Spawn", VOID),
-				input(c"SetSpeed", FLOAT),
-				input(c"SetOwner", EHANDLE),
-				input(c"SetOffset", VECTOR),
-				input(c"SetEnabled", BOOLEAN),
-			],
-			base,
-		);
-		let base_player = map(c"CBasePlayer", vec![], base);
-		let player = map(c"CTFPlayer", vec![], base_player);
-		let maker = map(c"CBaseNPCMaker", vec![input(c"Spawn", VOID)], base);
-		let npc_maker = map(c"CNPCMaker", vec![], maker);
-
-		set_datamap(test);
-
-		let maps = vec![test, base, base_player, player, maker, npc_maker];
-		let tools_vtable = unsafe {
-			mock_vtable::<sys::IServerTools__bindgen_vtable>(
-				unexpected_call as *const (),
-				|vtable| {
-					(&raw mut (*vtable).IServerTools_GetBaseEntityByEntIndex)
-						.write(entity_by_index);
-					(&raw mut (*vtable).IServerTools_SetKeyValue).write(set_key_value);
-				},
-			)
-		};
-
-		let mut mocks = Mocks {
-			tools: leak(sys::IServerTools {
-				vtable_: Box::into_raw(tools_vtable),
-			}),
-			world,
-			target,
-			other,
-			maps,
-		};
-
-		WORLD.set(mocks.world.as_ptr());
-		POOL_MODE.set(Pool::Works);
-		KEYS_SET.set(0);
-		set_accepts(true);
-		take_inputs();
-		mocks
-	}
-
-	/// The bytes of three 32-bit words, as the union stores them.
-	fn words(words: [u32; 3]) -> [u8; 12] {
-		let mut bytes = [0; 12];
-
-		for (chunk, word) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(words) {
-			chunk.copy_from_slice(&word.to_ne_bytes());
-		}
-
-		bytes
-	}
-
-	#[test]
-	fn values_reach_accept_input_as_variants_by_address() {
-		let mut mocks = mocks();
-		let target = entity(&mut mocks.target);
-		let other = entity(&mut mocks.other);
-		let target_ptr = target.as_ptr();
-		let other_ptr = other.as_ptr();
-		let other_handle = other.handle().to_raw();
-		let tools = mocks.tools();
-		let send = |value| tools.accept_input(target, c"value", value, other, target);
-
-		send(InputValue::Void).unwrap();
-		send(InputValue::Bool(true)).unwrap();
-		send(InputValue::Int(-5)).unwrap();
-		send(InputValue::Float(1.5)).unwrap();
-		send(InputValue::Vector(Vector::new(1.0, 2.0, 3.0))).unwrap();
-		send(InputValue::Color(Color32::new(1, 2, 3, 4))).unwrap();
-		send(InputValue::Entity(Some(other))).unwrap();
-		send(InputValue::Entity(None)).unwrap();
-		send(InputValue::String(c"")).unwrap();
-
-		let inputs = take_inputs();
-		let invalid = EntityHandle::INVALID.to_raw();
-
-		// The input is sent by its declared name, so VScript hooks match.
-		assert!(inputs.iter().all(|input| {
-			input.target == target_ptr
-				&& input.name.as_c_str() == c"Value"
-				&& input.activator == other_ptr
-				&& input.caller == target_ptr
-				&& input.output_id == 0
-		}));
-
-		let one = 1.0_f32.to_bits();
-		let two = 2.0_f32.to_bits();
-		let three = 3.0_f32.to_bits();
-
-		assert_eq!(
-			inputs
-				.iter()
-				.map(|input| (input.field_type, input.payload, input.handle))
-				.collect::<Vec<_>>(),
-			[
-				(sys::_fieldtypes_FIELD_VOID, [0; 12], invalid),
-				(sys::_fieldtypes_FIELD_BOOLEAN, words([1, 0, 0]), invalid),
-				(
-					sys::_fieldtypes_FIELD_INTEGER,
-					words([(-5_i32).cast_unsigned(), 0, 0]),
-					invalid
-				),
-				(
-					sys::_fieldtypes_FIELD_FLOAT,
-					words([1.5_f32.to_bits(), 0, 0]),
-					invalid
-				),
-				(
-					sys::_fieldtypes_FIELD_VECTOR,
-					words([one, two, three]),
-					invalid
-				),
-				(
-					sys::_fieldtypes_FIELD_COLOR32,
-					words([u32::from_ne_bytes([1, 2, 3, 4]), 0, 0]),
-					invalid
-				),
-				(sys::_fieldtypes_FIELD_EHANDLE, [0; 12], other_handle),
-				(sys::_fieldtypes_FIELD_EHANDLE, [0; 12], invalid),
-				// An empty string is a null string, as `MAKE_STRING("")` gives.
-				(sys::_fieldtypes_FIELD_STRING, [0; 12], invalid),
-			]
-		);
-
-		// Nothing was pooled for the empty string.
-		assert_eq!(KEYS_SET.get(), 0);
-	}
-
-	#[test]
-	fn strings_are_pooled_only_for_inputs_that_may_keep_them() {
-		let mut mocks = mocks();
-		let original = c"original";
-
-		mocks.world.set_name(sys::string_t {
-			pszValue: original.as_ptr(),
-		});
-
-		let target = entity(&mut mocks.target);
-		let tools = mocks.tools();
-		let greeting = CString::new("Hello").unwrap();
-		let send = |input: &CStr, value| tools.accept_input(target, input, value, target, target);
-
-		send(c"SetDamageFilter", InputValue::String(&greeting)).unwrap();
-		send(c"SetDamageFilter", InputValue::String(c"HELLO")).unwrap();
-		send(c"Value", InputValue::String(c"hello")).unwrap();
-
-		let pooled = |input: &ReceivedInput| input.string;
-		let inputs = take_inputs();
-		let first = pooled(&inputs[0]);
-
-		// The entity received the pooled copy, in the case pooled first, and
-		// the world kept its name.
-		assert_ne!(first, greeting.as_ptr());
-		assert_eq!(unsafe { CStr::from_ptr(first) }, c"Hello");
-		assert_eq!(pooled(&inputs[1]), first);
-		assert_eq!(pooled(&inputs[2]), first);
-		assert_eq!(mocks.world.name().pszValue, original.as_ptr());
-		assert_eq!(KEYS_SET.get(), 3);
-
-		// Inputs of other types convert the string during the call, so it is
-		// passed as it is.
-		let speed = c"2.5";
-
-		send(c"SetSpeed", InputValue::String(speed)).unwrap();
-		assert_eq!(pooled(&take_inputs()[0]), speed.as_ptr());
-		assert_eq!(KEYS_SET.get(), 3);
-
-		// A null handle reaches a string input as no value.
-		send(c"SetDamageFilter", InputValue::Entity(None)).unwrap();
-		assert_eq!(take_inputs()[0].field_type, sys::_fieldtypes_FIELD_VOID);
+	unsafe extern "C" fn entity_by_index(
+		_: *mut sys::IServerTools,
+		index: c_int,
+	) -> *mut sys::CBaseEntity {
+		if index == 0 { WORLD.get() } else { null_mut() }
 	}
 
 	#[test]
@@ -785,6 +545,15 @@ mod tests {
 		WORLD.set(null_mut());
 		assert_eq!(send(), Err(InputError::NotPooled));
 		assert!(take_inputs().is_empty());
+	}
+
+	fn input(name: &'static CStr, field_type: sys::fieldtype_t) -> sys::typedescription_t {
+		let mut input = field();
+
+		input.fieldType = field_type;
+		input.externalName = name.as_ptr();
+		input.flags = FTYPEDESC_INPUT;
+		input
 	}
 
 	#[test]
@@ -984,24 +753,258 @@ mod tests {
 		);
 	}
 
+	fn mocks() -> Mocks {
+		use sys::{
+			_fieldtypes_FIELD_BOOLEAN as BOOLEAN, _fieldtypes_FIELD_COLOR32 as COLOR32,
+			_fieldtypes_FIELD_EHANDLE as EHANDLE, _fieldtypes_FIELD_FLOAT as FLOAT,
+			_fieldtypes_FIELD_INPUT as INPUT, _fieldtypes_FIELD_INTEGER as INTEGER,
+			_fieldtypes_FIELD_STRING as STRING, _fieldtypes_FIELD_VECTOR as VECTOR,
+			_fieldtypes_FIELD_VOID as VOID,
+		};
+
+		let world = MockEntity::new(0);
+		let target = MockEntity::new(7 | 3 << 16);
+		let other = MockEntity::new(9 | 4 << 16);
+		let mut base_fields = base_entity_fields().to_vec();
+
+		// A key the map sets, which is not an input.
+		let mut key = field();
+
+		key.fieldType = STRING;
+		key.externalName = c"targetname".as_ptr();
+		key.flags = FTYPEDESC_KEY;
+
+		base_fields.extend([
+			key,
+			input(c"Kill", VOID),
+			input(c"KillHierarchy", VOID),
+			input(c"Color", COLOR32),
+			input(c"SetTeam", INTEGER),
+			input(c"RunScriptCode", STRING),
+			input(c"SetDamageFilter", STRING),
+		]);
+
+		let base = map(c"CBaseEntity", base_fields, null_mut());
+		let test = map(
+			c"CTestEntity",
+			vec![
+				input(c"Value", INPUT),
+				input(c"SetTeam", STRING),
+				input(c"Spawn", VOID),
+				input(c"SetSpeed", FLOAT),
+				input(c"SetOwner", EHANDLE),
+				input(c"SetOffset", VECTOR),
+				input(c"SetEnabled", BOOLEAN),
+			],
+			base,
+		);
+		let base_player = map(c"CBasePlayer", vec![], base);
+		let player = map(c"CTFPlayer", vec![], base_player);
+		let maker = map(c"CBaseNPCMaker", vec![input(c"Spawn", VOID)], base);
+		let npc_maker = map(c"CNPCMaker", vec![], maker);
+
+		set_datamap(test);
+
+		let maps = vec![test, base, base_player, player, maker, npc_maker];
+		let tools_vtable = unsafe {
+			mock_vtable::<sys::IServerTools__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).IServerTools_GetBaseEntityByEntIndex)
+						.write(entity_by_index);
+					(&raw mut (*vtable).IServerTools_SetKeyValue).write(set_key_value);
+				},
+			)
+		};
+
+		let mut mocks = Mocks {
+			tools: leak(sys::IServerTools {
+				vtable_: Box::into_raw(tools_vtable),
+			}),
+			world,
+			target,
+			other,
+			maps,
+		};
+
+		WORLD.set(mocks.world.as_ptr());
+		POOL_MODE.set(Pool::Works);
+		KEYS_SET.set(0);
+		set_accepts(true);
+		take_inputs();
+		mocks
+	}
+
+	/// Pools strings case-insensitively, as `CGameStringPool` does, into the
+	/// entity's name, as `KeyValue("targetname", ...)` does.
+	unsafe extern "C" fn set_key_value(
+		_: *mut sys::IServerTools,
+		entity: *mut sys::CBaseEntity,
+		key: *const c_char,
+		value: *const c_char,
+	) -> bool {
+		KEYS_SET.set(KEYS_SET.get() + 1);
+
+		if unsafe { CStr::from_ptr(key) } != c"targetname" {
+			return false;
+		}
+
+		let mode = POOL_MODE.get();
+		let value = match mode {
+			Pool::Works => unsafe { CStr::from_ptr(value) },
+			Pool::FailsAfterWriting | Pool::WritesOtherString => c"something else",
+		};
+
+		let pooled = POOL.with_borrow_mut(|pool| {
+			let index = pool
+				.iter()
+				.position(|pooled| pooled.to_bytes().eq_ignore_ascii_case(value.to_bytes()))
+				.unwrap_or_else(|| {
+					pool.push(value.to_owned());
+					pool.len() - 1
+				});
+
+			pool[index].as_ptr()
+		});
+
+		unsafe {
+			entity
+				.byte_add(MOCK_NAME_OFFSET)
+				.cast::<sys::string_t>()
+				.write(sys::string_t { pszValue: pooled })
+		};
+
+		mode != Pool::FailsAfterWriting
+	}
+
 	#[test]
-	fn declared_types_describe_themselves() {
+	fn strings_are_pooled_only_for_inputs_that_may_keep_them() {
+		let mut mocks = mocks();
+		let original = c"original";
+
+		mocks.world.set_name(sys::string_t {
+			pszValue: original.as_ptr(),
+		});
+
+		let target = entity(&mut mocks.target);
+		let tools = mocks.tools();
+		let greeting = CString::new("Hello").unwrap();
+		let send = |input: &CStr, value| tools.accept_input(target, input, value, target, target);
+
+		send(c"SetDamageFilter", InputValue::String(&greeting)).unwrap();
+		send(c"SetDamageFilter", InputValue::String(c"HELLO")).unwrap();
+		send(c"Value", InputValue::String(c"hello")).unwrap();
+
+		let pooled = |input: &ReceivedInput| input.string;
+		let inputs = take_inputs();
+		let first = pooled(&inputs[0]);
+
+		// The entity received the pooled copy, in the case pooled first, and
+		// the world kept its name.
+		assert_ne!(first, greeting.as_ptr());
+		assert_eq!(unsafe { CStr::from_ptr(first) }, c"Hello");
+		assert_eq!(pooled(&inputs[1]), first);
+		assert_eq!(pooled(&inputs[2]), first);
+		assert_eq!(mocks.world.name().pszValue, original.as_ptr());
+		assert_eq!(KEYS_SET.get(), 3);
+
+		// Inputs of other types convert the string during the call, so it is
+		// passed as it is.
+		let speed = c"2.5";
+
+		send(c"SetSpeed", InputValue::String(speed)).unwrap();
+		assert_eq!(pooled(&take_inputs()[0]), speed.as_ptr());
+		assert_eq!(KEYS_SET.get(), 3);
+
+		// A null handle reaches a string input as no value.
+		send(c"SetDamageFilter", InputValue::Entity(None)).unwrap();
+		assert_eq!(take_inputs()[0].field_type, sys::_fieldtypes_FIELD_VOID);
+	}
+
+	#[test]
+	fn values_reach_accept_input_as_variants_by_address() {
+		let mut mocks = mocks();
+		let target = entity(&mut mocks.target);
+		let other = entity(&mut mocks.other);
+		let target_ptr = target.as_ptr();
+		let other_ptr = other.as_ptr();
+		let other_handle = other.handle().to_raw();
+		let tools = mocks.tools();
+		let send = |value| tools.accept_input(target, c"value", value, other, target);
+
+		send(InputValue::Void).unwrap();
+		send(InputValue::Bool(true)).unwrap();
+		send(InputValue::Int(-5)).unwrap();
+		send(InputValue::Float(1.5)).unwrap();
+		send(InputValue::Vector(Vector::new(1.0, 2.0, 3.0))).unwrap();
+		send(InputValue::Color(Color32::new(1, 2, 3, 4))).unwrap();
+		send(InputValue::Entity(Some(other))).unwrap();
+		send(InputValue::Entity(None)).unwrap();
+		send(InputValue::String(c"")).unwrap();
+
+		let inputs = take_inputs();
+		let invalid = EntityHandle::INVALID.to_raw();
+
+		// The input is sent by its declared name, so VScript hooks match.
+		assert!(inputs.iter().all(|input| {
+			input.target == target_ptr
+				&& input.name.as_c_str() == c"Value"
+				&& input.activator == other_ptr
+				&& input.caller == target_ptr
+				&& input.output_id == 0
+		}));
+
+		let one = 1.0_f32.to_bits();
+		let two = 2.0_f32.to_bits();
+		let three = 3.0_f32.to_bits();
+
 		assert_eq!(
-			InputType::from_raw(sys::_fieldtypes_FIELD_INPUT),
-			InputType::Any
+			inputs
+				.iter()
+				.map(|input| (input.field_type, input.payload, input.handle))
+				.collect::<Vec<_>>(),
+			[
+				(sys::_fieldtypes_FIELD_VOID, [0; 12], invalid),
+				(sys::_fieldtypes_FIELD_BOOLEAN, words([1, 0, 0]), invalid),
+				(
+					sys::_fieldtypes_FIELD_INTEGER,
+					words([(-5_i32).cast_unsigned(), 0, 0]),
+					invalid
+				),
+				(
+					sys::_fieldtypes_FIELD_FLOAT,
+					words([1.5_f32.to_bits(), 0, 0]),
+					invalid
+				),
+				(
+					sys::_fieldtypes_FIELD_VECTOR,
+					words([one, two, three]),
+					invalid
+				),
+				(
+					sys::_fieldtypes_FIELD_COLOR32,
+					words([u32::from_ne_bytes([1, 2, 3, 4]), 0, 0]),
+					invalid
+				),
+				(sys::_fieldtypes_FIELD_EHANDLE, [0; 12], other_handle),
+				(sys::_fieldtypes_FIELD_EHANDLE, [0; 12], invalid),
+				// An empty string is a null string, as `MAKE_STRING("")` gives.
+				(sys::_fieldtypes_FIELD_STRING, [0; 12], invalid),
+			]
 		);
-		assert_eq!(
-			InputType::from_raw(sys::_fieldtypes_FIELD_TIME),
-			InputType::Other(16)
-		);
-		assert_eq!(InputType::Other(16).to_string(), "field type 16");
-		assert!(!InputType::Other(16).accepts(InputValue::String(c"1")));
-		assert_eq!(
-			InputError::TypeMismatch {
-				expected: InputType::Color
-			}
-			.to_string(),
-			"the input takes a color, which the value cannot be converted to"
-		);
+
+		// Nothing was pooled for the empty string.
+		assert_eq!(KEYS_SET.get(), 0);
+	}
+
+	/// The bytes of three 32-bit words, as the union stores them.
+	fn words(words: [u32; 3]) -> [u8; 12] {
+		let mut bytes = [0; 12];
+
+		for (chunk, word) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(words) {
+			chunk.copy_from_slice(&word.to_ne_bytes());
+		}
+
+		bytes
 	}
 }

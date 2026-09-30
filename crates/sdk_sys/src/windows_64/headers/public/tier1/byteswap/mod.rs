@@ -23,13 +23,6 @@ pub struct CByteswap {
 impl CByteswap {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn m_bBigEndian(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 1u8>() as u32)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn m_bBigEndian_raw(this: *const Self) -> ::std::os::raw::c_uint {
         unsafe {
             ::std::mem::transmute(
@@ -40,13 +33,6 @@ impl CByteswap {
                     1u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn m_bSwapBytes(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u32)
         }
     }
     #[inline]
@@ -90,14 +76,6 @@ impl CByteswap {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_bBigEndian(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<1usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_bBigEndian_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -111,14 +89,6 @@ impl CByteswap {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_bSwapBytes(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_bSwapBytes_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -128,6 +98,36 @@ impl CByteswap {
                 0usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bBigEndian(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 1u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bSwapBytes(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bBigEndian(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<1usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bSwapBytes(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
         }
     }
 }

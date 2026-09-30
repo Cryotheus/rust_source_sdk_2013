@@ -3,6 +3,51 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CAnimationLayer_NetworkVar_m_flCycle",
+    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_flCycle>() - 1usize];
+    [
+        "Alignment of CAnimationLayer_NetworkVar_m_flCycle",
+    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_flCycle>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CAnimationLayer_NetworkVar_m_flPrevCycle",
+    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_flPrevCycle>() - 1usize];
+    [
+        "Alignment of CAnimationLayer_NetworkVar_m_flPrevCycle",
+    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_flPrevCycle>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CAnimationLayer_NetworkVar_m_flWeight",
+    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_flWeight>() - 1usize];
+    [
+        "Alignment of CAnimationLayer_NetworkVar_m_flWeight",
+    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_flWeight>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CAnimationLayer_NetworkVar_m_nOrder",
+    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_nOrder>() - 1usize];
+    [
+        "Alignment of CAnimationLayer_NetworkVar_m_nOrder",
+    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_nOrder>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CAnimationLayer_NetworkVar_m_nSequence",
+    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_nSequence>() - 1usize];
+    [
+        "Alignment of CAnimationLayer_NetworkVar_m_nSequence",
+    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_nSequence>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of CAnimationLayer"][::std::mem::size_of::<CAnimationLayer>() - 80usize];
     ["Alignment of CAnimationLayer"][::std::mem::align_of::<CAnimationLayer>() - 8usize];
     [
@@ -65,51 +110,6 @@ const _: () = {
     [
         "Offset of field: CAnimationLayer::m_pOwnerEntity",
     ][::std::mem::offset_of!(CAnimationLayer, m_pOwnerEntity) - 72usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CAnimationLayer_NetworkVar_m_flCycle",
-    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_flCycle>() - 1usize];
-    [
-        "Alignment of CAnimationLayer_NetworkVar_m_flCycle",
-    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_flCycle>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CAnimationLayer_NetworkVar_m_flPrevCycle",
-    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_flPrevCycle>() - 1usize];
-    [
-        "Alignment of CAnimationLayer_NetworkVar_m_flPrevCycle",
-    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_flPrevCycle>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CAnimationLayer_NetworkVar_m_flWeight",
-    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_flWeight>() - 1usize];
-    [
-        "Alignment of CAnimationLayer_NetworkVar_m_flWeight",
-    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_flWeight>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CAnimationLayer_NetworkVar_m_nOrder",
-    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_nOrder>() - 1usize];
-    [
-        "Alignment of CAnimationLayer_NetworkVar_m_nOrder",
-    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_nOrder>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CAnimationLayer_NetworkVar_m_nSequence",
-    ][::std::mem::size_of::<CAnimationLayer_NetworkVar_m_nSequence>() - 1usize];
-    [
-        "Alignment of CAnimationLayer_NetworkVar_m_nSequence",
-    ][::std::mem::align_of::<CAnimationLayer_NetworkVar_m_nSequence>() - 1usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

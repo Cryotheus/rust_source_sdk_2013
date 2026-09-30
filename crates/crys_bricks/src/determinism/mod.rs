@@ -15,6 +15,7 @@ impl ItemOrder {
 			ForeignItem::Fn(item) => (item.sig.ident.to_string(), 0, false),
 			ForeignItem::Static(item) => (item.ident.to_string(), 1, false),
 			ForeignItem::Type(item) => (item.ident.to_string(), 2, false),
+
 			ForeignItem::Macro(item) => (
 				item.mac
 					.path
@@ -25,6 +26,7 @@ impl ItemOrder {
 				3,
 				true,
 			),
+
 			ForeignItem::Verbatim(tokens) => (tokens.to_string(), 4, false),
 			_ => (String::new(), u8::MAX, true),
 		};
@@ -46,6 +48,7 @@ impl ItemOrder {
 			ImplItem::Type(item) => (0, item.ident.to_string(), false),
 			ImplItem::Const(item) => (1, item.ident.to_string(), false),
 			ImplItem::Fn(item) => (2, item.sig.ident.to_string(), false),
+
 			ImplItem::Macro(item) => (
 				3,
 				item.mac
@@ -56,6 +59,7 @@ impl ItemOrder {
 					.unwrap_or_default(),
 				true,
 			),
+
 			ImplItem::Verbatim(tokens) => (4, tokens.to_string(), false),
 			_ => (u8::MAX, String::new(), true),
 		};
@@ -87,6 +91,7 @@ impl ItemOrder {
 			Item::Fn(item) => (6, item.sig.ident.to_string(), 0, false),
 			Item::Mod(item) => (7, item.ident.to_string(), 0, false),
 			Item::ExternCrate(item) => (7, item.ident.to_string(), 1, false),
+
 			Item::Macro(item) => (
 				7,
 				item.ident
@@ -96,6 +101,7 @@ impl ItemOrder {
 				2,
 				true,
 			),
+
 			Item::Verbatim(tokens) => (7, tokens.to_string(), 3, false),
 			Item::ForeignMod(item) => (8, token_key(&item.abi), 0, false),
 			_ => (u8::MAX, String::new(), 0, true),
@@ -126,6 +132,7 @@ fn type_family(ty: &Type) -> String {
 			.last()
 			.map(|segment| segment.ident.to_string())
 			.unwrap_or_else(|| token_key(ty)),
+
 		Type::Group(ty) => type_family(&ty.elem),
 		Type::Paren(ty) => type_family(&ty.elem),
 		Type::Reference(ty) => type_family(&ty.elem),

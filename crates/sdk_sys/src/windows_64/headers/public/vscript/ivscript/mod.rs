@@ -103,63 +103,6 @@ pub struct IScriptInstanceHelper__bindgen_vtable {
 pub struct IScriptVM {
     pub vtable_: *const IScriptVM__bindgen_vtable,
 }
-/** RAII class used to register an ISquirrelMetamethodDelegate as a slot in an existing Squirrel
-class. For example, if you have a class foo, and you call this with the slotName "bar",
-this will make things so that foo.bar.x in Squirrel will actually call Get( "x") on the
-ISquirrelMetamethodDelegate you provided.
-
-To register a ISquirrelMetamethodDelegate for a given Squirrel object,
-create one of these. When this object goes out of scope, the _get metamethod will
-be unregistered and unbound. That lets you have automatic cleanup.
-This kooky workaround is necessary because the actual machinery of registering
-a metamethod has to be inside the vscript.dll, so the code that you would like
-to simply be in the constructor for ISquirrelMetamethodDelegate actually has to
-be hidden behind a function in this interface.
-
-\note It's impossible to create a new slot on a class *instance*, only set the
-value of an existing slot. So you can't make a new slot with CSquirrelNamedSlotToGetMethodDelegate --
-its pszSlotName should match a slot already existing in the class.*/
-#[repr(C)]
-#[derive(Debug)]
-pub struct IScriptVM_CSquirrelNamedSlotToGetMethodDelegate {
-    /** PIMPL idiom, necessary because the necessary Squirrel details can't be
- included at this interface layer. When we break the Squirrel abstraction,
- the code and data through this pointer can be brought into one class and
- we can have less insanity.*/
-    pub m_pImpl: *mut CSquirrelMetamethodDelegateImpl,
-    pub m_pVM: *mut IScriptVM,
-}
-/**\desc When squirrel does a lookup like "foo.bar", the class that's behind foo has a chance
-to override the _get() function, so that it can intercept the lookup for "foo" and
-supply whatever it likes in its place. This interface lets you inject, from the C++
-side, any key->value dictionary that fits this mechanism.
-
-It registers itself as a slot in the given Squirrel class, then any get() on that slot
-actually comes to the Get() function here.
-
-Note that it's impossible to create a new slot on a class *instance*, only set the
-value of an existing slot. So you can't make a new slot with CSquirrelNamedSlotToGetMethodDelegate --
-its pszSlotName should match a slot already existing in the class.
-
-Your C++ dictionary (anything with get-value-by-key semantics)
-should inherit from this:*/
-#[repr(C)]
-#[derive(Debug)]
-pub struct IScriptVM_ISquirrelMetamethodDelegate {
-    pub vtable_: *const IScriptVM_ISquirrelMetamethodDelegate__bindgen_vtable,
-}
-#[repr(C)]
-pub struct IScriptVM_ISquirrelMetamethodDelegate__bindgen_vtable {
-    pub IScriptVM_ISquirrelMetamethodDelegate_destructor: unsafe extern "C" fn(
-        arg1: *mut IScriptVM_ISquirrelMetamethodDelegate,
-        arg2: ::std::os::raw::c_uint,
-    ) -> *mut ::std::os::raw::c_void,
-    pub IScriptVM_ISquirrelMetamethodDelegate_Get: unsafe extern "C" fn(
-        arg1: *mut IScriptVM_ISquirrelMetamethodDelegate,
-        arg2: *const ScriptVariant_t,
-        arg3: *mut ScriptVariant_t,
-    ) -> bool,
-}
 #[repr(C)]
 pub struct IScriptVM__bindgen_vtable {
     pub IScriptVM_Init: unsafe extern "C" fn(arg1: *mut IScriptVM) -> bool,
@@ -355,6 +298,63 @@ pub struct IScriptVM__bindgen_vtable {
         arg5: *mut ScriptVariant_t,
     ) -> ::std::os::raw::c_int,
 }
+/** RAII class used to register an ISquirrelMetamethodDelegate as a slot in an existing Squirrel
+class. For example, if you have a class foo, and you call this with the slotName "bar",
+this will make things so that foo.bar.x in Squirrel will actually call Get( "x") on the
+ISquirrelMetamethodDelegate you provided.
+
+To register a ISquirrelMetamethodDelegate for a given Squirrel object,
+create one of these. When this object goes out of scope, the _get metamethod will
+be unregistered and unbound. That lets you have automatic cleanup.
+This kooky workaround is necessary because the actual machinery of registering
+a metamethod has to be inside the vscript.dll, so the code that you would like
+to simply be in the constructor for ISquirrelMetamethodDelegate actually has to
+be hidden behind a function in this interface.
+
+\note It's impossible to create a new slot on a class *instance*, only set the
+value of an existing slot. So you can't make a new slot with CSquirrelNamedSlotToGetMethodDelegate --
+its pszSlotName should match a slot already existing in the class.*/
+#[repr(C)]
+#[derive(Debug)]
+pub struct IScriptVM_CSquirrelNamedSlotToGetMethodDelegate {
+    /** PIMPL idiom, necessary because the necessary Squirrel details can't be
+ included at this interface layer. When we break the Squirrel abstraction,
+ the code and data through this pointer can be brought into one class and
+ we can have less insanity.*/
+    pub m_pImpl: *mut CSquirrelMetamethodDelegateImpl,
+    pub m_pVM: *mut IScriptVM,
+}
+/**\desc When squirrel does a lookup like "foo.bar", the class that's behind foo has a chance
+to override the _get() function, so that it can intercept the lookup for "foo" and
+supply whatever it likes in its place. This interface lets you inject, from the C++
+side, any key->value dictionary that fits this mechanism.
+
+It registers itself as a slot in the given Squirrel class, then any get() on that slot
+actually comes to the Get() function here.
+
+Note that it's impossible to create a new slot on a class *instance*, only set the
+value of an existing slot. So you can't make a new slot with CSquirrelNamedSlotToGetMethodDelegate --
+its pszSlotName should match a slot already existing in the class.
+
+Your C++ dictionary (anything with get-value-by-key semantics)
+should inherit from this:*/
+#[repr(C)]
+#[derive(Debug)]
+pub struct IScriptVM_ISquirrelMetamethodDelegate {
+    pub vtable_: *const IScriptVM_ISquirrelMetamethodDelegate__bindgen_vtable,
+}
+#[repr(C)]
+pub struct IScriptVM_ISquirrelMetamethodDelegate__bindgen_vtable {
+    pub IScriptVM_ISquirrelMetamethodDelegate_destructor: unsafe extern "C" fn(
+        arg1: *mut IScriptVM_ISquirrelMetamethodDelegate,
+        arg2: ::std::os::raw::c_uint,
+    ) -> *mut ::std::os::raw::c_void,
+    pub IScriptVM_ISquirrelMetamethodDelegate_Get: unsafe extern "C" fn(
+        arg1: *mut IScriptVM_ISquirrelMetamethodDelegate,
+        arg2: *const ScriptVariant_t,
+        arg3: *mut ScriptVariant_t,
+    ) -> bool,
+}
 #[repr(C)]
 #[derive(Debug)]
 pub struct ScriptClassDesc_t {
@@ -385,19 +385,19 @@ pub struct ScriptFuncDescriptor_t {
     pub m_Parameters: CUtlVector<ScriptDataType_t, CUtlMemory<::std::os::raw::c_int>>,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct ScriptFunctionBindingStorageType_t {
-    pub val_0: isize,
-    pub val_1: isize,
-    pub val_2: isize,
-    pub val_3: isize,
-}
-#[repr(C)]
 #[derive(Debug)]
 pub struct ScriptFunctionBinding_t {
     pub m_desc: ScriptFuncDescriptor_t,
     pub m_pfnBinding: ScriptBindingFunc_t,
     pub m_pFunction: ScriptFunctionBindingStorageType_t,
     pub m_flags: ::std::os::raw::c_uint,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ScriptFunctionBindingStorageType_t {
+    pub val_0: isize,
+    pub val_1: isize,
+    pub val_2: isize,
+    pub val_3: isize,
 }
 include!("layout_assertions.rs");

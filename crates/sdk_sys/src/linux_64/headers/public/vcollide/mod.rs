@@ -29,13 +29,6 @@ pub struct vcollide_t {
 impl vcollide_t {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn isPacked(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<15usize, 1u8>() as u16)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn isPacked_raw(this: *const Self) -> ::std::os::raw::c_ushort {
         unsafe {
             ::std::mem::transmute(
@@ -75,14 +68,6 @@ impl vcollide_t {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_isPacked(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<15usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_isPacked_raw(this: *mut Self, val: ::std::os::raw::c_ushort) {
         unsafe {
             let val: u16 = ::std::mem::transmute(val);
@@ -92,14 +77,6 @@ impl vcollide_t {
                 15usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_solidCount(&mut self, val: ::std::os::raw::c_ushort) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 15u8>(val as u64)
         }
     }
     #[inline]
@@ -117,13 +94,6 @@ impl vcollide_t {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn solidCount(&self) -> ::std::os::raw::c_ushort {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 15u8>() as u16)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn solidCount_raw(this: *const Self) -> ::std::os::raw::c_ushort {
         unsafe {
             ::std::mem::transmute(
@@ -134,6 +104,36 @@ impl vcollide_t {
                     15u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u16,
             )
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn isPacked(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<15usize, 1u8>() as u16)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_isPacked(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<15usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_solidCount(&mut self, val: ::std::os::raw::c_ushort) {
+        unsafe {
+            let val: u16 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 15u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn solidCount(&self) -> ::std::os::raw::c_ushort {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 15u8>() as u16)
         }
     }
 }

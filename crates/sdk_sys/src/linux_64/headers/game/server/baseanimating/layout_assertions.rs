@@ -3,11 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseAnimating"][::std::mem::size_of::<CBaseAnimating>() - 1544usize];
-    ["Alignment of CBaseAnimating"][::std::mem::align_of::<CBaseAnimating>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CBaseAnimating_NetworkVar_m_bClientSideAnimation",
     ][::std::mem::size_of::<CBaseAnimating_NetworkVar_m_bClientSideAnimation>()
@@ -210,4 +205,9 @@ const _: () = {
     [
         "Alignment of CBaseAnimating_NetworkVar_m_vecForce",
     ][::std::mem::align_of::<CBaseAnimating_NetworkVar_m_vecForce>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CBaseAnimating"][::std::mem::size_of::<CBaseAnimating>() - 1544usize];
+    ["Alignment of CBaseAnimating"][::std::mem::align_of::<CBaseAnimating>() - 8usize];
 };

@@ -10,6 +10,13 @@ interface! {
 	pub struct ServerGameClients(sys::IServerGameClients) = GameServer c"ServerGameClients005";
 }
 
+const _: () = assert!(
+	offset_of!(
+		sys::IServerGameClients__bindgen_vtable,
+		IServerGameClients_ClientCommand
+	) == size_of::<*const ()>() * CLIENT_COMMAND_VTABLE_SLOT
+);
+
 /// The vtable slot of `IServerGameClients::ClientCommand`, which a plugin hooks
 /// to run clients' commands through
 /// [`route_client_command`](crate::commands::route_client_command).
@@ -17,13 +24,6 @@ interface! {
 /// The interface declares no virtual destructor, so the slot is the same under
 /// the MSVC and Itanium ABIs.
 pub const CLIENT_COMMAND_VTABLE_SLOT: usize = 5;
-
-const _: () = assert!(
-	offset_of!(
-		sys::IServerGameClients__bindgen_vtable,
-		IServerGameClients_ClientCommand
-	) == size_of::<*const ()>() * CLIENT_COMMAND_VTABLE_SLOT
-);
 
 /// The player counts a game supports, from [`ServerGameClients::player_limits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

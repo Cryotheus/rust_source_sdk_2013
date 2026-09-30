@@ -4,6 +4,7 @@ use crate::sys::api::{
 	CreateInterfaceFn, ISmmApi, ISmmApiVtable1226, ISmmApiVtable1469, ISmmApiVtablePrefix,
 	ISmmApiVtableSuffix, MetamodVersionInfo1226, MetamodVersionInfo1469, MetamodVersionInfoPrefix,
 };
+
 use std::error::Error;
 use std::ffi::{CStr, c_int, c_void};
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -72,41 +73,23 @@ pub struct MetamodApi<'callback> {
 }
 
 impl MetamodApi<'_> {
-	pub fn version(&self) -> MetamodVersion {
-		self.binding.version()
-	}
-
-	pub fn supports(&self, feature: MetamodFeature) -> bool {
-		matches!(
-			(self.version(), feature),
-			(
-				MetamodVersion::Stable1226,
-				MetamodFeature::SourceHookVersions
-			) | (MetamodVersion::Dev1469, MetamodFeature::DetourInterface)
-		)
-	}
-
-	/// Calls Metamod's logger without creating a reference to its C++ object.
-	pub fn log_cstr(&self, plugin: NonNull<c_void>, message: &CStr) {
-		let prefix = self.binding.vtable.prefix();
-		let log_message = unsafe { (&raw const (*prefix.as_ptr()).log_message).read() };
-
-		unsafe {
-			log_message(
-				self.binding.this.as_ptr(),
-				plugin.as_ptr(),
-				c"%s".as_ptr(),
-				message.as_ptr(),
-			)
+	/// Returns the dev-build detour interface, or an explicit unsupported error.
+	/// The returned pointer is opaque and must not be dereferenced without its
+	/// own interface contract.
+	pub fn detour_interface(
+		&self,
+		plugin_id: c_int,
+	) -> Result<Option<NonNull<c_void>>, UnsupportedFeature> {
+		let VersionedVtable::Dev1469(vtable) = self.binding.vtable else {
+			return Err(UnsupportedFeature(MetamodFeature::DetourInterface));
 		};
-	}
 
-	pub fn source_engine_build(&self) -> c_int {
-		let suffix = self.binding.vtable.suffix();
-		let get_source_engine_build =
-			unsafe { (&raw const (*suffix.as_ptr()).get_source_engine_build).read() };
+		let get_detour_interface =
+			unsafe { (&raw const (*vtable.as_ptr()).get_detour_interface).read() };
 
-		unsafe { get_source_engine_build(self.binding.this.as_ptr()) }
+		Ok(NonNull::new(unsafe {
+			get_detour_interface(self.binding.this.as_ptr(), plugin_id)
+		}))
 	}
 
 	/// The engine's own `CreateInterface`, bypassing the wrapper through which
@@ -117,16 +100,6 @@ impl MetamodApi<'_> {
 			unsafe { (&raw const (*prefix.as_ptr()).get_engine_factory).read() };
 
 		unsafe { get_engine_factory(self.binding.this.as_ptr(), false) }
-	}
-
-	/// The game server's own `CreateInterface`, bypassing the wrapper through
-	/// which Metamod lets plugins substitute interfaces.
-	pub fn server_factory(&self) -> CreateInterfaceFn {
-		let prefix = self.binding.vtable.prefix();
-		let get_server_factory =
-			unsafe { (&raw const (*prefix.as_ptr()).get_server_factory).read() };
-
-		unsafe { get_server_factory(self.binding.this.as_ptr(), false) }
 	}
 
 	/// Looks up an engine interface. The caller must validate and bind the
@@ -142,6 +115,17 @@ impl MetamodApi<'_> {
 		self.find_interface(factory, name)
 	}
 
+	fn find_interface<T>(&self, factory: CreateInterfaceFn, name: &CStr) -> Option<NonNull<T>> {
+		let suffix = self.binding.vtable.suffix();
+		let interface_match = unsafe { (&raw const (*suffix.as_ptr()).interface_match).read() };
+		let factory = factory?;
+		let interface = unsafe {
+			interface_match(self.binding.this.as_ptr(), Some(factory), name.as_ptr(), -1)
+		};
+
+		NonNull::new(interface.cast())
+	}
+
 	/// Looks up a game-server interface. The caller must validate and bind the
 	/// returned opaque pointer before dereferencing it.
 	///
@@ -154,15 +138,19 @@ impl MetamodApi<'_> {
 		self.find_interface(factory, name)
 	}
 
-	fn find_interface<T>(&self, factory: CreateInterfaceFn, name: &CStr) -> Option<NonNull<T>> {
-		let suffix = self.binding.vtable.suffix();
-		let interface_match = unsafe { (&raw const (*suffix.as_ptr()).interface_match).read() };
-		let factory = factory?;
-		let interface = unsafe {
-			interface_match(self.binding.this.as_ptr(), Some(factory), name.as_ptr(), -1)
-		};
+	/// Calls Metamod's logger without creating a reference to its C++ object.
+	pub fn log_cstr(&self, plugin: NonNull<c_void>, message: &CStr) {
+		let prefix = self.binding.vtable.prefix();
+		let log_message = unsafe { (&raw const (*prefix.as_ptr()).log_message).read() };
 
-		NonNull::new(interface.cast())
+		unsafe {
+			log_message(
+				self.binding.this.as_ptr(),
+				plugin.as_ptr(),
+				c"%s".as_ptr(),
+				message.as_ptr(),
+			)
+		};
 	}
 
 	/// `ISmmAPI::RegisterConCommandBase`, which links a command or variable and
@@ -190,29 +178,22 @@ impl MetamodApi<'_> {
 		}
 	}
 
-	/// `ISmmAPI::UnregisterConCommandBase`, the reverse of
-	/// [`Self::register_con_command_base`].
-	///
-	/// # Safety
-	///
-	/// As for [`Self::register_con_command_base`].
-	#[cfg(feature = "sdk")]
-	pub(crate) unsafe fn unregister_con_command_base(
-		&self,
-		plugin: NonNull<c_void>,
-		command: NonNull<c_void>,
-	) {
+	/// The game server's own `CreateInterface`, bypassing the wrapper through
+	/// which Metamod lets plugins substitute interfaces.
+	pub fn server_factory(&self) -> CreateInterfaceFn {
 		let prefix = self.binding.vtable.prefix();
-		let unregister =
-			unsafe { (&raw const (*prefix.as_ptr()).unregister_con_command_base).read() };
+		let get_server_factory =
+			unsafe { (&raw const (*prefix.as_ptr()).get_server_factory).read() };
 
-		unsafe {
-			unregister(
-				self.binding.this.as_ptr(),
-				plugin.as_ptr(),
-				command.as_ptr(),
-			)
-		};
+		unsafe { get_server_factory(self.binding.this.as_ptr(), false) }
+	}
+
+	pub fn source_engine_build(&self) -> c_int {
+		let suffix = self.binding.vtable.suffix();
+		let get_source_engine_build =
+			unsafe { (&raw const (*suffix.as_ptr()).get_source_engine_build).read() };
+
+		unsafe { get_source_engine_build(self.binding.this.as_ptr()) }
 	}
 
 	/// Returns `None` on dev builds, which removed `GetShVersions`.
@@ -238,23 +219,43 @@ impl MetamodApi<'_> {
 		})
 	}
 
-	/// Returns the dev-build detour interface, or an explicit unsupported error.
-	/// The returned pointer is opaque and must not be dereferenced without its
-	/// own interface contract.
-	pub fn detour_interface(
+	pub fn supports(&self, feature: MetamodFeature) -> bool {
+		matches!(
+			(self.version(), feature),
+			(
+				MetamodVersion::Stable1226,
+				MetamodFeature::SourceHookVersions
+			) | (MetamodVersion::Dev1469, MetamodFeature::DetourInterface)
+		)
+	}
+
+	/// `ISmmAPI::UnregisterConCommandBase`, the reverse of
+	/// [`Self::register_con_command_base`].
+	///
+	/// # Safety
+	///
+	/// As for [`Self::register_con_command_base`].
+	#[cfg(feature = "sdk")]
+	pub(crate) unsafe fn unregister_con_command_base(
 		&self,
-		plugin_id: c_int,
-	) -> Result<Option<NonNull<c_void>>, UnsupportedFeature> {
-		let VersionedVtable::Dev1469(vtable) = self.binding.vtable else {
-			return Err(UnsupportedFeature(MetamodFeature::DetourInterface));
+		plugin: NonNull<c_void>,
+		command: NonNull<c_void>,
+	) {
+		let prefix = self.binding.vtable.prefix();
+		let unregister =
+			unsafe { (&raw const (*prefix.as_ptr()).unregister_con_command_base).read() };
+
+		unsafe {
+			unregister(
+				self.binding.this.as_ptr(),
+				plugin.as_ptr(),
+				command.as_ptr(),
+			)
 		};
+	}
 
-		let get_detour_interface =
-			unsafe { (&raw const (*vtable.as_ptr()).get_detour_interface).read() };
-
-		Ok(NonNull::new(unsafe {
-			get_detour_interface(self.binding.this.as_ptr(), plugin_id)
-		}))
+	pub fn version(&self) -> MetamodVersion {
+		self.binding.version()
 	}
 }
 
@@ -358,27 +359,6 @@ pub enum MetamodVersion {
 }
 
 impl MetamodVersion {
-	pub fn build_number(&self) -> u32 {
-		match self {
-			Self::Stable1226 => 1226,
-			Self::Dev1469 => 1469,
-		}
-	}
-
-	pub fn release_channel(&self) -> MetamodReleaseChannel {
-		match self {
-			Self::Stable1226 => MetamodReleaseChannel::Stable,
-			Self::Dev1469 => MetamodReleaseChannel::Dev,
-		}
-	}
-
-	pub fn plugin_api_version(self) -> c_int {
-		match self {
-			Self::Stable1226 => 16,
-			Self::Dev1469 => 18,
-		}
-	}
-
 	fn from_api_versions(
 		major: c_int,
 		minor: c_int,
@@ -389,6 +369,27 @@ impl MetamodVersion {
 			(2, 0, 16, 14) => Some(Self::Stable1226),
 			(2, 1, 18, 18) => Some(Self::Dev1469),
 			_ => None,
+		}
+	}
+
+	pub fn build_number(&self) -> u32 {
+		match self {
+			Self::Stable1226 => 1226,
+			Self::Dev1469 => 1469,
+		}
+	}
+
+	pub fn plugin_api_version(self) -> c_int {
+		match self {
+			Self::Stable1226 => 16,
+			Self::Dev1469 => 18,
+		}
+	}
+
+	pub fn release_channel(&self) -> MetamodReleaseChannel {
+		match self {
+			Self::Stable1226 => MetamodReleaseChannel::Stable,
+			Self::Dev1469 => MetamodReleaseChannel::Dev,
 		}
 	}
 }
@@ -453,19 +454,11 @@ mod tests {
 	use std::mem::MaybeUninit;
 	use std::ptr::{null, null_mut};
 
-	unsafe extern "C" fn stable_api_versions(
-		_this: *mut ISmmApi,
-		major: *mut c_int,
-		minor: *mut c_int,
-		plugin_current: *mut c_int,
-		plugin_minimum: *mut c_int,
-	) {
-		unsafe {
-			major.write(2);
-			minor.write(0);
-			plugin_current.write(16);
-			plugin_minimum.write(14);
-		}
+	unsafe extern "C" fn create_interface(
+		_name: *const std::ffi::c_char,
+		_return_code: *mut c_int,
+	) -> *mut c_void {
+		NonNull::<c_void>::dangling().as_ptr()
 	}
 
 	unsafe extern "C" fn dev_api_versions(
@@ -480,6 +473,21 @@ mod tests {
 			minor.write(1);
 			plugin_current.write(18);
 			plugin_minimum.write(18);
+		}
+	}
+
+	unsafe extern "C" fn stable_api_versions(
+		_this: *mut ISmmApi,
+		major: *mut c_int,
+		minor: *mut c_int,
+		plugin_current: *mut c_int,
+		plugin_minimum: *mut c_int,
+	) {
+		unsafe {
+			major.write(2);
+			minor.write(0);
+			plugin_current.write(16);
+			plugin_minimum.write(14);
 		}
 	}
 
@@ -498,20 +506,8 @@ mod tests {
 		}
 	}
 
-	unsafe extern "C" fn create_interface(
-		_name: *const std::ffi::c_char,
-		_return_code: *mut c_int,
-	) -> *mut c_void {
-		NonNull::<c_void>::dangling().as_ptr()
-	}
-
 	thread_local! {
 		static LAST_SYNTHETIC: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
-	}
-
-	unsafe extern "C" fn engine_factory(_this: *mut ISmmApi, synthetic: bool) -> CreateInterfaceFn {
-		LAST_SYNTHETIC.set(Some(synthetic));
-		Some(create_interface)
 	}
 
 	unsafe extern "C" fn create_server_interface(
@@ -521,69 +517,12 @@ mod tests {
 		2_usize as *mut c_void
 	}
 
-	unsafe extern "C" fn server_factory(_this: *mut ISmmApi, synthetic: bool) -> CreateInterfaceFn {
-		LAST_SYNTHETIC.set(Some(synthetic));
-		Some(create_server_interface)
-	}
-
-	unsafe extern "C" fn interface_match(
-		_this: *mut ISmmApi,
-		factory: CreateInterfaceFn,
-		name: *const std::ffi::c_char,
-		_minimum: c_int,
-	) -> *mut c_void {
-		let Some(factory) = factory else {
-			return null_mut();
-		};
-		unsafe { factory(name, null_mut()) }
-	}
-
-	unsafe extern "C" fn stable_engine_build(_this: *mut ISmmApi) -> c_int {
-		SOURCE_ENGINE_TF2
-	}
-
-	unsafe extern "C" fn dev_engine_build(_this: *mut ISmmApi) -> c_int {
-		19
-	}
-
-	unsafe extern "C" fn source_hook_versions(
-		_this: *mut ISmmApi,
-		interface: *mut c_int,
-		implementation: *mut c_int,
-	) {
-		unsafe {
-			interface.write(7);
-			implementation.write(8);
-		}
-	}
-
 	unsafe extern "C" fn detour_interface(_this: *mut ISmmApi, _plugin_id: c_int) -> *mut c_void {
 		NonNull::<c_void>::dangling().as_ptr()
 	}
 
-	fn mock_vtable(version: MetamodVersion) -> [MaybeUninit<*const ()>; 34] {
-		let mut slots = [MaybeUninit::uninit(); 34];
-
-		slots[1].write(engine_factory as *const ());
-		slots[4].write(server_factory as *const ());
-
-		match version {
-			MetamodVersion::Stable1226 => {
-				slots[10].write(stable_api_versions as *const ());
-				slots[11].write(source_hook_versions as *const ());
-				slots[19].write(interface_match as *const ());
-				slots[26].write(stable_engine_build as *const ());
-			}
-
-			MetamodVersion::Dev1469 => {
-				slots[10].write(dev_api_versions as *const ());
-				slots[18].write(interface_match as *const ());
-				slots[25].write(dev_engine_build as *const ());
-				slots[33].write(detour_interface as *const ());
-			}
-		}
-
-		slots
+	unsafe extern "C" fn dev_engine_build(_this: *mut ISmmApi) -> c_int {
+		19
 	}
 
 	#[test]
@@ -660,17 +599,46 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn rejects_unrecognized_api_version_before_version_specific_vtable_access() {
-		let mut vtable = [MaybeUninit::<*const ()>::uninit(); 11];
+	unsafe extern "C" fn engine_factory(_this: *mut ISmmApi, synthetic: bool) -> CreateInterfaceFn {
+		LAST_SYNTHETIC.set(Some(synthetic));
+		Some(create_interface)
+	}
 
-		vtable[10].write(unknown_api_versions as *const ());
-
-		let mut object = ISmmApi {
-			vtable: vtable.as_ptr().cast(),
+	unsafe extern "C" fn interface_match(
+		_this: *mut ISmmApi,
+		factory: CreateInterfaceFn,
+		name: *const std::ffi::c_char,
+		_minimum: c_int,
+	) -> *mut c_void {
+		let Some(factory) = factory else {
+			return null_mut();
 		};
+		unsafe { factory(name, null_mut()) }
+	}
 
-		assert!(unsafe { MetamodApiBinding::detect(NonNull::from(&mut object).cast()) }.is_none());
+	fn mock_vtable(version: MetamodVersion) -> [MaybeUninit<*const ()>; 34] {
+		let mut slots = [MaybeUninit::uninit(); 34];
+
+		slots[1].write(engine_factory as *const ());
+		slots[4].write(server_factory as *const ());
+
+		match version {
+			MetamodVersion::Stable1226 => {
+				slots[10].write(stable_api_versions as *const ());
+				slots[11].write(source_hook_versions as *const ());
+				slots[19].write(interface_match as *const ());
+				slots[26].write(stable_engine_build as *const ());
+			}
+
+			MetamodVersion::Dev1469 => {
+				slots[10].write(dev_api_versions as *const ());
+				slots[18].write(interface_match as *const ());
+				slots[25].write(dev_engine_build as *const ());
+				slots[33].write(detour_interface as *const ());
+			}
+		}
+
+		slots
 	}
 
 	#[test]
@@ -716,5 +684,38 @@ mod tests {
 		);
 
 		assert!(unsafe { LoaderVersionInfo::from_raw(null()) }.is_none());
+	}
+
+	#[test]
+	fn rejects_unrecognized_api_version_before_version_specific_vtable_access() {
+		let mut vtable = [MaybeUninit::<*const ()>::uninit(); 11];
+
+		vtable[10].write(unknown_api_versions as *const ());
+
+		let mut object = ISmmApi {
+			vtable: vtable.as_ptr().cast(),
+		};
+
+		assert!(unsafe { MetamodApiBinding::detect(NonNull::from(&mut object).cast()) }.is_none());
+	}
+
+	unsafe extern "C" fn server_factory(_this: *mut ISmmApi, synthetic: bool) -> CreateInterfaceFn {
+		LAST_SYNTHETIC.set(Some(synthetic));
+		Some(create_server_interface)
+	}
+
+	unsafe extern "C" fn source_hook_versions(
+		_this: *mut ISmmApi,
+		interface: *mut c_int,
+		implementation: *mut c_int,
+	) {
+		unsafe {
+			interface.write(7);
+			implementation.write(8);
+		}
+	}
+
+	unsafe extern "C" fn stable_engine_build(_this: *mut ISmmApi) -> c_int {
+		SOURCE_ENGINE_TF2
 	}
 }

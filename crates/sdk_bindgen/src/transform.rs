@@ -5,6 +5,98 @@ use syn::{Fields, File, GenericArgument, Item, ItemStruct, PathArguments, Type, 
 const PROBE_PREFIX: &str = "__crys_vtable_";
 const VTABLE_SUFFIX: &str = "__bindgen_vtable";
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum VtableTransformError {
+	#[error(
+		"more than one probe targets generated Rust class {target:?}: {first_probe:?} and {second_probe:?}"
+	)]
+	DuplicateProbeTarget {
+		target: String,
+		first_probe: String,
+		second_probe: String,
+	},
+
+	#[error(
+		"generated vtable {vtable:?} is empty or opaque without being explicitly marked opaque"
+	)]
+	IncompleteVtable { vtable: String },
+
+	#[error("could not find generated interface {interface:?}")]
+	MissingInterface { interface: String },
+
+	#[error("could not find generated vtable {vtable:?}")]
+	MissingVtable { vtable: String },
+
+	#[error(
+		"generated vtable {vtable:?} fields do not match metadata: expected {expected:?}, found {actual:?}"
+	)]
+	MismatchedVtableFields {
+		vtable: String,
+		expected: Vec<String>,
+		actual: Vec<String>,
+	},
+
+	#[error("vtable probe field {field:?} is not a function pointer")]
+	InvalidProbeField { field: String },
+
+	#[error("vtable probe alias {alias:?} is recursive")]
+	RecursiveProbeAlias { alias: String },
+
+	#[error("interface {interface:?} is not a one-pointer C++ interface")]
+	UnexpectedInterfaceLayout { interface: String },
+
+	#[error("vtable probe {probe:?} does not have named fields")]
+	UnnamedProbe { probe: String },
+
+	#[error("vtable probe {probe:?} has no C++ to Rust record mapping")]
+	UnmappedProbe { probe: String },
+}
+
+/// Documents each record made opaque because bindgen cannot express its
+/// C++ layout, keyed by generated name.
+pub(crate) fn document_opaque_records(syntax: &mut File, reasons: &BTreeMap<String, String>) {
+	for item in &mut syntax.items {
+		let (ident, attributes) = match item {
+			Item::Struct(item) => (item.ident.to_string(), &mut item.attrs),
+			Item::Union(item) => (item.ident.to_string(), &mut item.attrs),
+			_ => continue,
+		};
+
+		let Some(reason) = reasons.get(&ident) else {
+			continue;
+		};
+		let summary = " Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.".to_owned();
+		let detail = format!(" Generated as fields, {reason}.");
+
+		attributes.insert(0, parse_quote!(#[doc = #detail]));
+		attributes.insert(0, parse_quote!(#[doc = ""]));
+		attributes.insert(0, parse_quote!(#[doc = #summary]));
+	}
+}
+
+/// Documents each placeholder vtable left in place for a record whose table
+/// cannot be modeled, so the gap is visible in the generated API.
+pub(crate) fn document_opaque_vtables(syntax: &mut File, reasons: &BTreeMap<String, String>) {
+	for item in &mut syntax.items {
+		let Item::Struct(vtable) = item else { continue };
+		let name = vtable.ident.to_string();
+
+		let Some(reason) = name
+			.strip_suffix(VTABLE_SUFFIX)
+			.and_then(|class_name| reasons.get(class_name))
+		else {
+			continue;
+		};
+
+		let summary = " Opaque placeholder: this vtable's slots are not modeled.".to_owned();
+		let detail = format!(" Reason: {reason}.");
+
+		vtable.attrs.insert(0, parse_quote!(#[doc = #detail]));
+		vtable.attrs.insert(0, parse_quote!(#[doc = ""]));
+		vtable.attrs.insert(0, parse_quote!(#[doc = #summary]));
+	}
+}
+
 /// Replaces bindgen's incomplete C++ vtables with the typed probe structs
 /// emitted by the libclang metadata pass.
 ///
@@ -23,6 +115,7 @@ pub(crate) fn install_vtable_probes(
 			Item::Type(alias) if alias.ident.to_string().starts_with(PROBE_PREFIX) => {
 				Some((alias.ident.to_string(), (*alias.ty).clone()))
 			}
+
 			_ => None,
 		})
 		.collect::<BTreeMap<_, _>>();
@@ -137,121 +230,6 @@ pub(crate) fn install_vtable_probes(
 	Ok(installed)
 }
 
-/// Validates that every generated vtable is callable and that probe-backed
-/// tables exactly match their metadata-derived ABI slot order.
-pub(crate) fn validate_vtables_against(
-	syntax: &File,
-	expected_fields: &BTreeMap<String, Vec<String>>,
-	intentionally_opaque: &BTreeSet<String>,
-) -> Result<(), VtableTransformError> {
-	let mut found = BTreeSet::new();
-
-	for item in &syntax.items {
-		let Item::Struct(vtable) = item else { continue };
-		let name = vtable.ident.to_string();
-		let Some(class_name) = name.strip_suffix(VTABLE_SUFFIX) else {
-			continue;
-		};
-
-		if intentionally_opaque.contains(class_name) {
-			continue;
-		}
-
-		let Fields::Named(fields) = &vtable.fields else {
-			return Err(VtableTransformError::IncompleteVtable { vtable: name });
-		};
-
-		if fields.named.is_empty() {
-			return Err(VtableTransformError::IncompleteVtable { vtable: name });
-		}
-
-		if fields
-			.named
-			.iter()
-			.any(|field| !matches!(field.ty, Type::FnPtr(_)))
-		{
-			return Err(VtableTransformError::IncompleteVtable { vtable: name });
-		}
-
-		if let Some(expected) = expected_fields.get(class_name) {
-			let actual = fields
-				.named
-				.iter()
-				.map(|field| {
-					field
-						.ident
-						.as_ref()
-						.map(ToString::to_string)
-						.unwrap_or_default()
-				})
-				.collect::<Vec<_>>();
-
-			if &actual != expected {
-				return Err(VtableTransformError::MismatchedVtableFields {
-					vtable: name,
-					expected: expected.clone(),
-					actual,
-				});
-			}
-
-			found.insert(class_name.to_owned());
-		}
-	}
-
-	if let Some(missing) = expected_fields.keys().find(|name| !found.contains(*name)) {
-		return Err(VtableTransformError::MissingVtable {
-			vtable: format!("{missing}{VTABLE_SUFFIX}"),
-		});
-	}
-
-	Ok(())
-}
-
-/// Documents each placeholder vtable left in place for a record whose table
-/// cannot be modeled, so the gap is visible in the generated API.
-pub(crate) fn document_opaque_vtables(syntax: &mut File, reasons: &BTreeMap<String, String>) {
-	for item in &mut syntax.items {
-		let Item::Struct(vtable) = item else { continue };
-		let name = vtable.ident.to_string();
-
-		let Some(reason) = name
-			.strip_suffix(VTABLE_SUFFIX)
-			.and_then(|class_name| reasons.get(class_name))
-		else {
-			continue;
-		};
-
-		let summary = " Opaque placeholder: this vtable's slots are not modeled.".to_owned();
-		let detail = format!(" Reason: {reason}.");
-
-		vtable.attrs.insert(0, parse_quote!(#[doc = #detail]));
-		vtable.attrs.insert(0, parse_quote!(#[doc = ""]));
-		vtable.attrs.insert(0, parse_quote!(#[doc = #summary]));
-	}
-}
-
-/// Documents each record made opaque because bindgen cannot express its
-/// C++ layout, keyed by generated name.
-pub(crate) fn document_opaque_records(syntax: &mut File, reasons: &BTreeMap<String, String>) {
-	for item in &mut syntax.items {
-		let (ident, attributes) = match item {
-			Item::Struct(item) => (item.ident.to_string(), &mut item.attrs),
-			Item::Union(item) => (item.ident.to_string(), &mut item.attrs),
-			_ => continue,
-		};
-
-		let Some(reason) = reasons.get(&ident) else {
-			continue;
-		};
-		let summary = " Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.".to_owned();
-		let detail = format!(" Generated as fields, {reason}.");
-
-		attributes.insert(0, parse_quote!(#[doc = #detail]));
-		attributes.insert(0, parse_quote!(#[doc = ""]));
-		attributes.insert(0, parse_quote!(#[doc = #summary]));
-	}
-}
-
 fn point_interface_at_vtable(
 	syntax: &mut File,
 	class_name: &str,
@@ -341,56 +319,106 @@ fn resolve_function_pointer(
 	resolved
 }
 
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum VtableTransformError {
-	#[error(
-		"more than one probe targets generated Rust class {target:?}: {first_probe:?} and {second_probe:?}"
-	)]
-	DuplicateProbeTarget {
-		target: String,
-		first_probe: String,
-		second_probe: String,
-	},
+/// Validates that every generated vtable is callable and that probe-backed
+/// tables exactly match their metadata-derived ABI slot order.
+pub(crate) fn validate_vtables_against(
+	syntax: &File,
+	expected_fields: &BTreeMap<String, Vec<String>>,
+	intentionally_opaque: &BTreeSet<String>,
+) -> Result<(), VtableTransformError> {
+	let mut found = BTreeSet::new();
 
-	#[error(
-		"generated vtable {vtable:?} is empty or opaque without being explicitly marked opaque"
-	)]
-	IncompleteVtable { vtable: String },
+	for item in &syntax.items {
+		let Item::Struct(vtable) = item else { continue };
+		let name = vtable.ident.to_string();
+		let Some(class_name) = name.strip_suffix(VTABLE_SUFFIX) else {
+			continue;
+		};
 
-	#[error("could not find generated interface {interface:?}")]
-	MissingInterface { interface: String },
+		if intentionally_opaque.contains(class_name) {
+			continue;
+		}
 
-	#[error("could not find generated vtable {vtable:?}")]
-	MissingVtable { vtable: String },
+		let Fields::Named(fields) = &vtable.fields else {
+			return Err(VtableTransformError::IncompleteVtable { vtable: name });
+		};
 
-	#[error(
-		"generated vtable {vtable:?} fields do not match metadata: expected {expected:?}, found {actual:?}"
-	)]
-	MismatchedVtableFields {
-		vtable: String,
-		expected: Vec<String>,
-		actual: Vec<String>,
-	},
+		if fields.named.is_empty() {
+			return Err(VtableTransformError::IncompleteVtable { vtable: name });
+		}
 
-	#[error("vtable probe field {field:?} is not a function pointer")]
-	InvalidProbeField { field: String },
+		if fields
+			.named
+			.iter()
+			.any(|field| !matches!(field.ty, Type::FnPtr(_)))
+		{
+			return Err(VtableTransformError::IncompleteVtable { vtable: name });
+		}
 
-	#[error("vtable probe alias {alias:?} is recursive")]
-	RecursiveProbeAlias { alias: String },
+		if let Some(expected) = expected_fields.get(class_name) {
+			let actual = fields
+				.named
+				.iter()
+				.map(|field| {
+					field
+						.ident
+						.as_ref()
+						.map(ToString::to_string)
+						.unwrap_or_default()
+				})
+				.collect::<Vec<_>>();
 
-	#[error("interface {interface:?} is not a one-pointer C++ interface")]
-	UnexpectedInterfaceLayout { interface: String },
+			if &actual != expected {
+				return Err(VtableTransformError::MismatchedVtableFields {
+					vtable: name,
+					expected: expected.clone(),
+					actual,
+				});
+			}
 
-	#[error("vtable probe {probe:?} does not have named fields")]
-	UnnamedProbe { probe: String },
+			found.insert(class_name.to_owned());
+		}
+	}
 
-	#[error("vtable probe {probe:?} has no C++ to Rust record mapping")]
-	UnmappedProbe { probe: String },
+	if let Some(missing) = expected_fields.keys().find(|name| !found.contains(*name)) {
+		return Err(VtableTransformError::MissingVtable {
+			vtable: format!("{missing}{VTABLE_SUFFIX}"),
+		});
+	}
+
+	Ok(())
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn documents_intentionally_opaque_vtables() {
+		let mut syntax: File = parse_quote! {
+			pub struct Multiple__bindgen_vtable(::std::os::raw::c_void);
+			pub struct Other__bindgen_vtable(::std::os::raw::c_void);
+		};
+
+		let reasons = BTreeMap::from([(
+			"Multiple".to_owned(),
+			"`Multiple` has more than one polymorphic base class".to_owned(),
+		)]);
+		validate_vtables_against(
+			&syntax,
+			&BTreeMap::new(),
+			&BTreeSet::from(["Multiple".to_owned(), "Other".to_owned()]),
+		)
+		.unwrap();
+		document_opaque_vtables(&mut syntax, &reasons);
+
+		let rendered = quote!(#syntax).to_string();
+		assert!(
+			rendered.contains("more than one polymorphic base class"),
+			"{rendered}"
+		);
+		assert_eq!(rendered.matches("# [doc").count(), 3, "{rendered}");
+	}
 
 	#[test]
 	fn installs_typed_probe_and_flattens_primary_base() {
@@ -456,33 +484,6 @@ mod tests {
 			installed["fixture__Derived"].clone(),
 		)]);
 		validate_vtables_against(&syntax, &expected, &BTreeSet::new()).unwrap();
-	}
-
-	#[test]
-	fn documents_intentionally_opaque_vtables() {
-		let mut syntax: File = parse_quote! {
-			pub struct Multiple__bindgen_vtable(::std::os::raw::c_void);
-			pub struct Other__bindgen_vtable(::std::os::raw::c_void);
-		};
-
-		let reasons = BTreeMap::from([(
-			"Multiple".to_owned(),
-			"`Multiple` has more than one polymorphic base class".to_owned(),
-		)]);
-		validate_vtables_against(
-			&syntax,
-			&BTreeMap::new(),
-			&BTreeSet::from(["Multiple".to_owned(), "Other".to_owned()]),
-		)
-		.unwrap();
-		document_opaque_vtables(&mut syntax, &reasons);
-
-		let rendered = quote!(#syntax).to_string();
-		assert!(
-			rendered.contains("more than one polymorphic base class"),
-			"{rendered}"
-		);
-		assert_eq!(rendered.matches("# [doc").count(), 3, "{rendered}");
 	}
 
 	#[test]

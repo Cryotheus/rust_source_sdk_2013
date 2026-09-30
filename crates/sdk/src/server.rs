@@ -1,11 +1,13 @@
 //! The crate's entry point, through which every other interface is reached.
 
 use crate::ffi::NotThreadSafe;
+
 use crate::interfaces::{
 	BotManager, Cvar, EngineSound, EngineTrace, GameEventManager, ModelInfo, NetworkStringTables,
 	PlayerInfoManager, PluginHelpers, ServerGameClients, ServerGameDll, ServerGameEnts,
 	ServerTools, ValveEngine, VoiceServer,
 };
+
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::marker::PhantomData;
@@ -15,6 +17,67 @@ use std::ptr::NonNull;
 /// hand out the interfaces it implements.
 pub type RawInterfaceFactory =
 	unsafe extern "C" fn(name: *const c_char, return_code: *mut c_int) -> *mut c_void;
+
+/// The game a server runs, which decides the ABI details that the SDK headers
+/// alone cannot describe, such as virtual methods added under `TF_DLL`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Game {
+	/// Team Fortress 2, whose game DLL is built with `TF_DLL`.
+	TeamFortress2,
+
+	/// A Source SDK 2013 mod built without game-specific virtual methods.
+	SourceSdk2013,
+}
+
+impl Game {
+	/// `CBaseEntity::Teleport` in the game DLL's primary `CBaseEntity` vtable.
+	pub(crate) const fn teleport_vtable_slot(self) -> usize {
+		match self {
+			Self::TeamFortress2 => sys::CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT,
+			Self::SourceSdk2013 => sys::CBASEENTITY_TELEPORT_VTABLE_SLOT,
+		}
+	}
+}
+
+/// An interface a factory exports, and the handle type wrapping it.
+///
+/// # Safety
+///
+/// `Raw` must be the C++ class that [`Self::MODULE`] exports under
+/// [`Self::VERSION`], and `bind` may only wrap the pointer it is given.
+pub(crate) unsafe trait Interface<'s>: Sized {
+	type Raw;
+
+	const MODULE: Module;
+	const VERSION: &'static CStr;
+
+	/// # Safety
+	///
+	/// `raw` must be the live object exported under [`Self::VERSION`], alive
+	/// for `'s`.
+	unsafe fn bind(raw: NonNull<Self::Raw>, server: &Server<'s>) -> Self;
+}
+
+/// A module does not export an interface at the version these bindings expect.
+///
+/// Interfaces are looked up by exact version, since another version may lay
+/// out its vtable differently.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("the {module} does not export `{}`; the server may not match the SDK the bindings were generated from", .version.to_string_lossy())]
+pub struct InterfaceError {
+	module: Module,
+	version: CString,
+}
+
+impl InterfaceError {
+	pub const fn module(&self) -> Module {
+		self.module
+	}
+
+	pub fn version(&self) -> &CStr {
+		&self.version
+	}
+}
 
 /// One module's `CreateInterface` function.
 ///
@@ -64,122 +127,6 @@ impl Display for Module {
 			Self::Engine => "engine",
 			Self::GameServer => "game server",
 		})
-	}
-}
-
-/// A module does not export an interface at the version these bindings expect.
-///
-/// Interfaces are looked up by exact version, since another version may lay
-/// out its vtable differently.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("the {module} does not export `{}`; the server may not match the SDK the bindings were generated from", .version.to_string_lossy())]
-pub struct InterfaceError {
-	module: Module,
-	version: CString,
-}
-
-impl InterfaceError {
-	pub const fn module(&self) -> Module {
-		self.module
-	}
-
-	pub fn version(&self) -> &CStr {
-		&self.version
-	}
-}
-
-/// The game a server runs, which decides the ABI details that the SDK headers
-/// alone cannot describe, such as virtual methods added under `TF_DLL`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Game {
-	/// Team Fortress 2, whose game DLL is built with `TF_DLL`.
-	TeamFortress2,
-
-	/// A Source SDK 2013 mod built without game-specific virtual methods.
-	SourceSdk2013,
-}
-
-impl Game {
-	/// `CBaseEntity::Teleport` in the game DLL's primary `CBaseEntity` vtable.
-	pub(crate) const fn teleport_vtable_slot(self) -> usize {
-		match self {
-			Self::TeamFortress2 => sys::CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT,
-			Self::SourceSdk2013 => sys::CBASEENTITY_TELEPORT_VTABLE_SLOT,
-		}
-	}
-}
-
-/// An interface a factory exports, and the handle type wrapping it.
-///
-/// # Safety
-///
-/// `Raw` must be the C++ class that [`Self::MODULE`] exports under
-/// [`Self::VERSION`], and `bind` may only wrap the pointer it is given.
-pub(crate) unsafe trait Interface<'s>: Sized {
-	type Raw;
-
-	const MODULE: Module;
-	const VERSION: &'static CStr;
-
-	/// # Safety
-	///
-	/// `raw` must be the live object exported under [`Self::VERSION`], alive
-	/// for `'s`.
-	unsafe fn bind(raw: NonNull<Self::Raw>, server: &Server<'s>) -> Self;
-}
-
-/// The running server's interface factories, kept between the engine's calls
-/// into a plugin.
-///
-/// Callbacks this crate implements for the engine, such as console commands,
-/// use a binding to produce a [`Server`] scoped to each call. Creating a
-/// binding is where the caller vouches for the factories once; each call site
-/// that turns it into a [`Server`] vouches for its own scope.
-#[derive(Debug, Clone, Copy)]
-pub struct ServerBinding {
-	engine: InterfaceFactory,
-	game_server: InterfaceFactory,
-	game: Game,
-	_not_thread_safe: NotThreadSafe,
-}
-
-impl ServerBinding {
-	/// Keeps the running server's interface factories for later calls.
-	///
-	/// # Safety
-	///
-	/// Conditions 1, 2 and 4 of [`Server::new`] must hold during every call
-	/// from the engine into the plugin in which this binding, or a copy, is
-	/// turned into a [`Server`]. In practice: the factories belong to the
-	/// running server, which the plugin is unloaded from before those modules
-	/// are, and the game DLL was built for `game`.
-	pub const unsafe fn new(
-		engine: InterfaceFactory,
-		game_server: InterfaceFactory,
-		game: Game,
-	) -> Self {
-		Self {
-			engine,
-			game_server,
-			game,
-			_not_thread_safe: PhantomData,
-		}
-	}
-
-	/// The game the server runs.
-	pub const fn game(&self) -> Game {
-		self.game
-	}
-
-	/// Produces a [`Server`] for the scope `'s`.
-	///
-	/// # Safety
-	///
-	/// Condition 3 of [`Server::new`]: `'s` lies within a single call from the
-	/// engine into the plugin, on the server's main thread.
-	pub const unsafe fn server<'s, S: ?Sized>(&self, scope: &'s S) -> Server<'s> {
-		// SAFETY: `new` vouched for conditions 1, 2 and 4, and the caller for 3.
-		unsafe { Server::new(self.engine, self.game_server, self.game, scope) }
 	}
 }
 
@@ -243,17 +190,9 @@ impl<'s> Server<'s> {
 		}
 	}
 
-	/// The game the server runs.
-	pub const fn game(&self) -> Game {
-		self.game
-	}
-
-	pub const fn engine_factory(&self) -> InterfaceFactory {
-		self.engine
-	}
-
-	pub const fn game_server_factory(&self) -> InterfaceFactory {
-		self.game_server
+	/// `IBotManager`, which creates bots.
+	pub fn bot_manager(&self) -> Result<BotManager<'s>, InterfaceError> {
+		self.interface()
 	}
 
 	/// Prints to the server console, which rcon's redirection also receives.
@@ -270,6 +209,25 @@ impl<'s> Server<'s> {
 		if let Ok(cvar) = self.cvar() {
 			cvar.console_printf(message);
 		}
+	}
+
+	/// `ICvar`, the console variable and command registry.
+	pub fn cvar(&self) -> Result<Cvar<'s>, InterfaceError> {
+		self.interface()
+	}
+
+	pub const fn engine_factory(&self) -> InterfaceFactory {
+		self.engine
+	}
+
+	/// `IEngineSound`, the server's sound system.
+	pub fn engine_sound(&self) -> Result<EngineSound<'s>, InterfaceError> {
+		self.interface()
+	}
+
+	/// `IEngineTrace`, which traces rays and queries world contents.
+	pub fn engine_trace(&self) -> Result<EngineTrace<'s>, InterfaceError> {
+		self.interface()
 	}
 
 	/// Looks up an interface this crate does not wrap.
@@ -298,6 +256,20 @@ impl<'s> Server<'s> {
 		})
 	}
 
+	/// The game the server runs.
+	pub const fn game(&self) -> Game {
+		self.game
+	}
+
+	/// `IGameEventManager2`, which creates, fires, and listens for game events.
+	pub fn game_events(&self) -> Result<GameEventManager<'s>, InterfaceError> {
+		self.interface()
+	}
+
+	pub const fn game_server_factory(&self) -> InterfaceFactory {
+		self.game_server
+	}
+
 	fn interface<I: Interface<'s>>(&self) -> Result<I, InterfaceError> {
 		let raw = self.find_interface::<I::Raw>(I::MODULE, I::VERSION)?;
 
@@ -306,28 +278,8 @@ impl<'s> Server<'s> {
 		Ok(unsafe { I::bind(raw, self) })
 	}
 
-	/// `IVEngineServer`, the engine's services for the game server.
-	pub fn valve_engine(&self) -> Result<ValveEngine<'s>, InterfaceError> {
-		self.interface()
-	}
-
-	/// `IGameEventManager2`, which creates, fires, and listens for game events.
-	pub fn game_events(&self) -> Result<GameEventManager<'s>, InterfaceError> {
-		self.interface()
-	}
-
-	/// `ICvar`, the console variable and command registry.
-	pub fn cvar(&self) -> Result<Cvar<'s>, InterfaceError> {
-		self.interface()
-	}
-
-	/// `IEngineTrace`, which traces rays and queries world contents.
-	pub fn engine_trace(&self) -> Result<EngineTrace<'s>, InterfaceError> {
-		self.interface()
-	}
-
-	/// `IEngineSound`, the server's sound system.
-	pub fn engine_sound(&self) -> Result<EngineSound<'s>, InterfaceError> {
+	/// `IVModelInfo`, the server's model registry.
+	pub fn model_info(&self) -> Result<ModelInfo<'s>, InterfaceError> {
 		self.interface()
 	}
 
@@ -336,18 +288,18 @@ impl<'s> Server<'s> {
 		self.interface()
 	}
 
+	/// `IPlayerInfoManager`, which exposes player state and the engine globals.
+	pub fn player_info_manager(&self) -> Result<PlayerInfoManager<'s>, InterfaceError> {
+		self.interface()
+	}
+
 	/// `IServerPluginHelpers`, services for server plugins.
 	pub fn plugin_helpers(&self) -> Result<PluginHelpers<'s>, InterfaceError> {
 		self.interface()
 	}
 
-	/// `IVModelInfo`, the server's model registry.
-	pub fn model_info(&self) -> Result<ModelInfo<'s>, InterfaceError> {
-		self.interface()
-	}
-
-	/// `IVoiceServer`, which routes voice between clients.
-	pub fn voice_server(&self) -> Result<VoiceServer<'s>, InterfaceError> {
+	/// `IServerGameClients`, the game's handling of connected clients.
+	pub fn server_game_clients(&self) -> Result<ServerGameClients<'s>, InterfaceError> {
 		self.interface()
 	}
 
@@ -361,24 +313,74 @@ impl<'s> Server<'s> {
 		self.interface()
 	}
 
-	/// `IServerGameClients`, the game's handling of connected clients.
-	pub fn server_game_clients(&self) -> Result<ServerGameClients<'s>, InterfaceError> {
-		self.interface()
-	}
-
-	/// `IPlayerInfoManager`, which exposes player state and the engine globals.
-	pub fn player_info_manager(&self) -> Result<PlayerInfoManager<'s>, InterfaceError> {
-		self.interface()
-	}
-
-	/// `IBotManager`, which creates bots.
-	pub fn bot_manager(&self) -> Result<BotManager<'s>, InterfaceError> {
-		self.interface()
-	}
-
 	/// `IServerTools`, which enumerates and manipulates entities.
 	pub fn server_tools(&self) -> Result<ServerTools<'s>, InterfaceError> {
 		self.interface()
+	}
+
+	/// `IVEngineServer`, the engine's services for the game server.
+	pub fn valve_engine(&self) -> Result<ValveEngine<'s>, InterfaceError> {
+		self.interface()
+	}
+
+	/// `IVoiceServer`, which routes voice between clients.
+	pub fn voice_server(&self) -> Result<VoiceServer<'s>, InterfaceError> {
+		self.interface()
+	}
+}
+
+/// The running server's interface factories, kept between the engine's calls
+/// into a plugin.
+///
+/// Callbacks this crate implements for the engine, such as console commands,
+/// use a binding to produce a [`Server`] scoped to each call. Creating a
+/// binding is where the caller vouches for the factories once; each call site
+/// that turns it into a [`Server`] vouches for its own scope.
+#[derive(Debug, Clone, Copy)]
+pub struct ServerBinding {
+	engine: InterfaceFactory,
+	game_server: InterfaceFactory,
+	game: Game,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl ServerBinding {
+	/// Keeps the running server's interface factories for later calls.
+	///
+	/// # Safety
+	///
+	/// Conditions 1, 2 and 4 of [`Server::new`] must hold during every call
+	/// from the engine into the plugin in which this binding, or a copy, is
+	/// turned into a [`Server`]. In practice: the factories belong to the
+	/// running server, which the plugin is unloaded from before those modules
+	/// are, and the game DLL was built for `game`.
+	pub const unsafe fn new(
+		engine: InterfaceFactory,
+		game_server: InterfaceFactory,
+		game: Game,
+	) -> Self {
+		Self {
+			engine,
+			game_server,
+			game,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// The game the server runs.
+	pub const fn game(&self) -> Game {
+		self.game
+	}
+
+	/// Produces a [`Server`] for the scope `'s`.
+	///
+	/// # Safety
+	///
+	/// Condition 3 of [`Server::new`]: `'s` lies within a single call from the
+	/// engine into the plugin, on the server's main thread.
+	pub const unsafe fn server<'s, S: ?Sized>(&self, scope: &'s S) -> Server<'s> {
+		// SAFETY: `new` vouched for conditions 1, 2 and 4, and the caller for 3.
+		unsafe { Server::new(self.engine, self.game_server, self.game, scope) }
 	}
 }
 
@@ -389,6 +391,20 @@ pub(crate) mod test_support {
 
 	thread_local! {
 		static INTERFACES: RefCell<Vec<(Module, CString, usize)>> = const { RefCell::new(Vec::new()) };
+	}
+
+	unsafe extern "C" fn engine_factory(
+		name: *const c_char,
+		_return_code: *mut c_int,
+	) -> *mut c_void {
+		find(Module::Engine, name)
+	}
+
+	/// Makes the mock factories of [`mock_server`] export an interface.
+	pub(crate) fn export<T>(module: Module, version: &CStr, interface: *mut T) {
+		INTERFACES.with_borrow_mut(|interfaces| {
+			interfaces.push((module, version.to_owned(), interface as usize))
+		});
 	}
 
 	fn find(module: Module, name: *const c_char) -> *mut c_void {
@@ -405,31 +421,11 @@ pub(crate) mod test_support {
 		})
 	}
 
-	unsafe extern "C" fn engine_factory(
-		name: *const c_char,
-		_return_code: *mut c_int,
-	) -> *mut c_void {
-		find(Module::Engine, name)
-	}
-
 	unsafe extern "C" fn game_server_factory(
 		name: *const c_char,
 		_return_code: *mut c_int,
 	) -> *mut c_void {
 		find(Module::GameServer, name)
-	}
-
-	/// Makes the mock factories of [`mock_server`] export an interface.
-	pub(crate) fn export<T>(module: Module, version: &CStr, interface: *mut T) {
-		INTERFACES.with_borrow_mut(|interfaces| {
-			interfaces.push((module, version.to_owned(), interface as usize))
-		});
-	}
-
-	/// A server whose factories export only what [`export`] registered on this thread.
-	pub(crate) fn mock_server<S: ?Sized>(scope: &S) -> Server<'_> {
-		// SAFETY: Tests only export objects that outlive the scope they pass.
-		unsafe { mock_binding().server(scope) }
 	}
 
 	/// A binding to the factories of [`mock_server`].
@@ -442,6 +438,12 @@ pub(crate) mod test_support {
 				Game::TeamFortress2,
 			)
 		}
+	}
+
+	/// A server whose factories export only what [`export`] registered on this thread.
+	pub(crate) fn mock_server<S: ?Sized>(scope: &S) -> Server<'_> {
+		// SAFETY: Tests only export objects that outlive the scope they pass.
+		unsafe { mock_binding().server(scope) }
 	}
 }
 

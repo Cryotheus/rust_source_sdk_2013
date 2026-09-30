@@ -7,11 +7,6 @@ use std::ffi::{CStr, c_int};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-/// Number of slots in the edict table.
-///
-/// This is `MAX_EDICTS` from `public/const.h`.
-pub const MAX_EDICTS: c_int = 1 << 11;
-
 /// `FL_EDICT_CHANGED` from `public/edict.h`, set when a networked variable changes.
 const FL_EDICT_CHANGED: c_int = 1 << 0;
 
@@ -27,6 +22,11 @@ const MAX_CHANGE_OFFSETS: u16 = 19;
 
 /// `MAX_EDICT_CHANGE_INFOS` from `public/edict.h`.
 const MAX_EDICT_CHANGE_INFOS: u16 = 100;
+
+/// Number of slots in the edict table.
+///
+/// This is `MAX_EDICTS` from `public/const.h`.
+pub const MAX_EDICTS: c_int = 1 << 11;
 
 /// One slot of the engine's edict table, as referred to by an `edict_t *`.
 ///
@@ -66,23 +66,20 @@ impl<'s> Edict<'s> {
 		self.pointer.as_ptr()
 	}
 
-	/// The slot's position in the edict table, which is also its entity's index.
-	#[doc(alias = "ENTINDEX")]
-	#[doc(alias = "IndexOfEdict")]
-	pub fn index(self) -> c_int {
-		// SAFETY: The table outlives `'s`. The engine caches every slot's index
-		// in the slot itself, which is what the game's `ENTINDEX` reads. Fields
-		// are read without forming a reference because the engine writes to
-		// edicts through its own pointers.
-		let index = unsafe { (&raw const (*self.as_ptr())._base.m_EdictIndex).read() };
+	/// The class name of the slot's entity, if it has one.
+	#[doc(alias = "GetClassName")]
+	pub fn class_name(self) -> Option<&'s CStr> {
+		if self.is_free() {
+			return None;
+		}
 
-		c_int::from(index)
-	}
+		// SAFETY: As for `index`.
+		let networkable =
+			NonNull::new(unsafe { (&raw const (*self.as_ptr())._base.m_pNetworkable).read() })?;
 
-	/// Whether the engine has freed the slot for reuse.
-	#[doc(alias = "IsFree")]
-	pub fn is_free(self) -> bool {
-		self.state_flags() & FL_EDICT_FREE != 0
+		// SAFETY: The networkable belongs to the live entity. Class names are
+		// pooled strings, which live until the level ends.
+		unsafe { borrow_cstr(vcall!(networkable.as_ptr() => IServerNetworkable_GetClassName())) }
 	}
 
 	/// The entity occupying the slot, if any.
@@ -103,20 +100,45 @@ impl<'s> Edict<'s> {
 		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
 	}
 
-	/// The class name of the slot's entity, if it has one.
-	#[doc(alias = "GetClassName")]
-	pub fn class_name(self) -> Option<&'s CStr> {
-		if self.is_free() {
-			return None;
+	/// Records that the entity changed as a whole, so the engine compares all
+	/// of its networked variables.
+	///
+	/// This is `CBaseEdict::StateChanged()`.
+	pub fn full_state_changed(self, engine: ValveEngine<'_>) {
+		self.mark_fully_changed(engine.change_accessor(self).map(NonNull::as_ptr));
+	}
+
+	/// The slot's position in the edict table, which is also its entity's index.
+	#[doc(alias = "ENTINDEX")]
+	#[doc(alias = "IndexOfEdict")]
+	pub fn index(self) -> c_int {
+		// SAFETY: The table outlives `'s`. The engine caches every slot's index
+		// in the slot itself, which is what the game's `ENTINDEX` reads. Fields
+		// are read without forming a reference because the engine writes to
+		// edicts through its own pointers.
+		let index = unsafe { (&raw const (*self.as_ptr())._base.m_EdictIndex).read() };
+
+		c_int::from(index)
+	}
+
+	/// Whether the engine has freed the slot for reuse.
+	#[doc(alias = "IsFree")]
+	pub fn is_free(self) -> bool {
+		self.state_flags() & FL_EDICT_FREE != 0
+	}
+
+	fn mark_fully_changed(self, accessor: Option<*mut sys::IChangeInfoAccessor>) {
+		self.set_state_flags(self.state_flags() | FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED);
+
+		if let Some(accessor) = accessor {
+			// SAFETY: The accessor is the engine's record for this edict.
+			unsafe { (&raw mut (*accessor).m_iChangeInfoSerialNumber).write(0) };
 		}
+	}
 
-		// SAFETY: As for `index`.
-		let networkable =
-			NonNull::new(unsafe { (&raw const (*self.as_ptr())._base.m_pNetworkable).read() })?;
-
-		// SAFETY: The networkable belongs to the live entity. Class names are
-		// pooled strings, which live until the level ends.
-		unsafe { borrow_cstr(vcall!(networkable.as_ptr() => IServerNetworkable_GetClassName())) }
+	fn set_state_flags(self, flags: c_int) {
+		// SAFETY: As for `index`. The game writes these flags the same way.
+		unsafe { (&raw mut (*self.as_ptr())._base.m_fStateFlags).write(flags) };
 	}
 
 	/// Records that the networked variable at `offset` bytes into the entity
@@ -199,31 +221,9 @@ impl<'s> Edict<'s> {
 		}
 	}
 
-	/// Records that the entity changed as a whole, so the engine compares all
-	/// of its networked variables.
-	///
-	/// This is `CBaseEdict::StateChanged()`.
-	pub fn full_state_changed(self, engine: ValveEngine<'_>) {
-		self.mark_fully_changed(engine.change_accessor(self).map(NonNull::as_ptr));
-	}
-
-	fn mark_fully_changed(self, accessor: Option<*mut sys::IChangeInfoAccessor>) {
-		self.set_state_flags(self.state_flags() | FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED);
-
-		if let Some(accessor) = accessor {
-			// SAFETY: The accessor is the engine's record for this edict.
-			unsafe { (&raw mut (*accessor).m_iChangeInfoSerialNumber).write(0) };
-		}
-	}
-
 	fn state_flags(self) -> c_int {
 		// SAFETY: As for `index`.
 		unsafe { (&raw const (*self.as_ptr())._base.m_fStateFlags).read() }
-	}
-
-	fn set_state_flags(self, flags: c_int) {
-		// SAFETY: As for `index`. The game writes these flags the same way.
-		unsafe { (&raw mut (*self.as_ptr())._base.m_fStateFlags).write(flags) };
 	}
 }
 

@@ -29,54 +29,6 @@ pub struct INetworkStringTable {
     pub vtable_: *const INetworkStringTable__bindgen_vtable,
 }
 #[repr(C)]
-#[derive(Debug)]
-pub struct INetworkStringTableContainer {
-    pub vtable_: *const INetworkStringTableContainer__bindgen_vtable,
-}
-#[repr(C)]
-pub struct INetworkStringTableContainer__bindgen_vtable {
-    pub INetworkStringTableContainer_complete_destructor: unsafe extern "C" fn(
-        arg1: *mut INetworkStringTableContainer,
-    ),
-    pub INetworkStringTableContainer_deleting_destructor: unsafe extern "C" fn(
-        arg1: *mut INetworkStringTableContainer,
-    ),
-    pub INetworkStringTableContainer_CreateStringTable: unsafe extern "C" fn(
-        arg1: *mut INetworkStringTableContainer,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: ::std::os::raw::c_int,
-        arg4: ::std::os::raw::c_int,
-        arg5: ::std::os::raw::c_int,
-    ) -> *mut INetworkStringTable,
-    pub INetworkStringTableContainer_RemoveAllTables: unsafe extern "C" fn(
-        arg1: *mut INetworkStringTableContainer,
-    ),
-    pub INetworkStringTableContainer_FindTable: unsafe extern "C" fn(
-        arg1: *const INetworkStringTableContainer,
-        arg2: *const ::std::os::raw::c_char,
-    ) -> *mut INetworkStringTable,
-    pub INetworkStringTableContainer_GetTable: unsafe extern "C" fn(
-        arg1: *const INetworkStringTableContainer,
-        arg2: TABLEID,
-    ) -> *mut INetworkStringTable,
-    pub INetworkStringTableContainer_GetNumTables: unsafe extern "C" fn(
-        arg1: *const INetworkStringTableContainer,
-    ) -> ::std::os::raw::c_int,
-    pub INetworkStringTableContainer_CreateStringTableEx: unsafe extern "C" fn(
-        arg1: *mut INetworkStringTableContainer,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: ::std::os::raw::c_int,
-        arg4: ::std::os::raw::c_int,
-        arg5: ::std::os::raw::c_int,
-        arg6: bool,
-    ) -> *mut INetworkStringTable,
-    pub INetworkStringTableContainer_SetAllowClientSideAddString: unsafe extern "C" fn(
-        arg1: *mut INetworkStringTableContainer,
-        arg2: *mut INetworkStringTable,
-        arg3: bool,
-    ),
-}
-#[repr(C)]
 pub struct INetworkStringTable__bindgen_vtable {
     pub INetworkStringTable_complete_destructor: unsafe extern "C" fn(
         arg1: *mut INetworkStringTable,
@@ -137,6 +89,54 @@ pub struct INetworkStringTable__bindgen_vtable {
         arg1: *mut INetworkStringTable,
         arg2: *mut ::std::os::raw::c_void,
         arg3: pfnStringChanged,
+    ),
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct INetworkStringTableContainer {
+    pub vtable_: *const INetworkStringTableContainer__bindgen_vtable,
+}
+#[repr(C)]
+pub struct INetworkStringTableContainer__bindgen_vtable {
+    pub INetworkStringTableContainer_complete_destructor: unsafe extern "C" fn(
+        arg1: *mut INetworkStringTableContainer,
+    ),
+    pub INetworkStringTableContainer_deleting_destructor: unsafe extern "C" fn(
+        arg1: *mut INetworkStringTableContainer,
+    ),
+    pub INetworkStringTableContainer_CreateStringTable: unsafe extern "C" fn(
+        arg1: *mut INetworkStringTableContainer,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: ::std::os::raw::c_int,
+        arg4: ::std::os::raw::c_int,
+        arg5: ::std::os::raw::c_int,
+    ) -> *mut INetworkStringTable,
+    pub INetworkStringTableContainer_RemoveAllTables: unsafe extern "C" fn(
+        arg1: *mut INetworkStringTableContainer,
+    ),
+    pub INetworkStringTableContainer_FindTable: unsafe extern "C" fn(
+        arg1: *const INetworkStringTableContainer,
+        arg2: *const ::std::os::raw::c_char,
+    ) -> *mut INetworkStringTable,
+    pub INetworkStringTableContainer_GetTable: unsafe extern "C" fn(
+        arg1: *const INetworkStringTableContainer,
+        arg2: TABLEID,
+    ) -> *mut INetworkStringTable,
+    pub INetworkStringTableContainer_GetNumTables: unsafe extern "C" fn(
+        arg1: *const INetworkStringTableContainer,
+    ) -> ::std::os::raw::c_int,
+    pub INetworkStringTableContainer_CreateStringTableEx: unsafe extern "C" fn(
+        arg1: *mut INetworkStringTableContainer,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: ::std::os::raw::c_int,
+        arg4: ::std::os::raw::c_int,
+        arg5: ::std::os::raw::c_int,
+        arg6: bool,
+    ) -> *mut INetworkStringTable,
+    pub INetworkStringTableContainer_SetAllowClientSideAddString: unsafe extern "C" fn(
+        arg1: *mut INetworkStringTableContainer,
+        arg2: *mut INetworkStringTable,
+        arg3: bool,
     ),
 }
 include!("layout_assertions.rs");

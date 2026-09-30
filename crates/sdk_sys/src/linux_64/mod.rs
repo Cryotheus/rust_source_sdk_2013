@@ -11,6 +11,7 @@
     unused_imports,
     unused_qualifications
 )]
+pub mod headers;
 #[allow(ambiguous_glob_reexports, unused_imports)]
 pub use self::__bindgen_prelude::*;
 #[doc(hidden)]
@@ -158,4 +159,3 @@ mod __bindgen_prelude {
     pub use super::headers::public::vscript::ivscript::*;
     pub use super::headers::public::vscript::variant::*;
 }
-pub mod headers;

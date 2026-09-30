@@ -45,13 +45,6 @@ pub struct CSteamID_SteamID_t_SteamIDComponent_t {
 impl CSteamID_SteamID_t_SteamIDComponent_t {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn m_EAccountType(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<52usize, 4u8>() as u32)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn m_EAccountType_raw(this: *const Self) -> ::std::os::raw::c_uint {
         unsafe {
             ::std::mem::transmute(
@@ -62,13 +55,6 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
                     4u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn m_EUniverse(&self) -> EUniverse {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<56usize, 8u8>() as u32)
         }
     }
     #[inline]
@@ -87,13 +73,6 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn m_unAccountID(&self) -> uint32 {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 32u8>() as u32)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn m_unAccountID_raw(this: *const Self) -> uint32 {
         unsafe {
             ::std::mem::transmute(
@@ -104,13 +83,6 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
                     32u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u32,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn m_unAccountInstance(&self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<32usize, 20u8>() as u32)
         }
     }
     #[inline]
@@ -176,14 +148,6 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_EAccountType(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<52usize, 4u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_EAccountType_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -193,14 +157,6 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
                 52usize,
                 4u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_m_EUniverse(&mut self, val: EUniverse) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<56usize, 8u8>(val as u64)
         }
     }
     #[inline]
@@ -218,14 +174,6 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_unAccountID(&mut self, val: uint32) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 32u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_unAccountID_raw(this: *mut Self, val: uint32) {
         unsafe {
             let val: u32 = ::std::mem::transmute(val);
@@ -235,14 +183,6 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
                 0usize,
                 32u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_m_unAccountInstance(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<32usize, 20u8>(val as u64)
         }
     }
     #[inline]
@@ -259,6 +199,66 @@ impl CSteamID_SteamID_t_SteamIDComponent_t {
                 32usize,
                 20u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_EAccountType(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<52usize, 4u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_EUniverse(&self) -> EUniverse {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<56usize, 8u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_unAccountID(&self) -> uint32 {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 32u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_unAccountInstance(&self) -> ::std::os::raw::c_uint {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<32usize, 20u8>() as u32)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_EAccountType(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<52usize, 4u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_EUniverse(&mut self, val: EUniverse) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<56usize, 8u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_unAccountID(&mut self, val: uint32) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 32u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_unAccountInstance(&mut self, val: ::std::os::raw::c_uint) {
+        unsafe {
+            let val: u32 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<32usize, 20u8>(val as u64)
         }
     }
 }

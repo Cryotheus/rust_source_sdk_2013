@@ -16,19 +16,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CThreadSpinRWLock"][::std::mem::size_of::<CThreadSpinRWLock>() - 16usize];
-    [
-        "Alignment of CThreadSpinRWLock",
-    ][::std::mem::align_of::<CThreadSpinRWLock>() - 8usize];
-    [
-        "Offset of field: CThreadSpinRWLock::m_lockInfo",
-    ][::std::mem::offset_of!(CThreadSpinRWLock, m_lockInfo) - 0usize];
-    [
-        "Offset of field: CThreadSpinRWLock::m_nWriters",
-    ][::std::mem::offset_of!(CThreadSpinRWLock, m_nWriters) - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CThreadSpinRWLock_LockInfo_t",
     ][::std::mem::size_of::<CThreadSpinRWLock_LockInfo_t>() - 8usize];
@@ -41,4 +28,17 @@ const _: () = {
     [
         "Offset of field: CThreadSpinRWLock_LockInfo_t::m_nReaders",
     ][::std::mem::offset_of!(CThreadSpinRWLock_LockInfo_t, m_nReaders) - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CThreadSpinRWLock"][::std::mem::size_of::<CThreadSpinRWLock>() - 16usize];
+    [
+        "Alignment of CThreadSpinRWLock",
+    ][::std::mem::align_of::<CThreadSpinRWLock>() - 8usize];
+    [
+        "Offset of field: CThreadSpinRWLock::m_lockInfo",
+    ][::std::mem::offset_of!(CThreadSpinRWLock, m_lockInfo) - 0usize];
+    [
+        "Offset of field: CThreadSpinRWLock::m_nWriters",
+    ][::std::mem::offset_of!(CThreadSpinRWLock, m_nWriters) - 8usize];
 };

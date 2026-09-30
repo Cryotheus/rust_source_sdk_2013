@@ -41,63 +41,6 @@ pub struct ICvar {
     pub vtable_: *const ICvar__bindgen_vtable,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct ICvarQuery {
-    pub vtable_: *const ICvarQuery__bindgen_vtable,
-}
-#[repr(C)]
-pub struct ICvarQuery__bindgen_vtable {
-    pub ICvarQuery_Connect: unsafe extern "C" fn(
-        arg1: *mut ICvarQuery,
-        arg2: CreateInterfaceFn,
-    ) -> bool,
-    pub ICvarQuery_Disconnect: unsafe extern "C" fn(arg1: *mut ICvarQuery),
-    pub ICvarQuery_QueryInterface: unsafe extern "C" fn(
-        arg1: *mut ICvarQuery,
-        arg2: *const ::std::os::raw::c_char,
-    ) -> *mut ::std::os::raw::c_void,
-    pub ICvarQuery_Init: unsafe extern "C" fn(arg1: *mut ICvarQuery) -> InitReturnVal_t,
-    pub ICvarQuery_Shutdown: unsafe extern "C" fn(arg1: *mut ICvarQuery),
-    pub ICvarQuery_AreConVarsLinkable: unsafe extern "C" fn(
-        arg1: *mut ICvarQuery,
-        arg2: *const ConVar,
-        arg3: *const ConVar,
-    ) -> bool,
-}
-#[repr(C)]
-#[derive(Debug)]
-pub struct ICvar_ICVarIteratorInternal {
-    pub vtable_: *const ICvar_ICVarIteratorInternal__bindgen_vtable,
-}
-#[repr(C)]
-pub struct ICvar_ICVarIteratorInternal__bindgen_vtable {
-    pub ICvar_ICVarIteratorInternal_destructor: unsafe extern "C" fn(
-        arg1: *mut ICvar_ICVarIteratorInternal,
-        arg2: ::std::os::raw::c_uint,
-    ) -> *mut ::std::os::raw::c_void,
-    pub ICvar_ICVarIteratorInternal_SetFirst: unsafe extern "C" fn(
-        arg1: *mut ICvar_ICVarIteratorInternal,
-    ),
-    pub ICvar_ICVarIteratorInternal_Next: unsafe extern "C" fn(
-        arg1: *mut ICvar_ICVarIteratorInternal,
-    ),
-    pub ICvar_ICVarIteratorInternal_IsValid: unsafe extern "C" fn(
-        arg1: *mut ICvar_ICVarIteratorInternal,
-    ) -> bool,
-    pub ICvar_ICVarIteratorInternal_Get: unsafe extern "C" fn(
-        arg1: *mut ICvar_ICVarIteratorInternal,
-    ) -> *mut ConCommandBase,
-}
-/** We need an iterator like this because we can't simply return a
- pointer to the internal data type that contains the cvars --
- it's a custom, protected class with unusual semantics and is
- prone to change.*/
-#[repr(C)]
-#[derive(Debug)]
-pub struct ICvar_Iterator {
-    pub m_pIter: *mut ICvar_ICVarIteratorInternal,
-}
-#[repr(C)]
 pub struct ICvar__bindgen_vtable {
     pub ICvar_Connect: unsafe extern "C" fn(
         arg1: *mut ICvar,
@@ -230,5 +173,62 @@ pub struct ICvar__bindgen_vtable {
     pub ICvar_FactoryInternalIterator: unsafe extern "C" fn(
         arg1: *mut ICvar,
     ) -> *mut ICvar_ICVarIteratorInternal,
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct ICvar_ICVarIteratorInternal {
+    pub vtable_: *const ICvar_ICVarIteratorInternal__bindgen_vtable,
+}
+#[repr(C)]
+pub struct ICvar_ICVarIteratorInternal__bindgen_vtable {
+    pub ICvar_ICVarIteratorInternal_destructor: unsafe extern "C" fn(
+        arg1: *mut ICvar_ICVarIteratorInternal,
+        arg2: ::std::os::raw::c_uint,
+    ) -> *mut ::std::os::raw::c_void,
+    pub ICvar_ICVarIteratorInternal_SetFirst: unsafe extern "C" fn(
+        arg1: *mut ICvar_ICVarIteratorInternal,
+    ),
+    pub ICvar_ICVarIteratorInternal_Next: unsafe extern "C" fn(
+        arg1: *mut ICvar_ICVarIteratorInternal,
+    ),
+    pub ICvar_ICVarIteratorInternal_IsValid: unsafe extern "C" fn(
+        arg1: *mut ICvar_ICVarIteratorInternal,
+    ) -> bool,
+    pub ICvar_ICVarIteratorInternal_Get: unsafe extern "C" fn(
+        arg1: *mut ICvar_ICVarIteratorInternal,
+    ) -> *mut ConCommandBase,
+}
+/** We need an iterator like this because we can't simply return a
+ pointer to the internal data type that contains the cvars --
+ it's a custom, protected class with unusual semantics and is
+ prone to change.*/
+#[repr(C)]
+#[derive(Debug)]
+pub struct ICvar_Iterator {
+    pub m_pIter: *mut ICvar_ICVarIteratorInternal,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ICvarQuery {
+    pub vtable_: *const ICvarQuery__bindgen_vtable,
+}
+#[repr(C)]
+pub struct ICvarQuery__bindgen_vtable {
+    pub ICvarQuery_Connect: unsafe extern "C" fn(
+        arg1: *mut ICvarQuery,
+        arg2: CreateInterfaceFn,
+    ) -> bool,
+    pub ICvarQuery_Disconnect: unsafe extern "C" fn(arg1: *mut ICvarQuery),
+    pub ICvarQuery_QueryInterface: unsafe extern "C" fn(
+        arg1: *mut ICvarQuery,
+        arg2: *const ::std::os::raw::c_char,
+    ) -> *mut ::std::os::raw::c_void,
+    pub ICvarQuery_Init: unsafe extern "C" fn(arg1: *mut ICvarQuery) -> InitReturnVal_t,
+    pub ICvarQuery_Shutdown: unsafe extern "C" fn(arg1: *mut ICvarQuery),
+    pub ICvarQuery_AreConVarsLinkable: unsafe extern "C" fn(
+        arg1: *mut ICvarQuery,
+        arg2: *const ConVar,
+        arg3: *const ConVar,
+    ) -> bool,
 }
 include!("layout_assertions.rs");

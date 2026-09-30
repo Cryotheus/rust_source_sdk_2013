@@ -13,29 +13,55 @@ thread_local! {
 	static STATE: Cell<CacheState> = const { Cell::new(CacheState::released()) };
 }
 
-/// Identifies one loaded generation of a plugin.
-///
-/// The generation prevents a cached context from an old load from resolving
-/// after a plugin object is reused at the same address.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ContextKey {
-	plugin: NonNull<c_void>,
-	generation: u64,
+#[derive(Debug, Clone, Copy)]
+struct CacheState {
+	key: Option<ContextKey>,
+	depth: usize,
 }
 
-impl ContextKey {
-	pub const fn new(plugin: NonNull<c_void>, generation: u64) -> Self {
-		Self { plugin, generation }
+impl CacheState {
+	#[track_caller]
+	fn acquire(key: ContextKey) {
+		STATE.with(|state| {
+			let mut current = state.get();
+			match current.key {
+				Some(cached) => assert_eq!(
+					cached, key,
+					"cannot cache contexts from different plugin generations"
+				),
+
+				None => current.key = Some(key),
+			}
+			current.depth = current
+				.depth
+				.checked_add(1)
+				.expect("plugin context cache depth overflowed");
+			state.set(current);
+		});
 	}
 
-	pub const fn plugin(self) -> NonNull<c_void> {
-		self.plugin
+	#[track_caller]
+	fn release() {
+		STATE.with(|state| {
+			let mut current = state.get();
+			assert_ne!(
+				current.depth, 0,
+				"context cache release without matching acquire"
+			);
+			current.depth -= 1;
+			if current.depth == 0 {
+				current.key = None;
+			}
+			state.set(current);
+		});
 	}
-}
 
-/// Returns the active callback's key, if one is cached on this thread.
-pub fn cached_context_key() -> Option<ContextKey> {
-	STATE.with(|state| state.get().key)
+	const fn released() -> Self {
+		Self {
+			key: None,
+			depth: 0,
+		}
+	}
 }
 
 /// A context cached on the current thread for one callback's lifetime.
@@ -86,54 +112,29 @@ impl<T> Drop for CachedContext<T> {
 	}
 }
 
-#[derive(Debug, Clone, Copy)]
-struct CacheState {
-	key: Option<ContextKey>,
-	depth: usize,
+/// Identifies one loaded generation of a plugin.
+///
+/// The generation prevents a cached context from an old load from resolving
+/// after a plugin object is reused at the same address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContextKey {
+	plugin: NonNull<c_void>,
+	generation: u64,
 }
 
-impl CacheState {
-	const fn released() -> Self {
-		Self {
-			key: None,
-			depth: 0,
-		}
+impl ContextKey {
+	pub const fn new(plugin: NonNull<c_void>, generation: u64) -> Self {
+		Self { plugin, generation }
 	}
 
-	#[track_caller]
-	fn acquire(key: ContextKey) {
-		STATE.with(|state| {
-			let mut current = state.get();
-			match current.key {
-				Some(cached) => assert_eq!(
-					cached, key,
-					"cannot cache contexts from different plugin generations"
-				),
-				None => current.key = Some(key),
-			}
-			current.depth = current
-				.depth
-				.checked_add(1)
-				.expect("plugin context cache depth overflowed");
-			state.set(current);
-		});
+	pub const fn plugin(self) -> NonNull<c_void> {
+		self.plugin
 	}
+}
 
-	#[track_caller]
-	fn release() {
-		STATE.with(|state| {
-			let mut current = state.get();
-			assert_ne!(
-				current.depth, 0,
-				"context cache release without matching acquire"
-			);
-			current.depth -= 1;
-			if current.depth == 0 {
-				current.key = None;
-			}
-			state.set(current);
-		});
-	}
+/// Returns the active callback's key, if one is cached on this thread.
+pub fn cached_context_key() -> Option<ContextKey> {
+	STATE.with(|state| state.get().key)
 }
 
 #[cfg(test)]

@@ -12,6 +12,8 @@ use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
 
+static ROUTED_SERVER: RoutedServer = RoutedServer(Cell::new(None));
+
 /// Registers console commands through `ISmmAPI::RegisterConCommandBase`.
 ///
 /// Metamod unlinks every command a plugin registered after the plugin's
@@ -56,8 +58,6 @@ struct RoutedServer(Cell<Option<ServerBinding>>);
 // SAFETY: Only the server's main thread reaches it: the hook runs there, and
 // `route_client_commands` takes a `MetamodApi`, which is confined to it.
 unsafe impl Sync for RoutedServer {}
-
-static ROUTED_SERVER: RoutedServer = RoutedServer(Cell::new(None));
 
 impl<'callback> MetamodApi<'callback> {
 	/// Registers commands for the plugin whose callback is running.

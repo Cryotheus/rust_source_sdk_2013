@@ -48,28 +48,6 @@ pub struct CBaseFlex {
     pub m_flLastFlexAnimationTime: f32,
 }
 #[repr(C)]
-#[derive(Debug)]
-pub struct CBaseFlex_FS_LocalToGlobal_t {
-    pub m_Key: *const flexsettinghdr_t,
-    pub m_nCount: ::std::os::raw::c_int,
-    pub m_Mapping: *mut LocalFlexController_t,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseFlex_NetworkVar_m_blinktoggle {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseFlex_NetworkVar_m_flexWeight {
-    pub m_Value: [f32; 96usize],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseFlex_NetworkVar_m_viewtarget {
-    pub _address: u8,
-}
-#[repr(C)]
 pub struct CBaseFlex__bindgen_vtable {
     pub CBaseFlex_complete_destructor: unsafe extern "C" fn(arg1: *mut CBaseFlex),
     pub CBaseFlex_deleting_destructor: unsafe extern "C" fn(arg1: *mut CBaseFlex),
@@ -857,5 +835,27 @@ pub struct CBaseFlex__bindgen_vtable {
     pub CBaseFlex_GetSpecialDSP: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
     ) -> ::std::os::raw::c_int,
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct CBaseFlex_FS_LocalToGlobal_t {
+    pub m_Key: *const flexsettinghdr_t,
+    pub m_nCount: ::std::os::raw::c_int,
+    pub m_Mapping: *mut LocalFlexController_t,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseFlex_NetworkVar_m_blinktoggle {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseFlex_NetworkVar_m_flexWeight {
+    pub m_Value: [f32; 96usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseFlex_NetworkVar_m_viewtarget {
+    pub _address: u8,
 }
 include!("layout_assertions.rs");

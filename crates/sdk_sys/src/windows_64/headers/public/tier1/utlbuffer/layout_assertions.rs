@@ -45,36 +45,6 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of CUtlCharConversion",
-    ][::std::mem::size_of::<CUtlCharConversion>() - 4392usize];
-    [
-        "Alignment of CUtlCharConversion",
-    ][::std::mem::align_of::<CUtlCharConversion>() - 8usize];
-    [
-        "Offset of field: CUtlCharConversion::m_nEscapeChar",
-    ][::std::mem::offset_of!(CUtlCharConversion, m_nEscapeChar) - 8usize];
-    [
-        "Offset of field: CUtlCharConversion::m_pDelimiter",
-    ][::std::mem::offset_of!(CUtlCharConversion, m_pDelimiter) - 16usize];
-    [
-        "Offset of field: CUtlCharConversion::m_nDelimiterLength",
-    ][::std::mem::offset_of!(CUtlCharConversion, m_nDelimiterLength) - 24usize];
-    [
-        "Offset of field: CUtlCharConversion::m_nCount",
-    ][::std::mem::offset_of!(CUtlCharConversion, m_nCount) - 28usize];
-    [
-        "Offset of field: CUtlCharConversion::m_nMaxConversionLength",
-    ][::std::mem::offset_of!(CUtlCharConversion, m_nMaxConversionLength) - 32usize];
-    [
-        "Offset of field: CUtlCharConversion::m_pList",
-    ][::std::mem::offset_of!(CUtlCharConversion, m_pList) - 36usize];
-    [
-        "Offset of field: CUtlCharConversion::m_pReplacements",
-    ][::std::mem::offset_of!(CUtlCharConversion, m_pReplacements) - 296usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
         "Size of CUtlCharConversion_ConversionArray_t",
     ][::std::mem::size_of::<CUtlCharConversion_ConversionArray_t>() - 16usize];
     [
@@ -104,4 +74,34 @@ const _: () = {
         "Offset of field: CUtlCharConversion_ConversionInfo_t::m_pReplacementString",
     ][::std::mem::offset_of!(CUtlCharConversion_ConversionInfo_t, m_pReplacementString)
         - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CUtlCharConversion",
+    ][::std::mem::size_of::<CUtlCharConversion>() - 4392usize];
+    [
+        "Alignment of CUtlCharConversion",
+    ][::std::mem::align_of::<CUtlCharConversion>() - 8usize];
+    [
+        "Offset of field: CUtlCharConversion::m_nEscapeChar",
+    ][::std::mem::offset_of!(CUtlCharConversion, m_nEscapeChar) - 8usize];
+    [
+        "Offset of field: CUtlCharConversion::m_pDelimiter",
+    ][::std::mem::offset_of!(CUtlCharConversion, m_pDelimiter) - 16usize];
+    [
+        "Offset of field: CUtlCharConversion::m_nDelimiterLength",
+    ][::std::mem::offset_of!(CUtlCharConversion, m_nDelimiterLength) - 24usize];
+    [
+        "Offset of field: CUtlCharConversion::m_nCount",
+    ][::std::mem::offset_of!(CUtlCharConversion, m_nCount) - 28usize];
+    [
+        "Offset of field: CUtlCharConversion::m_nMaxConversionLength",
+    ][::std::mem::offset_of!(CUtlCharConversion, m_nMaxConversionLength) - 32usize];
+    [
+        "Offset of field: CUtlCharConversion::m_pList",
+    ][::std::mem::offset_of!(CUtlCharConversion, m_pList) - 36usize];
+    [
+        "Offset of field: CUtlCharConversion::m_pReplacements",
+    ][::std::mem::offset_of!(CUtlCharConversion, m_pReplacements) - 296usize];
 };

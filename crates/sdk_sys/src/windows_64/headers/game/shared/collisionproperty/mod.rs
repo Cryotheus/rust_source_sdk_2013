@@ -46,71 +46,6 @@ pub struct CCollisionProperty {
     pub m_vecSurroundingMaxs: Vector,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_bUniformTriggerBloat {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_nSolidType {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_nSurroundType {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_triggerBloat {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_usSolidFlags {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecMaxs {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecMaxsPreScaled {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecMins {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecMinsPreScaled {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxs {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxsPreScaled {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMins {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMinsPreScaled {
-    pub _address: u8,
-}
-#[repr(C)]
 pub struct CCollisionProperty__bindgen_vtable {
     pub CCollisionProperty_GetEntityHandle: unsafe extern "C" fn(
         arg1: *mut CCollisionProperty,
@@ -193,5 +128,70 @@ pub struct CCollisionProperty__bindgen_vtable {
     pub CCollisionProperty_GetDataDescMap: unsafe extern "C" fn(
         arg1: *mut CCollisionProperty,
     ) -> *mut datamap_t,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_bUniformTriggerBloat {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_nSolidType {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_nSurroundType {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_triggerBloat {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_usSolidFlags {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecMaxs {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecMaxsPreScaled {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecMins {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecMinsPreScaled {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxs {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxsPreScaled {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMins {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMinsPreScaled {
+    pub _address: u8,
 }
 include!("layout_assertions.rs");

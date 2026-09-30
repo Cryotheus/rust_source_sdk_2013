@@ -19,6 +19,20 @@ pub struct IEntityFactory {
     pub vtable_: *const IEntityFactory__bindgen_vtable,
 }
 #[repr(C)]
+pub struct IEntityFactory__bindgen_vtable {
+    pub IEntityFactory_Create: unsafe extern "C" fn(
+        arg1: *mut IEntityFactory,
+        arg2: *const ::std::os::raw::c_char,
+    ) -> *mut IServerNetworkable,
+    pub IEntityFactory_Destroy: unsafe extern "C" fn(
+        arg1: *mut IEntityFactory,
+        arg2: *mut IServerNetworkable,
+    ),
+    pub IEntityFactory_GetEntitySize: unsafe extern "C" fn(
+        arg1: *mut IEntityFactory,
+    ) -> usize,
+}
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct IEntityFactoryDictionary {
     pub vtable_: *const IEntityFactoryDictionary__bindgen_vtable,
@@ -47,19 +61,5 @@ pub struct IEntityFactoryDictionary__bindgen_vtable {
         arg1: *mut IEntityFactoryDictionary,
         arg2: *const ::std::os::raw::c_char,
     ) -> *const ::std::os::raw::c_char,
-}
-#[repr(C)]
-pub struct IEntityFactory__bindgen_vtable {
-    pub IEntityFactory_Create: unsafe extern "C" fn(
-        arg1: *mut IEntityFactory,
-        arg2: *const ::std::os::raw::c_char,
-    ) -> *mut IServerNetworkable,
-    pub IEntityFactory_Destroy: unsafe extern "C" fn(
-        arg1: *mut IEntityFactory,
-        arg2: *mut IServerNetworkable,
-    ),
-    pub IEntityFactory_GetEntitySize: unsafe extern "C" fn(
-        arg1: *mut IEntityFactory,
-    ) -> usize,
 }
 include!("layout_assertions.rs");

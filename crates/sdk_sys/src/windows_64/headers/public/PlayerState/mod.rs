@@ -28,11 +28,6 @@ pub struct CPlayerState {
     pub deaths: ::std::os::raw::c_int,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CPlayerState_NetworkVar_deadflag {
-    pub _address: u8,
-}
-#[repr(C)]
 pub struct CPlayerState__bindgen_vtable {
     pub CPlayerState_NetworkStateChanged1: unsafe extern "C" fn(
         arg1: *mut CPlayerState,
@@ -43,5 +38,10 @@ pub struct CPlayerState__bindgen_vtable {
         arg1: *mut CPlayerState,
         arg2: ::std::os::raw::c_uint,
     ) -> *mut ::std::os::raw::c_void,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CPlayerState_NetworkVar_deadflag {
+    pub _address: u8,
 }
 include!("layout_assertions.rs");

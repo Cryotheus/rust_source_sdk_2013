@@ -13,11 +13,11 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
-pub type CUtlVectorConservative_BaseClass<T> = CUtlVector<T, CUtlMemoryConservative<T>>;
 pub type CUtlVector_CAllocator<A> = A;
 pub type CUtlVector_ElemType_t<T> = T;
 pub type CUtlVector_const_iterator<T> = *const T;
 pub type CUtlVector_iterator<T> = *mut T;
+pub type CUtlVectorConservative_BaseClass<T> = CUtlVector<T, CUtlMemoryConservative<T>>;
 pub type base_vector_t__bindgen_ty_1 = ::std::os::raw::c_uint;
 pub const base_vector_t_IsUtlVector: base_vector_t__bindgen_ty_1 = 1;
 #[repr(C)]

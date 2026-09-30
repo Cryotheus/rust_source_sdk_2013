@@ -8,6 +8,12 @@ pub type CppDestructors = cfg_select! {
 	target_os = "windows" => MsvcDestructor,
 };
 
+pub type WChar = cfg_select! {
+	all(target_os = "windows", target_pointer_width = "64") => u16,
+	all(target_os = "linux", target_pointer_width = "64") => u32,
+	_ => compile_error!("Unsupported target"),
+};
+
 /// Itanium C++ destructor slots for vtables implemented by Rust-owned objects.
 /// Prefer [`CppDestructors`] when the code should select the target ABI.
 ///
@@ -178,12 +184,6 @@ impl MsvcDestructor {
 		Self(noop)
 	}
 }
-
-pub type WChar = cfg_select! {
-	all(target_os = "windows", target_pointer_width = "64") => u16,
-	all(target_os = "linux", target_pointer_width = "64") => u32,
-	_ => compile_error!("Unsupported target"),
-};
 
 unsafe extern "C" fn c_drop_in_place<T>(to_drop: *mut c_void) {
 	unsafe { drop_in_place(to_drop.cast::<T>()) };

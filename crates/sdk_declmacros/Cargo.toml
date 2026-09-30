@@ -1,0 +1,16 @@
+[package]
+name = "source_sdk_2013_declmacros"
+version.workspace = true
+edition = "2024"
+rust-version = "1.98.1"
+
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "Declarative macros re-exported by the source_sdk_2013 crate"
+categories = []
+keywords = []
+
+[dependencies]
+crys_bricks.workspace = true

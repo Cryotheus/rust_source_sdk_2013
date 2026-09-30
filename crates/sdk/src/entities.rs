@@ -17,38 +17,89 @@ use std::num::NonZero;
 use std::ptr::{self, NonNull};
 use std::sync::OnceLock;
 
-/// The most data description maps an entity's chain is followed through.
-const MAX_DATA_MAPS: usize = 64;
-
-/// The most fields a data description map is trusted to hold.
-const MAX_DATA_FIELDS: usize = 4096;
-
-/// The deepest nesting of embedded objects searched for key fields.
-const MAX_EMBEDDING_DEPTH: usize = 16;
+/// `EFL_KILLME` from `game/shared/shareddefs.h`.
+const EFL_KILLME: c_int = 1 << 0;
 
 /// `FTYPEDESC_KEY` from `public/datamap.h`: the field is set by a key value.
 pub(crate) const FTYPEDESC_KEY: c_short = 0x0004;
 
-/// `EFL_KILLME` from `game/shared/shareddefs.h`.
-const EFL_KILLME: c_int = 1 << 0;
+/// The most fields a data description map is trusted to hold.
+const MAX_DATA_FIELDS: usize = 4096;
 
-/// An entity cannot be teleported as requested.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum TeleportError {
-	#[error("the destination contains a non-finite component")]
-	NonFinite,
+/// The most data description maps an entity's chain is followed through.
+const MAX_DATA_MAPS: usize = 64;
 
-	#[error("the entity is marked for deletion")]
-	MarkedForDeletion,
+/// The deepest nesting of embedded objects searched for key fields.
+const MAX_EMBEDDING_DEPTH: usize = 16;
+
+/// An entity's data description maps, from [`Entity::data_maps`].
+pub(crate) struct DataMaps<'s> {
+	next: *const sys::datamap_t,
+	remaining: usize,
+	_scope: PhantomData<&'s ()>,
 }
 
-/// Why [`ServerTools::remove`] refused an entity: the game keeps using it
-/// after it is freed.
-///
-/// [`ServerTools::remove`]: crate::interfaces::ServerTools::remove
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the game keeps using this entity after it is freed")]
-pub struct ProtectedEntity;
+impl<'s> DataMaps<'s> {
+	/// Follows the chain from `first`, a map of the game DLL, or null.
+	fn starting_at(first: *const sys::datamap_t) -> Self {
+		Self {
+			next: first,
+			remaining: MAX_DATA_MAPS,
+			_scope: PhantomData,
+		}
+	}
+
+	/// Finds the field `ExtractKeyvalue` reads for a key in the object these
+	/// maps describe, and its offset in that object.
+	fn find_key_field(
+		self,
+		key: &[u8],
+		depth: usize,
+	) -> Option<(&'s sys::typedescription_t, usize)> {
+		for map in self {
+			for field in data_fields(map) {
+				let offset = usize::try_from(field.fieldOffset[0]).ok();
+
+				// Embedded objects are searched before the field itself, but not
+				// arrays of them.
+				if field.fieldType == sys::_fieldtypes_FIELD_EMBEDDED
+					&& field.fieldSize == 1
+					&& depth < MAX_EMBEDDING_DEPTH
+					&& let Some((found, inner)) =
+						DataMaps::starting_at(field.td).find_key_field(key, depth + 1)
+				{
+					return Some((found, offset?.checked_add(inner)?));
+				}
+
+				// SAFETY: Key names are string literals of the game DLL.
+				let name = unsafe { borrow_cstr(field.externalName) };
+
+				if field.flags & FTYPEDESC_KEY != 0
+					&& name.is_some_and(|name| name.to_bytes().eq_ignore_ascii_case(key))
+				{
+					return Some((field, offset?));
+				}
+			}
+		}
+
+		None
+	}
+}
+
+impl<'s> Iterator for DataMaps<'s> {
+	type Item = &'s sys::datamap_t;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.remaining = self.remaining.checked_sub(1)?;
+
+		// SAFETY: Datamaps are statics of the game DLL, which are complete once
+		// the first entity of their class exists and never change afterwards.
+		let map = unsafe { self.next.as_ref() }?;
+
+		self.next = map.baseMap;
+		Some(map)
+	}
+}
 
 /// An entity in the server's entity list, as referred to by a `CBaseEntity *`.
 ///
@@ -145,6 +196,18 @@ impl<'s> Entity<'s> {
 			.unwrap_or_default()
 	}
 
+	/// The entity's data description maps, from its own class to its bases.
+	pub(crate) fn data_maps(self) -> DataMaps<'s> {
+		type GetDataDescMap = unsafe extern "C" fn(*mut sys::CBaseEntity) -> *mut sys::datamap_t;
+
+		// SAFETY: `GetDataDescMap` occupies this slot under both ABIs.
+		let get_map: GetDataDescMap =
+			unsafe { transmute(self.vtable_slot(sys::CBASEENTITY_DATAMAP_VTABLE_SLOT)) };
+
+		// SAFETY: The entity is live.
+		DataMaps::starting_at(unsafe { get_map(self.as_ptr()) })
+	}
+
 	/// The entity's edict, or `None` for a server-only entity.
 	#[doc(alias = "GetEdict")]
 	pub fn edict(self) -> Option<Edict<'s>> {
@@ -237,7 +300,7 @@ impl<'s> Entity<'s> {
 				sys::_fieldtypes_FIELD_INTEGER,
 				size_of::<c_int>(),
 			)
-				.expect("Source's CBaseEntity datamap does not contain m_iEFlags")
+			.expect("Source's CBaseEntity datamap does not contain m_iEFlags")
 		});
 
 		// SAFETY: The offset was validated against the entity datamap, which
@@ -256,23 +319,11 @@ impl<'s> Entity<'s> {
 	pub(crate) fn is_protected(self) -> bool {
 		self.index() == Some(0)
 			|| self.data_maps().any(|map| {
-			matches!(
+				matches!(
 					data_map_class(map).map(CStr::to_bytes),
 					Some(b"CBasePlayer" | b"CEnvSoundscape")
 				)
-		})
-	}
-
-	/// The entity's data description maps, from its own class to its bases.
-	pub(crate) fn data_maps(self) -> DataMaps<'s> {
-		type GetDataDescMap = unsafe extern "C" fn(*mut sys::CBaseEntity) -> *mut sys::datamap_t;
-
-		// SAFETY: `GetDataDescMap` occupies this slot under both ABIs.
-		let get_map: GetDataDescMap =
-			unsafe { transmute(self.vtable_slot(sys::CBASEENTITY_DATAMAP_VTABLE_SLOT)) };
-
-		// SAFETY: The entity is live.
-		DataMaps::starting_at(unsafe { get_map(self.as_ptr()) })
+			})
 	}
 
 	/// The entity's name field, `m_iName`, which the `targetname` key sets.
@@ -434,18 +485,14 @@ impl EntityHandle {
 	/// `INVALID_EHANDLE_INDEX`, which refers to no entity.
 	pub const INVALID: Self = Self(u32::MAX);
 
-	/// `NUM_ENT_ENTRIES`, the number of slots in the entity list.
-	pub const SLOTS: usize = 1 << 13;
-
 	/// `NUM_SERIAL_NUM_SHIFT_BITS`.
 	const SERIAL_NUMBER_SHIFT: u32 = 16;
 
+	/// `NUM_ENT_ENTRIES`, the number of slots in the entity list.
+	pub const SLOTS: usize = 1 << 13;
+
 	pub const fn from_raw(raw: u32) -> Self {
 		Self(raw)
-	}
-
-	pub const fn to_raw(self) -> u32 {
-		self.0
 	}
 
 	/// The entity's slot in the entity list, or `None` for an invalid handle.
@@ -465,6 +512,10 @@ impl EntityHandle {
 	#[doc(alias = "GetSerialNumber")]
 	pub const fn serial_number(self) -> u32 {
 		self.0 >> Self::SERIAL_NUMBER_SHIFT
+	}
+
+	pub const fn to_raw(self) -> u32 {
+		self.0
 	}
 }
 
@@ -511,91 +562,22 @@ impl Display for HammerId {
 	}
 }
 
-/// An entity's data description maps, from [`Entity::data_maps`].
-pub(crate) struct DataMaps<'s> {
-	next: *const sys::datamap_t,
-	remaining: usize,
-	_scope: PhantomData<&'s ()>,
-}
+/// Why [`ServerTools::remove`] refused an entity: the game keeps using it
+/// after it is freed.
+///
+/// [`ServerTools::remove`]: crate::interfaces::ServerTools::remove
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the game keeps using this entity after it is freed")]
+pub struct ProtectedEntity;
 
-impl<'s> DataMaps<'s> {
-	/// Finds the field `ExtractKeyvalue` reads for a key in the object these
-	/// maps describe, and its offset in that object.
-	fn find_key_field(
-		self,
-		key: &[u8],
-		depth: usize,
-	) -> Option<(&'s sys::typedescription_t, usize)> {
-		for map in self {
-			for field in data_fields(map) {
-				let offset = usize::try_from(field.fieldOffset[0]).ok();
+/// An entity cannot be teleported as requested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum TeleportError {
+	#[error("the destination contains a non-finite component")]
+	NonFinite,
 
-				// Embedded objects are searched before the field itself, but not
-				// arrays of them.
-				if field.fieldType == sys::_fieldtypes_FIELD_EMBEDDED
-					&& field.fieldSize == 1
-					&& depth < MAX_EMBEDDING_DEPTH
-					&& let Some((found, inner)) =
-					DataMaps::starting_at(field.td).find_key_field(key, depth + 1)
-				{
-					return Some((found, offset?.checked_add(inner)?));
-				}
-
-				// SAFETY: Key names are string literals of the game DLL.
-				let name = unsafe { borrow_cstr(field.externalName) };
-
-				if field.flags & FTYPEDESC_KEY != 0
-					&& name.is_some_and(|name| name.to_bytes().eq_ignore_ascii_case(key))
-				{
-					return Some((field, offset?));
-				}
-			}
-		}
-
-		None
-	}
-
-	/// Follows the chain from `first`, a map of the game DLL, or null.
-	fn starting_at(first: *const sys::datamap_t) -> Self {
-		Self {
-			next: first,
-			remaining: MAX_DATA_MAPS,
-			_scope: PhantomData,
-		}
-	}
-}
-
-impl<'s> Iterator for DataMaps<'s> {
-	type Item = &'s sys::datamap_t;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		self.remaining = self.remaining.checked_sub(1)?;
-
-		// SAFETY: Datamaps are statics of the game DLL, which are complete once
-		// the first entity of their class exists and never change afterwards.
-		let map = unsafe { self.next.as_ref() }?;
-
-		self.next = map.baseMap;
-		Some(map)
-	}
-}
-
-/// The name of the class a data description map describes.
-pub(crate) fn data_map_class(map: &sys::datamap_t) -> Option<&CStr> {
-	// SAFETY: Class names are string literals of the game DLL.
-	unsafe { borrow_cstr(map.dataClassName) }
-}
-
-/// The fields a data description map declares, not including its bases'.
-pub(crate) fn data_fields(map: &sys::datamap_t) -> &[sys::typedescription_t] {
-	match usize::try_from(map.dataNumFields) {
-		Ok(count @ 1..=MAX_DATA_FIELDS) if !map.dataDesc.is_null() => {
-			// SAFETY: The map holds `dataNumFields` fields, as immutable as the
-			// map itself.
-			unsafe { std::slice::from_raw_parts(map.dataDesc, count) }
-		}
-		_ => &[],
-	}
+	#[error("the entity is marked for deletion")]
+	MarkedForDeletion,
 }
 
 /// The offset of the field of `field_type` named `name` that a map declares,
@@ -615,6 +597,25 @@ pub(crate) fn data_field_offset(
 		.and_then(|field| usize::try_from(field.fieldOffset[0]).ok())
 }
 
+/// The fields a data description map declares, not including its bases'.
+pub(crate) fn data_fields(map: &sys::datamap_t) -> &[sys::typedescription_t] {
+	match usize::try_from(map.dataNumFields) {
+		Ok(count @ 1..=MAX_DATA_FIELDS) if !map.dataDesc.is_null() => {
+			// SAFETY: The map holds `dataNumFields` fields, as immutable as the
+			// map itself.
+			unsafe { std::slice::from_raw_parts(map.dataDesc, count) }
+		}
+
+		_ => &[],
+	}
+}
+
+/// The name of the class a data description map describes.
+pub(crate) fn data_map_class(map: &sys::datamap_t) -> Option<&CStr> {
+	// SAFETY: Class names are string literals of the game DLL.
+	unsafe { borrow_cstr(map.dataClassName) }
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
@@ -625,9 +626,9 @@ pub(crate) mod test_support {
 	use std::ptr::null_mut;
 
 	pub(crate) const MOCK_EFLAGS_OFFSET: usize = 32;
+	const MOCK_HAMMER_ID_OFFSET: usize = 56;
 	const MOCK_HANDLE_OFFSET: usize = 40;
 	pub(crate) const MOCK_NAME_OFFSET: usize = 48;
-	const MOCK_HAMMER_ID_OFFSET: usize = 56;
 
 	/// An input a mock entity's `AcceptInput` received.
 	#[derive(Debug, Clone, PartialEq)]
@@ -657,119 +658,6 @@ pub(crate) mod test_support {
 		static ACCEPTS: Cell<bool> = const { Cell::new(true) };
 	}
 
-	/// Replaces the datamap chain mock entities on this thread report.
-	pub(crate) fn set_datamap(map: *mut sys::datamap_t) {
-		DATA_MAP.set(map);
-	}
-
-	/// Sets what mock entities' `AcceptInput` returns on this thread.
-	pub(crate) fn set_accepts(accepts: bool) {
-		ACCEPTS.set(accepts);
-	}
-
-	/// Takes the inputs mock entities received on this thread.
-	pub(crate) fn take_inputs() -> Vec<ReceivedInput> {
-		INPUTS.take()
-	}
-
-	unsafe extern "C" fn accept_input(
-		this: *mut sys::CBaseEntity,
-		name: *const std::ffi::c_char,
-		activator: *mut sys::CBaseEntity,
-		caller: *mut sys::CBaseEntity,
-		value: *mut sys::variant_t,
-		output_id: c_int,
-	) -> bool {
-		let received = unsafe {
-			ReceivedInput {
-				target: this,
-				name: CStr::from_ptr(name).to_owned(),
-				activator,
-				caller,
-				field_type: (&raw const (*value).fieldType).read(),
-				payload: value.cast::<[u8; 12]>().read(),
-				string: if (&raw const (*value).fieldType).read() == sys::_fieldtypes_FIELD_STRING {
-					(&raw const (*value).__bindgen_anon_1.iszVal.pszValue).read()
-				} else {
-					std::ptr::null()
-				},
-				handle: (&raw const (*value).eVal._base.m_Index).read(),
-				output_id,
-			}
-		};
-
-		// `Convert` changes the caller's copy in place.
-		unsafe { (&raw mut (*value).fieldType).write(sys::_fieldtypes_FIELD_VOID) };
-
-		INPUTS.with_borrow_mut(|inputs| inputs.push(received));
-		ACCEPTS.get()
-	}
-
-	/// Sets the server class and edict that mock entities on this thread report.
-	pub(crate) fn set_networking(class: *mut sys::ServerClass, edict: *mut sys::edict_t) {
-		SERVER_CLASS.set(class);
-		EDICT.set(edict);
-	}
-
-	unsafe extern "C" fn get_server_class(
-		_: *mut sys::IServerNetworkable,
-	) -> *mut sys::ServerClass {
-		SERVER_CLASS.get()
-	}
-
-	unsafe extern "C" fn get_edict(_: *const sys::IServerNetworkable) -> *mut sys::edict_t {
-		EDICT.get()
-	}
-
-	unsafe extern "C" fn get_datamap(_: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
-		DATA_MAP.get()
-	}
-
-	unsafe extern "C" fn get_collideable(_: *mut sys::IServerUnknown) -> *mut sys::ICollideable {
-		COLLIDEABLE.get()
-	}
-
-	unsafe extern "C" fn get_networkable(
-		_: *mut sys::IServerUnknown,
-	) -> *mut sys::IServerNetworkable {
-		NETWORKABLE.get()
-	}
-
-	unsafe extern "C" fn get_handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
-		unsafe { this.byte_add(MOCK_HANDLE_OFFSET).cast() }
-	}
-
-	unsafe extern "C" fn get_origin(_: *const sys::ICollideable) -> *const sys::Vector {
-		ORIGIN.with(Cell::as_ptr).cast_const()
-	}
-
-	unsafe extern "C" fn get_class_name(
-		_: *const sys::IServerNetworkable,
-	) -> *const std::ffi::c_char {
-		c"tf_player".as_ptr()
-	}
-
-	unsafe extern "C" fn teleport_entity(
-		_: *mut sys::CBaseEntity,
-		position: *const sys::Vector,
-		angles: *const sys::QAngle,
-		velocity: *const sys::Vector,
-	) {
-		assert!(angles.is_null() && velocity.is_null());
-		ORIGIN.set(unsafe { *position });
-		TELEPORTS.set(TELEPORTS.get() + 1);
-	}
-
-	fn vtable_slots<T>() -> Vec<*const ()> {
-		vec![unexpected_call as *const (); size_of::<T>() / size_of::<*const ()>()]
-	}
-
-	/// Leaks a value, so pointers into it stay valid however the test moves
-	/// what it keeps.
-	pub(crate) fn leak<T>(value: T) -> *mut T {
-		Box::into_raw(Box::new(value))
-	}
-
 	/// An entity with a class name, origin, datamap, handle, and TF2 `Teleport`,
 	/// whose teleports are counted by [`teleports`].
 	///
@@ -777,32 +665,6 @@ pub(crate) mod test_support {
 	/// the engine's objects.
 	pub(crate) struct MockEntity {
 		storage: *mut [usize; 64],
-	}
-
-	/// A zeroed field description, to be filled in.
-	pub(crate) fn field() -> sys::typedescription_t {
-		// SAFETY: Zero is valid for every field of `typedescription_t`.
-		unsafe { std::mem::zeroed() }
-	}
-
-	/// Builds a leaked map for `class`, deriving from `base`.
-	pub(crate) fn data_map(
-		class: &'static CStr,
-		declared: Vec<sys::typedescription_t>,
-		base: *mut sys::datamap_t,
-	) -> *mut sys::datamap_t {
-		let count = declared.len() as c_int;
-		let declared = declared.leak();
-		let map = leak(unsafe { std::mem::zeroed::<sys::datamap_t>() });
-
-		unsafe {
-			(*map).dataDesc = declared.as_mut_ptr();
-			(*map).dataNumFields = count;
-			(*map).dataClassName = class.as_ptr();
-			(*map).baseMap = base;
-		}
-
-		map
 	}
 
 	impl MockEntity {
@@ -899,15 +761,6 @@ pub(crate) mod test_support {
 			unsafe { Entity::from_raw(NonNull::new(self.as_ptr()).unwrap()) }
 		}
 
-		pub(crate) fn set_name(&mut self, name: sys::string_t) {
-			unsafe {
-				self.as_ptr()
-					.byte_add(MOCK_NAME_OFFSET)
-					.cast::<sys::string_t>()
-					.write(name)
-			};
-		}
-
 		pub(crate) fn name(&mut self) -> sys::string_t {
 			unsafe {
 				self.as_ptr()
@@ -934,10 +787,48 @@ pub(crate) mod test_support {
 					.write(id)
 			};
 		}
+
+		pub(crate) fn set_name(&mut self, name: sys::string_t) {
+			unsafe {
+				self.as_ptr()
+					.byte_add(MOCK_NAME_OFFSET)
+					.cast::<sys::string_t>()
+					.write(name)
+			};
+		}
 	}
 
-	pub(crate) fn teleports() -> usize {
-		TELEPORTS.get()
+	unsafe extern "C" fn accept_input(
+		this: *mut sys::CBaseEntity,
+		name: *const std::ffi::c_char,
+		activator: *mut sys::CBaseEntity,
+		caller: *mut sys::CBaseEntity,
+		value: *mut sys::variant_t,
+		output_id: c_int,
+	) -> bool {
+		let received = unsafe {
+			ReceivedInput {
+				target: this,
+				name: CStr::from_ptr(name).to_owned(),
+				activator,
+				caller,
+				field_type: (&raw const (*value).fieldType).read(),
+				payload: value.cast::<[u8; 12]>().read(),
+				string: if (&raw const (*value).fieldType).read() == sys::_fieldtypes_FIELD_STRING {
+					(&raw const (*value).__bindgen_anon_1.iszVal.pszValue).read()
+				} else {
+					std::ptr::null()
+				},
+				handle: (&raw const (*value).eVal._base.m_Index).read(),
+				output_id,
+			}
+		};
+
+		// `Convert` changes the caller's copy in place.
+		unsafe { (&raw mut (*value).fieldType).write(sys::_fieldtypes_FIELD_VOID) };
+
+		INPUTS.with_borrow_mut(|inputs| inputs.push(received));
+		ACCEPTS.get()
 	}
 
 	/// The fields `CBaseEntity`'s map declares that mock entities store.
@@ -964,6 +855,116 @@ pub(crate) mod test_support {
 		hammer_id.fieldSizeInBytes = size_of::<c_int>() as c_int;
 
 		[flags, name, hammer_id]
+	}
+
+	/// Builds a leaked map for `class`, deriving from `base`.
+	pub(crate) fn data_map(
+		class: &'static CStr,
+		declared: Vec<sys::typedescription_t>,
+		base: *mut sys::datamap_t,
+	) -> *mut sys::datamap_t {
+		let count = declared.len() as c_int;
+		let declared = declared.leak();
+		let map = leak(unsafe { std::mem::zeroed::<sys::datamap_t>() });
+
+		unsafe {
+			(*map).dataDesc = declared.as_mut_ptr();
+			(*map).dataNumFields = count;
+			(*map).dataClassName = class.as_ptr();
+			(*map).baseMap = base;
+		}
+
+		map
+	}
+
+	/// A zeroed field description, to be filled in.
+	pub(crate) fn field() -> sys::typedescription_t {
+		// SAFETY: Zero is valid for every field of `typedescription_t`.
+		unsafe { std::mem::zeroed() }
+	}
+
+	unsafe extern "C" fn get_class_name(
+		_: *const sys::IServerNetworkable,
+	) -> *const std::ffi::c_char {
+		c"tf_player".as_ptr()
+	}
+
+	unsafe extern "C" fn get_collideable(_: *mut sys::IServerUnknown) -> *mut sys::ICollideable {
+		COLLIDEABLE.get()
+	}
+
+	unsafe extern "C" fn get_datamap(_: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
+		DATA_MAP.get()
+	}
+
+	unsafe extern "C" fn get_edict(_: *const sys::IServerNetworkable) -> *mut sys::edict_t {
+		EDICT.get()
+	}
+
+	unsafe extern "C" fn get_handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
+		unsafe { this.byte_add(MOCK_HANDLE_OFFSET).cast() }
+	}
+
+	unsafe extern "C" fn get_networkable(
+		_: *mut sys::IServerUnknown,
+	) -> *mut sys::IServerNetworkable {
+		NETWORKABLE.get()
+	}
+
+	unsafe extern "C" fn get_origin(_: *const sys::ICollideable) -> *const sys::Vector {
+		ORIGIN.with(Cell::as_ptr).cast_const()
+	}
+
+	unsafe extern "C" fn get_server_class(
+		_: *mut sys::IServerNetworkable,
+	) -> *mut sys::ServerClass {
+		SERVER_CLASS.get()
+	}
+
+	/// Leaks a value, so pointers into it stay valid however the test moves
+	/// what it keeps.
+	pub(crate) fn leak<T>(value: T) -> *mut T {
+		Box::into_raw(Box::new(value))
+	}
+
+	/// Sets what mock entities' `AcceptInput` returns on this thread.
+	pub(crate) fn set_accepts(accepts: bool) {
+		ACCEPTS.set(accepts);
+	}
+
+	/// Replaces the datamap chain mock entities on this thread report.
+	pub(crate) fn set_datamap(map: *mut sys::datamap_t) {
+		DATA_MAP.set(map);
+	}
+
+	/// Sets the server class and edict that mock entities on this thread report.
+	pub(crate) fn set_networking(class: *mut sys::ServerClass, edict: *mut sys::edict_t) {
+		SERVER_CLASS.set(class);
+		EDICT.set(edict);
+	}
+
+	/// Takes the inputs mock entities received on this thread.
+	pub(crate) fn take_inputs() -> Vec<ReceivedInput> {
+		INPUTS.take()
+	}
+
+	unsafe extern "C" fn teleport_entity(
+		_: *mut sys::CBaseEntity,
+		position: *const sys::Vector,
+		angles: *const sys::QAngle,
+		velocity: *const sys::Vector,
+	) {
+		assert!(angles.is_null() && velocity.is_null());
+		ORIGIN.set(unsafe { *position });
+		TELEPORTS.set(TELEPORTS.get() + 1);
+	}
+
+	pub(crate) fn teleports() -> usize {
+		TELEPORTS.get()
+	}
+
+	fn vtable_slots<T>() -> Vec<*const ()> {
+		vec![unexpected_call as *const (); size_of::<T>() / size_of::<*const ()>()]
 	}
 }
 

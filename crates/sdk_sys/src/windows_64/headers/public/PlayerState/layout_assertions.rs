@@ -3,6 +3,15 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CPlayerState_NetworkVar_deadflag",
+    ][::std::mem::size_of::<CPlayerState_NetworkVar_deadflag>() - 1usize];
+    [
+        "Alignment of CPlayerState_NetworkVar_deadflag",
+    ][::std::mem::align_of::<CPlayerState_NetworkVar_deadflag>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of CPlayerState"][::std::mem::size_of::<CPlayerState>() - 64usize];
     ["Alignment of CPlayerState"][::std::mem::align_of::<CPlayerState>() - 8usize];
     [
@@ -32,13 +41,4 @@ const _: () = {
     [
         "Offset of field: CPlayerState::deaths",
     ][::std::mem::offset_of!(CPlayerState, deaths) - 56usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CPlayerState_NetworkVar_deadflag",
-    ][::std::mem::size_of::<CPlayerState_NetworkVar_deadflag>() - 1usize];
-    [
-        "Alignment of CPlayerState_NetworkVar_deadflag",
-    ][::std::mem::align_of::<CPlayerState_NetworkVar_deadflag>() - 1usize];
 };

@@ -19,6 +19,98 @@ pub struct IGameEvent {
     pub vtable_: *const IGameEvent__bindgen_vtable,
 }
 #[repr(C)]
+pub struct IGameEvent__bindgen_vtable {
+    pub IGameEvent_destructor: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: ::std::os::raw::c_uint,
+    ) -> *mut ::std::os::raw::c_void,
+    pub IGameEvent_GetName: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+    ) -> *const ::std::os::raw::c_char,
+    pub IGameEvent_IsReliable: unsafe extern "C" fn(arg1: *const IGameEvent) -> bool,
+    pub IGameEvent_IsLocal: unsafe extern "C" fn(arg1: *const IGameEvent) -> bool,
+    pub IGameEvent_IsEmpty: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+    ) -> bool,
+    pub IGameEvent_GetBool: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: bool,
+    ) -> bool,
+    pub IGameEvent_GetInt: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int,
+    pub IGameEvent_GetFloat: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: f32,
+    ) -> f32,
+    pub IGameEvent_GetString: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const ::std::os::raw::c_char,
+    ) -> *const ::std::os::raw::c_char,
+    pub IGameEvent_SetBool: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: bool,
+    ),
+    pub IGameEvent_SetInt: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: ::std::os::raw::c_int,
+    ),
+    pub IGameEvent_SetFloat: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: f32,
+    ),
+    pub IGameEvent_SetString: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const ::std::os::raw::c_char,
+    ),
+    pub IGameEvent_GetUint64: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: uint64,
+    ) -> uint64,
+    pub IGameEvent_GetWString: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const u16,
+    ) -> *const u16,
+    pub IGameEvent_GetPtr: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+    ) -> *const ::std::os::raw::c_void,
+    pub IGameEvent_SetUint64: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: uint64,
+    ),
+    pub IGameEvent_SetWString: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const u16,
+    ),
+    pub IGameEvent_SetPtr: unsafe extern "C" fn(
+        arg1: *mut IGameEvent,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const ::std::os::raw::c_void,
+    ),
+    pub IGameEvent_GetDataKeys: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+    ) -> *mut KeyValues,
+    pub IGameEvent_ForEventData: unsafe extern "C" fn(
+        arg1: *const IGameEvent,
+        arg2: *mut IGameEventVisitor2,
+    ) -> bool,
+}
+#[repr(C)]
 #[derive(Debug)]
 pub struct IGameEventListener2 {
     pub vtable_: *const IGameEventListener2__bindgen_vtable,
@@ -138,98 +230,6 @@ pub struct IGameEventVisitor2__bindgen_vtable {
         arg1: *mut IGameEventVisitor2,
         arg2: *const ::std::os::raw::c_char,
         arg3: bool,
-    ) -> bool,
-}
-#[repr(C)]
-pub struct IGameEvent__bindgen_vtable {
-    pub IGameEvent_destructor: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: ::std::os::raw::c_uint,
-    ) -> *mut ::std::os::raw::c_void,
-    pub IGameEvent_GetName: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-    ) -> *const ::std::os::raw::c_char,
-    pub IGameEvent_IsReliable: unsafe extern "C" fn(arg1: *const IGameEvent) -> bool,
-    pub IGameEvent_IsLocal: unsafe extern "C" fn(arg1: *const IGameEvent) -> bool,
-    pub IGameEvent_IsEmpty: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-    ) -> bool,
-    pub IGameEvent_GetBool: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: bool,
-    ) -> bool,
-    pub IGameEvent_GetInt: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int,
-    pub IGameEvent_GetFloat: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: f32,
-    ) -> f32,
-    pub IGameEvent_GetString: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: *const ::std::os::raw::c_char,
-    ) -> *const ::std::os::raw::c_char,
-    pub IGameEvent_SetBool: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: bool,
-    ),
-    pub IGameEvent_SetInt: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: ::std::os::raw::c_int,
-    ),
-    pub IGameEvent_SetFloat: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: f32,
-    ),
-    pub IGameEvent_SetString: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: *const ::std::os::raw::c_char,
-    ),
-    pub IGameEvent_GetUint64: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: uint64,
-    ) -> uint64,
-    pub IGameEvent_GetWString: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: *const u16,
-    ) -> *const u16,
-    pub IGameEvent_GetPtr: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-    ) -> *const ::std::os::raw::c_void,
-    pub IGameEvent_SetUint64: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: uint64,
-    ),
-    pub IGameEvent_SetWString: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: *const u16,
-    ),
-    pub IGameEvent_SetPtr: unsafe extern "C" fn(
-        arg1: *mut IGameEvent,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: *const ::std::os::raw::c_void,
-    ),
-    pub IGameEvent_GetDataKeys: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-    ) -> *mut KeyValues,
-    pub IGameEvent_ForEventData: unsafe extern "C" fn(
-        arg1: *const IGameEvent,
-        arg2: *mut IGameEventVisitor2,
     ) -> bool,
 }
 include!("layout_assertions.rs");

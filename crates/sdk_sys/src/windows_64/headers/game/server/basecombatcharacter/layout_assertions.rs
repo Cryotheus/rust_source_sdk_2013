@@ -4,6 +4,65 @@
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of CBaseCombatCharacter_DamageHistory",
+    ][::std::mem::size_of::<CBaseCombatCharacter_DamageHistory>() - 8usize];
+    [
+        "Alignment of CBaseCombatCharacter_DamageHistory",
+    ][::std::mem::align_of::<CBaseCombatCharacter_DamageHistory>() - 4usize];
+    [
+        "Offset of field: CBaseCombatCharacter_DamageHistory::team",
+    ][::std::mem::offset_of!(CBaseCombatCharacter_DamageHistory, team) - 0usize];
+    [
+        "Offset of field: CBaseCombatCharacter_DamageHistory::interval",
+    ][::std::mem::offset_of!(CBaseCombatCharacter_DamageHistory, interval) - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatCharacter_NetworkVar_m_flNextAttack",
+    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_flNextAttack>() - 1usize];
+    [
+        "Alignment of CBaseCombatCharacter_NetworkVar_m_flNextAttack",
+    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_flNextAttack>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatCharacter_NetworkVar_m_hActiveWeapon",
+    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_hActiveWeapon>() - 1usize];
+    [
+        "Alignment of CBaseCombatCharacter_NetworkVar_m_hActiveWeapon",
+    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_hActiveWeapon>()
+        - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatCharacter_NetworkVar_m_hMyWeapons",
+    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_hMyWeapons>() - 192usize];
+    [
+        "Alignment of CBaseCombatCharacter_NetworkVar_m_hMyWeapons",
+    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_hMyWeapons>() - 4usize];
+    [
+        "Offset of field: CBaseCombatCharacter_NetworkVar_m_hMyWeapons::m_Value",
+    ][::std::mem::offset_of!(CBaseCombatCharacter_NetworkVar_m_hMyWeapons, m_Value)
+        - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CBaseCombatCharacter_NetworkVar_m_iAmmo",
+    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_iAmmo>() - 128usize];
+    [
+        "Alignment of CBaseCombatCharacter_NetworkVar_m_iAmmo",
+    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_iAmmo>() - 4usize];
+    [
+        "Offset of field: CBaseCombatCharacter_NetworkVar_m_iAmmo::m_Value",
+    ][::std::mem::offset_of!(CBaseCombatCharacter_NetworkVar_m_iAmmo, m_Value) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of CBaseCombatCharacter",
     ][::std::mem::size_of::<CBaseCombatCharacter>() - 2544usize];
     [
@@ -79,65 +138,6 @@ const _: () = {
     [
         "Offset of field: CBaseCombatCharacter::m_registeredNavTeam",
     ][::std::mem::offset_of!(CBaseCombatCharacter, m_registeredNavTeam) - 2536usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatCharacter_DamageHistory",
-    ][::std::mem::size_of::<CBaseCombatCharacter_DamageHistory>() - 8usize];
-    [
-        "Alignment of CBaseCombatCharacter_DamageHistory",
-    ][::std::mem::align_of::<CBaseCombatCharacter_DamageHistory>() - 4usize];
-    [
-        "Offset of field: CBaseCombatCharacter_DamageHistory::team",
-    ][::std::mem::offset_of!(CBaseCombatCharacter_DamageHistory, team) - 0usize];
-    [
-        "Offset of field: CBaseCombatCharacter_DamageHistory::interval",
-    ][::std::mem::offset_of!(CBaseCombatCharacter_DamageHistory, interval) - 4usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatCharacter_NetworkVar_m_flNextAttack",
-    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_flNextAttack>() - 1usize];
-    [
-        "Alignment of CBaseCombatCharacter_NetworkVar_m_flNextAttack",
-    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_flNextAttack>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatCharacter_NetworkVar_m_hActiveWeapon",
-    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_hActiveWeapon>() - 1usize];
-    [
-        "Alignment of CBaseCombatCharacter_NetworkVar_m_hActiveWeapon",
-    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_hActiveWeapon>()
-        - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatCharacter_NetworkVar_m_hMyWeapons",
-    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_hMyWeapons>() - 192usize];
-    [
-        "Alignment of CBaseCombatCharacter_NetworkVar_m_hMyWeapons",
-    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_hMyWeapons>() - 4usize];
-    [
-        "Offset of field: CBaseCombatCharacter_NetworkVar_m_hMyWeapons::m_Value",
-    ][::std::mem::offset_of!(CBaseCombatCharacter_NetworkVar_m_hMyWeapons, m_Value)
-        - 0usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CBaseCombatCharacter_NetworkVar_m_iAmmo",
-    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_iAmmo>() - 128usize];
-    [
-        "Alignment of CBaseCombatCharacter_NetworkVar_m_iAmmo",
-    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_iAmmo>() - 4usize];
-    [
-        "Offset of field: CBaseCombatCharacter_NetworkVar_m_iAmmo::m_Value",
-    ][::std::mem::offset_of!(CBaseCombatCharacter_NetworkVar_m_iAmmo, m_Value) - 0usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

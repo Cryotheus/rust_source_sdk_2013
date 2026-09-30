@@ -3,14 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of DVariant"][::std::mem::size_of::<DVariant>() - 24usize];
-    ["Alignment of DVariant"][::std::mem::align_of::<DVariant>() - 8usize];
-    [
-        "Offset of field: DVariant::m_Type",
-    ][::std::mem::offset_of!(DVariant, m_Type) - 16usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of DVariant__bindgen_ty_1",
     ][::std::mem::size_of::<DVariant__bindgen_ty_1>() - 16usize];
@@ -32,4 +24,12 @@ const _: () = {
     [
         "Offset of field: DVariant__bindgen_ty_1::m_Vector",
     ][::std::mem::offset_of!(DVariant__bindgen_ty_1, m_Vector) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of DVariant"][::std::mem::size_of::<DVariant>() - 24usize];
+    ["Alignment of DVariant"][::std::mem::align_of::<DVariant>() - 8usize];
+    [
+        "Offset of field: DVariant::m_Type",
+    ][::std::mem::offset_of!(DVariant, m_Type) - 16usize];
 };

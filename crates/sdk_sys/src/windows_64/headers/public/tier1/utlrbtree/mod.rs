@@ -13,14 +13,14 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
+pub type CUtlRBTree__bindgen_ty_1 = ::std::os::raw::c_int;
 pub type CUtlRBTree_ElemType_t<T> = T;
 pub type CUtlRBTree_IndexType_t<I> = I;
 pub type CUtlRBTree_KeyType_t<T> = T;
 pub type CUtlRBTree_LessFunc_t<L> = L;
 pub type CUtlRBTree_Links_t<I> = UtlRBTreeLinks_t<I>;
-pub type CUtlRBTree_NodeColor_t = ::std::os::raw::c_int;
 pub type CUtlRBTree_Node_t<T, I> = UtlRBTreeNode_t<T, I>;
-pub type CUtlRBTree__bindgen_ty_1 = ::std::os::raw::c_int;
+pub type CUtlRBTree_NodeColor_t = ::std::os::raw::c_int;
 pub const CUtlRBTree_IsUtlRBTree: CUtlRBTree__bindgen_ty_1 = 0;
 pub const CUtlRBTree_NodeColor_t_BLACK: CUtlRBTree_NodeColor_t = 0;
 pub const CUtlRBTree_NodeColor_t_RED: CUtlRBTree_NodeColor_t = 0;

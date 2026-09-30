@@ -4,9 +4,6 @@ use crate::server::InterfaceError;
 use std::ffi::CStr;
 use std::fmt::{self, Display, Formatter};
 
-/// The longest command name [`validate_name`] accepts, in bytes.
-const MAX_NAME_LENGTH: usize = 63;
-
 /// Names the engine runs for clients itself, through `Dispatch` as though the
 /// server had run them, before the game or any hook sees them: the list
 /// `CGameClient::ExecuteStringCommand` checks in TF2's 64-bit engine. The
@@ -26,6 +23,25 @@ const ENGINE_CLIENT_COMMANDS: [&[u8]; 12] = [
 	b"rpt_download_log",
 ];
 
+/// The longest command name [`validate_name`] accepts, in bytes.
+const MAX_NAME_LENGTH: usize = 63;
+
+/// What already uses a name in the engine's registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandBaseKind {
+	Command,
+	Variable,
+}
+
+impl Display for CommandBaseKind {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		f.write_str(match self {
+			Self::Command => "command",
+			Self::Variable => "variable",
+		})
+	}
+}
+
 /// A command name [`validate_name`] rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidCommandName {
@@ -42,6 +58,82 @@ pub enum InvalidCommandName {
 	/// server ran them, so their invoker could not be told apart.
 	#[error("the engine reserves the name for its own client commands")]
 	Reserved,
+}
+
+/// A command could not be registered.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("could not register console command `{}`: {kind}", .name.to_string_lossy())]
+pub struct RegisterCommandError {
+	name: &'static CStr,
+	kind: RegisterCommandErrorKind,
+}
+
+impl RegisterCommandError {
+	pub(crate) const fn new(name: &'static CStr, kind: RegisterCommandErrorKind) -> Self {
+		Self { name, kind }
+	}
+
+	pub const fn kind(&self) -> &RegisterCommandErrorKind {
+		&self.kind
+	}
+
+	pub const fn name(&self) -> &'static CStr {
+		self.name
+	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RegisterCommandErrorKind {
+	/// The engine lists the command already. Registering it again would cut
+	/// the engine's list short, since the command is relinked in place.
+	#[error("the command is already registered")]
+	AlreadyRegistered,
+
+	#[error("the name is already used by a console {0}")]
+	NameTaken(CommandBaseKind),
+
+	/// The registrar returned without the engine listing the command under its
+	/// name. It was unlinked again if the engine marked it registered.
+	#[error("the engine did not list the command")]
+	NotLinked,
+
+	#[error(transparent)]
+	Interface(#[from] InterfaceError),
+}
+
+/// A command could not be unregistered.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("could not unregister console command `{}`: {kind}", .name.to_string_lossy())]
+pub struct UnregisterCommandError {
+	name: &'static CStr,
+	kind: UnregisterCommandErrorKind,
+}
+
+impl UnregisterCommandError {
+	pub(crate) const fn new(name: &'static CStr, kind: UnregisterCommandErrorKind) -> Self {
+		Self { name, kind }
+	}
+
+	pub const fn kind(&self) -> &UnregisterCommandErrorKind {
+		&self.kind
+	}
+
+	pub const fn name(&self) -> &'static CStr {
+		self.name
+	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UnregisterCommandErrorKind {
+	#[error("the command is not registered")]
+	NotRegistered,
+
+	/// The registrar returned with the engine still listing the command.
+	#[error("the engine still lists the command")]
+	StillLinked,
+
+	#[error(transparent)]
+	Interface(#[from] InterfaceError),
 }
 
 /// Checks that a name is 1 to 63 ASCII letters, digits, and underscores, and
@@ -83,96 +175,4 @@ pub const fn validate_name(name: &CStr) -> Result<(), InvalidCommandName> {
 	}
 
 	Ok(())
-}
-
-/// What already uses a name in the engine's registry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CommandBaseKind {
-	Command,
-	Variable,
-}
-
-impl Display for CommandBaseKind {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		f.write_str(match self {
-			Self::Command => "command",
-			Self::Variable => "variable",
-		})
-	}
-}
-
-/// A command could not be registered.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("could not register console command `{}`: {kind}", .name.to_string_lossy())]
-pub struct RegisterCommandError {
-	name: &'static CStr,
-	kind: RegisterCommandErrorKind,
-}
-
-impl RegisterCommandError {
-	pub(crate) const fn new(name: &'static CStr, kind: RegisterCommandErrorKind) -> Self {
-		Self { name, kind }
-	}
-
-	pub const fn name(&self) -> &'static CStr {
-		self.name
-	}
-
-	pub const fn kind(&self) -> &RegisterCommandErrorKind {
-		&self.kind
-	}
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum RegisterCommandErrorKind {
-	/// The engine lists the command already. Registering it again would cut
-	/// the engine's list short, since the command is relinked in place.
-	#[error("the command is already registered")]
-	AlreadyRegistered,
-
-	#[error("the name is already used by a console {0}")]
-	NameTaken(CommandBaseKind),
-
-	/// The registrar returned without the engine listing the command under its
-	/// name. It was unlinked again if the engine marked it registered.
-	#[error("the engine did not list the command")]
-	NotLinked,
-
-	#[error(transparent)]
-	Interface(#[from] InterfaceError),
-}
-
-/// A command could not be unregistered.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("could not unregister console command `{}`: {kind}", .name.to_string_lossy())]
-pub struct UnregisterCommandError {
-	name: &'static CStr,
-	kind: UnregisterCommandErrorKind,
-}
-
-impl UnregisterCommandError {
-	pub(crate) const fn new(name: &'static CStr, kind: UnregisterCommandErrorKind) -> Self {
-		Self { name, kind }
-	}
-
-	pub const fn name(&self) -> &'static CStr {
-		self.name
-	}
-
-	pub const fn kind(&self) -> &UnregisterCommandErrorKind {
-		&self.kind
-	}
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum UnregisterCommandErrorKind {
-	#[error("the command is not registered")]
-	NotRegistered,
-
-	/// The registrar returned with the engine still listing the command.
-	#[error("the engine still lists the command")]
-	StillLinked,
-
-	#[error(transparent)]
-	Interface(#[from] InterfaceError),
 }

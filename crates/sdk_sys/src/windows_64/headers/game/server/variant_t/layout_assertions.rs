@@ -3,17 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of variant_t"][::std::mem::size_of::<variant_t>() - 24usize];
-    ["Alignment of variant_t"][::std::mem::align_of::<variant_t>() - 8usize];
-    [
-        "Offset of field: variant_t::eVal",
-    ][::std::mem::offset_of!(variant_t, eVal) - 16usize];
-    [
-        "Offset of field: variant_t::fieldType",
-    ][::std::mem::offset_of!(variant_t, fieldType) - 20usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of variant_t__bindgen_ty_1",
     ][::std::mem::size_of::<variant_t__bindgen_ty_1>() - 16usize];
@@ -38,4 +27,15 @@ const _: () = {
     [
         "Offset of field: variant_t__bindgen_ty_1::rgbaVal",
     ][::std::mem::offset_of!(variant_t__bindgen_ty_1, rgbaVal) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of variant_t"][::std::mem::size_of::<variant_t>() - 24usize];
+    ["Alignment of variant_t"][::std::mem::align_of::<variant_t>() - 8usize];
+    [
+        "Offset of field: variant_t::eVal",
+    ][::std::mem::offset_of!(variant_t, eVal) - 16usize];
+    [
+        "Offset of field: variant_t::fieldType",
+    ][::std::mem::offset_of!(variant_t, fieldType) - 20usize];
 };

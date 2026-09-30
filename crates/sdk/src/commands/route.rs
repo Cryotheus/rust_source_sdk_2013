@@ -30,38 +30,81 @@ impl ClientRoute {
 	}
 }
 
-/// Runs a client's string command if it names a command registered through
-/// this crate that clients may run.
-///
-/// Call this from a hook on `IServerGameClients::ClientCommand` that runs
-/// before the game's own handler, and stop the call from reaching the game
-/// when this returns [`ClientRoute::Handled`].
+fn cheats_allowed(cvar: Cvar<'_>) -> bool {
+	cvar.find_var(c"sv_cheats")
+		.is_some_and(|cheats| cheats.int() != 0)
+}
+
+/// Runs a command the engine dispatched: an invocation from the server side.
 ///
 /// # Safety
 ///
-/// Call it only from such a hook, on the server's main thread, passing the
-/// arguments of the engine's call: a slot of the edict table and the command
-/// the engine tokenized.
-pub unsafe fn route_client_command(
-	binding: &ServerBinding,
-	edict: NonNull<sys::edict_t>,
-	command: NonNull<sys::CCommand>,
-) -> ClientRoute {
-	let routed = catch_unwind(AssertUnwindSafe(|| {
+/// `command` must be null or the live command the engine is running, and this
+/// must run inside the engine's call on the main thread.
+pub(super) unsafe fn dispatch_from_engine(
+	header: RegisteredCommand,
+	command: *const sys::CCommand,
+) {
+	let outcome = catch_unwind(AssertUnwindSafe(|| {
+		let (Some(binding), Some(command)) = (header.binding(), NonNull::new(command.cast_mut()))
+		else {
+			return;
+		};
+
 		let scope = ();
 
-		// SAFETY: The caller runs this inside the engine's call to the game, on
-		// the main thread, which `scope` does not outlive.
+		// SAFETY: This runs inside the engine's call to the command, on the
+		// main thread, which `scope` does not outlive.
 		let server = unsafe { binding.server(&scope) };
+		let name = header.name().to_string_lossy();
 
-		// SAFETY: The caller passes the engine's arguments.
-		unsafe { route(server, edict, command) }
+		// SAFETY: The caller passes the engine's live command.
+		let line = match unsafe { CommandLine::copy(command) } {
+			Ok(line) => line,
+
+			Err(error) => {
+				print_to_console(server, format_args!("{name}: {error}"));
+				return;
+			}
+		};
+
+		let context = CommandContext::new(
+			server,
+			CommandArgs::new(&line),
+			Invoker::Server,
+			header.name(),
+		);
+
+		if !header.access().allows_server() {
+			let _ = context.reply(format_args!("{name}: only players can use this command"));
+			return;
+		}
+
+		run(header, &context);
 	}));
 
-	routed.unwrap_or_else(|payload| {
+	if let Err(payload) = outcome {
 		drop_payload(payload);
-		ClientRoute::NotRouted
-	})
+	}
+}
+
+/// Drops a panic's payload, whose own drop may panic too.
+fn drop_payload(payload: Box<dyn Any + Send>) {
+	if let Err(nested) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+		mem::forget(nested);
+	}
+}
+
+fn panic_message(payload: &(dyn Any + Send)) -> &str {
+	payload
+		.downcast_ref::<&str>()
+		.copied()
+		.or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+		.unwrap_or("a non-string payload")
+}
+
+fn print_to_console(server: Server<'_>, message: std::fmt::Arguments<'_>) {
+	server.console_print(&line_from(message));
 }
 
 /// # Safety
@@ -124,56 +167,38 @@ unsafe fn route(
 	ClientRoute::Handled
 }
 
-/// Runs a command the engine dispatched: an invocation from the server side.
+/// Runs a client's string command if it names a command registered through
+/// this crate that clients may run.
+///
+/// Call this from a hook on `IServerGameClients::ClientCommand` that runs
+/// before the game's own handler, and stop the call from reaching the game
+/// when this returns [`ClientRoute::Handled`].
 ///
 /// # Safety
 ///
-/// `command` must be null or the live command the engine is running, and this
-/// must run inside the engine's call on the main thread.
-pub(super) unsafe fn dispatch_from_engine(
-	header: RegisteredCommand,
-	command: *const sys::CCommand,
-) {
-	let outcome = catch_unwind(AssertUnwindSafe(|| {
-		let (Some(binding), Some(command)) = (header.binding(), NonNull::new(command.cast_mut()))
-		else {
-			return;
-		};
-
+/// Call it only from such a hook, on the server's main thread, passing the
+/// arguments of the engine's call: a slot of the edict table and the command
+/// the engine tokenized.
+pub unsafe fn route_client_command(
+	binding: &ServerBinding,
+	edict: NonNull<sys::edict_t>,
+	command: NonNull<sys::CCommand>,
+) -> ClientRoute {
+	let routed = catch_unwind(AssertUnwindSafe(|| {
 		let scope = ();
 
-		// SAFETY: This runs inside the engine's call to the command, on the
-		// main thread, which `scope` does not outlive.
+		// SAFETY: The caller runs this inside the engine's call to the game, on
+		// the main thread, which `scope` does not outlive.
 		let server = unsafe { binding.server(&scope) };
-		let name = header.name().to_string_lossy();
 
-		// SAFETY: The caller passes the engine's live command.
-		let line = match unsafe { CommandLine::copy(command) } {
-			Ok(line) => line,
-			Err(error) => {
-				print_to_console(server, format_args!("{name}: {error}"));
-				return;
-			}
-		};
-
-		let context = CommandContext::new(
-			server,
-			CommandArgs::new(&line),
-			Invoker::Server,
-			header.name(),
-		);
-
-		if !header.access().allows_server() {
-			let _ = context.reply(format_args!("{name}: only players can use this command"));
-			return;
-		}
-
-		run(header, &context);
+		// SAFETY: The caller passes the engine's arguments.
+		unsafe { route(server, edict, command) }
 	}));
 
-	if let Err(payload) = outcome {
+	routed.unwrap_or_else(|payload| {
 		drop_payload(payload);
-	}
+		ClientRoute::NotRouted
+	})
 }
 
 /// Runs the handler, reporting its error or panic to the invoker.
@@ -201,28 +226,4 @@ fn run(header: RegisteredCommand, context: &CommandContext<'_>) {
 	}
 
 	drop_payload(payload);
-}
-
-fn cheats_allowed(cvar: Cvar<'_>) -> bool {
-	cvar.find_var(c"sv_cheats")
-		.is_some_and(|cheats| cheats.int() != 0)
-}
-
-fn print_to_console(server: Server<'_>, message: std::fmt::Arguments<'_>) {
-	server.console_print(&line_from(message));
-}
-
-fn panic_message(payload: &(dyn Any + Send)) -> &str {
-	payload
-		.downcast_ref::<&str>()
-		.copied()
-		.or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-		.unwrap_or("a non-string payload")
-}
-
-/// Drops a panic's payload, whose own drop may panic too.
-fn drop_payload(payload: Box<dyn Any + Send>) {
-	if let Err(nested) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
-		mem::forget(nested);
-	}
 }

@@ -48,6 +48,16 @@ pub struct CPlayerLocalData {
     pub m_szScriptOverlayMaterial: CPlayerLocalData_NetworkVar_m_szScriptOverlayMaterial,
 }
 #[repr(C)]
+pub struct CPlayerLocalData__bindgen_vtable {
+    pub CPlayerLocalData_NetworkStateChanged1: unsafe extern "C" fn(
+        arg1: *mut CPlayerLocalData,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CPlayerLocalData_NetworkStateChanged: unsafe extern "C" fn(
+        arg1: *mut CPlayerLocalData,
+    ),
+}
+#[repr(C)]
 pub struct CPlayerLocalData_NetworkVar_m_PlayerFog {
     pub _base: fogplayerparams_t,
 }
@@ -165,15 +175,5 @@ pub struct CPlayerLocalData_NetworkVar_m_vecPunchAngle {
 #[derive(Debug, Copy, Clone)]
 pub struct CPlayerLocalData_NetworkVar_m_vecPunchAngleVel {
     pub _address: u8,
-}
-#[repr(C)]
-pub struct CPlayerLocalData__bindgen_vtable {
-    pub CPlayerLocalData_NetworkStateChanged1: unsafe extern "C" fn(
-        arg1: *mut CPlayerLocalData,
-        arg2: *mut ::std::os::raw::c_void,
-    ),
-    pub CPlayerLocalData_NetworkStateChanged: unsafe extern "C" fn(
-        arg1: *mut CPlayerLocalData,
-    ),
 }
 include!("layout_assertions.rs");

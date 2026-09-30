@@ -3,41 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseViewModel"][::std::mem::size_of::<CBaseViewModel>() - 1592usize];
-    ["Alignment of CBaseViewModel"][::std::mem::align_of::<CBaseViewModel>() - 8usize];
-    [
-        "Offset of field: CBaseViewModel::m_vecLastFacing",
-    ][::std::mem::offset_of!(CBaseViewModel, m_vecLastFacing) - 1504usize];
-    [
-        "Offset of field: CBaseViewModel::m_nViewModelIndex",
-    ][::std::mem::offset_of!(CBaseViewModel, m_nViewModelIndex) - 1516usize];
-    [
-        "Offset of field: CBaseViewModel::m_hOwner",
-    ][::std::mem::offset_of!(CBaseViewModel, m_hOwner) - 1520usize];
-    [
-        "Offset of field: CBaseViewModel::m_flTimeWeaponIdle",
-    ][::std::mem::offset_of!(CBaseViewModel, m_flTimeWeaponIdle) - 1524usize];
-    [
-        "Offset of field: CBaseViewModel::m_Activity",
-    ][::std::mem::offset_of!(CBaseViewModel, m_Activity) - 1528usize];
-    [
-        "Offset of field: CBaseViewModel::m_nAnimationParity",
-    ][::std::mem::offset_of!(CBaseViewModel, m_nAnimationParity) - 1532usize];
-    [
-        "Offset of field: CBaseViewModel::m_sVMName",
-    ][::std::mem::offset_of!(CBaseViewModel, m_sVMName) - 1536usize];
-    [
-        "Offset of field: CBaseViewModel::m_sAnimationPrefix",
-    ][::std::mem::offset_of!(CBaseViewModel, m_sAnimationPrefix) - 1544usize];
-    [
-        "Offset of field: CBaseViewModel::m_hWeapon",
-    ][::std::mem::offset_of!(CBaseViewModel, m_hWeapon) - 1552usize];
-    [
-        "Offset of field: CBaseViewModel::m_hScreens",
-    ][::std::mem::offset_of!(CBaseViewModel, m_hScreens) - 1560usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CBaseViewModel_NetworkVar_m_hOwner",
     ][::std::mem::size_of::<CBaseViewModel_NetworkVar_m_hOwner>() - 1usize];
@@ -71,4 +36,39 @@ const _: () = {
     [
         "Alignment of CBaseViewModel_NetworkVar_m_nViewModelIndex",
     ][::std::mem::align_of::<CBaseViewModel_NetworkVar_m_nViewModelIndex>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CBaseViewModel"][::std::mem::size_of::<CBaseViewModel>() - 1592usize];
+    ["Alignment of CBaseViewModel"][::std::mem::align_of::<CBaseViewModel>() - 8usize];
+    [
+        "Offset of field: CBaseViewModel::m_vecLastFacing",
+    ][::std::mem::offset_of!(CBaseViewModel, m_vecLastFacing) - 1504usize];
+    [
+        "Offset of field: CBaseViewModel::m_nViewModelIndex",
+    ][::std::mem::offset_of!(CBaseViewModel, m_nViewModelIndex) - 1516usize];
+    [
+        "Offset of field: CBaseViewModel::m_hOwner",
+    ][::std::mem::offset_of!(CBaseViewModel, m_hOwner) - 1520usize];
+    [
+        "Offset of field: CBaseViewModel::m_flTimeWeaponIdle",
+    ][::std::mem::offset_of!(CBaseViewModel, m_flTimeWeaponIdle) - 1524usize];
+    [
+        "Offset of field: CBaseViewModel::m_Activity",
+    ][::std::mem::offset_of!(CBaseViewModel, m_Activity) - 1528usize];
+    [
+        "Offset of field: CBaseViewModel::m_nAnimationParity",
+    ][::std::mem::offset_of!(CBaseViewModel, m_nAnimationParity) - 1532usize];
+    [
+        "Offset of field: CBaseViewModel::m_sVMName",
+    ][::std::mem::offset_of!(CBaseViewModel, m_sVMName) - 1536usize];
+    [
+        "Offset of field: CBaseViewModel::m_sAnimationPrefix",
+    ][::std::mem::offset_of!(CBaseViewModel, m_sAnimationPrefix) - 1544usize];
+    [
+        "Offset of field: CBaseViewModel::m_hWeapon",
+    ][::std::mem::offset_of!(CBaseViewModel, m_hWeapon) - 1552usize];
+    [
+        "Offset of field: CBaseViewModel::m_hScreens",
+    ][::std::mem::offset_of!(CBaseViewModel, m_hScreens) - 1560usize];
 };

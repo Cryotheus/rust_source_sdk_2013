@@ -111,21 +111,6 @@ pub struct IPlayerInfo {
     pub vtable_: *const IPlayerInfo__bindgen_vtable,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct IPlayerInfoManager {
-    pub vtable_: *const IPlayerInfoManager__bindgen_vtable,
-}
-#[repr(C)]
-pub struct IPlayerInfoManager__bindgen_vtable {
-    pub IPlayerInfoManager_GetPlayerInfo: unsafe extern "C" fn(
-        arg1: *mut IPlayerInfoManager,
-        arg2: *mut edict_t,
-    ) -> *mut IPlayerInfo,
-    pub IPlayerInfoManager_GetGlobalVars: unsafe extern "C" fn(
-        arg1: *mut IPlayerInfoManager,
-    ) -> *mut CGlobalVars,
-}
-#[repr(C)]
 pub struct IPlayerInfo__bindgen_vtable {
     pub IPlayerInfo_GetName: unsafe extern "C" fn(
         arg1: *mut IPlayerInfo,
@@ -197,5 +182,20 @@ pub struct IPlayerInfo__bindgen_vtable {
         arg2: *mut CBotCmd,
     ) -> *mut CBotCmd,
     pub IPlayerInfo_IsReplay: unsafe extern "C" fn(arg1: *mut IPlayerInfo) -> bool,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct IPlayerInfoManager {
+    pub vtable_: *const IPlayerInfoManager__bindgen_vtable,
+}
+#[repr(C)]
+pub struct IPlayerInfoManager__bindgen_vtable {
+    pub IPlayerInfoManager_GetPlayerInfo: unsafe extern "C" fn(
+        arg1: *mut IPlayerInfoManager,
+        arg2: *mut edict_t,
+    ) -> *mut IPlayerInfo,
+    pub IPlayerInfoManager_GetGlobalVars: unsafe extern "C" fn(
+        arg1: *mut IPlayerInfoManager,
+    ) -> *mut CGlobalVars,
 }
 include!("layout_assertions.rs");

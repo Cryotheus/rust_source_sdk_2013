@@ -3,23 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of audioparams_t"][::std::mem::size_of::<audioparams_t>() - 120usize];
-    ["Alignment of audioparams_t"][::std::mem::align_of::<audioparams_t>() - 8usize];
-    [
-        "Offset of field: audioparams_t::localSound",
-    ][::std::mem::offset_of!(audioparams_t, localSound) - 8usize];
-    [
-        "Offset of field: audioparams_t::soundscapeIndex",
-    ][::std::mem::offset_of!(audioparams_t, soundscapeIndex) - 104usize];
-    [
-        "Offset of field: audioparams_t::localBits",
-    ][::std::mem::offset_of!(audioparams_t, localBits) - 108usize];
-    [
-        "Offset of field: audioparams_t::entIndex",
-    ][::std::mem::offset_of!(audioparams_t, entIndex) - 112usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of audioparams_t_NetworkVar_entIndex",
     ][::std::mem::size_of::<audioparams_t_NetworkVar_entIndex>() - 1usize];
@@ -59,56 +42,20 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of fogparams_t"][::std::mem::size_of::<fogparams_t>() - 72usize];
-    ["Alignment of fogparams_t"][::std::mem::align_of::<fogparams_t>() - 8usize];
+    ["Size of audioparams_t"][::std::mem::size_of::<audioparams_t>() - 120usize];
+    ["Alignment of audioparams_t"][::std::mem::align_of::<audioparams_t>() - 8usize];
     [
-        "Offset of field: fogparams_t::dirPrimary",
-    ][::std::mem::offset_of!(fogparams_t, dirPrimary) - 8usize];
+        "Offset of field: audioparams_t::localSound",
+    ][::std::mem::offset_of!(audioparams_t, localSound) - 8usize];
     [
-        "Offset of field: fogparams_t::colorPrimary",
-    ][::std::mem::offset_of!(fogparams_t, colorPrimary) - 20usize];
+        "Offset of field: audioparams_t::soundscapeIndex",
+    ][::std::mem::offset_of!(audioparams_t, soundscapeIndex) - 104usize];
     [
-        "Offset of field: fogparams_t::colorSecondary",
-    ][::std::mem::offset_of!(fogparams_t, colorSecondary) - 24usize];
+        "Offset of field: audioparams_t::localBits",
+    ][::std::mem::offset_of!(audioparams_t, localBits) - 108usize];
     [
-        "Offset of field: fogparams_t::colorPrimaryLerpTo",
-    ][::std::mem::offset_of!(fogparams_t, colorPrimaryLerpTo) - 28usize];
-    [
-        "Offset of field: fogparams_t::colorSecondaryLerpTo",
-    ][::std::mem::offset_of!(fogparams_t, colorSecondaryLerpTo) - 32usize];
-    [
-        "Offset of field: fogparams_t::start",
-    ][::std::mem::offset_of!(fogparams_t, start) - 36usize];
-    [
-        "Offset of field: fogparams_t::end",
-    ][::std::mem::offset_of!(fogparams_t, end) - 40usize];
-    [
-        "Offset of field: fogparams_t::farz",
-    ][::std::mem::offset_of!(fogparams_t, farz) - 44usize];
-    [
-        "Offset of field: fogparams_t::maxdensity",
-    ][::std::mem::offset_of!(fogparams_t, maxdensity) - 48usize];
-    [
-        "Offset of field: fogparams_t::startLerpTo",
-    ][::std::mem::offset_of!(fogparams_t, startLerpTo) - 52usize];
-    [
-        "Offset of field: fogparams_t::endLerpTo",
-    ][::std::mem::offset_of!(fogparams_t, endLerpTo) - 56usize];
-    [
-        "Offset of field: fogparams_t::lerptime",
-    ][::std::mem::offset_of!(fogparams_t, lerptime) - 60usize];
-    [
-        "Offset of field: fogparams_t::duration",
-    ][::std::mem::offset_of!(fogparams_t, duration) - 64usize];
-    [
-        "Offset of field: fogparams_t::enable",
-    ][::std::mem::offset_of!(fogparams_t, enable) - 68usize];
-    [
-        "Offset of field: fogparams_t::blend",
-    ][::std::mem::offset_of!(fogparams_t, blend) - 69usize];
-    [
-        "Offset of field: fogparams_t::radial",
-    ][::std::mem::offset_of!(fogparams_t, radial) - 70usize];
+        "Offset of field: audioparams_t::entIndex",
+    ][::std::mem::offset_of!(audioparams_t, entIndex) - 112usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -256,6 +203,68 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of fogparams_t"][::std::mem::size_of::<fogparams_t>() - 72usize];
+    ["Alignment of fogparams_t"][::std::mem::align_of::<fogparams_t>() - 8usize];
+    [
+        "Offset of field: fogparams_t::dirPrimary",
+    ][::std::mem::offset_of!(fogparams_t, dirPrimary) - 8usize];
+    [
+        "Offset of field: fogparams_t::colorPrimary",
+    ][::std::mem::offset_of!(fogparams_t, colorPrimary) - 20usize];
+    [
+        "Offset of field: fogparams_t::colorSecondary",
+    ][::std::mem::offset_of!(fogparams_t, colorSecondary) - 24usize];
+    [
+        "Offset of field: fogparams_t::colorPrimaryLerpTo",
+    ][::std::mem::offset_of!(fogparams_t, colorPrimaryLerpTo) - 28usize];
+    [
+        "Offset of field: fogparams_t::colorSecondaryLerpTo",
+    ][::std::mem::offset_of!(fogparams_t, colorSecondaryLerpTo) - 32usize];
+    [
+        "Offset of field: fogparams_t::start",
+    ][::std::mem::offset_of!(fogparams_t, start) - 36usize];
+    [
+        "Offset of field: fogparams_t::end",
+    ][::std::mem::offset_of!(fogparams_t, end) - 40usize];
+    [
+        "Offset of field: fogparams_t::farz",
+    ][::std::mem::offset_of!(fogparams_t, farz) - 44usize];
+    [
+        "Offset of field: fogparams_t::maxdensity",
+    ][::std::mem::offset_of!(fogparams_t, maxdensity) - 48usize];
+    [
+        "Offset of field: fogparams_t::startLerpTo",
+    ][::std::mem::offset_of!(fogparams_t, startLerpTo) - 52usize];
+    [
+        "Offset of field: fogparams_t::endLerpTo",
+    ][::std::mem::offset_of!(fogparams_t, endLerpTo) - 56usize];
+    [
+        "Offset of field: fogparams_t::lerptime",
+    ][::std::mem::offset_of!(fogparams_t, lerptime) - 60usize];
+    [
+        "Offset of field: fogparams_t::duration",
+    ][::std::mem::offset_of!(fogparams_t, duration) - 64usize];
+    [
+        "Offset of field: fogparams_t::enable",
+    ][::std::mem::offset_of!(fogparams_t, enable) - 68usize];
+    [
+        "Offset of field: fogparams_t::blend",
+    ][::std::mem::offset_of!(fogparams_t, blend) - 69usize];
+    [
+        "Offset of field: fogparams_t::radial",
+    ][::std::mem::offset_of!(fogparams_t, radial) - 70usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of fogplayerparams_t_NetworkVar_m_hCtrl",
+    ][::std::mem::size_of::<fogplayerparams_t_NetworkVar_m_hCtrl>() - 1usize];
+    [
+        "Alignment of fogplayerparams_t_NetworkVar_m_hCtrl",
+    ][::std::mem::align_of::<fogplayerparams_t_NetworkVar_m_hCtrl>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of fogplayerparams_t"][::std::mem::size_of::<fogplayerparams_t>() - 40usize];
     [
         "Alignment of fogplayerparams_t",
@@ -284,32 +293,6 @@ const _: () = {
     [
         "Offset of field: fogplayerparams_t::m_flNewEnd",
     ][::std::mem::offset_of!(fogplayerparams_t, m_flNewEnd) - 36usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of fogplayerparams_t_NetworkVar_m_hCtrl",
-    ][::std::mem::size_of::<fogplayerparams_t_NetworkVar_m_hCtrl>() - 1usize];
-    [
-        "Alignment of fogplayerparams_t_NetworkVar_m_hCtrl",
-    ][::std::mem::align_of::<fogplayerparams_t_NetworkVar_m_hCtrl>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of sky3dparams_t"][::std::mem::size_of::<sky3dparams_t>() - 104usize];
-    ["Alignment of sky3dparams_t"][::std::mem::align_of::<sky3dparams_t>() - 8usize];
-    [
-        "Offset of field: sky3dparams_t::scale",
-    ][::std::mem::offset_of!(sky3dparams_t, scale) - 8usize];
-    [
-        "Offset of field: sky3dparams_t::origin",
-    ][::std::mem::offset_of!(sky3dparams_t, origin) - 12usize];
-    [
-        "Offset of field: sky3dparams_t::area",
-    ][::std::mem::offset_of!(sky3dparams_t, area) - 24usize];
-    [
-        "Offset of field: sky3dparams_t::fog",
-    ][::std::mem::offset_of!(sky3dparams_t, fog) - 32usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -346,4 +329,21 @@ const _: () = {
     [
         "Alignment of sky3dparams_t_NetworkVar_scale",
     ][::std::mem::align_of::<sky3dparams_t_NetworkVar_scale>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of sky3dparams_t"][::std::mem::size_of::<sky3dparams_t>() - 104usize];
+    ["Alignment of sky3dparams_t"][::std::mem::align_of::<sky3dparams_t>() - 8usize];
+    [
+        "Offset of field: sky3dparams_t::scale",
+    ][::std::mem::offset_of!(sky3dparams_t, scale) - 8usize];
+    [
+        "Offset of field: sky3dparams_t::origin",
+    ][::std::mem::offset_of!(sky3dparams_t, origin) - 12usize];
+    [
+        "Offset of field: sky3dparams_t::area",
+    ][::std::mem::offset_of!(sky3dparams_t, area) - 24usize];
+    [
+        "Offset of field: sky3dparams_t::fog",
+    ][::std::mem::offset_of!(sky3dparams_t, fog) - 32usize];
 };

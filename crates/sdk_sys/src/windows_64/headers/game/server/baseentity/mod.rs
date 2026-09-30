@@ -164,211 +164,6 @@ pub struct CBaseEntity {
     pub m_bTruceValidForEnt: bool,
 }
 #[repr(C)]
-#[derive(Debug)]
-pub struct CBaseEntity_NetworkVar_m_Collision {
-    pub _base: CCollisionProperty,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_CollisionGroup {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_MoveCollide {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_MoveType {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_PredictableID {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_angRotation {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_bAlternateSorting {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_bAnimatedEveryTick {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_bIsPlayerSimulated {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_bSimulatedEveryTick {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_clrRender {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_fEffects {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_fFlags {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_flAnimTime {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_flElasticity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_flFriction {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_flGravity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_flShadowCastDistance {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_flSimulationTime {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_hEffectEntity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_hGroundEntity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_hMoveParent {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_hOwnerEntity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_iHealth {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_iMaxHealth {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_iParentAttachment {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_iTeamNum {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_iTextureFrameIndex {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_lifeState {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_nModelIndex {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_nNextThinkTick {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_nRenderFX {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_nRenderMode {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_nWaterLevel {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_spawnflags {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_takedamage {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_ubInterpolationFrame {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_vecBaseVelocity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_vecOrigin {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_vecVelocity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseEntity_NetworkVar_m_vecViewOffset {
-    pub _address: u8,
-}
-#[repr(C)]
 pub struct CBaseEntity__bindgen_vtable {
     pub CBaseEntity_destructor: unsafe extern "C" fn(
         arg1: *mut CBaseEntity,
@@ -1071,6 +866,211 @@ pub struct CBaseEntity__bindgen_vtable {
         arg1: *const CBaseEntity,
     ) -> bool,
     pub CBaseEntity_BCanCallVote: unsafe extern "C" fn(arg1: *mut CBaseEntity) -> bool,
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct CBaseEntity_NetworkVar_m_Collision {
+    pub _base: CCollisionProperty,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_CollisionGroup {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_MoveCollide {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_MoveType {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_PredictableID {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_angRotation {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_bAlternateSorting {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_bAnimatedEveryTick {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_bIsPlayerSimulated {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_bSimulatedEveryTick {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_clrRender {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_fEffects {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_fFlags {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_flAnimTime {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_flElasticity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_flFriction {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_flGravity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_flShadowCastDistance {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_flSimulationTime {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_hEffectEntity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_hGroundEntity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_hMoveParent {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_hOwnerEntity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_iHealth {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_iMaxHealth {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_iParentAttachment {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_iTeamNum {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_iTextureFrameIndex {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_lifeState {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_nModelIndex {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_nNextThinkTick {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_nRenderFX {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_nRenderMode {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_nWaterLevel {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_spawnflags {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_takedamage {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_ubInterpolationFrame {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_vecBaseVelocity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_vecOrigin {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_vecVelocity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseEntity_NetworkVar_m_vecViewOffset {
+    pub _address: u8,
 }
 #[repr(C)]
 #[derive(Debug)]

@@ -3,6 +3,15 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CFogController_NetworkVar_m_fog",
+    ][::std::mem::size_of::<CFogController_NetworkVar_m_fog>() - 72usize];
+    [
+        "Alignment of CFogController_NetworkVar_m_fog",
+    ][::std::mem::align_of::<CFogController_NetworkVar_m_fog>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of CFogController"][::std::mem::size_of::<CFogController>() - 1232usize];
     ["Alignment of CFogController"][::std::mem::align_of::<CFogController>() - 8usize];
     [
@@ -14,13 +23,4 @@ const _: () = {
     [
         "Offset of field: CFogController::m_iChangedVariables",
     ][::std::mem::offset_of!(CFogController, m_iChangedVariables) - 1228usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CFogController_NetworkVar_m_fog",
-    ][::std::mem::size_of::<CFogController_NetworkVar_m_fog>() - 72usize];
-    [
-        "Alignment of CFogController_NetworkVar_m_fog",
-    ][::std::mem::align_of::<CFogController_NetworkVar_m_fog>() - 8usize];
 };

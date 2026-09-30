@@ -7,6 +7,40 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+#[derive(Debug, thiserror::Error)]
+pub enum PathResolutionError {
+	#[error("{0}")]
+	StdIo(#[from] std::io::Error),
+
+	#[error("Missing environment var {:?}", var.to_string_lossy())]
+	MissingEnv { var: &'static OsStr },
+}
+
+#[derive(Debug, Clone)]
+pub enum PathResolutionMethod {
+	/// Use an environment variable as the path.
+	Env(&'static OsStr),
+
+	/// Use a path.
+	Provided(PathBuf),
+}
+
+impl PathResolutionMethod {
+	pub fn new_env(var: &'static str) -> Self {
+		Self::Env(OsStr::new(var))
+	}
+
+	pub fn resolve(self) -> Result<PathBuf, PathResolutionError> {
+		match self {
+			Self::Env(var) => var_os(var)
+				.map(PathBuf::from)
+				.ok_or(PathResolutionError::MissingEnv { var }),
+
+			Self::Provided(path) => path.canonicalize().map_err(PathResolutionError::StdIo),
+		}
+	}
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Profile {
 	Standard(RsProfile),
@@ -75,6 +109,7 @@ impl Display for RequireVarError {
 				f,
 				"missing required environment variable {key:?}; {diagnostic}"
 			),
+
 			RequireVarError::NotUnicode { key, .. } => writeln!(
 				f,
 				"value of environment variable {key:?} must be valid UTF-8"
@@ -88,6 +123,22 @@ impl Error for RequireVarError {
 		match self {
 			RequireVarError::NotPresent { .. } => Some(&VarError::NotPresent),
 			RequireVarError::NotUnicode { .. } => None,
+		}
+	}
+}
+
+/// For build scripts to print cargo rerun lines.
+#[derive(Debug, Clone, Copy)]
+pub enum RerunEmitter<'a> {
+	Path(&'a Path),
+	Var(&'a str),
+}
+
+impl<'a> RerunEmitter<'a> {
+	pub fn emit(self) {
+		match self {
+			RerunEmitter::Path(path) => println!("cargo:rerun-if-changed={}", path.display()),
+			RerunEmitter::Var(var) => println!("cargo:rerun-if-env-changed={var}"),
 		}
 	}
 }
@@ -161,55 +212,6 @@ pub enum RsProfileError {
 
 	#[error("{0}")]
 	RequireVar(#[from] RequireVarError),
-}
-
-#[derive(Debug, Clone)]
-pub enum PathResolutionMethod {
-	/// Use an environment variable as the path.
-	Env(&'static OsStr),
-
-	/// Use a path.
-	Provided(PathBuf),
-}
-
-impl PathResolutionMethod {
-	pub fn new_env(var: &'static str) -> Self {
-		Self::Env(OsStr::new(var))
-	}
-
-	pub fn resolve(self) -> Result<PathBuf, PathResolutionError> {
-		match self {
-			Self::Env(var) => var_os(var)
-				.map(PathBuf::from)
-				.ok_or(PathResolutionError::MissingEnv { var }),
-			Self::Provided(path) => path.canonicalize().map_err(PathResolutionError::StdIo),
-		}
-	}
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PathResolutionError {
-	#[error("{0}")]
-	StdIo(#[from] std::io::Error),
-
-	#[error("Missing environment var {:?}", var.to_string_lossy())]
-	MissingEnv { var: &'static OsStr },
-}
-
-/// For build scripts to print cargo rerun lines.
-#[derive(Debug, Clone, Copy)]
-pub enum RerunEmitter<'a> {
-	Path(&'a Path),
-	Var(&'a str),
-}
-
-impl<'a> RerunEmitter<'a> {
-	pub fn emit(self) {
-		match self {
-			RerunEmitter::Path(path) => println!("cargo:rerun-if-changed={}", path.display()),
-			RerunEmitter::Var(var) => println!("cargo:rerun-if-env-changed={var}"),
-		}
-	}
 }
 
 #[derive(Debug, Clone, Copy)]

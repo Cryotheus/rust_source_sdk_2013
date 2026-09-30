@@ -36,6 +36,24 @@ pub(crate) unsafe fn borrow_cstr<'a>(pointer: *const c_char) -> Option<&'a CStr>
 	(!pointer.is_null()).then(|| unsafe { CStr::from_ptr(pointer) })
 }
 
+/// Copies a string into a fixed buffer for an in/out parameter.
+///
+/// Returns `None` if the string and its terminator do not fit.
+pub(crate) fn buffer_from_cstr<const N: usize>(value: &CStr) -> Option<[c_char; N]> {
+	let bytes = value.to_bytes_with_nul();
+	let mut buffer = [0; N];
+
+	if bytes.len() > N {
+		return None;
+	}
+
+	for (slot, &byte) in buffer.iter_mut().zip(bytes) {
+		*slot = byte as c_char;
+	}
+
+	Some(buffer)
+}
+
 /// Copies a string the engine returned, or returns `None` for null.
 ///
 /// # Safety
@@ -59,24 +77,6 @@ pub(crate) fn cstring_from_buffer(buffer: &[c_char]) -> CString {
 
 	// SAFETY: `take_while` stopped before the first NUL.
 	unsafe { CString::from_vec_unchecked(bytes) }
-}
-
-/// Copies a string into a fixed buffer for an in/out parameter.
-///
-/// Returns `None` if the string and its terminator do not fit.
-pub(crate) fn buffer_from_cstr<const N: usize>(value: &CStr) -> Option<[c_char; N]> {
-	let bytes = value.to_bytes_with_nul();
-	let mut buffer = [0; N];
-
-	if bytes.len() > N {
-		return None;
-	}
-
-	for (slot, &byte) in buffer.iter_mut().zip(bytes) {
-		*slot = byte as c_char;
-	}
-
-	Some(buffer)
 }
 
 #[cfg(test)]

@@ -3,11 +3,12 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CSteamID"][::std::mem::size_of::<CSteamID>() - 8usize];
-    ["Alignment of CSteamID"][::std::mem::align_of::<CSteamID>() - 1usize];
     [
-        "Offset of field: CSteamID::m_steamid",
-    ][::std::mem::offset_of!(CSteamID, m_steamid) - 0usize];
+        "Size of CSteamID_SteamID_t_SteamIDComponent_t",
+    ][::std::mem::size_of::<CSteamID_SteamID_t_SteamIDComponent_t>() - 8usize];
+    [
+        "Alignment of CSteamID_SteamID_t_SteamIDComponent_t",
+    ][::std::mem::align_of::<CSteamID_SteamID_t_SteamIDComponent_t>() - 1usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -24,10 +25,9 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of CSteamID"][::std::mem::size_of::<CSteamID>() - 8usize];
+    ["Alignment of CSteamID"][::std::mem::align_of::<CSteamID>() - 1usize];
     [
-        "Size of CSteamID_SteamID_t_SteamIDComponent_t",
-    ][::std::mem::size_of::<CSteamID_SteamID_t_SteamIDComponent_t>() - 8usize];
-    [
-        "Alignment of CSteamID_SteamID_t_SteamIDComponent_t",
-    ][::std::mem::align_of::<CSteamID_SteamID_t_SteamIDComponent_t>() - 1usize];
+        "Offset of field: CSteamID::m_steamid",
+    ][::std::mem::offset_of!(CSteamID, m_steamid) - 0usize];
 };

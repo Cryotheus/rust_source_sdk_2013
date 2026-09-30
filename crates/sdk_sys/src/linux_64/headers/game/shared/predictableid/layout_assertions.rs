@@ -3,18 +3,18 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CPredictableId"][::std::mem::size_of::<CPredictableId>() - 4usize];
-    ["Alignment of CPredictableId"][::std::mem::align_of::<CPredictableId>() - 4usize];
-    [
-        "Offset of field: CPredictableId::m_PredictableID",
-    ][::std::mem::offset_of!(CPredictableId, m_PredictableID) - 0usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CPredictableId_bitfields",
     ][::std::mem::size_of::<CPredictableId_bitfields>() - 4usize];
     [
         "Alignment of CPredictableId_bitfields",
     ][::std::mem::align_of::<CPredictableId_bitfields>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CPredictableId"][::std::mem::size_of::<CPredictableId>() - 4usize];
+    ["Alignment of CPredictableId"][::std::mem::align_of::<CPredictableId>() - 4usize];
+    [
+        "Offset of field: CPredictableId::m_PredictableID",
+    ][::std::mem::offset_of!(CPredictableId, m_PredictableID) - 0usize];
 };

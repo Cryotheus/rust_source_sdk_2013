@@ -49,15 +49,6 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of notify_system_event_params_t",
-    ][::std::mem::size_of::<notify_system_event_params_t>() - 8usize];
-    [
-        "Alignment of notify_system_event_params_t",
-    ][::std::mem::align_of::<notify_system_event_params_t>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
         "Size of notify_system_event_params_t__bindgen_ty_1",
     ][::std::mem::size_of::<notify_system_event_params_t__bindgen_ty_1>() - 8usize];
     [
@@ -71,6 +62,15 @@ const _: () = {
         "Offset of field: notify_system_event_params_t__bindgen_ty_1::pDestroy",
     ][::std::mem::offset_of!(notify_system_event_params_t__bindgen_ty_1, pDestroy)
         - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of notify_system_event_params_t",
+    ][::std::mem::size_of::<notify_system_event_params_t>() - 8usize];
+    [
+        "Alignment of notify_system_event_params_t",
+    ][::std::mem::align_of::<notify_system_event_params_t>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

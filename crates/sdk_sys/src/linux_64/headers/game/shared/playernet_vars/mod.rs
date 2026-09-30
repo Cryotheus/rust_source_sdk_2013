@@ -23,6 +23,16 @@ pub struct audioparams_t {
     pub entIndex: CNetworkVarBase<::std::os::raw::c_int>,
 }
 #[repr(C)]
+pub struct audioparams_t__bindgen_vtable {
+    pub audioparams_t_NetworkStateChanged: unsafe extern "C" fn(
+        arg1: *mut audioparams_t,
+    ),
+    pub audioparams_t_NetworkStateChanged1: unsafe extern "C" fn(
+        arg1: *mut audioparams_t,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+}
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct audioparams_t_NetworkVar_entIndex {
     pub _address: u8,
@@ -41,16 +51,6 @@ pub struct audioparams_t_NetworkVar_localSound {
 #[derive(Debug, Copy, Clone)]
 pub struct audioparams_t_NetworkVar_soundscapeIndex {
     pub _address: u8,
-}
-#[repr(C)]
-pub struct audioparams_t__bindgen_vtable {
-    pub audioparams_t_NetworkStateChanged: unsafe extern "C" fn(
-        arg1: *mut audioparams_t,
-    ),
-    pub audioparams_t_NetworkStateChanged1: unsafe extern "C" fn(
-        arg1: *mut audioparams_t,
-        arg2: *mut ::std::os::raw::c_void,
-    ),
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -72,6 +72,14 @@ pub struct fogparams_t {
     pub enable: CNetworkVarBase<bool>,
     pub blend: CNetworkVarBase<bool>,
     pub radial: CNetworkVarBase<bool>,
+}
+#[repr(C)]
+pub struct fogparams_t__bindgen_vtable {
+    pub fogparams_t_NetworkStateChanged: unsafe extern "C" fn(arg1: *mut fogparams_t),
+    pub fogparams_t_NetworkStateChanged1: unsafe extern "C" fn(
+        arg1: *mut fogparams_t,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -154,14 +162,6 @@ pub struct fogparams_t_NetworkVar_startLerpTo {
     pub _address: u8,
 }
 #[repr(C)]
-pub struct fogparams_t__bindgen_vtable {
-    pub fogparams_t_NetworkStateChanged: unsafe extern "C" fn(arg1: *mut fogparams_t),
-    pub fogparams_t_NetworkStateChanged1: unsafe extern "C" fn(
-        arg1: *mut fogparams_t,
-        arg2: *mut ::std::os::raw::c_void,
-    ),
-}
-#[repr(C)]
 pub struct fogplayerparams_t {
     pub vtable_: *const fogplayerparams_t__bindgen_vtable,
     pub m_hCtrl: CNetworkHandleBase,
@@ -172,11 +172,6 @@ pub struct fogplayerparams_t {
     pub m_NewColor: color32,
     pub m_flNewStart: f32,
     pub m_flNewEnd: f32,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct fogplayerparams_t_NetworkVar_m_hCtrl {
-    pub _address: u8,
 }
 #[repr(C)]
 pub struct fogplayerparams_t__bindgen_vtable {
@@ -190,12 +185,27 @@ pub struct fogplayerparams_t__bindgen_vtable {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct fogplayerparams_t_NetworkVar_m_hCtrl {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct sky3dparams_t {
     pub vtable_: *const sky3dparams_t__bindgen_vtable,
     pub scale: CNetworkVarBase<::std::os::raw::c_int>,
     pub origin: CNetworkVectorBase<Vector>,
     pub area: CNetworkVarBase<::std::os::raw::c_int>,
     pub fog: sky3dparams_t_NetworkVar_fog,
+}
+#[repr(C)]
+pub struct sky3dparams_t__bindgen_vtable {
+    pub sky3dparams_t_NetworkStateChanged: unsafe extern "C" fn(
+        arg1: *mut sky3dparams_t,
+    ),
+    pub sky3dparams_t_NetworkStateChanged1: unsafe extern "C" fn(
+        arg1: *mut sky3dparams_t,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -216,15 +226,5 @@ pub struct sky3dparams_t_NetworkVar_origin {
 #[derive(Debug, Copy, Clone)]
 pub struct sky3dparams_t_NetworkVar_scale {
     pub _address: u8,
-}
-#[repr(C)]
-pub struct sky3dparams_t__bindgen_vtable {
-    pub sky3dparams_t_NetworkStateChanged: unsafe extern "C" fn(
-        arg1: *mut sky3dparams_t,
-    ),
-    pub sky3dparams_t_NetworkStateChanged1: unsafe extern "C" fn(
-        arg1: *mut sky3dparams_t,
-        arg2: *mut ::std::os::raw::c_void,
-    ),
 }
 include!("layout_assertions.rs");

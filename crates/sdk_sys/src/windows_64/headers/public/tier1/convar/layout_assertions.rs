@@ -23,31 +23,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of ConCommand"][::std::mem::size_of::<ConCommand>() - 72usize];
-    ["Alignment of ConCommand"][::std::mem::align_of::<ConCommand>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of ConCommandBase"][::std::mem::size_of::<ConCommandBase>() - 48usize];
-    ["Alignment of ConCommandBase"][::std::mem::align_of::<ConCommandBase>() - 8usize];
-    [
-        "Offset of field: ConCommandBase::m_pNext",
-    ][::std::mem::offset_of!(ConCommandBase, m_pNext) - 8usize];
-    [
-        "Offset of field: ConCommandBase::m_bRegistered",
-    ][::std::mem::offset_of!(ConCommandBase, m_bRegistered) - 16usize];
-    [
-        "Offset of field: ConCommandBase::m_pszName",
-    ][::std::mem::offset_of!(ConCommandBase, m_pszName) - 24usize];
-    [
-        "Offset of field: ConCommandBase::m_pszHelpString",
-    ][::std::mem::offset_of!(ConCommandBase, m_pszHelpString) - 32usize];
-    [
-        "Offset of field: ConCommandBase::m_nFlags",
-    ][::std::mem::offset_of!(ConCommandBase, m_nFlags) - 40usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of ConCommand__bindgen_ty_1",
     ][::std::mem::size_of::<ConCommand__bindgen_ty_1>() - 8usize];
@@ -79,6 +54,31 @@ const _: () = {
         "Offset of field: ConCommand__bindgen_ty_2::m_pCommandCompletionCallback",
     ][::std::mem::offset_of!(ConCommand__bindgen_ty_2, m_pCommandCompletionCallback)
         - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ConCommand"][::std::mem::size_of::<ConCommand>() - 72usize];
+    ["Alignment of ConCommand"][::std::mem::align_of::<ConCommand>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ConCommandBase"][::std::mem::size_of::<ConCommandBase>() - 48usize];
+    ["Alignment of ConCommandBase"][::std::mem::align_of::<ConCommandBase>() - 8usize];
+    [
+        "Offset of field: ConCommandBase::m_pNext",
+    ][::std::mem::offset_of!(ConCommandBase, m_pNext) - 8usize];
+    [
+        "Offset of field: ConCommandBase::m_bRegistered",
+    ][::std::mem::offset_of!(ConCommandBase, m_bRegistered) - 16usize];
+    [
+        "Offset of field: ConCommandBase::m_pszName",
+    ][::std::mem::offset_of!(ConCommandBase, m_pszName) - 24usize];
+    [
+        "Offset of field: ConCommandBase::m_pszHelpString",
+    ][::std::mem::offset_of!(ConCommandBase, m_pszHelpString) - 32usize];
+    [
+        "Offset of field: ConCommandBase::m_nFlags",
+    ][::std::mem::offset_of!(ConCommandBase, m_nFlags) - 40usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

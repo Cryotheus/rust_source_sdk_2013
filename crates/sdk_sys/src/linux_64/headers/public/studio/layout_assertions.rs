@@ -3,6 +3,112 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs",
+    ][::std::mem::size_of::<
+        CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs,
+    >() - 1usize];
+    [
+        "Alignment of CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs",
+    ][::std::mem::align_of::<
+        CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs,
+    >() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CStudioHdr_CActivityToSequenceMapping_HashValueType",
+    ][::std::mem::size_of::<CStudioHdr_CActivityToSequenceMapping_HashValueType>()
+        - 16usize];
+    [
+        "Alignment of CStudioHdr_CActivityToSequenceMapping_HashValueType",
+    ][::std::mem::align_of::<CStudioHdr_CActivityToSequenceMapping_HashValueType>()
+        - 4usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::activityIdx",
+    ][::std::mem::offset_of!(
+        CStudioHdr_CActivityToSequenceMapping_HashValueType, activityIdx
+    ) - 0usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::startingIdx",
+    ][::std::mem::offset_of!(
+        CStudioHdr_CActivityToSequenceMapping_HashValueType, startingIdx
+    ) - 4usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::count",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping_HashValueType, count)
+        - 8usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::totalWeight",
+    ][::std::mem::offset_of!(
+        CStudioHdr_CActivityToSequenceMapping_HashValueType, totalWeight
+    ) - 12usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CStudioHdr_CActivityToSequenceMapping_SequenceTuple",
+    ][::std::mem::size_of::<CStudioHdr_CActivityToSequenceMapping_SequenceTuple>()
+        - 24usize];
+    [
+        "Alignment of CStudioHdr_CActivityToSequenceMapping_SequenceTuple",
+    ][::std::mem::align_of::<CStudioHdr_CActivityToSequenceMapping_SequenceTuple>()
+        - 8usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::seqnum",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping_SequenceTuple, seqnum)
+        - 0usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::weight",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping_SequenceTuple, weight)
+        - 2usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::pActivityModifiers",
+    ][::std::mem::offset_of!(
+        CStudioHdr_CActivityToSequenceMapping_SequenceTuple, pActivityModifiers
+    ) - 8usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::iNumActivityModifiers",
+    ][::std::mem::offset_of!(
+        CStudioHdr_CActivityToSequenceMapping_SequenceTuple, iNumActivityModifiers
+    ) - 16usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CStudioHdr_CActivityToSequenceMapping",
+    ][::std::mem::size_of::<CStudioHdr_CActivityToSequenceMapping>() - 72usize];
+    [
+        "Alignment of CStudioHdr_CActivityToSequenceMapping",
+    ][::std::mem::align_of::<CStudioHdr_CActivityToSequenceMapping>() - 8usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_pSequenceTuples",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_pSequenceTuples)
+        - 0usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_iSequenceTuplesCount",
+    ][::std::mem::offset_of!(
+        CStudioHdr_CActivityToSequenceMapping, m_iSequenceTuplesCount
+    ) - 8usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_bIsInitialized",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_bIsInitialized)
+        - 12usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_ActToSeqHash",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_ActToSeqHash)
+        - 16usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_expectedPStudioHdr",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_expectedPStudioHdr)
+        - 56usize];
+    [
+        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_expectedVModel",
+    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_expectedVModel)
+        - 64usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of CStudioHdr"][::std::mem::size_of::<CStudioHdr>() - 232usize];
     ["Alignment of CStudioHdr"][::std::mem::align_of::<CStudioHdr>() - 8usize];
     [
@@ -41,112 +147,6 @@ const _: () = {
     [
         "Offset of field: CStudioHdr::m_nPerfAnimationLayers",
     ][::std::mem::offset_of!(CStudioHdr, m_nPerfAnimationLayers) - 224usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CStudioHdr_CActivityToSequenceMapping",
-    ][::std::mem::size_of::<CStudioHdr_CActivityToSequenceMapping>() - 72usize];
-    [
-        "Alignment of CStudioHdr_CActivityToSequenceMapping",
-    ][::std::mem::align_of::<CStudioHdr_CActivityToSequenceMapping>() - 8usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_pSequenceTuples",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_pSequenceTuples)
-        - 0usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_iSequenceTuplesCount",
-    ][::std::mem::offset_of!(
-        CStudioHdr_CActivityToSequenceMapping, m_iSequenceTuplesCount
-    ) - 8usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_bIsInitialized",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_bIsInitialized)
-        - 12usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_ActToSeqHash",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_ActToSeqHash)
-        - 16usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_expectedPStudioHdr",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_expectedPStudioHdr)
-        - 56usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping::m_expectedVModel",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping, m_expectedVModel)
-        - 64usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CStudioHdr_CActivityToSequenceMapping_HashValueType",
-    ][::std::mem::size_of::<CStudioHdr_CActivityToSequenceMapping_HashValueType>()
-        - 16usize];
-    [
-        "Alignment of CStudioHdr_CActivityToSequenceMapping_HashValueType",
-    ][::std::mem::align_of::<CStudioHdr_CActivityToSequenceMapping_HashValueType>()
-        - 4usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::activityIdx",
-    ][::std::mem::offset_of!(
-        CStudioHdr_CActivityToSequenceMapping_HashValueType, activityIdx
-    ) - 0usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::startingIdx",
-    ][::std::mem::offset_of!(
-        CStudioHdr_CActivityToSequenceMapping_HashValueType, startingIdx
-    ) - 4usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::count",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping_HashValueType, count)
-        - 8usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_HashValueType::totalWeight",
-    ][::std::mem::offset_of!(
-        CStudioHdr_CActivityToSequenceMapping_HashValueType, totalWeight
-    ) - 12usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs",
-    ][::std::mem::size_of::<
-        CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs,
-    >() - 1usize];
-    [
-        "Alignment of CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs",
-    ][::std::mem::align_of::<
-        CStudioHdr_CActivityToSequenceMapping_HashValueType_HashFuncs,
-    >() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of CStudioHdr_CActivityToSequenceMapping_SequenceTuple",
-    ][::std::mem::size_of::<CStudioHdr_CActivityToSequenceMapping_SequenceTuple>()
-        - 24usize];
-    [
-        "Alignment of CStudioHdr_CActivityToSequenceMapping_SequenceTuple",
-    ][::std::mem::align_of::<CStudioHdr_CActivityToSequenceMapping_SequenceTuple>()
-        - 8usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::seqnum",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping_SequenceTuple, seqnum)
-        - 0usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::weight",
-    ][::std::mem::offset_of!(CStudioHdr_CActivityToSequenceMapping_SequenceTuple, weight)
-        - 2usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::pActivityModifiers",
-    ][::std::mem::offset_of!(
-        CStudioHdr_CActivityToSequenceMapping_SequenceTuple, pActivityModifiers
-    ) - 8usize];
-    [
-        "Offset of field: CStudioHdr_CActivityToSequenceMapping_SequenceTuple::iNumActivityModifiers",
-    ][::std::mem::offset_of!(
-        CStudioHdr_CActivityToSequenceMapping_SequenceTuple, iNumActivityModifiers
-    ) - 16usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -399,19 +399,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mstudioanimvalue_t"][::std::mem::size_of::<mstudioanimvalue_t>() - 2usize];
-    [
-        "Alignment of mstudioanimvalue_t",
-    ][::std::mem::align_of::<mstudioanimvalue_t>() - 2usize];
-    [
-        "Offset of field: mstudioanimvalue_t::num",
-    ][::std::mem::offset_of!(mstudioanimvalue_t, num) - 0usize];
-    [
-        "Offset of field: mstudioanimvalue_t::value",
-    ][::std::mem::offset_of!(mstudioanimvalue_t, value) - 0usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of mstudioanimvalue_t__bindgen_ty_1",
     ][::std::mem::size_of::<mstudioanimvalue_t__bindgen_ty_1>() - 2usize];
@@ -424,6 +411,19 @@ const _: () = {
     [
         "Offset of field: mstudioanimvalue_t__bindgen_ty_1::total",
     ][::std::mem::offset_of!(mstudioanimvalue_t__bindgen_ty_1, total) - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of mstudioanimvalue_t"][::std::mem::size_of::<mstudioanimvalue_t>() - 2usize];
+    [
+        "Alignment of mstudioanimvalue_t",
+    ][::std::mem::align_of::<mstudioanimvalue_t>() - 2usize];
+    [
+        "Offset of field: mstudioanimvalue_t::num",
+    ][::std::mem::offset_of!(mstudioanimvalue_t, num) - 0usize];
+    [
+        "Offset of field: mstudioanimvalue_t::value",
+    ][::std::mem::offset_of!(mstudioanimvalue_t, value) - 0usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -879,17 +879,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mstudioflexop_t"][::std::mem::size_of::<mstudioflexop_t>() - 8usize];
-    ["Alignment of mstudioflexop_t"][::std::mem::align_of::<mstudioflexop_t>() - 4usize];
-    [
-        "Offset of field: mstudioflexop_t::op",
-    ][::std::mem::offset_of!(mstudioflexop_t, op) - 0usize];
-    [
-        "Offset of field: mstudioflexop_t::d",
-    ][::std::mem::offset_of!(mstudioflexop_t, d) - 4usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of mstudioflexop_t__bindgen_ty_1",
     ][::std::mem::size_of::<mstudioflexop_t__bindgen_ty_1>() - 4usize];
@@ -902,6 +891,17 @@ const _: () = {
     [
         "Offset of field: mstudioflexop_t__bindgen_ty_1::value",
     ][::std::mem::offset_of!(mstudioflexop_t__bindgen_ty_1, value) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of mstudioflexop_t"][::std::mem::size_of::<mstudioflexop_t>() - 8usize];
+    ["Alignment of mstudioflexop_t"][::std::mem::align_of::<mstudioflexop_t>() - 4usize];
+    [
+        "Offset of field: mstudioflexop_t::op",
+    ][::std::mem::offset_of!(mstudioflexop_t, op) - 0usize];
+    [
+        "Offset of field: mstudioflexop_t::d",
+    ][::std::mem::offset_of!(mstudioflexop_t, d) - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -1514,31 +1514,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mstudiovertanim_t"][::std::mem::size_of::<mstudiovertanim_t>() - 16usize];
-    [
-        "Alignment of mstudiovertanim_t",
-    ][::std::mem::align_of::<mstudiovertanim_t>() - 2usize];
-    [
-        "Offset of field: mstudiovertanim_t::index",
-    ][::std::mem::offset_of!(mstudiovertanim_t, index) - 0usize];
-    [
-        "Offset of field: mstudiovertanim_t::speed",
-    ][::std::mem::offset_of!(mstudiovertanim_t, speed) - 2usize];
-    [
-        "Offset of field: mstudiovertanim_t::side",
-    ][::std::mem::offset_of!(mstudiovertanim_t, side) - 3usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of mstudiovertanim_t_CSortByIndex",
-    ][::std::mem::size_of::<mstudiovertanim_t_CSortByIndex>() - 1usize];
-    [
-        "Alignment of mstudiovertanim_t_CSortByIndex",
-    ][::std::mem::align_of::<mstudiovertanim_t_CSortByIndex>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of mstudiovertanim_t__bindgen_ty_1",
     ][::std::mem::size_of::<mstudiovertanim_t__bindgen_ty_1>() - 6usize];
@@ -1570,6 +1545,31 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of mstudiovertanim_t_CSortByIndex",
+    ][::std::mem::size_of::<mstudiovertanim_t_CSortByIndex>() - 1usize];
+    [
+        "Alignment of mstudiovertanim_t_CSortByIndex",
+    ][::std::mem::align_of::<mstudiovertanim_t_CSortByIndex>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of mstudiovertanim_t"][::std::mem::size_of::<mstudiovertanim_t>() - 16usize];
+    [
+        "Alignment of mstudiovertanim_t",
+    ][::std::mem::align_of::<mstudiovertanim_t>() - 2usize];
+    [
+        "Offset of field: mstudiovertanim_t::index",
+    ][::std::mem::offset_of!(mstudiovertanim_t, index) - 0usize];
+    [
+        "Offset of field: mstudiovertanim_t::speed",
+    ][::std::mem::offset_of!(mstudiovertanim_t, speed) - 2usize];
+    [
+        "Offset of field: mstudiovertanim_t::side",
+    ][::std::mem::offset_of!(mstudiovertanim_t, side) - 3usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of mstudiovertanim_wrinkle_t",
     ][::std::mem::size_of::<mstudiovertanim_wrinkle_t>() - 18usize];
     [
@@ -1595,50 +1595,6 @@ const _: () = {
     [
         "Offset of field: mstudiovertex_t::m_vecTexCoord",
     ][::std::mem::offset_of!(mstudiovertex_t, m_vecTexCoord) - 40usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of studiohdr2_t"][::std::mem::size_of::<studiohdr2_t>() - 256usize];
-    ["Alignment of studiohdr2_t"][::std::mem::align_of::<studiohdr2_t>() - 4usize];
-    [
-        "Offset of field: studiohdr2_t::numsrcbonetransform",
-    ][::std::mem::offset_of!(studiohdr2_t, numsrcbonetransform) - 0usize];
-    [
-        "Offset of field: studiohdr2_t::srcbonetransformindex",
-    ][::std::mem::offset_of!(studiohdr2_t, srcbonetransformindex) - 4usize];
-    [
-        "Offset of field: studiohdr2_t::illumpositionattachmentindex",
-    ][::std::mem::offset_of!(studiohdr2_t, illumpositionattachmentindex) - 8usize];
-    [
-        "Offset of field: studiohdr2_t::flMaxEyeDeflection",
-    ][::std::mem::offset_of!(studiohdr2_t, flMaxEyeDeflection) - 12usize];
-    [
-        "Offset of field: studiohdr2_t::linearboneindex",
-    ][::std::mem::offset_of!(studiohdr2_t, linearboneindex) - 16usize];
-    [
-        "Offset of field: studiohdr2_t::sznameindex",
-    ][::std::mem::offset_of!(studiohdr2_t, sznameindex) - 20usize];
-    [
-        "Offset of field: studiohdr2_t::m_nBoneFlexDriverCount",
-    ][::std::mem::offset_of!(studiohdr2_t, m_nBoneFlexDriverCount) - 24usize];
-    [
-        "Offset of field: studiohdr2_t::m_nBoneFlexDriverIndex",
-    ][::std::mem::offset_of!(studiohdr2_t, m_nBoneFlexDriverIndex) - 28usize];
-    [
-        "Offset of field: studiohdr2_t::virtualModel",
-    ][::std::mem::offset_of!(studiohdr2_t, virtualModel) - 32usize];
-    [
-        "Offset of field: studiohdr2_t::animblockModel",
-    ][::std::mem::offset_of!(studiohdr2_t, animblockModel) - 40usize];
-    [
-        "Offset of field: studiohdr2_t::pVertexBase",
-    ][::std::mem::offset_of!(studiohdr2_t, pVertexBase) - 48usize];
-    [
-        "Offset of field: studiohdr2_t::pIndexBase",
-    ][::std::mem::offset_of!(studiohdr2_t, pIndexBase) - 56usize];
-    [
-        "Offset of field: studiohdr2_t::reserved",
-    ][::std::mem::offset_of!(studiohdr2_t, reserved) - 64usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -1878,6 +1834,50 @@ const _: () = {
     [
         "Offset of field: studiohdr_t::unused2",
     ][::std::mem::offset_of!(studiohdr_t, unused2) - 404usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of studiohdr2_t"][::std::mem::size_of::<studiohdr2_t>() - 256usize];
+    ["Alignment of studiohdr2_t"][::std::mem::align_of::<studiohdr2_t>() - 4usize];
+    [
+        "Offset of field: studiohdr2_t::numsrcbonetransform",
+    ][::std::mem::offset_of!(studiohdr2_t, numsrcbonetransform) - 0usize];
+    [
+        "Offset of field: studiohdr2_t::srcbonetransformindex",
+    ][::std::mem::offset_of!(studiohdr2_t, srcbonetransformindex) - 4usize];
+    [
+        "Offset of field: studiohdr2_t::illumpositionattachmentindex",
+    ][::std::mem::offset_of!(studiohdr2_t, illumpositionattachmentindex) - 8usize];
+    [
+        "Offset of field: studiohdr2_t::flMaxEyeDeflection",
+    ][::std::mem::offset_of!(studiohdr2_t, flMaxEyeDeflection) - 12usize];
+    [
+        "Offset of field: studiohdr2_t::linearboneindex",
+    ][::std::mem::offset_of!(studiohdr2_t, linearboneindex) - 16usize];
+    [
+        "Offset of field: studiohdr2_t::sznameindex",
+    ][::std::mem::offset_of!(studiohdr2_t, sznameindex) - 20usize];
+    [
+        "Offset of field: studiohdr2_t::m_nBoneFlexDriverCount",
+    ][::std::mem::offset_of!(studiohdr2_t, m_nBoneFlexDriverCount) - 24usize];
+    [
+        "Offset of field: studiohdr2_t::m_nBoneFlexDriverIndex",
+    ][::std::mem::offset_of!(studiohdr2_t, m_nBoneFlexDriverIndex) - 28usize];
+    [
+        "Offset of field: studiohdr2_t::virtualModel",
+    ][::std::mem::offset_of!(studiohdr2_t, virtualModel) - 32usize];
+    [
+        "Offset of field: studiohdr2_t::animblockModel",
+    ][::std::mem::offset_of!(studiohdr2_t, animblockModel) - 40usize];
+    [
+        "Offset of field: studiohdr2_t::pVertexBase",
+    ][::std::mem::offset_of!(studiohdr2_t, pVertexBase) - 48usize];
+    [
+        "Offset of field: studiohdr2_t::pIndexBase",
+    ][::std::mem::offset_of!(studiohdr2_t, pIndexBase) - 56usize];
+    [
+        "Offset of field: studiohdr2_t::reserved",
+    ][::std::mem::offset_of!(studiohdr2_t, reserved) - 64usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

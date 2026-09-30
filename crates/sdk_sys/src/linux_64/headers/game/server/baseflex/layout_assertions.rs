@@ -3,38 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseFlex"][::std::mem::size_of::<CBaseFlex>() - 2096usize];
-    ["Alignment of CBaseFlex"][::std::mem::align_of::<CBaseFlex>() - 8usize];
-    [
-        "Offset of field: CBaseFlex::m_flexWeight",
-    ][::std::mem::offset_of!(CBaseFlex, m_flexWeight) - 1576usize];
-    [
-        "Offset of field: CBaseFlex::m_viewtarget",
-    ][::std::mem::offset_of!(CBaseFlex, m_viewtarget) - 1960usize];
-    [
-        "Offset of field: CBaseFlex::m_blinktoggle",
-    ][::std::mem::offset_of!(CBaseFlex, m_blinktoggle) - 1972usize];
-    [
-        "Offset of field: CBaseFlex::m_SceneEvents",
-    ][::std::mem::offset_of!(CBaseFlex, m_SceneEvents) - 1976usize];
-    [
-        "Offset of field: CBaseFlex::m_LocalToGlobal",
-    ][::std::mem::offset_of!(CBaseFlex, m_LocalToGlobal) - 2008usize];
-    [
-        "Offset of field: CBaseFlex::m_flAllowResponsesEndTime",
-    ][::std::mem::offset_of!(CBaseFlex, m_flAllowResponsesEndTime) - 2048usize];
-    [
-        "Offset of field: CBaseFlex::m_ActiveChoreoScenes",
-    ][::std::mem::offset_of!(CBaseFlex, m_ActiveChoreoScenes) - 2056usize];
-    [
-        "Offset of field: CBaseFlex::m_bUpdateLayerPriorities",
-    ][::std::mem::offset_of!(CBaseFlex, m_bUpdateLayerPriorities) - 2088usize];
-    [
-        "Offset of field: CBaseFlex::m_flLastFlexAnimationTime",
-    ][::std::mem::offset_of!(CBaseFlex, m_flLastFlexAnimationTime) - 2092usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CBaseFlex_FS_LocalToGlobal_t",
     ][::std::mem::size_of::<CBaseFlex_FS_LocalToGlobal_t>() - 24usize];
@@ -80,4 +48,36 @@ const _: () = {
     [
         "Alignment of CBaseFlex_NetworkVar_m_viewtarget",
     ][::std::mem::align_of::<CBaseFlex_NetworkVar_m_viewtarget>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CBaseFlex"][::std::mem::size_of::<CBaseFlex>() - 2096usize];
+    ["Alignment of CBaseFlex"][::std::mem::align_of::<CBaseFlex>() - 8usize];
+    [
+        "Offset of field: CBaseFlex::m_flexWeight",
+    ][::std::mem::offset_of!(CBaseFlex, m_flexWeight) - 1576usize];
+    [
+        "Offset of field: CBaseFlex::m_viewtarget",
+    ][::std::mem::offset_of!(CBaseFlex, m_viewtarget) - 1960usize];
+    [
+        "Offset of field: CBaseFlex::m_blinktoggle",
+    ][::std::mem::offset_of!(CBaseFlex, m_blinktoggle) - 1972usize];
+    [
+        "Offset of field: CBaseFlex::m_SceneEvents",
+    ][::std::mem::offset_of!(CBaseFlex, m_SceneEvents) - 1976usize];
+    [
+        "Offset of field: CBaseFlex::m_LocalToGlobal",
+    ][::std::mem::offset_of!(CBaseFlex, m_LocalToGlobal) - 2008usize];
+    [
+        "Offset of field: CBaseFlex::m_flAllowResponsesEndTime",
+    ][::std::mem::offset_of!(CBaseFlex, m_flAllowResponsesEndTime) - 2048usize];
+    [
+        "Offset of field: CBaseFlex::m_ActiveChoreoScenes",
+    ][::std::mem::offset_of!(CBaseFlex, m_ActiveChoreoScenes) - 2056usize];
+    [
+        "Offset of field: CBaseFlex::m_bUpdateLayerPriorities",
+    ][::std::mem::offset_of!(CBaseFlex, m_bUpdateLayerPriorities) - 2088usize];
+    [
+        "Offset of field: CBaseFlex::m_flLastFlexAnimationTime",
+    ][::std::mem::offset_of!(CBaseFlex, m_flLastFlexAnimationTime) - 2092usize];
 };

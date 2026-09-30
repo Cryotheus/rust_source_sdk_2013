@@ -3,103 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CPlayerLocalData"][::std::mem::size_of::<CPlayerLocalData>() - 768usize];
-    [
-        "Alignment of CPlayerLocalData",
-    ][::std::mem::align_of::<CPlayerLocalData>() - 8usize];
-    [
-        "Offset of field: CPlayerLocalData::m_chAreaBits",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_chAreaBits) - 8usize];
-    [
-        "Offset of field: CPlayerLocalData::m_chAreaPortalBits",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_chAreaPortalBits) - 40usize];
-    [
-        "Offset of field: CPlayerLocalData::m_iHideHUD",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_iHideHUD) - 64usize];
-    [
-        "Offset of field: CPlayerLocalData::m_flFOVRate",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_flFOVRate) - 68usize];
-    [
-        "Offset of field: CPlayerLocalData::m_vecOverViewpoint",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_vecOverViewpoint) - 72usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bDucked",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bDucked) - 84usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bDucking",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bDucking) - 85usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bInDuckJump",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bInDuckJump) - 86usize];
-    [
-        "Offset of field: CPlayerLocalData::m_flDucktime",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_flDucktime) - 88usize];
-    [
-        "Offset of field: CPlayerLocalData::m_flDuckJumpTime",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_flDuckJumpTime) - 92usize];
-    [
-        "Offset of field: CPlayerLocalData::m_flJumpTime",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_flJumpTime) - 96usize];
-    [
-        "Offset of field: CPlayerLocalData::m_nStepside",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_nStepside) - 100usize];
-    [
-        "Offset of field: CPlayerLocalData::m_flFallVelocity",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_flFallVelocity) - 104usize];
-    [
-        "Offset of field: CPlayerLocalData::m_nOldButtons",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_nOldButtons) - 108usize];
-    [
-        "Offset of field: CPlayerLocalData::m_flOldForwardMove",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_flOldForwardMove) - 112usize];
-    [
-        "Offset of field: CPlayerLocalData::m_pOldSkyCamera",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_pOldSkyCamera) - 120usize];
-    [
-        "Offset of field: CPlayerLocalData::m_vecPunchAngle",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_vecPunchAngle) - 128usize];
-    [
-        "Offset of field: CPlayerLocalData::m_vecPunchAngleVel",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_vecPunchAngleVel) - 140usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bDrawViewmodel",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bDrawViewmodel) - 152usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bWearingSuit",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bWearingSuit) - 153usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bPoisoned",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bPoisoned) - 154usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bForceLocalPlayerDraw",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bForceLocalPlayerDraw) - 155usize];
-    [
-        "Offset of field: CPlayerLocalData::m_flStepSize",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_flStepSize) - 156usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bAllowAutoMovement",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bAllowAutoMovement) - 160usize];
-    [
-        "Offset of field: CPlayerLocalData::m_skybox3d",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_skybox3d) - 168usize];
-    [
-        "Offset of field: CPlayerLocalData::m_PlayerFog",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_PlayerFog) - 272usize];
-    [
-        "Offset of field: CPlayerLocalData::m_fog",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_fog) - 312usize];
-    [
-        "Offset of field: CPlayerLocalData::m_audio",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_audio) - 384usize];
-    [
-        "Offset of field: CPlayerLocalData::m_bSlowMovement",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_bSlowMovement) - 504usize];
-    [
-        "Offset of field: CPlayerLocalData::m_szScriptOverlayMaterial",
-    ][::std::mem::offset_of!(CPlayerLocalData, m_szScriptOverlayMaterial) - 505usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CPlayerLocalData_NetworkVar_m_PlayerFog",
     ][::std::mem::size_of::<CPlayerLocalData_NetworkVar_m_PlayerFog>() - 40usize];
@@ -332,4 +235,101 @@ const _: () = {
     [
         "Alignment of CPlayerLocalData_NetworkVar_m_vecPunchAngleVel",
     ][::std::mem::align_of::<CPlayerLocalData_NetworkVar_m_vecPunchAngleVel>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CPlayerLocalData"][::std::mem::size_of::<CPlayerLocalData>() - 768usize];
+    [
+        "Alignment of CPlayerLocalData",
+    ][::std::mem::align_of::<CPlayerLocalData>() - 8usize];
+    [
+        "Offset of field: CPlayerLocalData::m_chAreaBits",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_chAreaBits) - 8usize];
+    [
+        "Offset of field: CPlayerLocalData::m_chAreaPortalBits",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_chAreaPortalBits) - 40usize];
+    [
+        "Offset of field: CPlayerLocalData::m_iHideHUD",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_iHideHUD) - 64usize];
+    [
+        "Offset of field: CPlayerLocalData::m_flFOVRate",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_flFOVRate) - 68usize];
+    [
+        "Offset of field: CPlayerLocalData::m_vecOverViewpoint",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_vecOverViewpoint) - 72usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bDucked",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bDucked) - 84usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bDucking",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bDucking) - 85usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bInDuckJump",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bInDuckJump) - 86usize];
+    [
+        "Offset of field: CPlayerLocalData::m_flDucktime",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_flDucktime) - 88usize];
+    [
+        "Offset of field: CPlayerLocalData::m_flDuckJumpTime",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_flDuckJumpTime) - 92usize];
+    [
+        "Offset of field: CPlayerLocalData::m_flJumpTime",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_flJumpTime) - 96usize];
+    [
+        "Offset of field: CPlayerLocalData::m_nStepside",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_nStepside) - 100usize];
+    [
+        "Offset of field: CPlayerLocalData::m_flFallVelocity",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_flFallVelocity) - 104usize];
+    [
+        "Offset of field: CPlayerLocalData::m_nOldButtons",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_nOldButtons) - 108usize];
+    [
+        "Offset of field: CPlayerLocalData::m_flOldForwardMove",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_flOldForwardMove) - 112usize];
+    [
+        "Offset of field: CPlayerLocalData::m_pOldSkyCamera",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_pOldSkyCamera) - 120usize];
+    [
+        "Offset of field: CPlayerLocalData::m_vecPunchAngle",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_vecPunchAngle) - 128usize];
+    [
+        "Offset of field: CPlayerLocalData::m_vecPunchAngleVel",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_vecPunchAngleVel) - 140usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bDrawViewmodel",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bDrawViewmodel) - 152usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bWearingSuit",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bWearingSuit) - 153usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bPoisoned",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bPoisoned) - 154usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bForceLocalPlayerDraw",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bForceLocalPlayerDraw) - 155usize];
+    [
+        "Offset of field: CPlayerLocalData::m_flStepSize",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_flStepSize) - 156usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bAllowAutoMovement",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bAllowAutoMovement) - 160usize];
+    [
+        "Offset of field: CPlayerLocalData::m_skybox3d",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_skybox3d) - 168usize];
+    [
+        "Offset of field: CPlayerLocalData::m_PlayerFog",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_PlayerFog) - 272usize];
+    [
+        "Offset of field: CPlayerLocalData::m_fog",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_fog) - 312usize];
+    [
+        "Offset of field: CPlayerLocalData::m_audio",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_audio) - 384usize];
+    [
+        "Offset of field: CPlayerLocalData::m_bSlowMovement",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_bSlowMovement) - 504usize];
+    [
+        "Offset of field: CPlayerLocalData::m_szScriptOverlayMaterial",
+    ][::std::mem::offset_of!(CPlayerLocalData, m_szScriptOverlayMaterial) - 505usize];
 };

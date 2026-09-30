@@ -10,6 +10,12 @@ interface! {
 }
 
 impl<'s> EngineSound<'s> {
+	#[doc(alias = "IsSoundPrecached")]
+	pub fn is_sound_precached(self, sample: &CStr) -> bool {
+		// SAFETY: As for `precache_sound`.
+		unsafe { vcall!(self.as_ptr() => IEngineSound_IsSoundPrecached(sample.as_ptr())) }
+	}
+
 	/// Adds a sound to the precache table, which clients load before playing
 	/// it. Returns whether the sound could be precached.
 	#[doc(alias = "PrecacheSound")]
@@ -18,11 +24,5 @@ impl<'s> EngineSound<'s> {
 		unsafe {
 			vcall!(self.as_ptr() => IEngineSound_PrecacheSound(sample.as_ptr(), preload, false))
 		}
-	}
-
-	#[doc(alias = "IsSoundPrecached")]
-	pub fn is_sound_precached(self, sample: &CStr) -> bool {
-		// SAFETY: As for `precache_sound`.
-		unsafe { vcall!(self.as_ptr() => IEngineSound_IsSoundPrecached(sample.as_ptr())) }
 	}
 }

@@ -91,15 +91,6 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorPrimaryLerpTo_close0",
-    ][::std::mem::size_of::<CNetworkColor32Base<color32>>() - 4usize];
-    [
-        "Align of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorPrimaryLerpTo_close0",
-    ][::std::mem::align_of::<CNetworkColor32Base<color32>>() - 1usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
         "Size of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorPrimary_close0",
     ][::std::mem::size_of::<CNetworkColor32Base<color32>>() - 4usize];
     [
@@ -109,10 +100,10 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorSecondaryLerpTo_close0",
+        "Size of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorPrimaryLerpTo_close0",
     ][::std::mem::size_of::<CNetworkColor32Base<color32>>() - 4usize];
     [
-        "Align of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorSecondaryLerpTo_close0",
+        "Align of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorPrimaryLerpTo_close0",
     ][::std::mem::align_of::<CNetworkColor32Base<color32>>() - 1usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -122,6 +113,15 @@ const _: () = {
     ][::std::mem::size_of::<CNetworkColor32Base<color32>>() - 4usize];
     [
         "Align of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorSecondary_close0",
+    ][::std::mem::align_of::<CNetworkColor32Base<color32>>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorSecondaryLerpTo_close0",
+    ][::std::mem::size_of::<CNetworkColor32Base<color32>>() - 4usize];
+    [
+        "Align of template specialization: CNetworkColor32Base_open0_color32_fogparams_t_NetworkVar_colorSecondaryLerpTo_close0",
     ][::std::mem::align_of::<CNetworkColor32Base<color32>>() - 1usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -538,19 +538,19 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_endLerpTo_close0",
+        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_end_close0",
     ][::std::mem::size_of::<CNetworkVarBase<f32>>() - 4usize];
     [
-        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_endLerpTo_close0",
+        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_end_close0",
     ][::std::mem::align_of::<CNetworkVarBase<f32>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_end_close0",
+        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_endLerpTo_close0",
     ][::std::mem::size_of::<CNetworkVarBase<f32>>() - 4usize];
     [
-        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_end_close0",
+        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_endLerpTo_close0",
     ][::std::mem::align_of::<CNetworkVarBase<f32>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -583,19 +583,19 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_startLerpTo_close0",
+        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_start_close0",
     ][::std::mem::size_of::<CNetworkVarBase<f32>>() - 4usize];
     [
-        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_startLerpTo_close0",
+        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_start_close0",
     ][::std::mem::align_of::<CNetworkVarBase<f32>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_start_close0",
+        "Size of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_startLerpTo_close0",
     ][::std::mem::size_of::<CNetworkVarBase<f32>>() - 4usize];
     [
-        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_start_close0",
+        "Align of template specialization: CNetworkVarBase_open0_float_fogparams_t_NetworkVar_startLerpTo_close0",
     ][::std::mem::align_of::<CNetworkVarBase<f32>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -979,19 +979,19 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngleVel_close0",
+        "Size of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngle_close0",
     ][::std::mem::size_of::<CNetworkVectorBase<QAngle>>() - 12usize];
     [
-        "Align of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngleVel_close0",
+        "Align of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngle_close0",
     ][::std::mem::align_of::<CNetworkVectorBase<QAngle>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngle_close0",
+        "Size of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngleVel_close0",
     ][::std::mem::size_of::<CNetworkVectorBase<QAngle>>() - 12usize];
     [
-        "Align of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngle_close0",
+        "Align of template specialization: CNetworkVectorBase_open0_QAngle_CPlayerLocalData_NetworkVar_m_vecPunchAngleVel_close0",
     ][::std::mem::align_of::<CNetworkVectorBase<QAngle>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1033,15 +1033,6 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMaxsPreScaled_close0",
-    ][::std::mem::size_of::<CNetworkVectorBase<Vector>>() - 12usize];
-    [
-        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMaxsPreScaled_close0",
-    ][::std::mem::align_of::<CNetworkVectorBase<Vector>>() - 4usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
         "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMaxs_close0",
     ][::std::mem::size_of::<CNetworkVectorBase<Vector>>() - 12usize];
     [
@@ -1051,10 +1042,10 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMinsPreScaled_close0",
+        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMaxsPreScaled_close0",
     ][::std::mem::size_of::<CNetworkVectorBase<Vector>>() - 12usize];
     [
-        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMinsPreScaled_close0",
+        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMaxsPreScaled_close0",
     ][::std::mem::align_of::<CNetworkVectorBase<Vector>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1069,10 +1060,10 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxsPreScaled_close0",
+        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMinsPreScaled_close0",
     ][::std::mem::size_of::<CNetworkVectorBase<Vector>>() - 12usize];
     [
-        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxsPreScaled_close0",
+        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecMinsPreScaled_close0",
     ][::std::mem::align_of::<CNetworkVectorBase<Vector>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1087,10 +1078,10 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMinsPreScaled_close0",
+        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxsPreScaled_close0",
     ][::std::mem::size_of::<CNetworkVectorBase<Vector>>() - 12usize];
     [
-        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMinsPreScaled_close0",
+        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMaxsPreScaled_close0",
     ][::std::mem::align_of::<CNetworkVectorBase<Vector>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1100,6 +1091,15 @@ const _: () = {
     ][::std::mem::size_of::<CNetworkVectorBase<Vector>>() - 12usize];
     [
         "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMins_close0",
+    ][::std::mem::align_of::<CNetworkVectorBase<Vector>>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMinsPreScaled_close0",
+    ][::std::mem::size_of::<CNetworkVectorBase<Vector>>() - 12usize];
+    [
+        "Align of template specialization: CNetworkVectorBase_open0_Vector_CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMinsPreScaled_close0",
     ][::std::mem::align_of::<CNetworkVectorBase<Vector>>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -1645,15 +1645,6 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CUtlVectorConservative_open0_ptr_HSCRIPT_close0",
-    ][::std::mem::size_of::<CUtlVectorConservative<*mut HSCRIPT>>() - 32usize];
-    [
-        "Align of template specialization: CUtlVectorConservative_open0_ptr_HSCRIPT_close0",
-    ][::std::mem::align_of::<CUtlVectorConservative<*mut HSCRIPT>>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
         "Size of template specialization: CUtlVector_open0_CAnimationLayer_CUtlMemory_open1_CAnimationLayer_int_close1_close0",
     ][::std::mem::size_of::<CUtlVector<CAnimationLayer, CUtlMemory<CAnimationLayer>>>()
         - 32usize];
@@ -2168,6 +2159,15 @@ const _: () = {
     ][::std::mem::align_of::<
         CUtlVector<virtualsequence_t, CUtlMemory<virtualsequence_t>>,
     >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVectorConservative_open0_ptr_HSCRIPT_close0",
+    ][::std::mem::size_of::<CUtlVectorConservative<*mut HSCRIPT>>() - 32usize];
+    [
+        "Align of template specialization: CUtlVectorConservative_open0_ptr_HSCRIPT_close0",
+    ][::std::mem::align_of::<CUtlVectorConservative<*mut HSCRIPT>>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

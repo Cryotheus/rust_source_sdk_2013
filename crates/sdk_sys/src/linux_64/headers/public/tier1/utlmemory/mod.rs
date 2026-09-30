@@ -25,6 +25,12 @@ pub struct CUtlMemory<T> {
     pub m_nGrowSize: ::std::os::raw::c_int,
 }
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CUtlMemory_Iterator_t<I> {
+    pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<I>>,
+    pub index: I,
+}
+#[repr(C)]
 #[derive(Debug)]
 pub struct CUtlMemoryConservative<T> {
     pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
@@ -36,10 +42,4 @@ pub struct CUtlMemoryConservative<T> {
 pub struct CUtlMemoryConservative_Iterator_t {
     pub index: ::std::os::raw::c_int,
     pub limit: ::std::os::raw::c_int,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CUtlMemory_Iterator_t<I> {
-    pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<I>>,
-    pub index: I,
 }

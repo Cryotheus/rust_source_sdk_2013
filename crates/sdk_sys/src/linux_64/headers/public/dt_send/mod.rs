@@ -19,6 +19,7 @@ pub type ArrayLengthSendProxyFn = ::std::option::Option<
         objectID: ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int,
 >;
+pub type SendTable_PropType = SendProp;
 pub type SendTableProxyFn = ::std::option::Option<
     unsafe extern "C" fn(
         pProp: *const SendProp,
@@ -28,7 +29,6 @@ pub type SendTableProxyFn = ::std::option::Option<
         objectID: ::std::os::raw::c_int,
     ) -> *mut ::std::os::raw::c_void,
 >;
-pub type SendTable_PropType = SendProp;
 pub type SendVarProxyFn = ::std::option::Option<
     unsafe extern "C" fn(
         pProp: *const SendProp,
@@ -122,13 +122,6 @@ pub struct SendTable {
 impl SendTable {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn m_bHasBeenWritten(&self) -> bool {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 1u8>() as u8)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn m_bHasBeenWritten_raw(this: *const Self) -> bool {
         unsafe {
             ::std::mem::transmute(
@@ -139,13 +132,6 @@ impl SendTable {
                     1u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u8,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn m_bHasPropsEncodedAgainstCurrentTickCount(&self) -> bool {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<2usize, 1u8>() as u8)
         }
     }
     #[inline]
@@ -162,13 +148,6 @@ impl SendTable {
                     1u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u8,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn m_bInitialized(&self) -> bool {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u8)
         }
     }
     #[inline]
@@ -227,14 +206,6 @@ impl SendTable {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_bHasBeenWritten(&mut self, val: bool) {
-        unsafe {
-            let val: u8 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<1usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_bHasBeenWritten_raw(this: *mut Self, val: bool) {
         unsafe {
             let val: u8 = ::std::mem::transmute(val);
@@ -244,14 +215,6 @@ impl SendTable {
                 1usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_m_bHasPropsEncodedAgainstCurrentTickCount(&mut self, val: bool) {
-        unsafe {
-            let val: u8 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<2usize, 1u8>(val as u64)
         }
     }
     #[inline]
@@ -272,14 +235,6 @@ impl SendTable {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_bInitialized(&mut self, val: bool) {
-        unsafe {
-            let val: u8 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_bInitialized_raw(this: *mut Self, val: bool) {
         unsafe {
             let val: u8 = ::std::mem::transmute(val);
@@ -289,6 +244,51 @@ impl SendTable {
                 0usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bHasBeenWritten(&self) -> bool {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 1u8>() as u8)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bHasPropsEncodedAgainstCurrentTickCount(&self) -> bool {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<2usize, 1u8>() as u8)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bInitialized(&self) -> bool {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u8)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bHasBeenWritten(&mut self, val: bool) {
+        unsafe {
+            let val: u8 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<1usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bHasPropsEncodedAgainstCurrentTickCount(&mut self, val: bool) {
+        unsafe {
+            let val: u8 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<2usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bInitialized(&mut self, val: bool) {
+        unsafe {
+            let val: u8 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
         }
     }
 }

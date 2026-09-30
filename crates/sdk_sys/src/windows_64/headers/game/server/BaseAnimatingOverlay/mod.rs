@@ -13,8 +13,8 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
-pub type CBaseAnimatingOverlay_BaseClass = CBaseAnimating;
 pub type CBaseAnimatingOverlay__bindgen_ty_1 = ::std::os::raw::c_int;
+pub type CBaseAnimatingOverlay_BaseClass = CBaseAnimating;
 pub const CBaseAnimatingOverlay_MAX_OVERLAYS: CBaseAnimatingOverlay__bindgen_ty_1 = 15;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

@@ -52,6 +52,12 @@ impl<'s> AmbientSound<'s> {
 		unsafe { self.entity.as_ptr().byte_add(offset).cast() }
 	}
 
+	/// Whether its sound loops, unless the map set "Is NOT Looped".
+	pub fn is_looping(self) -> bool {
+		// SAFETY: As for `is_playing`.
+		unsafe { self.field::<u8>(self.layout.looping()).read() != 0 }
+	}
+
 	/// Whether the game plays its looping sound (`m_fActive`), which it does
 	/// from the level's start unless the map starts it silent, and while the
 	/// map has it play. The game never marks a sound that does not loop as
@@ -63,10 +69,26 @@ impl<'s> AmbientSound<'s> {
 		unsafe { self.field::<u8>(self.layout.playing).read() != 0 }
 	}
 
-	/// Whether its sound loops, unless the map set "Is NOT Looped".
-	pub fn is_looping(self) -> bool {
-		// SAFETY: As for `is_playing`.
-		unsafe { self.field::<u8>(self.layout.looping()).read() != 0 }
+	/// Changes the entity it plays its sound from. `None` mutes it: it sends
+	/// nothing but stops until it is given a source again.
+	///
+	/// Clients match a stop to the entity a sound was played from. A muted
+	/// ambient sound sends stops to the source found at activation, and one
+	/// with a source through that source, so a sound played from any other
+	/// source keeps playing until the level ends unless it is stopped while
+	/// that source is set.
+	pub fn set_source(self, source: Option<Entity<'_>>) {
+		let handle = source.map_or(EntityHandle::INVALID, Entity::handle);
+
+		// SAFETY: As for `is_playing`. The handle is invalid, which the game
+		// checks for, or a live entity's, whose slot is within the entity
+		// list the game looks it up in. The game checks the slot's serial
+		// number each time it uses the handle, so it refers to no entity once
+		// that one is removed.
+		unsafe {
+			self.field::<u32>(self.layout.source())
+				.write(handle.to_raw())
+		};
 	}
 
 	/// The sound it plays, as the map named it: a sound file, or an entry of
@@ -98,28 +120,6 @@ impl<'s> AmbientSound<'s> {
 			EntityHandle::from_raw(unsafe { self.field::<u32>(self.layout.source()).read() });
 
 		handle.is_valid().then_some(handle)
-	}
-
-	/// Changes the entity it plays its sound from. `None` mutes it: it sends
-	/// nothing but stops until it is given a source again.
-	///
-	/// Clients match a stop to the entity a sound was played from. A muted
-	/// ambient sound sends stops to the source found at activation, and one
-	/// with a source through that source, so a sound played from any other
-	/// source keeps playing until the level ends unless it is stopped while
-	/// that source is set.
-	pub fn set_source(self, source: Option<Entity<'_>>) {
-		let handle = source.map_or(EntityHandle::INVALID, Entity::handle);
-
-		// SAFETY: As for `is_playing`. The handle is invalid, which the game
-		// checks for, or a live entity's, whose slot is within the entity
-		// list the game looks it up in. The game checks the slot's serial
-		// number each time it uses the handle, so it refers to no entity once
-		// that one is removed.
-		unsafe {
-			self.field::<u32>(self.layout.source())
-				.write(handle.to_raw())
-		};
 	}
 }
 
@@ -177,14 +177,16 @@ impl Layout {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
 	use crate::entities::test_support::{
 		MockEntity, base_entity_fields, data_map, field, set_datamap,
 	};
+
 	use std::ffi::CStr;
 
 	const PLAYING: usize = 200;
-	const SOURCE_NAME: usize = 464;
 	const SOUND: usize = SOURCE_NAME + 16;
+	const SOURCE_NAME: usize = 464;
 
 	fn ambient_field(
 		name: &'static CStr,
@@ -197,41 +199,6 @@ mod tests {
 		field.fieldName = name.as_ptr();
 		field.fieldOffset[0] = offset as c_int;
 		field
-	}
-
-	/// Serves `CAmbientGeneric`'s datamap, with the sound's name at `sound`.
-	fn serve_ambient_map(sound: usize) {
-		let base = data_map(
-			c"CBaseEntity",
-			base_entity_fields().to_vec(),
-			std::ptr::null_mut(),
-		);
-		let ambient = data_map(
-			c"CAmbientGeneric",
-			vec![
-				ambient_field(c"m_iszSound", sys::_fieldtypes_FIELD_SOUNDNAME, sound),
-				ambient_field(c"m_radius", sys::_fieldtypes_FIELD_FLOAT, PLAYING - 120),
-				ambient_field(
-					c"m_sSourceEntName",
-					sys::_fieldtypes_FIELD_STRING,
-					SOURCE_NAME,
-				),
-				ambient_field(c"m_fActive", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING),
-				ambient_field(c"m_fLooping", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING + 1),
-			],
-			base,
-		);
-
-		set_datamap(ambient);
-	}
-
-	#[test]
-	fn the_file_name_pins_the_source_name() {
-		// The flags, then 260 characters, then padding to the next string.
-		assert_eq!(
-			(PLAYING + 2 + MAX_PATH).next_multiple_of(align_of::<sys::string_t>()),
-			SOURCE_NAME
-		);
 	}
 
 	#[test]
@@ -280,6 +247,41 @@ mod tests {
 		sound.set_source(Some(other.entity()));
 
 		assert_eq!(sound.source(), Some(EntityHandle::from_raw(0x0004_0022)));
+	}
+
+	/// Serves `CAmbientGeneric`'s datamap, with the sound's name at `sound`.
+	fn serve_ambient_map(sound: usize) {
+		let base = data_map(
+			c"CBaseEntity",
+			base_entity_fields().to_vec(),
+			std::ptr::null_mut(),
+		);
+		let ambient = data_map(
+			c"CAmbientGeneric",
+			vec![
+				ambient_field(c"m_iszSound", sys::_fieldtypes_FIELD_SOUNDNAME, sound),
+				ambient_field(c"m_radius", sys::_fieldtypes_FIELD_FLOAT, PLAYING - 120),
+				ambient_field(
+					c"m_sSourceEntName",
+					sys::_fieldtypes_FIELD_STRING,
+					SOURCE_NAME,
+				),
+				ambient_field(c"m_fActive", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING),
+				ambient_field(c"m_fLooping", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING + 1),
+			],
+			base,
+		);
+
+		set_datamap(ambient);
+	}
+
+	#[test]
+	fn the_file_name_pins_the_source_name() {
+		// The flags, then 260 characters, then padding to the next string.
+		assert_eq!(
+			(PLAYING + 2 + MAX_PATH).next_multiple_of(align_of::<sys::string_t>()),
+			SOURCE_NAME
+		);
 	}
 
 	#[test]

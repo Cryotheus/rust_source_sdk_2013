@@ -12,6 +12,39 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of KeyValues__bindgen_ty_1",
+    ][::std::mem::size_of::<KeyValues__bindgen_ty_1>() - 8usize];
+    [
+        "Alignment of KeyValues__bindgen_ty_1",
+    ][::std::mem::align_of::<KeyValues__bindgen_ty_1>() - 8usize];
+    [
+        "Offset of field: KeyValues__bindgen_ty_1::m_iValue",
+    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_iValue) - 0usize];
+    [
+        "Offset of field: KeyValues__bindgen_ty_1::m_flValue",
+    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_flValue) - 0usize];
+    [
+        "Offset of field: KeyValues__bindgen_ty_1::m_pValue",
+    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_pValue) - 0usize];
+    [
+        "Offset of field: KeyValues__bindgen_ty_1::m_Color",
+    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_Color) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of KeyValues_AutoDelete",
+    ][::std::mem::size_of::<KeyValues_AutoDelete>() - 8usize];
+    [
+        "Alignment of KeyValues_AutoDelete",
+    ][::std::mem::align_of::<KeyValues_AutoDelete>() - 8usize];
+    [
+        "Offset of field: KeyValues_AutoDelete::m_pKeyValues",
+    ][::std::mem::offset_of!(KeyValues_AutoDelete, m_pKeyValues) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of KeyValues"][::std::mem::size_of::<KeyValues>() - 64usize];
     ["Alignment of KeyValues"][::std::mem::align_of::<KeyValues>() - 8usize];
 };
@@ -38,37 +71,4 @@ const _: () = {
     [
         "Offset of field: KeyValuesUnpackStructure::m_nFieldSize",
     ][::std::mem::offset_of!(KeyValuesUnpackStructure, m_nFieldSize) - 32usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of KeyValues_AutoDelete",
-    ][::std::mem::size_of::<KeyValues_AutoDelete>() - 8usize];
-    [
-        "Alignment of KeyValues_AutoDelete",
-    ][::std::mem::align_of::<KeyValues_AutoDelete>() - 8usize];
-    [
-        "Offset of field: KeyValues_AutoDelete::m_pKeyValues",
-    ][::std::mem::offset_of!(KeyValues_AutoDelete, m_pKeyValues) - 0usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
-        "Size of KeyValues__bindgen_ty_1",
-    ][::std::mem::size_of::<KeyValues__bindgen_ty_1>() - 8usize];
-    [
-        "Alignment of KeyValues__bindgen_ty_1",
-    ][::std::mem::align_of::<KeyValues__bindgen_ty_1>() - 8usize];
-    [
-        "Offset of field: KeyValues__bindgen_ty_1::m_iValue",
-    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_iValue) - 0usize];
-    [
-        "Offset of field: KeyValues__bindgen_ty_1::m_flValue",
-    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_flValue) - 0usize];
-    [
-        "Offset of field: KeyValues__bindgen_ty_1::m_pValue",
-    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_pValue) - 0usize];
-    [
-        "Offset of field: KeyValues__bindgen_ty_1::m_Color",
-    ][::std::mem::offset_of!(KeyValues__bindgen_ty_1, m_Color) - 0usize];
 };

@@ -13,8 +13,8 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
-pub type CBaseAnimating_BaseClass = CBaseEntity;
 pub type CBaseAnimating__bindgen_ty_1 = ::std::os::raw::c_int;
+pub type CBaseAnimating_BaseClass = CBaseEntity;
 pub const CBaseAnimating_NUM_BONECTRLS: CBaseAnimating__bindgen_ty_1 = 4;
 pub const CBaseAnimating_NUM_POSEPAREMETERS: CBaseAnimating__bindgen_ty_1 = 24;
 #[repr(C)]
@@ -62,111 +62,6 @@ pub struct CBaseAnimating {
     pub m_pStudioHdr: *mut CStudioHdr,
     pub m_StudioHdrInitLock: CThreadFastMutex,
     pub m_BoneSetupMutex: CThreadFastMutex,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_bClientSideAnimation {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_bClientSideFrameReset {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_fadeMaxDist {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_fadeMinDist {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_flCycle {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_flEncodedController {
-    pub m_Value: [f32; 4usize],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_flFadeScale {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_flModelScale {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_flPlaybackRate {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_flPoseParameter {
-    pub m_Value: [f32; 24usize],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_hLightingOrigin {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_hLightingOriginRelative {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nBody {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nForceBone {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nHitboxSet {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nMuzzleFlashParity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nNewSequenceParity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nResetEventsParity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nSequence {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_nSkin {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseAnimating_NetworkVar_m_vecForce {
-    pub _address: u8,
 }
 #[repr(C)]
 pub struct CBaseAnimating__bindgen_vtable {
@@ -1014,6 +909,111 @@ pub struct CBaseAnimating__bindgen_vtable {
         arg1: *mut CBaseAnimating,
         arg2: *mut CBaseEntity,
     ),
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_bClientSideAnimation {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_bClientSideFrameReset {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_fadeMaxDist {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_fadeMinDist {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_flCycle {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_flEncodedController {
+    pub m_Value: [f32; 4usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_flFadeScale {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_flModelScale {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_flPlaybackRate {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_flPoseParameter {
+    pub m_Value: [f32; 24usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_hLightingOrigin {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_hLightingOriginRelative {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nBody {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nForceBone {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nHitboxSet {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nMuzzleFlashParity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nNewSequenceParity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nResetEventsParity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nSequence {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_nSkin {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseAnimating_NetworkVar_m_vecForce {
+    pub _address: u8,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

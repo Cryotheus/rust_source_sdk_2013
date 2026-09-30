@@ -37,24 +37,6 @@ pub struct IMDLCache {
     pub vtable_: *const IMDLCache__bindgen_vtable,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct IMDLCacheNotify {
-    pub vtable_: *const IMDLCacheNotify__bindgen_vtable,
-}
-#[repr(C)]
-pub struct IMDLCacheNotify__bindgen_vtable {
-    pub IMDLCacheNotify_OnDataLoaded: unsafe extern "C" fn(
-        arg1: *mut IMDLCacheNotify,
-        arg2: MDLCacheDataType_t,
-        arg3: MDLHandle_t,
-    ),
-    pub IMDLCacheNotify_OnDataUnloaded: unsafe extern "C" fn(
-        arg1: *mut IMDLCacheNotify,
-        arg2: MDLCacheDataType_t,
-        arg3: MDLHandle_t,
-    ),
-}
-#[repr(C)]
 pub struct IMDLCache__bindgen_vtable {
     pub IMDLCache_Connect: unsafe extern "C" fn(
         arg1: *mut IMDLCache,
@@ -218,5 +200,23 @@ pub struct IMDLCache__bindgen_vtable {
         arg1: *mut IMDLCache,
         arg2: MDLHandle_t,
     ) -> bool,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct IMDLCacheNotify {
+    pub vtable_: *const IMDLCacheNotify__bindgen_vtable,
+}
+#[repr(C)]
+pub struct IMDLCacheNotify__bindgen_vtable {
+    pub IMDLCacheNotify_OnDataLoaded: unsafe extern "C" fn(
+        arg1: *mut IMDLCacheNotify,
+        arg2: MDLCacheDataType_t,
+        arg3: MDLHandle_t,
+    ),
+    pub IMDLCacheNotify_OnDataUnloaded: unsafe extern "C" fn(
+        arg1: *mut IMDLCacheNotify,
+        arg2: MDLCacheDataType_t,
+        arg3: MDLHandle_t,
+    ),
 }
 include!("layout_assertions.rs");

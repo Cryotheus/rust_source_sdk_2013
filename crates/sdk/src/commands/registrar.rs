@@ -24,6 +24,20 @@ pub unsafe trait CommandRegistrar {
 	unsafe fn unlink(&self, command: NonNull<sys::ConCommandBase>);
 }
 
+// SAFETY: These are direct calls to the engine's registry. Nothing unlinks the
+// commands on unload, so `Cvar` is not `UnlinksBeforeUnload`.
+unsafe impl CommandRegistrar for Cvar<'_> {
+	unsafe fn link(&self, command: NonNull<sys::ConCommandBase>) {
+		// SAFETY: The caller upholds the contract, which covers the registry's.
+		unsafe { self.register_con_command(command) };
+	}
+
+	unsafe fn unlink(&self, command: NonNull<sys::ConCommandBase>) {
+		// SAFETY: As for `link`.
+		unsafe { self.unregister_con_command(command) };
+	}
+}
+
 /// A registrar whose host unlinks every command linked through it before
 /// unloading the module that contains the command's code.
 ///
@@ -39,17 +53,3 @@ pub unsafe trait CommandRegistrar {
 ///
 /// [`ConsoleCommand::register`]: super::ConsoleCommand::register
 pub unsafe trait UnlinksBeforeUnload: CommandRegistrar {}
-
-// SAFETY: These are direct calls to the engine's registry. Nothing unlinks the
-// commands on unload, so `Cvar` is not `UnlinksBeforeUnload`.
-unsafe impl CommandRegistrar for Cvar<'_> {
-	unsafe fn link(&self, command: NonNull<sys::ConCommandBase>) {
-		// SAFETY: The caller upholds the contract, which covers the registry's.
-		unsafe { self.register_con_command(command) };
-	}
-
-	unsafe fn unlink(&self, command: NonNull<sys::ConCommandBase>) {
-		// SAFETY: As for `link`.
-		unsafe { self.unregister_con_command(command) };
-	}
-}

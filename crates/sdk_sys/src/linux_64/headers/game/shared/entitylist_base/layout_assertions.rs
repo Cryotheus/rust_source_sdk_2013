@@ -3,20 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseEntityList"][::std::mem::size_of::<CBaseEntityList>() - 262184usize];
-    ["Alignment of CBaseEntityList"][::std::mem::align_of::<CBaseEntityList>() - 8usize];
-    [
-        "Offset of field: CBaseEntityList::m_EntPtrArray",
-    ][::std::mem::offset_of!(CBaseEntityList, m_EntPtrArray) - 8usize];
-    [
-        "Offset of field: CBaseEntityList::m_activeList",
-    ][::std::mem::offset_of!(CBaseEntityList, m_activeList) - 262152usize];
-    [
-        "Offset of field: CBaseEntityList::m_freeNonNetworkableList",
-    ][::std::mem::offset_of!(CBaseEntityList, m_freeNonNetworkableList) - 262168usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CBaseEntityList_CEntInfoList",
     ][::std::mem::size_of::<CBaseEntityList_CEntInfoList>() - 16usize];
@@ -29,6 +15,20 @@ const _: () = {
     [
         "Offset of field: CBaseEntityList_CEntInfoList::m_pTail",
     ][::std::mem::offset_of!(CBaseEntityList_CEntInfoList, m_pTail) - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CBaseEntityList"][::std::mem::size_of::<CBaseEntityList>() - 262184usize];
+    ["Alignment of CBaseEntityList"][::std::mem::align_of::<CBaseEntityList>() - 8usize];
+    [
+        "Offset of field: CBaseEntityList::m_EntPtrArray",
+    ][::std::mem::offset_of!(CBaseEntityList, m_EntPtrArray) - 8usize];
+    [
+        "Offset of field: CBaseEntityList::m_activeList",
+    ][::std::mem::offset_of!(CBaseEntityList, m_activeList) - 262152usize];
+    [
+        "Offset of field: CBaseEntityList::m_freeNonNetworkableList",
+    ][::std::mem::offset_of!(CBaseEntityList, m_freeNonNetworkableList) - 262168usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

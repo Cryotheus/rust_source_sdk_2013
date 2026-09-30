@@ -11,20 +11,106 @@ const MAX_ARGC: usize = 64;
 /// `CCommand::COMMAND_MAX_LENGTH`.
 const MAX_LENGTH: usize = 512;
 
-/// A `CCommand` the engine passed could not be read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum MalformedCommand {
-	#[error("the command has {0} arguments, outside 1 to {MAX_ARGC}")]
-	ArgCount(c_int),
+/// An argument is missing or cannot be read as requested.
+///
+/// Positions count the command name as 0, as the console shows them.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ArgError {
+	#[error("missing argument {position}")]
+	Missing { position: usize },
 
-	#[error("the command line is not terminated within {MAX_LENGTH} bytes")]
-	Unterminated,
+	#[error("argument {position} is not valid UTF-8")]
+	NotUtf8 { position: usize },
 
-	#[error("argument {index} does not point into the argument buffer")]
-	ArgOutsideBuffer { index: usize },
+	#[error("argument {position} (`{value}`) is not a valid {expected}")]
+	Invalid {
+		position: usize,
+		value: String,
+		expected: &'static str,
+	},
+}
 
-	#[error("the arguments start at byte {0}, beyond the end of the line")]
-	ArgsOffset(c_int),
+/// The arguments of one invocation.
+///
+/// Argument 0, the command name, is [`Self::name`]; [`Self::get`] counts the
+/// arguments after it from 0.
+#[derive(Clone, Copy)]
+pub struct CommandArgs<'d> {
+	line: &'d CommandLine,
+}
+
+impl<'d> CommandArgs<'d> {
+	pub(crate) const fn new(line: &'d CommandLine) -> Self {
+		Self { line }
+	}
+
+	/// The whole command line.
+	#[doc(alias = "GetCommandString")]
+	pub fn command_line(self) -> &'d CStr {
+		self.line.line()
+	}
+
+	/// The argument at `index` after the name.
+	#[doc(alias = "Arg")]
+	pub fn get(self, index: usize) -> Option<&'d CStr> {
+		self.line.arg(index.checked_add(1)?)
+	}
+
+	/// The argument at `index` after the name, as UTF-8.
+	pub fn get_str(self, index: usize) -> Result<&'d str, ArgError> {
+		let position = index + 1;
+
+		self.get(index)
+			.ok_or(ArgError::Missing { position })?
+			.to_str()
+			.map_err(|_| ArgError::NotUtf8 { position })
+	}
+
+	pub fn is_empty(self) -> bool {
+		self.len() == 0
+	}
+
+	/// The arguments after the name.
+	pub fn iter(self) -> impl Iterator<Item = &'d CStr> + 'd {
+		(0..self.len()).filter_map(move |index| self.get(index))
+	}
+
+	/// The number of arguments after the name.
+	#[doc(alias = "ArgC")]
+	pub fn len(self) -> usize {
+		self.line.argc - 1
+	}
+
+	/// The command name as typed. Its case may differ from the registered name.
+	pub fn name(self) -> &'d CStr {
+		self.line.arg(0).unwrap_or_default()
+	}
+
+	/// Parses the argument at `index` after the name.
+	pub fn parse<T: FromStr>(self, index: usize) -> Result<T, ArgError> {
+		let value = self.get_str(index)?;
+
+		value.parse().map_err(|_| ArgError::Invalid {
+			position: index + 1,
+			value: value.to_owned(),
+			expected: std::any::type_name::<T>(),
+		})
+	}
+
+	/// Everything after the name, exactly as typed, quotes included.
+	#[doc(alias = "ArgS")]
+	pub fn raw_args(self) -> &'d CStr {
+		self.line.raw_args()
+	}
+}
+
+impl std::fmt::Debug for CommandArgs<'_> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("CommandArgs")
+			.field("name", &self.name())
+			.field("args", &self.iter().collect::<Vec<_>>())
+			.finish()
+	}
 }
 
 /// A validated copy of one `CCommand`, owned by a single dispatch.
@@ -97,6 +183,7 @@ impl CommandLine {
 		// and `ArgS` reads 0 as there being none.
 		copy.args_offset = match argv0_size {
 			0 => line_length,
+
 			offset => usize::try_from(offset)
 				.ok()
 				.filter(|&offset| offset <= line_length)
@@ -147,22 +234,6 @@ impl CommandLine {
 		Ok(copy)
 	}
 
-	fn arg(&self, index: usize) -> Option<&CStr> {
-		if index >= self.argc {
-			return None;
-		}
-
-		CStr::from_bytes_until_nul(&self.args[usize::from(self.starts[index])..]).ok()
-	}
-
-	fn line(&self) -> &CStr {
-		CStr::from_bytes_until_nul(&self.line).unwrap_or_default()
-	}
-
-	fn raw_args(&self) -> &CStr {
-		CStr::from_bytes_until_nul(&self.line[self.args_offset..]).unwrap_or_default()
-	}
-
 	/// Builds a command from arguments, as `CCommand::Tokenize` would store
 	/// them. `args_start` is `m_nArgv0Size`: 0 without arguments, otherwise
 	/// the offset of the second token, at its opening quote if it has one.
@@ -190,6 +261,38 @@ impl CommandLine {
 
 		command
 	}
+
+	fn arg(&self, index: usize) -> Option<&CStr> {
+		if index >= self.argc {
+			return None;
+		}
+
+		CStr::from_bytes_until_nul(&self.args[usize::from(self.starts[index])..]).ok()
+	}
+
+	fn line(&self) -> &CStr {
+		CStr::from_bytes_until_nul(&self.line).unwrap_or_default()
+	}
+
+	fn raw_args(&self) -> &CStr {
+		CStr::from_bytes_until_nul(&self.line[self.args_offset..]).unwrap_or_default()
+	}
+}
+
+/// A `CCommand` the engine passed could not be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum MalformedCommand {
+	#[error("the command has {0} arguments, outside 1 to {MAX_ARGC}")]
+	ArgCount(c_int),
+
+	#[error("the command line is not terminated within {MAX_LENGTH} bytes")]
+	Unterminated,
+
+	#[error("argument {index} does not point into the argument buffer")]
+	ArgOutsideBuffer { index: usize },
+
+	#[error("the arguments start at byte {0}, beyond the end of the line")]
+	ArgsOffset(c_int),
 }
 
 /// Copies bytes from `source` into `destination` up to and including the
@@ -217,108 +320,6 @@ unsafe fn copy_terminated(
 	}
 
 	None
-}
-
-/// The arguments of one invocation.
-///
-/// Argument 0, the command name, is [`Self::name`]; [`Self::get`] counts the
-/// arguments after it from 0.
-#[derive(Clone, Copy)]
-pub struct CommandArgs<'d> {
-	line: &'d CommandLine,
-}
-
-impl<'d> CommandArgs<'d> {
-	pub(crate) const fn new(line: &'d CommandLine) -> Self {
-		Self { line }
-	}
-
-	/// The command name as typed. Its case may differ from the registered name.
-	pub fn name(self) -> &'d CStr {
-		self.line.arg(0).unwrap_or_default()
-	}
-
-	/// The number of arguments after the name.
-	#[doc(alias = "ArgC")]
-	pub fn len(self) -> usize {
-		self.line.argc - 1
-	}
-
-	pub fn is_empty(self) -> bool {
-		self.len() == 0
-	}
-
-	/// The argument at `index` after the name.
-	#[doc(alias = "Arg")]
-	pub fn get(self, index: usize) -> Option<&'d CStr> {
-		self.line.arg(index.checked_add(1)?)
-	}
-
-	/// The arguments after the name.
-	pub fn iter(self) -> impl Iterator<Item = &'d CStr> + 'd {
-		(0..self.len()).filter_map(move |index| self.get(index))
-	}
-
-	/// Everything after the name, exactly as typed, quotes included.
-	#[doc(alias = "ArgS")]
-	pub fn raw_args(self) -> &'d CStr {
-		self.line.raw_args()
-	}
-
-	/// The whole command line.
-	#[doc(alias = "GetCommandString")]
-	pub fn command_line(self) -> &'d CStr {
-		self.line.line()
-	}
-
-	/// The argument at `index` after the name, as UTF-8.
-	pub fn get_str(self, index: usize) -> Result<&'d str, ArgError> {
-		let position = index + 1;
-
-		self.get(index)
-			.ok_or(ArgError::Missing { position })?
-			.to_str()
-			.map_err(|_| ArgError::NotUtf8 { position })
-	}
-
-	/// Parses the argument at `index` after the name.
-	pub fn parse<T: FromStr>(self, index: usize) -> Result<T, ArgError> {
-		let value = self.get_str(index)?;
-
-		value.parse().map_err(|_| ArgError::Invalid {
-			position: index + 1,
-			value: value.to_owned(),
-			expected: std::any::type_name::<T>(),
-		})
-	}
-}
-
-impl std::fmt::Debug for CommandArgs<'_> {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("CommandArgs")
-			.field("name", &self.name())
-			.field("args", &self.iter().collect::<Vec<_>>())
-			.finish()
-	}
-}
-
-/// An argument is missing or cannot be read as requested.
-///
-/// Positions count the command name as 0, as the console shows them.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum ArgError {
-	#[error("missing argument {position}")]
-	Missing { position: usize },
-
-	#[error("argument {position} is not valid UTF-8")]
-	NotUtf8 { position: usize },
-
-	#[error("argument {position} (`{value}`) is not a valid {expected}")]
-	Invalid {
-		position: usize,
-		value: String,
-		expected: &'static str,
-	},
 }
 
 #[cfg(test)]
@@ -352,29 +353,6 @@ mod tests {
 	}
 
 	#[test]
-	fn raw_arguments_match_args() {
-		for line in ["sb_say", "sb_say   "] {
-			let raw = CommandLine::tokenized(line, &["sb_say"], 0);
-			let line = unsafe { CommandLine::copy(NonNull::from(&*raw)) }.unwrap();
-			let args = CommandArgs::new(&line);
-
-			assert!(args.is_empty());
-			assert_eq!(args.raw_args(), c"");
-		}
-
-		let raw = CommandLine::tokenized(
-			"sb_echo \"This is cryotheum\"",
-			&["sb_echo", "This is cryotheum"],
-			8,
-		);
-		let line = unsafe { CommandLine::copy(NonNull::from(&*raw)) }.unwrap();
-		let args = CommandArgs::new(&line);
-
-		assert_eq!(args.get(0), Some(c"This is cryotheum"));
-		assert_eq!(args.raw_args(), c"\"This is cryotheum\"");
-	}
-
-	#[test]
 	fn malformed_commands_are_refused() {
 		let mut raw = CommandLine::tokenized("a", &["a"], 0);
 
@@ -403,5 +381,28 @@ mod tests {
 			unsafe { CommandLine::copy(NonNull::from(&*raw)) }.err(),
 			Some(MalformedCommand::Unterminated)
 		);
+	}
+
+	#[test]
+	fn raw_arguments_match_args() {
+		for line in ["sb_say", "sb_say   "] {
+			let raw = CommandLine::tokenized(line, &["sb_say"], 0);
+			let line = unsafe { CommandLine::copy(NonNull::from(&*raw)) }.unwrap();
+			let args = CommandArgs::new(&line);
+
+			assert!(args.is_empty());
+			assert_eq!(args.raw_args(), c"");
+		}
+
+		let raw = CommandLine::tokenized(
+			"sb_echo \"This is cryotheum\"",
+			&["sb_echo", "This is cryotheum"],
+			8,
+		);
+		let line = unsafe { CommandLine::copy(NonNull::from(&*raw)) }.unwrap();
+		let args = CommandArgs::new(&line);
+
+		assert_eq!(args.get(0), Some(c"This is cryotheum"));
+		assert_eq!(args.raw_args(), c"\"This is cryotheum\"");
 	}
 }

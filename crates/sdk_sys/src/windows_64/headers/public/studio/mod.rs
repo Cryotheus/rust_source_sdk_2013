@@ -617,11 +617,6 @@ pub struct mstudiovertanim_t {
     pub __bindgen_anon_2: mstudiovertanim_t__bindgen_ty_2,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct mstudiovertanim_t_CSortByIndex {
-    pub _address: u8,
-}
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub union mstudiovertanim_t__bindgen_ty_1 {
     pub delta: [::std::os::raw::c_short; 3usize],
@@ -632,6 +627,11 @@ pub union mstudiovertanim_t__bindgen_ty_1 {
 pub union mstudiovertanim_t__bindgen_ty_2 {
     pub ndelta: [::std::os::raw::c_short; 3usize],
     pub flNDelta: [float16; 3usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct mstudiovertanim_t_CSortByIndex {
+    pub _address: u8,
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -654,23 +654,6 @@ pub struct mstudiovertex_t {
 #[derive(Debug, Copy, Clone)]
 pub struct serializedstudioptr_t {
     pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct studiohdr2_t {
-    pub numsrcbonetransform: ::std::os::raw::c_int,
-    pub srcbonetransformindex: ::std::os::raw::c_int,
-    pub illumpositionattachmentindex: ::std::os::raw::c_int,
-    pub flMaxEyeDeflection: f32,
-    pub linearboneindex: ::std::os::raw::c_int,
-    pub sznameindex: ::std::os::raw::c_int,
-    pub m_nBoneFlexDriverCount: ::std::os::raw::c_int,
-    pub m_nBoneFlexDriverIndex: ::std::os::raw::c_int,
-    pub virtualModel: __BindgenOpaqueArray<[u32; 2usize]>,
-    pub animblockModel: __BindgenOpaqueArray<[u32; 2usize]>,
-    pub pVertexBase: __BindgenOpaqueArray<[u32; 2usize]>,
-    pub pIndexBase: __BindgenOpaqueArray<[u32; 2usize]>,
-    pub reserved: [::std::os::raw::c_int; 48usize],
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -753,6 +736,23 @@ pub struct studiohdr_t {
     pub unused3: [::std::os::raw::c_int; 1usize],
     pub studiohdr2index: ::std::os::raw::c_int,
     pub unused2: [::std::os::raw::c_int; 1usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct studiohdr2_t {
+    pub numsrcbonetransform: ::std::os::raw::c_int,
+    pub srcbonetransformindex: ::std::os::raw::c_int,
+    pub illumpositionattachmentindex: ::std::os::raw::c_int,
+    pub flMaxEyeDeflection: f32,
+    pub linearboneindex: ::std::os::raw::c_int,
+    pub sznameindex: ::std::os::raw::c_int,
+    pub m_nBoneFlexDriverCount: ::std::os::raw::c_int,
+    pub m_nBoneFlexDriverIndex: ::std::os::raw::c_int,
+    pub virtualModel: __BindgenOpaqueArray<[u32; 2usize]>,
+    pub animblockModel: __BindgenOpaqueArray<[u32; 2usize]>,
+    pub pVertexBase: __BindgenOpaqueArray<[u32; 2usize]>,
+    pub pIndexBase: __BindgenOpaqueArray<[u32; 2usize]>,
+    pub reserved: [::std::os::raw::c_int; 48usize],
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

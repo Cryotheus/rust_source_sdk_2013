@@ -34,145 +34,6 @@ pub struct CBasePlayer {
     pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 5224usize]>,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_ArmorValue {
-    pub _address: u8,
-}
-#[repr(C)]
-pub struct CBasePlayer_NetworkVar_m_Local {
-    pub _base: CPlayerLocalData,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_fOnTarget {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_flConstraintRadius {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_flConstraintSpeedFactor {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_flConstraintWidth {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_flDeathTime {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_flFOVTime {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_flLaggedMovementValue {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_flMaxspeed {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_hConstraintEntity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_hLastWeapon {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_hObserverTarget {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_hUseEntity {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_hVehicle {
-    pub _address: u8,
-}
-#[repr(C)]
-pub struct CBasePlayer_NetworkVar_m_hViewModel {
-    pub m_Value: [CBasePlayer_CBaseViewModelHandle; 2usize],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_hZoomOwner {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_iBonusChallenge {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_iBonusProgress {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_iDefaultFOV {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_iFOV {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_iFOVStart {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_iObserverMode {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_nTickBase {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_szLastPlaceName {
-    pub m_Value: [::std::os::raw::c_char; 18usize],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_NetworkVar_m_vecConstraintCenter {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug)]
-pub struct CBasePlayer_NetworkVar_pl {
-    pub _base: CPlayerState,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBasePlayer_StepSoundCache_t {
-    pub m_SoundParameters: CSoundParameters,
-    pub m_usSoundNameIndex: ::std::os::raw::c_ushort,
-}
-#[repr(C)]
 pub struct CBasePlayer__bindgen_vtable {
     pub CBasePlayer_complete_destructor: unsafe extern "C" fn(arg1: *mut CBasePlayer),
     pub CBasePlayer_deleting_destructor: unsafe extern "C" fn(arg1: *mut CBasePlayer),
@@ -1786,6 +1647,145 @@ pub struct CBasePlayer__bindgen_vtable {
         arg1: *mut CBasePlayer,
     ) -> bool,
     pub CBasePlayer_OnVoiceTransmit: unsafe extern "C" fn(arg1: *mut CBasePlayer),
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_ArmorValue {
+    pub _address: u8,
+}
+#[repr(C)]
+pub struct CBasePlayer_NetworkVar_m_Local {
+    pub _base: CPlayerLocalData,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_fOnTarget {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_flConstraintRadius {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_flConstraintSpeedFactor {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_flConstraintWidth {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_flDeathTime {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_flFOVTime {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_flLaggedMovementValue {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_flMaxspeed {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_hConstraintEntity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_hLastWeapon {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_hObserverTarget {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_hUseEntity {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_hVehicle {
+    pub _address: u8,
+}
+#[repr(C)]
+pub struct CBasePlayer_NetworkVar_m_hViewModel {
+    pub m_Value: [CBasePlayer_CBaseViewModelHandle; 2usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_hZoomOwner {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_iBonusChallenge {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_iBonusProgress {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_iDefaultFOV {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_iFOV {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_iFOVStart {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_iObserverMode {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_nTickBase {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_szLastPlaceName {
+    pub m_Value: [::std::os::raw::c_char; 18usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_NetworkVar_m_vecConstraintCenter {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct CBasePlayer_NetworkVar_pl {
+    pub _base: CPlayerState,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBasePlayer_StepSoundCache_t {
+    pub m_SoundParameters: CSoundParameters,
+    pub m_usSoundNameIndex: ::std::os::raw::c_ushort,
 }
 #[repr(C)]
 #[derive(Debug)]

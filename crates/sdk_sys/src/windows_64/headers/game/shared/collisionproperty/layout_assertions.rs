@@ -4,73 +4,6 @@
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of CCollisionProperty",
-    ][::std::mem::size_of::<CCollisionProperty>() - 152usize];
-    [
-        "Alignment of CCollisionProperty",
-    ][::std::mem::align_of::<CCollisionProperty>() - 8usize];
-    [
-        "Offset of field: CCollisionProperty::m_pOuter",
-    ][::std::mem::offset_of!(CCollisionProperty, m_pOuter) - 8usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecMinsPreScaled",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecMinsPreScaled) - 16usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecMaxsPreScaled",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecMaxsPreScaled) - 28usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecMins",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecMins) - 40usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecMaxs",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecMaxs) - 52usize];
-    [
-        "Offset of field: CCollisionProperty::m_flRadius",
-    ][::std::mem::offset_of!(CCollisionProperty, m_flRadius) - 64usize];
-    [
-        "Offset of field: CCollisionProperty::m_usSolidFlags",
-    ][::std::mem::offset_of!(CCollisionProperty, m_usSolidFlags) - 68usize];
-    [
-        "Offset of field: CCollisionProperty::m_Partition",
-    ][::std::mem::offset_of!(CCollisionProperty, m_Partition) - 70usize];
-    [
-        "Offset of field: CCollisionProperty::m_nSurroundType",
-    ][::std::mem::offset_of!(CCollisionProperty, m_nSurroundType) - 72usize];
-    [
-        "Offset of field: CCollisionProperty::m_nSolidType",
-    ][::std::mem::offset_of!(CCollisionProperty, m_nSolidType) - 73usize];
-    [
-        "Offset of field: CCollisionProperty::m_triggerBloat",
-    ][::std::mem::offset_of!(CCollisionProperty, m_triggerBloat) - 74usize];
-    [
-        "Offset of field: CCollisionProperty::m_bUniformTriggerBloat",
-    ][::std::mem::offset_of!(CCollisionProperty, m_bUniformTriggerBloat) - 75usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMinsPreScaled",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMinsPreScaled)
-        - 76usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMaxsPreScaled",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMaxsPreScaled)
-        - 88usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMins",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMins)
-        - 100usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMaxs",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMaxs)
-        - 112usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecSurroundingMins",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecSurroundingMins) - 124usize];
-    [
-        "Offset of field: CCollisionProperty::m_vecSurroundingMaxs",
-    ][::std::mem::offset_of!(CCollisionProperty, m_vecSurroundingMaxs) - 136usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    [
         "Size of CCollisionProperty_NetworkVar_m_bUniformTriggerBloat",
     ][::std::mem::size_of::<CCollisionProperty_NetworkVar_m_bUniformTriggerBloat>()
         - 1usize];
@@ -206,4 +139,71 @@ const _: () = {
     ][::std::mem::align_of::<
         CCollisionProperty_NetworkVar_m_vecSpecifiedSurroundingMinsPreScaled,
     >() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CCollisionProperty",
+    ][::std::mem::size_of::<CCollisionProperty>() - 152usize];
+    [
+        "Alignment of CCollisionProperty",
+    ][::std::mem::align_of::<CCollisionProperty>() - 8usize];
+    [
+        "Offset of field: CCollisionProperty::m_pOuter",
+    ][::std::mem::offset_of!(CCollisionProperty, m_pOuter) - 8usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecMinsPreScaled",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecMinsPreScaled) - 16usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecMaxsPreScaled",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecMaxsPreScaled) - 28usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecMins",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecMins) - 40usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecMaxs",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecMaxs) - 52usize];
+    [
+        "Offset of field: CCollisionProperty::m_flRadius",
+    ][::std::mem::offset_of!(CCollisionProperty, m_flRadius) - 64usize];
+    [
+        "Offset of field: CCollisionProperty::m_usSolidFlags",
+    ][::std::mem::offset_of!(CCollisionProperty, m_usSolidFlags) - 68usize];
+    [
+        "Offset of field: CCollisionProperty::m_Partition",
+    ][::std::mem::offset_of!(CCollisionProperty, m_Partition) - 70usize];
+    [
+        "Offset of field: CCollisionProperty::m_nSurroundType",
+    ][::std::mem::offset_of!(CCollisionProperty, m_nSurroundType) - 72usize];
+    [
+        "Offset of field: CCollisionProperty::m_nSolidType",
+    ][::std::mem::offset_of!(CCollisionProperty, m_nSolidType) - 73usize];
+    [
+        "Offset of field: CCollisionProperty::m_triggerBloat",
+    ][::std::mem::offset_of!(CCollisionProperty, m_triggerBloat) - 74usize];
+    [
+        "Offset of field: CCollisionProperty::m_bUniformTriggerBloat",
+    ][::std::mem::offset_of!(CCollisionProperty, m_bUniformTriggerBloat) - 75usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMinsPreScaled",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMinsPreScaled)
+        - 76usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMaxsPreScaled",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMaxsPreScaled)
+        - 88usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMins",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMins)
+        - 100usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecSpecifiedSurroundingMaxs",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecSpecifiedSurroundingMaxs)
+        - 112usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecSurroundingMins",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecSurroundingMins) - 124usize];
+    [
+        "Offset of field: CCollisionProperty::m_vecSurroundingMaxs",
+    ][::std::mem::offset_of!(CCollisionProperty, m_vecSurroundingMaxs) - 136usize];
 };

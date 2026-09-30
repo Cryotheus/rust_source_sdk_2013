@@ -23,216 +23,59 @@ use std::marker::PhantomData;
 use std::mem::zeroed;
 use std::ptr::NonNull;
 
-/// How deep [`NetProp`] lookups descend into nested tables before giving up.
-const MAX_TABLE_DEPTH: usize = 32;
-
 /// How many non-modifying proxies [`StandardSendProxies`] reads before
 /// assuming the list is corrupt.
 const MAX_NON_MODIFIED_PROXIES: usize = 256;
 
-/// A networked entity class, as registered by the game DLL (`ServerClass`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ServerClass<'s> {
-	raw: NonNull<sys::ServerClass>,
-	_scope: PhantomData<&'s ()>,
-	_not_thread_safe: NotThreadSafe,
-}
+/// How deep [`NetProp`] lookups descend into nested tables before giving up.
+const MAX_TABLE_DEPTH: usize = 32;
 
-impl<'s> ServerClass<'s> {
-	/// # Safety
-	///
-	/// `raw` must be one of the game DLL's server classes, which are statics.
-	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::ServerClass>) -> Self {
-		Self {
-			raw,
-			_scope: PhantomData,
-			_not_thread_safe: PhantomData,
-		}
+/// The `SPROP_*` flags of a [`SendProp`], from `public/dt_common.h`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct PropFlags(c_int);
+
+impl PropFlags {
+	pub const CHANGES_OFTEN: Self = Self(1 << 10);
+	pub const COLLAPSIBLE: Self = Self(1 << 12);
+	pub const COORD: Self = Self(1 << 1);
+	pub const COORD_MP: Self = Self(1 << 13);
+	pub const COORD_MP_INTEGRAL: Self = Self(1 << 15);
+	pub const COORD_MP_LOW_PRECISION: Self = Self(1 << 14);
+	pub const ENCODED_AGAINST_TICK_COUNT: Self = Self(1 << 16);
+
+	/// The property names another property to exclude, rather than a variable.
+	pub const EXCLUDE: Self = Self(1 << 6);
+
+	/// The property describes the elements of the array property after it.
+	pub const INSIDE_ARRAY: Self = Self(1 << 8);
+
+	pub const IS_A_VECTOR_ELEM: Self = Self(1 << 11);
+	pub const NO_SCALE: Self = Self(1 << 2);
+	pub const NORMAL: Self = Self(1 << 5);
+	pub const PROXY_ALWAYS_YES: Self = Self(1 << 9);
+	pub const ROUND_DOWN: Self = Self(1 << 3);
+	pub const ROUND_UP: Self = Self(1 << 4);
+	pub const UNSIGNED: Self = Self(1 << 0);
+	pub const XYZE: Self = Self(1 << 7);
+
+	pub const fn from_bits(bits: c_int) -> Self {
+		Self(bits)
 	}
 
-	/// Returns the native pointer for low-level interop.
-	pub const fn as_ptr(self) -> *mut sys::ServerClass {
-		self.raw.as_ptr()
+	pub const fn bits(self) -> c_int {
+		self.0
 	}
 
-	/// The class's network name, such as `CTFPlayer`.
-	#[doc(alias = "GetName")]
-	pub fn name(self) -> &'s CStr {
-		// SAFETY: Server classes and their names are statics of the game DLL.
-		// Fields are read without forming references.
-		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pNetworkName).read()) }
-			.unwrap_or_default()
-	}
-
-	/// The ID the engine assigned the class for networking.
-	pub fn class_id(self) -> c_int {
-		// SAFETY: As for `name`.
-		unsafe { (&raw const (*self.as_ptr()).m_ClassID).read() }
-	}
-
-	/// The table of the class's networked variables.
-	pub fn table(self) -> Option<SendTable<'s>> {
-		// SAFETY: As for `name`.
-		let table = NonNull::new(unsafe { (&raw const (*self.as_ptr()).m_pTable).read() })?;
-
-		// SAFETY: Send tables are statics of the game DLL.
-		Some(unsafe { SendTable::from_raw(table) })
-	}
-
-	fn next(self) -> Option<Self> {
-		// SAFETY: As for `name`.
-		let next = NonNull::new(unsafe { (&raw const (*self.as_ptr()).m_pNext).read() })?;
-
-		// SAFETY: The list only links server classes.
-		Some(unsafe { Self::from_raw(next) })
+	pub const fn contains(self, flags: Self) -> bool {
+		self.0 & flags.0 == flags.0
 	}
 }
 
-/// Iterator over the game DLL's server classes, sorted by name.
-#[derive(Debug, Clone)]
-pub struct ServerClasses<'s> {
-	next: Option<ServerClass<'s>>,
-}
-
-impl<'s> ServerClasses<'s> {
-	/// # Safety
-	///
-	/// `head` must be null or the head of the game DLL's server class list.
-	pub(crate) unsafe fn new(head: *mut sys::ServerClass) -> Self {
-		Self {
-			// SAFETY: The caller upholds the contract.
-			next: NonNull::new(head).map(|head| unsafe { ServerClass::from_raw(head) }),
-		}
+impl Debug for PropFlags {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		write!(f, "PropFlags({:#x})", self.0)
 	}
 }
-
-impl<'s> Iterator for ServerClasses<'s> {
-	type Item = ServerClass<'s>;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		let class = self.next?;
-
-		self.next = class.next();
-		Some(class)
-	}
-}
-
-/// A table of networked variables (`SendTable`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SendTable<'s> {
-	raw: NonNull<sys::SendTable>,
-	_scope: PhantomData<&'s ()>,
-	_not_thread_safe: NotThreadSafe,
-}
-
-impl<'s> SendTable<'s> {
-	/// # Safety
-	///
-	/// `raw` must be one of the game DLL's send tables, which are statics.
-	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::SendTable>) -> Self {
-		Self {
-			raw,
-			_scope: PhantomData,
-			_not_thread_safe: PhantomData,
-		}
-	}
-
-	/// Returns the native pointer for low-level interop.
-	pub const fn as_ptr(self) -> *mut sys::SendTable {
-		self.raw.as_ptr()
-	}
-
-	/// The table's name, such as `DT_TFPlayer`.
-	#[doc(alias = "GetName")]
-	pub fn name(self) -> &'s CStr {
-		// SAFETY: Send tables and their names are statics of the game DLL.
-		// Fields are read without forming references.
-		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pNetTableName).read()) }
-			.unwrap_or_default()
-	}
-
-	#[doc(alias = "GetNumProps")]
-	pub fn len(self) -> usize {
-		// SAFETY: As for `name`.
-		usize::try_from(unsafe { (&raw const (*self.as_ptr()).m_nProps).read() }).unwrap_or(0)
-	}
-
-	pub fn is_empty(self) -> bool {
-		self.len() == 0
-	}
-
-	#[doc(alias = "GetProp")]
-	pub fn prop(self, index: usize) -> Option<SendProp<'s>> {
-		if index >= self.len() {
-			return None;
-		}
-
-		// SAFETY: As for `name`.
-		let props = NonNull::new(unsafe { (&raw const (*self.as_ptr()).m_pProps).read() })?;
-
-		// SAFETY: The index is within the table's array of properties.
-		Some(unsafe { SendProp::from_raw(props.add(index)) })
-	}
-
-	pub fn props(self) -> SendProps<'s> {
-		SendProps {
-			table: self,
-			index: 0,
-		}
-	}
-
-	/// The table of the base class, which classes embed as a property named
-	/// `baseclass`.
-	pub fn base(self) -> Option<SendTable<'s>> {
-		self.props()
-			.find(|prop| prop.kind() == PropKind::DataTable && prop.name() == c"baseclass")
-			.and_then(SendProp::data_table)
-	}
-
-	/// Whether this is `base`, or derives from it through `baseclass` tables.
-	///
-	/// Base classes sit at offset 0 of their derived classes, so offsets
-	/// resolved in `base` hold for this table's entities too.
-	pub fn derives_from(self, base: SendTable<'_>) -> bool {
-		let mut table = Some(self);
-
-		for _ in 0..MAX_TABLE_DEPTH {
-			match table {
-				Some(current) if current.as_ptr() == base.as_ptr() => return true,
-				Some(current) => table = current.base(),
-				None => return false,
-			}
-		}
-
-		false
-	}
-}
-
-/// Iterator over a table's properties.
-#[derive(Debug, Clone)]
-pub struct SendProps<'s> {
-	table: SendTable<'s>,
-	index: usize,
-}
-
-impl<'s> Iterator for SendProps<'s> {
-	type Item = SendProp<'s>;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		let prop = self.table.prop(self.index)?;
-
-		self.index += 1;
-		Some(prop)
-	}
-
-	fn size_hint(&self) -> (usize, Option<usize>) {
-		let remaining = self.table.len().saturating_sub(self.index);
-
-		(remaining, Some(remaining))
-	}
-}
-
-impl ExactSizeIterator for SendProps<'_> {}
 
 /// The type a [`SendProp`] is networked as.
 #[doc(alias = "SendPropType")]
@@ -287,60 +130,216 @@ impl Display for PropKind {
 	}
 }
 
-/// The `SPROP_*` flags of a [`SendProp`], from `public/dt_common.h`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct PropFlags(c_int);
-
-impl PropFlags {
-	pub const UNSIGNED: Self = Self(1 << 0);
-	pub const COORD: Self = Self(1 << 1);
-	pub const NO_SCALE: Self = Self(1 << 2);
-	pub const ROUND_DOWN: Self = Self(1 << 3);
-	pub const ROUND_UP: Self = Self(1 << 4);
-	pub const NORMAL: Self = Self(1 << 5);
-
-	/// The property names another property to exclude, rather than a variable.
-	pub const EXCLUDE: Self = Self(1 << 6);
-
-	pub const XYZE: Self = Self(1 << 7);
-
-	/// The property describes the elements of the array property after it.
-	pub const INSIDE_ARRAY: Self = Self(1 << 8);
-
-	pub const PROXY_ALWAYS_YES: Self = Self(1 << 9);
-	pub const CHANGES_OFTEN: Self = Self(1 << 10);
-	pub const IS_A_VECTOR_ELEM: Self = Self(1 << 11);
-	pub const COLLAPSIBLE: Self = Self(1 << 12);
-	pub const COORD_MP: Self = Self(1 << 13);
-	pub const COORD_MP_LOW_PRECISION: Self = Self(1 << 14);
-	pub const COORD_MP_INTEGRAL: Self = Self(1 << 15);
-	pub const ENCODED_AGAINST_TICK_COUNT: Self = Self(1 << 16);
-
-	pub const fn from_bits(bits: c_int) -> Self {
-		Self(bits)
-	}
-
-	pub const fn bits(self) -> c_int {
-		self.0
-	}
-
-	pub const fn contains(self, flags: Self) -> bool {
-		self.0 & flags.0 == flags.0
-	}
-}
-
-impl Debug for PropFlags {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		write!(f, "PropFlags({:#x})", self.0)
-	}
-}
-
 /// A networked variable's description (`SendProp`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SendProp<'s> {
 	raw: NonNull<sys::SendProp>,
 	_scope: PhantomData<&'s ()>,
 	_not_thread_safe: NotThreadSafe,
+}
+
+/// Iterator over a table's properties.
+#[derive(Debug, Clone)]
+pub struct SendProps<'s> {
+	table: SendTable<'s>,
+	index: usize,
+}
+
+impl ExactSizeIterator for SendProps<'_> {}
+
+impl<'s> Iterator for SendProps<'s> {
+	type Item = SendProp<'s>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let prop = self.table.prop(self.index)?;
+
+		self.index += 1;
+		Some(prop)
+	}
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		let remaining = self.table.len().saturating_sub(self.index);
+
+		(remaining, Some(remaining))
+	}
+}
+
+/// A table of networked variables (`SendTable`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SendTable<'s> {
+	raw: NonNull<sys::SendTable>,
+	_scope: PhantomData<&'s ()>,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl<'s> SendTable<'s> {
+	/// # Safety
+	///
+	/// `raw` must be one of the game DLL's send tables, which are statics.
+	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::SendTable>) -> Self {
+		Self {
+			raw,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// Returns the native pointer for low-level interop.
+	pub const fn as_ptr(self) -> *mut sys::SendTable {
+		self.raw.as_ptr()
+	}
+
+	/// The table of the base class, which classes embed as a property named
+	/// `baseclass`.
+	pub fn base(self) -> Option<SendTable<'s>> {
+		self.props()
+			.find(|prop| prop.kind() == PropKind::DataTable && prop.name() == c"baseclass")
+			.and_then(SendProp::data_table)
+	}
+
+	/// Whether this is `base`, or derives from it through `baseclass` tables.
+	///
+	/// Base classes sit at offset 0 of their derived classes, so offsets
+	/// resolved in `base` hold for this table's entities too.
+	pub fn derives_from(self, base: SendTable<'_>) -> bool {
+		let mut table = Some(self);
+
+		for _ in 0..MAX_TABLE_DEPTH {
+			match table {
+				Some(current) if current.as_ptr() == base.as_ptr() => return true,
+				Some(current) => table = current.base(),
+				None => return false,
+			}
+		}
+
+		false
+	}
+
+	pub fn is_empty(self) -> bool {
+		self.len() == 0
+	}
+
+	#[doc(alias = "GetNumProps")]
+	pub fn len(self) -> usize {
+		// SAFETY: As for `name`.
+		usize::try_from(unsafe { (&raw const (*self.as_ptr()).m_nProps).read() }).unwrap_or(0)
+	}
+
+	/// The table's name, such as `DT_TFPlayer`.
+	#[doc(alias = "GetName")]
+	pub fn name(self) -> &'s CStr {
+		// SAFETY: Send tables and their names are statics of the game DLL.
+		// Fields are read without forming references.
+		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pNetTableName).read()) }
+			.unwrap_or_default()
+	}
+
+	#[doc(alias = "GetProp")]
+	pub fn prop(self, index: usize) -> Option<SendProp<'s>> {
+		if index >= self.len() {
+			return None;
+		}
+
+		// SAFETY: As for `name`.
+		let props = NonNull::new(unsafe { (&raw const (*self.as_ptr()).m_pProps).read() })?;
+
+		// SAFETY: The index is within the table's array of properties.
+		Some(unsafe { SendProp::from_raw(props.add(index)) })
+	}
+
+	pub fn props(self) -> SendProps<'s> {
+		SendProps {
+			table: self,
+			index: 0,
+		}
+	}
+}
+
+/// A networked entity class, as registered by the game DLL (`ServerClass`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ServerClass<'s> {
+	raw: NonNull<sys::ServerClass>,
+	_scope: PhantomData<&'s ()>,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl<'s> ServerClass<'s> {
+	/// # Safety
+	///
+	/// `raw` must be one of the game DLL's server classes, which are statics.
+	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::ServerClass>) -> Self {
+		Self {
+			raw,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// Returns the native pointer for low-level interop.
+	pub const fn as_ptr(self) -> *mut sys::ServerClass {
+		self.raw.as_ptr()
+	}
+
+	/// The ID the engine assigned the class for networking.
+	pub fn class_id(self) -> c_int {
+		// SAFETY: As for `name`.
+		unsafe { (&raw const (*self.as_ptr()).m_ClassID).read() }
+	}
+
+	/// The class's network name, such as `CTFPlayer`.
+	#[doc(alias = "GetName")]
+	pub fn name(self) -> &'s CStr {
+		// SAFETY: Server classes and their names are statics of the game DLL.
+		// Fields are read without forming references.
+		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pNetworkName).read()) }
+			.unwrap_or_default()
+	}
+
+	fn next(self) -> Option<Self> {
+		// SAFETY: As for `name`.
+		let next = NonNull::new(unsafe { (&raw const (*self.as_ptr()).m_pNext).read() })?;
+
+		// SAFETY: The list only links server classes.
+		Some(unsafe { Self::from_raw(next) })
+	}
+
+	/// The table of the class's networked variables.
+	pub fn table(self) -> Option<SendTable<'s>> {
+		// SAFETY: As for `name`.
+		let table = NonNull::new(unsafe { (&raw const (*self.as_ptr()).m_pTable).read() })?;
+
+		// SAFETY: Send tables are statics of the game DLL.
+		Some(unsafe { SendTable::from_raw(table) })
+	}
+}
+
+/// Iterator over the game DLL's server classes, sorted by name.
+#[derive(Debug, Clone)]
+pub struct ServerClasses<'s> {
+	next: Option<ServerClass<'s>>,
+}
+
+impl<'s> ServerClasses<'s> {
+	/// # Safety
+	///
+	/// `head` must be null or the head of the game DLL's server class list.
+	pub(crate) unsafe fn new(head: *mut sys::ServerClass) -> Self {
+		Self {
+			// SAFETY: The caller upholds the contract.
+			next: NonNull::new(head).map(|head| unsafe { ServerClass::from_raw(head) }),
+		}
+	}
+}
+
+impl<'s> Iterator for ServerClasses<'s> {
+	type Item = ServerClass<'s>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let class = self.next?;
+
+		self.next = class.next();
+		Some(class)
+	}
 }
 
 /// Reads a field of a `SendProp` without forming a reference.
@@ -352,11 +351,58 @@ macro_rules! prop_field {
 	};
 }
 
-impl<'s> SendProp<'s> {
+/// A value as clients receive it, from [`NetProp::value`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum NetValue {
+	Int(c_int),
+	Float(f32),
+	Vector(Vector),
+	VectorXY(Vec2),
+	String(CString),
+}
+
+/// A type a networked variable can be read or written as.
+///
+/// Implemented for the primitive types of [`Storage`], `bool` for single-byte
+/// flags, and [`Vector`] and [`QAngle`] for vectors. Integers are accessed
+/// at the variable's width with the signedness of the type used.
+pub trait NetVar: sealed::Sealed + Copy {
+	#[doc(hidden)]
+	const STORAGE: Storage;
+
 	/// # Safety
 	///
-	/// `raw` must be a property of one of the game DLL's send tables.
-	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::SendProp>) -> Self {
+	/// `source` must point to a readable variable whose storage is
+	/// [compatible](Storage::is_compatible) with [`Self::STORAGE`].
+	#[doc(hidden)]
+	unsafe fn read(source: *const u8) -> Self;
+
+	/// # Safety
+	///
+	/// `destination` must point to a writable variable whose storage is
+	/// [compatible](Storage::is_compatible) with [`Self::STORAGE`].
+	#[doc(hidden)]
+	unsafe fn write(self, destination: *mut u8);
+}
+
+/// The game DLL's standard send proxies (`CStandardSendProxies`).
+///
+/// A property's proxy converts its variable for networking, so a standard
+/// proxy reveals how the variable is stored. Comparisons use widths only,
+/// since a linker may fold proxies whose code is identical into one.
+#[doc(alias = "CStandardSendProxies")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StandardSendProxies<'s> {
+	raw: NonNull<sys::CStandardSendProxies>,
+	_scope: PhantomData<&'s ()>,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl<'s> StandardSendProxies<'s> {
+	/// # Safety
+	///
+	/// `raw` must be the game DLL's `g_StandardSendProxies`.
+	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::CStandardSendProxies>) -> Self {
 		Self {
 			raw,
 			_scope: PhantomData,
@@ -365,97 +411,99 @@ impl<'s> SendProp<'s> {
 	}
 
 	/// Returns the native pointer for low-level interop.
-	pub const fn as_ptr(self) -> *mut sys::SendProp {
+	pub const fn as_ptr(self) -> *mut sys::CStandardSendProxies {
 		self.raw.as_ptr()
 	}
 
-	/// The variable's name, such as `m_iHealth`.
-	#[doc(alias = "GetName")]
-	pub fn name(self) -> &'s CStr {
-		let name = prop_field!(self, m_pVarName);
+	/// Whether a table proxy passes its data through unchanged, so offsets
+	/// into the nested table are relative to the containing structure.
+	fn is_direct(self, proxy: sys::SendTableProxyFn) -> bool {
+		let Some(proxy) = table_proxy_address(proxy) else {
+			return false;
+		};
 
-		// SAFETY: Names are string literals of the game DLL.
-		unsafe { borrow_cstr(name) }.unwrap_or_default()
-	}
+		let proxies = self.proxies();
 
-	#[doc(alias = "GetType")]
-	pub fn kind(self) -> PropKind {
-		PropKind::from_raw(prop_field!(self, m_Type))
-	}
-
-	#[doc(alias = "GetFlags")]
-	pub fn flags(self) -> PropFlags {
-		PropFlags(prop_field!(self, m_Flags))
-	}
-
-	/// The number of bits the value is encoded with.
-	pub fn bits(self) -> c_int {
-		prop_field!(self, m_nBits)
-	}
-
-	/// The lowest value a float is encoded to.
-	pub fn low_value(self) -> f32 {
-		prop_field!(self, m_fLowValue)
-	}
-
-	/// The highest value a float is encoded to.
-	pub fn high_value(self) -> f32 {
-		prop_field!(self, m_fHighValue)
-	}
-
-	/// Bytes from the start of the structure the property's table describes.
-	#[doc(alias = "GetOffset")]
-	pub fn offset(self) -> c_int {
-		prop_field!(self, m_Offset)
-	}
-
-	/// The nested table of a [`PropKind::DataTable`] property.
-	#[doc(alias = "GetDataTable")]
-	pub fn data_table(self) -> Option<SendTable<'s>> {
-		// SAFETY: Send tables are statics of the game DLL.
-		NonNull::new(prop_field!(self, m_pDataTable))
-			.map(|table| unsafe { SendTable::from_raw(table) })
-	}
-
-	/// The property describing each element of a [`PropKind::Array`] property.
-	#[doc(alias = "GetArrayProp")]
-	pub fn array_prop(self) -> Option<SendProp<'s>> {
-		// SAFETY: The array's element property precedes it in the same table.
-		NonNull::new(prop_field!(self, m_pArrayProp))
-			.map(|prop| unsafe { SendProp::from_raw(prop) })
-	}
-
-	/// The number of elements of a [`PropKind::Array`] property.
-	#[doc(alias = "GetNumElements")]
-	pub fn element_count(self) -> c_int {
-		prop_field!(self, m_nElements)
-	}
-
-	/// Bytes between consecutive elements of a [`PropKind::Array`] property.
-	#[doc(alias = "GetElementStride")]
-	pub fn element_stride(self) -> c_int {
-		prop_field!(self, m_ElementStride)
-	}
-
-	/// The table an [exclude](PropFlags::EXCLUDE) property excludes a property from.
-	#[doc(alias = "GetExcludeDTName")]
-	pub fn exclude_table_name(self) -> Option<&'s CStr> {
-		if !self.flags().contains(PropFlags::EXCLUDE) {
-			return None;
+		if [proxies.m_DataTableToDataTable, proxies.m_SendLocalDataTable]
+			.into_iter()
+			.any(|candidate| table_proxy_address(candidate) == Some(proxy))
+		{
+			return true;
 		}
 
-		let table = prop_field!(self, m_pExcludeDTName);
+		// The game registers every other pointer-preserving table proxy in a
+		// list, which the engine consults for the same purpose.
+		let Some(head) = NonNull::new(proxies.m_ppNonModifiedPointerProxies) else {
+			return false;
+		};
 
-		// SAFETY: As for `name`.
-		unsafe { borrow_cstr(table) }
+		// SAFETY: The list and its nodes are statics of the game DLL.
+		let mut node = unsafe { head.as_ptr().read() };
+
+		for _ in 0..MAX_NON_MODIFIED_PROXIES {
+			let Some(current) = NonNull::new(node) else {
+				return false;
+			};
+
+			// SAFETY: As above.
+			let current = unsafe { current.as_ptr().read() };
+
+			if table_proxy_address(current.m_Fn) == Some(proxy) {
+				return true;
+			}
+
+			node = current.m_pNext;
+		}
+
+		false
 	}
 
-	fn var_proxy(self) -> sys::SendVarProxyFn {
-		prop_field!(self, m_ProxyFn)
+	fn proxies(self) -> sys::CStandardSendProxies {
+		// SAFETY: The proxies are a static of the game DLL, set up before any
+		// plugin loads. They are copied without forming references.
+		unsafe { self.as_ptr().read() }
 	}
 
-	fn table_proxy(self) -> sys::SendTableProxyFn {
-		prop_field!(self, m_DataTableProxyFn)
+	/// How a scalar property's variable is stored, judged by its proxy.
+	fn storage(self, prop: SendProp<'_>) -> Storage {
+		let proxies = self.proxies()._base;
+		let Some(proxy) = var_proxy_address(prop.var_proxy()) else {
+			return Storage::Unknown;
+		};
+
+		let is = |candidates: &[sys::SendVarProxyFn]| {
+			candidates
+				.iter()
+				.any(|&candidate| var_proxy_address(candidate) == Some(proxy))
+		};
+		let signed = !prop.flags().contains(PropFlags::UNSIGNED);
+
+		match prop.kind() {
+			PropKind::Int if is(&[proxies.m_Int8ToInt32, proxies.m_UInt8ToInt32]) => {
+				[Storage::U8, Storage::I8][usize::from(signed)]
+			}
+
+			PropKind::Int if is(&[proxies.m_Int16ToInt32, proxies.m_UInt16ToInt32]) => {
+				[Storage::U16, Storage::I16][usize::from(signed)]
+			}
+
+			PropKind::Int if is(&[proxies.m_Int32ToInt32, proxies.m_UInt32ToInt32]) => {
+				[Storage::U32, Storage::I32][usize::from(signed)]
+			}
+
+			PropKind::Float
+				if is(&[
+					proxies.m_FloatToFloat,
+					proxies.m_Int32ToInt32,
+					proxies.m_UInt32ToInt32,
+				]) =>
+			{
+				Storage::F32
+			}
+
+			PropKind::Vector if is(&[proxies.m_VectorToVector]) => Storage::Vector,
+			_ => Storage::Unknown,
+		}
 	}
 }
 
@@ -512,34 +560,11 @@ impl Display for Storage {
 	}
 }
 
-/// The game DLL's standard send proxies (`CStandardSendProxies`).
-///
-/// A property's proxy converts its variable for networking, so a standard
-/// proxy reveals how the variable is stored. Comparisons use widths only,
-/// since a linker may fold proxies whose code is identical into one.
-#[doc(alias = "CStandardSendProxies")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StandardSendProxies<'s> {
-	raw: NonNull<sys::CStandardSendProxies>,
-	_scope: PhantomData<&'s ()>,
-	_not_thread_safe: NotThreadSafe,
-}
-
-/// The address of a variable proxy, for comparing proxies.
-fn var_proxy_address(proxy: sys::SendVarProxyFn) -> Option<usize> {
-	proxy.map(|proxy| proxy as usize)
-}
-
-/// The address of a table proxy, for comparing proxies.
-fn table_proxy_address(proxy: sys::SendTableProxyFn) -> Option<usize> {
-	proxy.map(|proxy| proxy as usize)
-}
-
-impl<'s> StandardSendProxies<'s> {
+impl<'s> SendProp<'s> {
 	/// # Safety
 	///
-	/// `raw` must be the game DLL's `g_StandardSendProxies`.
-	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::CStandardSendProxies>) -> Self {
+	/// `raw` must be a property of one of the game DLL's send tables.
+	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::SendProp>) -> Self {
 		Self {
 			raw,
 			_scope: PhantomData,
@@ -547,131 +572,109 @@ impl<'s> StandardSendProxies<'s> {
 		}
 	}
 
+	/// The property describing each element of a [`PropKind::Array`] property.
+	#[doc(alias = "GetArrayProp")]
+	pub fn array_prop(self) -> Option<SendProp<'s>> {
+		// SAFETY: The array's element property precedes it in the same table.
+		NonNull::new(prop_field!(self, m_pArrayProp))
+			.map(|prop| unsafe { SendProp::from_raw(prop) })
+	}
+
 	/// Returns the native pointer for low-level interop.
-	pub const fn as_ptr(self) -> *mut sys::CStandardSendProxies {
+	pub const fn as_ptr(self) -> *mut sys::SendProp {
 		self.raw.as_ptr()
 	}
 
-	fn proxies(self) -> sys::CStandardSendProxies {
-		// SAFETY: The proxies are a static of the game DLL, set up before any
-		// plugin loads. They are copied without forming references.
-		unsafe { self.as_ptr().read() }
+	/// The number of bits the value is encoded with.
+	pub fn bits(self) -> c_int {
+		prop_field!(self, m_nBits)
 	}
 
-	/// How a scalar property's variable is stored, judged by its proxy.
-	fn storage(self, prop: SendProp<'_>) -> Storage {
-		let proxies = self.proxies()._base;
-		let Some(proxy) = var_proxy_address(prop.var_proxy()) else {
-			return Storage::Unknown;
-		};
-
-		let is = |candidates: &[sys::SendVarProxyFn]| {
-			candidates
-				.iter()
-				.any(|&candidate| var_proxy_address(candidate) == Some(proxy))
-		};
-		let signed = !prop.flags().contains(PropFlags::UNSIGNED);
-
-		match prop.kind() {
-			PropKind::Int if is(&[proxies.m_Int8ToInt32, proxies.m_UInt8ToInt32]) => {
-				[Storage::U8, Storage::I8][usize::from(signed)]
-			}
-			PropKind::Int if is(&[proxies.m_Int16ToInt32, proxies.m_UInt16ToInt32]) => {
-				[Storage::U16, Storage::I16][usize::from(signed)]
-			}
-			PropKind::Int if is(&[proxies.m_Int32ToInt32, proxies.m_UInt32ToInt32]) => {
-				[Storage::U32, Storage::I32][usize::from(signed)]
-			}
-			PropKind::Float
-				if is(&[
-					proxies.m_FloatToFloat,
-					proxies.m_Int32ToInt32,
-					proxies.m_UInt32ToInt32,
-				]) =>
-			{
-				Storage::F32
-			}
-			PropKind::Vector if is(&[proxies.m_VectorToVector]) => Storage::Vector,
-			_ => Storage::Unknown,
-		}
+	/// The nested table of a [`PropKind::DataTable`] property.
+	#[doc(alias = "GetDataTable")]
+	pub fn data_table(self) -> Option<SendTable<'s>> {
+		// SAFETY: Send tables are statics of the game DLL.
+		NonNull::new(prop_field!(self, m_pDataTable))
+			.map(|table| unsafe { SendTable::from_raw(table) })
 	}
 
-	/// Whether a table proxy passes its data through unchanged, so offsets
-	/// into the nested table are relative to the containing structure.
-	fn is_direct(self, proxy: sys::SendTableProxyFn) -> bool {
-		let Some(proxy) = table_proxy_address(proxy) else {
-			return false;
-		};
+	/// The number of elements of a [`PropKind::Array`] property.
+	#[doc(alias = "GetNumElements")]
+	pub fn element_count(self) -> c_int {
+		prop_field!(self, m_nElements)
+	}
 
-		let proxies = self.proxies();
+	/// Bytes between consecutive elements of a [`PropKind::Array`] property.
+	#[doc(alias = "GetElementStride")]
+	pub fn element_stride(self) -> c_int {
+		prop_field!(self, m_ElementStride)
+	}
 
-		if [proxies.m_DataTableToDataTable, proxies.m_SendLocalDataTable]
-			.into_iter()
-			.any(|candidate| table_proxy_address(candidate) == Some(proxy))
-		{
-			return true;
+	/// The table an [exclude](PropFlags::EXCLUDE) property excludes a property from.
+	#[doc(alias = "GetExcludeDTName")]
+	pub fn exclude_table_name(self) -> Option<&'s CStr> {
+		if !self.flags().contains(PropFlags::EXCLUDE) {
+			return None;
 		}
 
-		// The game registers every other pointer-preserving table proxy in a
-		// list, which the engine consults for the same purpose.
-		let Some(head) = NonNull::new(proxies.m_ppNonModifiedPointerProxies) else {
-			return false;
-		};
+		let table = prop_field!(self, m_pExcludeDTName);
 
-		// SAFETY: The list and its nodes are statics of the game DLL.
-		let mut node = unsafe { head.as_ptr().read() };
+		// SAFETY: As for `name`.
+		unsafe { borrow_cstr(table) }
+	}
 
-		for _ in 0..MAX_NON_MODIFIED_PROXIES {
-			let Some(current) = NonNull::new(node) else {
-				return false;
-			};
+	#[doc(alias = "GetFlags")]
+	pub fn flags(self) -> PropFlags {
+		PropFlags(prop_field!(self, m_Flags))
+	}
 
-			// SAFETY: As above.
-			let current = unsafe { current.as_ptr().read() };
+	/// The highest value a float is encoded to.
+	pub fn high_value(self) -> f32 {
+		prop_field!(self, m_fHighValue)
+	}
 
-			if table_proxy_address(current.m_Fn) == Some(proxy) {
-				return true;
-			}
+	#[doc(alias = "GetType")]
+	pub fn kind(self) -> PropKind {
+		PropKind::from_raw(prop_field!(self, m_Type))
+	}
 
-			node = current.m_pNext;
-		}
+	/// The lowest value a float is encoded to.
+	pub fn low_value(self) -> f32 {
+		prop_field!(self, m_fLowValue)
+	}
 
-		false
+	/// The variable's name, such as `m_iHealth`.
+	#[doc(alias = "GetName")]
+	pub fn name(self) -> &'s CStr {
+		let name = prop_field!(self, m_pVarName);
+
+		// SAFETY: Names are string literals of the game DLL.
+		unsafe { borrow_cstr(name) }.unwrap_or_default()
+	}
+
+	/// Bytes from the start of the structure the property's table describes.
+	#[doc(alias = "GetOffset")]
+	pub fn offset(self) -> c_int {
+		prop_field!(self, m_Offset)
+	}
+
+	fn table_proxy(self) -> sys::SendTableProxyFn {
+		prop_field!(self, m_DataTableProxyFn)
+	}
+
+	fn var_proxy(self) -> sys::SendVarProxyFn {
+		prop_field!(self, m_ProxyFn)
 	}
 }
 
-/// A value as clients receive it, from [`NetProp::value`].
-#[derive(Debug, Clone, PartialEq)]
-pub enum NetValue {
-	Int(c_int),
-	Float(f32),
-	Vector(Vector),
-	VectorXY(Vec2),
-	String(CString),
+/// The address of a table proxy, for comparing proxies.
+fn table_proxy_address(proxy: sys::SendTableProxyFn) -> Option<usize> {
+	proxy.map(|proxy| proxy as usize)
 }
 
-/// A type a networked variable can be read or written as.
-///
-/// Implemented for the primitive types of [`Storage`], `bool` for single-byte
-/// flags, and [`Vector`] and [`QAngle`] for vectors. Integers are accessed
-/// at the variable's width with the signedness of the type used.
-pub trait NetVar: sealed::Sealed + Copy {
-	#[doc(hidden)]
-	const STORAGE: Storage;
-
-	/// # Safety
-	///
-	/// `source` must point to a readable variable whose storage is
-	/// [compatible](Storage::is_compatible) with [`Self::STORAGE`].
-	#[doc(hidden)]
-	unsafe fn read(source: *const u8) -> Self;
-
-	/// # Safety
-	///
-	/// `destination` must point to a writable variable whose storage is
-	/// [compatible](Storage::is_compatible) with [`Self::STORAGE`].
-	#[doc(hidden)]
-	unsafe fn write(self, destination: *mut u8);
+/// The address of a variable proxy, for comparing proxies.
+fn var_proxy_address(proxy: sys::SendVarProxyFn) -> Option<usize> {
+	proxy.map(|proxy| proxy as usize)
 }
 
 mod sealed {
@@ -706,129 +709,6 @@ primitive_net_vars! {
 	i32 => I32,
 	u32 => U32,
 	f32 => F32,
-}
-
-impl sealed::Sealed for bool {}
-
-impl NetVar for bool {
-	const STORAGE: Storage = Storage::U8;
-
-	unsafe fn read(source: *const u8) -> Self {
-		// SAFETY: The caller upholds the contract. The byte is read as an
-		// integer, since the game may store any value in it.
-		unsafe { source.read() != 0 }
-	}
-
-	unsafe fn write(self, destination: *mut u8) {
-		// SAFETY: The caller upholds the contract.
-		unsafe { destination.write(u8::from(self)) }
-	}
-}
-
-impl sealed::Sealed for Vector {}
-
-impl NetVar for Vector {
-	const STORAGE: Storage = Storage::Vector;
-
-	unsafe fn read(source: *const u8) -> Self {
-		// SAFETY: The caller upholds the contract.
-		unsafe { source.cast::<sys::Vector>().read_unaligned() }.into()
-	}
-
-	unsafe fn write(self, destination: *mut u8) {
-		// SAFETY: The caller upholds the contract.
-		unsafe {
-			destination
-				.cast::<sys::Vector>()
-				.write_unaligned(self.into())
-		}
-	}
-}
-
-impl sealed::Sealed for QAngle {}
-
-impl NetVar for QAngle {
-	const STORAGE: Storage = Storage::Vector;
-
-	unsafe fn read(source: *const u8) -> Self {
-		// SAFETY: The caller upholds the contract.
-		unsafe { source.cast::<sys::QAngle>().read_unaligned() }.into()
-	}
-
-	unsafe fn write(self, destination: *mut u8) {
-		// SAFETY: The caller upholds the contract.
-		unsafe {
-			destination
-				.cast::<sys::QAngle>()
-				.write_unaligned(self.into())
-		}
-	}
-}
-
-/// Why a networked variable could not be found or accessed.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum NetPropError {
-	#[error("server class `{class}` has no send table")]
-	NoTable { class: String },
-
-	#[error("the game DLL provides no standard send proxies to recognize storage by")]
-	NoStandardProxies,
-
-	#[error("`{table}` has no networked variable named `{name}`")]
-	NotFound { table: String, name: String },
-
-	#[error(
-		"`{name}` is inside `{table}`, whose send proxy relocates its data, so its address is unknown"
-	)]
-	Relocated { name: String, table: String },
-
-	#[error("`{name}` has an invalid offset of {offset} bytes")]
-	InvalidOffset { name: String, offset: c_int },
-
-	#[error("`{name}` is {kind}, which has no single value")]
-	NotAValue { name: String, kind: PropKind },
-
-	#[error("`{name}` is {kind}, which has no elements")]
-	NotAnArray { name: String, kind: PropKind },
-
-	#[error("`{name}` has {len} elements, so it has no element {index}")]
-	ElementOutOfRange {
-		name: String,
-		index: usize,
-		len: usize,
-	},
-
-	#[error("`{name}` is stored as {storage}, not {requested}")]
-	TypeMismatch {
-		name: String,
-		storage: Storage,
-		requested: &'static str,
-	},
-
-	#[error(
-		"`{name}` has a custom send proxy, so how it is stored is unknown; read it with `NetProp::value` instead"
-	)]
-	UnknownStorage { name: String },
-
-	#[error("`{name}` has no send proxy")]
-	NoProxy { name: String },
-
-	#[error("`{class_name}` is not networked")]
-	NotNetworked { class_name: String },
-
-	#[error(
-		"`{name}` belongs to `{expected}`, which `{class_name}`'s table `{found}` does not derive from"
-	)]
-	ClassMismatch {
-		name: String,
-		expected: String,
-		class_name: String,
-		found: String,
-	},
-}
-
-fn lossy(string: &CStr) -> String {
-	string.to_string_lossy().into_owned()
 }
 
 /// A networked variable resolved by name to where it lives in the entities of
@@ -949,33 +829,54 @@ impl<'s> NetProp<'s> {
 		})
 	}
 
-	/// The property describing the variable.
-	pub const fn prop(self) -> SendProp<'s> {
-		self.prop
+	/// Checks that the variable's offset holds for `entity`, returning its edict.
+	fn check_entity<'e>(self, entity: Entity<'e>) -> Result<Edict<'e>, NetPropError> {
+		let not_networked = || NetPropError::NotNetworked {
+			class_name: lossy(entity.class_name()),
+		};
+
+		let edict = entity.edict().ok_or_else(not_networked)?;
+		let table = entity
+			.server_class()
+			.and_then(ServerClass::table)
+			.ok_or_else(not_networked)?;
+
+		if !table.derives_from(self.class_table) {
+			return Err(NetPropError::ClassMismatch {
+				name: lossy(self.prop.name()),
+				expected: lossy(self.class_table.name()),
+				class_name: lossy(entity.class_name()),
+				found: lossy(table.name()),
+			});
+		}
+
+		Ok(edict)
+	}
+
+	fn check_storage<T: NetVar>(self) -> Result<(), NetPropError> {
+		let name = || lossy(self.prop.name());
+
+		match self.prop.kind() {
+			kind @ (PropKind::Array | PropKind::DataTable) => {
+				Err(NetPropError::NotAValue { name: name(), kind })
+			}
+
+			_ => match self.storage() {
+				Storage::Unknown => Err(NetPropError::UnknownStorage { name: name() }),
+				storage if storage.is_compatible(T::STORAGE) => Ok(()),
+
+				storage => Err(NetPropError::TypeMismatch {
+					name: name(),
+					storage,
+					requested: type_name::<T>(),
+				}),
+			},
+		}
 	}
 
 	/// The table of the class the variable was resolved in.
 	pub const fn class_table(self) -> SendTable<'s> {
 		self.class_table
-	}
-
-	/// Bytes from the start of the entity to the variable.
-	pub const fn offset(self) -> usize {
-		self.offset
-	}
-
-	/// How the variable is stored.
-	pub fn storage(self) -> Storage {
-		self.proxies.storage(self.prop)
-	}
-
-	/// The number of elements of an array, or of variables in a nested table.
-	pub fn element_count(self) -> Option<usize> {
-		match self.prop.kind() {
-			PropKind::Array => usize::try_from(self.prop.element_count()).ok(),
-			PropKind::DataTable => self.prop.data_table().map(SendTable::len),
-			_ => None,
-		}
 	}
 
 	/// An element of an array, or a variable of a nested table, which
@@ -1050,6 +951,15 @@ impl<'s> NetProp<'s> {
 		}
 	}
 
+	/// The number of elements of an array, or of variables in a nested table.
+	pub fn element_count(self) -> Option<usize> {
+		match self.prop.kind() {
+			PropKind::Array => usize::try_from(self.prop.element_count()).ok(),
+			PropKind::DataTable => self.prop.data_table().map(SendTable::len),
+			_ => None,
+		}
+	}
+
 	/// Reads the variable from an entity, as stored.
 	pub fn get<T: NetVar>(self, entity: Entity<'_>) -> Result<T, NetPropError> {
 		self.check_entity(entity)?;
@@ -1059,6 +969,50 @@ impl<'s> NetProp<'s> {
 		// resolved in, and the variable's storage is compatible with `T`. Entities are zeroed
 		// when allocated, so every byte is initialized.
 		Ok(unsafe { T::read(entity.as_ptr().cast::<u8>().add(self.offset)) })
+	}
+
+	/// Bytes from the start of the entity to the variable.
+	pub const fn offset(self) -> usize {
+		self.offset
+	}
+
+	/// The property describing the variable.
+	pub const fn prop(self) -> SendProp<'s> {
+		self.prop
+	}
+
+	/// Writes the variable of an entity, and records the change so the engine
+	/// sends it to clients.
+	///
+	/// # Safety
+	///
+	/// The game must accept `value` for this variable. Game code trusts its
+	/// networked variables, such as a player's class or team, to hold values
+	/// it could have assigned itself, and may index arrays with them.
+	pub unsafe fn set<T: NetVar>(
+		self,
+		engine: ValveEngine<'_>,
+		entity: Entity<'_>,
+		value: T,
+	) -> Result<(), NetPropError> {
+		let edict = self.check_entity(entity)?;
+		self.check_storage::<T>()?;
+
+		// SAFETY: As for `get`. The game writes its variables the same way,
+		// through its own pointers, on the main thread.
+		unsafe { value.write(entity.as_ptr().cast::<u8>().add(self.offset)) };
+
+		match u16::try_from(self.offset) {
+			Ok(offset) => edict.state_changed(engine, offset),
+			Err(_) => edict.full_state_changed(engine),
+		}
+
+		Ok(())
+	}
+
+	/// How the variable is stored.
+	pub fn storage(self) -> Storage {
+		self.proxies.storage(self.prop)
 	}
 
 	/// Reads the variable from an entity as clients receive it, by calling
@@ -1112,100 +1066,176 @@ impl<'s> NetProp<'s> {
 			match kind {
 				PropKind::Int => NetValue::Int(value.m_Int),
 				PropKind::Float => NetValue::Float(value.m_Float),
+
 				PropKind::Vector => NetValue::Vector(Vector::new(
 					value.m_Vector[0],
 					value.m_Vector[1],
 					value.m_Vector[2],
 				)),
+
 				PropKind::VectorXY => {
 					NetValue::VectorXY(Vec2::new(value.m_Vector[0], value.m_Vector[1]))
 				}
+
 				PropKind::String => {
 					NetValue::String(copy_cstr(value.m_pString).unwrap_or_default())
 				}
+
 				PropKind::Array | PropKind::DataTable | PropKind::Unknown(_) => unreachable!(),
 			}
 		})
 	}
+}
 
-	/// Writes the variable of an entity, and records the change so the engine
-	/// sends it to clients.
-	///
-	/// # Safety
-	///
-	/// The game must accept `value` for this variable. Game code trusts its
-	/// networked variables, such as a player's class or team, to hold values
-	/// it could have assigned itself, and may index arrays with them.
-	pub unsafe fn set<T: NetVar>(
-		self,
-		engine: ValveEngine<'_>,
-		entity: Entity<'_>,
-		value: T,
-	) -> Result<(), NetPropError> {
-		let edict = self.check_entity(entity)?;
-		self.check_storage::<T>()?;
+/// Why a networked variable could not be found or accessed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum NetPropError {
+	#[error("server class `{class}` has no send table")]
+	NoTable { class: String },
 
-		// SAFETY: As for `get`. The game writes its variables the same way,
-		// through its own pointers, on the main thread.
-		unsafe { value.write(entity.as_ptr().cast::<u8>().add(self.offset)) };
+	#[error("the game DLL provides no standard send proxies to recognize storage by")]
+	NoStandardProxies,
 
-		match u16::try_from(self.offset) {
-			Ok(offset) => edict.state_changed(engine, offset),
-			Err(_) => edict.full_state_changed(engine),
-		}
+	#[error("`{table}` has no networked variable named `{name}`")]
+	NotFound { table: String, name: String },
 
-		Ok(())
+	#[error(
+		"`{name}` is inside `{table}`, whose send proxy relocates its data, so its address is unknown"
+	)]
+	Relocated { name: String, table: String },
+
+	#[error("`{name}` has an invalid offset of {offset} bytes")]
+	InvalidOffset { name: String, offset: c_int },
+
+	#[error("`{name}` is {kind}, which has no single value")]
+	NotAValue { name: String, kind: PropKind },
+
+	#[error("`{name}` is {kind}, which has no elements")]
+	NotAnArray { name: String, kind: PropKind },
+
+	#[error("`{name}` has {len} elements, so it has no element {index}")]
+	ElementOutOfRange {
+		name: String,
+		index: usize,
+		len: usize,
+	},
+
+	#[error("`{name}` is stored as {storage}, not {requested}")]
+	TypeMismatch {
+		name: String,
+		storage: Storage,
+		requested: &'static str,
+	},
+
+	#[error(
+		"`{name}` has a custom send proxy, so how it is stored is unknown; read it with `NetProp::value` instead"
+	)]
+	UnknownStorage { name: String },
+
+	#[error("`{name}` has no send proxy")]
+	NoProxy { name: String },
+
+	#[error("`{class_name}` is not networked")]
+	NotNetworked { class_name: String },
+
+	#[error(
+		"`{name}` belongs to `{expected}`, which `{class_name}`'s table `{found}` does not derive from"
+	)]
+	ClassMismatch {
+		name: String,
+		expected: String,
+		class_name: String,
+		found: String,
+	},
+}
+
+impl NetVar for QAngle {
+	const STORAGE: Storage = Storage::Vector;
+
+	unsafe fn read(source: *const u8) -> Self {
+		// SAFETY: The caller upholds the contract.
+		unsafe { source.cast::<sys::QAngle>().read_unaligned() }.into()
 	}
 
-	/// Checks that the variable's offset holds for `entity`, returning its edict.
-	fn check_entity<'e>(self, entity: Entity<'e>) -> Result<Edict<'e>, NetPropError> {
-		let not_networked = || NetPropError::NotNetworked {
-			class_name: lossy(entity.class_name()),
-		};
-
-		let edict = entity.edict().ok_or_else(not_networked)?;
-		let table = entity
-			.server_class()
-			.and_then(ServerClass::table)
-			.ok_or_else(not_networked)?;
-
-		if !table.derives_from(self.class_table) {
-			return Err(NetPropError::ClassMismatch {
-				name: lossy(self.prop.name()),
-				expected: lossy(self.class_table.name()),
-				class_name: lossy(entity.class_name()),
-				found: lossy(table.name()),
-			});
-		}
-
-		Ok(edict)
-	}
-
-	fn check_storage<T: NetVar>(self) -> Result<(), NetPropError> {
-		let name = || lossy(self.prop.name());
-
-		match self.prop.kind() {
-			kind @ (PropKind::Array | PropKind::DataTable) => {
-				Err(NetPropError::NotAValue { name: name(), kind })
-			}
-
-			_ => match self.storage() {
-				Storage::Unknown => Err(NetPropError::UnknownStorage { name: name() }),
-				storage if storage.is_compatible(T::STORAGE) => Ok(()),
-				storage => Err(NetPropError::TypeMismatch {
-					name: name(),
-					storage,
-					requested: type_name::<T>(),
-				}),
-			},
+	unsafe fn write(self, destination: *mut u8) {
+		// SAFETY: The caller upholds the contract.
+		unsafe {
+			destination
+				.cast::<sys::QAngle>()
+				.write_unaligned(self.into())
 		}
 	}
+}
+
+impl sealed::Sealed for QAngle {}
+
+impl NetVar for Vector {
+	const STORAGE: Storage = Storage::Vector;
+
+	unsafe fn read(source: *const u8) -> Self {
+		// SAFETY: The caller upholds the contract.
+		unsafe { source.cast::<sys::Vector>().read_unaligned() }.into()
+	}
+
+	unsafe fn write(self, destination: *mut u8) {
+		// SAFETY: The caller upholds the contract.
+		unsafe {
+			destination
+				.cast::<sys::Vector>()
+				.write_unaligned(self.into())
+		}
+	}
+}
+
+impl sealed::Sealed for Vector {}
+
+impl NetVar for bool {
+	const STORAGE: Storage = Storage::U8;
+
+	unsafe fn read(source: *const u8) -> Self {
+		// SAFETY: The caller upholds the contract. The byte is read as an
+		// integer, since the game may store any value in it.
+		unsafe { source.read() != 0 }
+	}
+
+	unsafe fn write(self, destination: *mut u8) {
+		// SAFETY: The caller upholds the contract.
+		unsafe { destination.write(u8::from(self)) }
+	}
+}
+
+impl sealed::Sealed for bool {}
+
+fn lossy(string: &CStr) -> String {
+	string.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
 	use std::ffi::c_char;
+
+	/// A custom proxy, like `SendProxy_EHandleToInt`, that adds one to show it ran.
+	pub(crate) unsafe extern "C" fn custom_proxy(
+		_: *const sys::SendProp,
+		_: *const c_void,
+		data: *const c_void,
+		out: *mut sys::DVariant,
+		_: c_int,
+		_: c_int,
+	) {
+		unsafe { (*out).__bindgen_anon_1.m_Int = data.cast::<c_int>().read() + 1 };
+	}
+
+	pub(crate) unsafe extern "C" fn direct_table(
+		_: *const sys::SendProp,
+		_: *const c_void,
+		data: *const c_void,
+		_: *mut sys::CSendProxyRecipients,
+		_: c_int,
+	) -> *mut c_void {
+		data.cast_mut()
+	}
 
 	pub(crate) unsafe extern "C" fn int8_proxy(
 		_: *const sys::SendProp,
@@ -1240,49 +1270,6 @@ pub(crate) mod test_support {
 		unsafe { (*out).__bindgen_anon_1.m_Int = data.cast::<c_int>().read() };
 	}
 
-	pub(crate) unsafe extern "C" fn vector_proxy(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe { (*out).__bindgen_anon_1.m_Vector = data.cast::<[f32; 3]>().read() };
-	}
-
-	/// A custom proxy, like `SendProxy_EHandleToInt`, that adds one to show it ran.
-	pub(crate) unsafe extern "C" fn custom_proxy(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe { (*out).__bindgen_anon_1.m_Int = data.cast::<c_int>().read() + 1 };
-	}
-
-	pub(crate) unsafe extern "C" fn direct_table(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		_: *mut sys::CSendProxyRecipients,
-		_: c_int,
-	) -> *mut c_void {
-		data.cast_mut()
-	}
-
-	pub(crate) unsafe extern "C" fn registered_table(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		_: *mut sys::CSendProxyRecipients,
-		_: c_int,
-	) -> *mut c_void {
-		data.cast_mut()
-	}
-
 	pub(crate) unsafe extern "C" fn pointer_table(
 		_: *const sys::SendProp,
 		_: *const c_void,
@@ -1291,6 +1278,25 @@ pub(crate) mod test_support {
 		_: c_int,
 	) -> *mut c_void {
 		unsafe { data.cast::<*mut c_void>().read() }
+	}
+
+	pub(crate) fn prop(
+		name: &'static CStr,
+		kind: sys::SendPropType,
+		offset: c_int,
+		flags: PropFlags,
+		proxy: sys::SendVarProxyFn,
+	) -> sys::SendProp {
+		// SAFETY: Properties are plain data apart from the vtable, which is never used.
+		let mut prop: sys::SendProp = unsafe { zeroed() };
+
+		prop.m_pVarName = name.as_ptr();
+		prop.m_Type = kind;
+		prop.m_Offset = offset;
+		prop.m_Flags = flags.bits();
+		prop.m_ProxyFn = proxy;
+		prop.m_nElements = 1;
+		prop
 	}
 
 	pub(crate) fn proxies(
@@ -1314,23 +1320,24 @@ pub(crate) mod test_support {
 		}
 	}
 
-	pub(crate) fn prop(
-		name: &'static CStr,
-		kind: sys::SendPropType,
-		offset: c_int,
-		flags: PropFlags,
-		proxy: sys::SendVarProxyFn,
-	) -> sys::SendProp {
-		// SAFETY: Properties are plain data apart from the vtable, which is never used.
-		let mut prop: sys::SendProp = unsafe { zeroed() };
+	pub(crate) unsafe extern "C" fn registered_table(
+		_: *const sys::SendProp,
+		_: *const c_void,
+		data: *const c_void,
+		_: *mut sys::CSendProxyRecipients,
+		_: c_int,
+	) -> *mut c_void {
+		data.cast_mut()
+	}
 
-		prop.m_pVarName = name.as_ptr();
-		prop.m_Type = kind;
-		prop.m_Offset = offset;
-		prop.m_Flags = flags.bits();
-		prop.m_ProxyFn = proxy;
-		prop.m_nElements = 1;
-		prop
+	pub(crate) fn table(name: &'static CStr, props: &mut [sys::SendProp]) -> sys::SendTable {
+		// SAFETY: Tables are plain data.
+		let mut table: sys::SendTable = unsafe { zeroed() };
+
+		table.m_pNetTableName = name.as_ptr().cast::<c_char>();
+		table.m_pProps = props.as_mut_ptr();
+		table.m_nProps = props.len() as c_int;
+		table
 	}
 
 	pub(crate) fn table_prop(
@@ -1352,14 +1359,15 @@ pub(crate) mod test_support {
 		prop
 	}
 
-	pub(crate) fn table(name: &'static CStr, props: &mut [sys::SendProp]) -> sys::SendTable {
-		// SAFETY: Tables are plain data.
-		let mut table: sys::SendTable = unsafe { zeroed() };
-
-		table.m_pNetTableName = name.as_ptr().cast::<c_char>();
-		table.m_pProps = props.as_mut_ptr();
-		table.m_nProps = props.len() as c_int;
-		table
+	pub(crate) unsafe extern "C" fn vector_proxy(
+		_: *const sys::SendProp,
+		_: *const c_void,
+		data: *const c_void,
+		out: *mut sys::DVariant,
+		_: c_int,
+		_: c_int,
+	) {
+		unsafe { (*out).__bindgen_anon_1.m_Vector = data.cast::<[f32; 3]>().read() };
 	}
 }
 
@@ -1370,16 +1378,6 @@ mod tests {
 	use crate::entities::test_support::{MockEntity, set_networking};
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use std::ptr::null_mut;
-
-	fn int(name: &'static CStr, offset: c_int, proxy: sys::SendVarProxyFn) -> sys::SendProp {
-		prop(
-			name,
-			sys::SendPropType_DPT_Int,
-			offset,
-			PropFlags::default(),
-			proxy,
-		)
-	}
 
 	/// `DT_Base` holds `m_iHealth` and a local table; `DT_Derived` embeds it
 	/// as its base class, then an array, a relocated table, and variables with
@@ -1505,13 +1503,30 @@ mod tests {
 			tables
 		}
 
-		fn proxies(&self) -> StandardSendProxies<'_> {
-			unsafe { StandardSendProxies::from_raw(NonNull::from(&*self.proxies)) }
-		}
-
 		fn table(table: &sys::SendTable) -> SendTable<'_> {
 			unsafe { SendTable::from_raw(NonNull::from(table)) }
 		}
+
+		fn proxies(&self) -> StandardSendProxies<'_> {
+			unsafe { StandardSendProxies::from_raw(NonNull::from(&*self.proxies)) }
+		}
+	}
+
+	unsafe extern "C" fn change_accessor(
+		_: *mut sys::IVEngineServer,
+		_: *const sys::edict_t,
+	) -> *mut sys::IChangeInfoAccessor {
+		null_mut()
+	}
+
+	fn int(name: &'static CStr, offset: c_int, proxy: sys::SendVarProxyFn) -> sys::SendProp {
+		prop(
+			name,
+			sys::SendPropType_DPT_Int,
+			offset,
+			PropFlags::default(),
+			proxy,
+		)
 	}
 
 	#[test]
@@ -1568,13 +1583,6 @@ mod tests {
 			resolve(c"m_iMissing").unwrap_err().to_string(),
 			"`DT_Derived` has no networked variable named `m_iMissing`"
 		);
-	}
-
-	unsafe extern "C" fn change_accessor(
-		_: *mut sys::IVEngineServer,
-		_: *const sys::edict_t,
-	) -> *mut sys::IChangeInfoAccessor {
-		null_mut()
 	}
 
 	unsafe extern "C" fn shared_change_info(

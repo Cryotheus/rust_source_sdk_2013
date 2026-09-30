@@ -3,11 +3,6 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBasePlayer"][::std::mem::size_of::<CBasePlayer>() - 5224usize];
-    ["Alignment of CBasePlayer"][::std::mem::align_of::<CBasePlayer>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of CBasePlayer_NetworkVar_m_ArmorValue",
     ][::std::mem::size_of::<CBasePlayer_NetworkVar_m_ArmorValue>() - 1usize];
@@ -273,4 +268,9 @@ const _: () = {
         "Offset of field: CBasePlayer_StepSoundCache_t::m_usSoundNameIndex",
     ][::std::mem::offset_of!(CBasePlayer_StepSoundCache_t, m_usSoundNameIndex)
         - 164usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CBasePlayer"][::std::mem::size_of::<CBasePlayer>() - 5224usize];
+    ["Alignment of CBasePlayer"][::std::mem::align_of::<CBasePlayer>() - 8usize];
 };

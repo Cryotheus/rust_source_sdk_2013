@@ -13,10 +13,10 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
+pub type CBaseCombatCharacter__bindgen_ty_1 = ::std::os::raw::c_uint;
 pub type CBaseCombatCharacter_BaseClass = CBaseFlex;
 pub type CBaseCombatCharacter_FieldOfViewCheckType = ::std::os::raw::c_uint;
 pub type CBaseCombatCharacter_LineOfSightCheckType = ::std::os::raw::c_uint;
-pub type CBaseCombatCharacter__bindgen_ty_1 = ::std::os::raw::c_uint;
 pub type CBaseCombatWeaponHandle = CHandle;
 pub type Disposition_t = ::std::os::raw::c_uint;
 pub const CBaseCombatCharacter_FieldOfViewCheckType_DISREGARD_FOV: CBaseCombatCharacter_FieldOfViewCheckType = 1;
@@ -55,31 +55,6 @@ pub struct CBaseCombatCharacter {
     pub m_lastNavArea: *mut CNavArea,
     pub m_NavAreaUpdateMonitor: CAI_MoveMonitor,
     pub m_registeredNavTeam: ::std::os::raw::c_int,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatCharacter_DamageHistory {
-    pub team: ::std::os::raw::c_int,
-    pub interval: IntervalTimer,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatCharacter_NetworkVar_m_flNextAttack {
-    pub _address: u8,
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatCharacter_NetworkVar_m_hActiveWeapon {
-    pub _address: u8,
-}
-#[repr(C)]
-pub struct CBaseCombatCharacter_NetworkVar_m_hMyWeapons {
-    pub m_Value: [CBaseCombatWeaponHandle; 48usize],
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CBaseCombatCharacter_NetworkVar_m_iAmmo {
-    pub m_Value: [::std::os::raw::c_int; 32usize],
 }
 #[repr(C)]
 pub struct CBaseCombatCharacter__bindgen_vtable {
@@ -1389,6 +1364,31 @@ pub struct CBaseCombatCharacter__bindgen_vtable {
         arg1: *mut CBaseCombatCharacter,
         arg2: *mut ::std::os::raw::c_void,
     ),
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatCharacter_DamageHistory {
+    pub team: ::std::os::raw::c_int,
+    pub interval: IntervalTimer,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatCharacter_NetworkVar_m_flNextAttack {
+    pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatCharacter_NetworkVar_m_hActiveWeapon {
+    pub _address: u8,
+}
+#[repr(C)]
+pub struct CBaseCombatCharacter_NetworkVar_m_hMyWeapons {
+    pub m_Value: [CBaseCombatWeaponHandle; 48usize],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatCharacter_NetworkVar_m_iAmmo {
+    pub m_Value: [::std::os::raw::c_int; 32usize],
 }
 #[repr(C)]
 #[derive(Debug)]

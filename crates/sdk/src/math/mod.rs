@@ -3,6 +3,33 @@ use std::ops::{Deref, DerefMut};
 
 pub use glam;
 
+/// A color with 8-bit red, green, blue, and alpha components (`color32`).
+#[doc(alias = "color32")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Color32 {
+	pub r: u8,
+	pub g: u8,
+	pub b: u8,
+	pub a: u8,
+}
+
+impl Color32 {
+	pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+		Self { r, g, b, a }
+	}
+
+	/// An opaque color.
+	pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+		Self::new(r, g, b, u8::MAX)
+	}
+}
+
+impl From<sys::color32> for Color32 {
+	fn from(value: sys::color32) -> Self {
+		Self::new(value.r, value.g, value.b, value.a)
+	}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct QAngle {
 	#[doc(alias = "x")]
@@ -55,16 +82,6 @@ impl From<sys::QAngle> for QAngle {
 	}
 }
 
-impl From<QAngle> for sys::QAngle {
-	fn from(value: QAngle) -> Self {
-		Self {
-			x: value.pitch,
-			y: value.yaw,
-			z: value.roll,
-		}
-	}
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vector(pub Vec3);
 
@@ -98,6 +115,16 @@ impl From<sys::Vector> for Vector {
 	}
 }
 
+impl From<QAngle> for sys::QAngle {
+	fn from(value: QAngle) -> Self {
+		Self {
+			x: value.pitch,
+			y: value.yaw,
+			z: value.roll,
+		}
+	}
+}
+
 impl From<Vector> for sys::Vector {
 	fn from(value: Vector) -> Self {
 		Self {
@@ -105,33 +132,6 @@ impl From<Vector> for sys::Vector {
 			y: value.0.y,
 			z: value.0.z,
 		}
-	}
-}
-
-/// A color with 8-bit red, green, blue, and alpha components (`color32`).
-#[doc(alias = "color32")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Color32 {
-	pub r: u8,
-	pub g: u8,
-	pub b: u8,
-	pub a: u8,
-}
-
-impl Color32 {
-	pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-		Self { r, g, b, a }
-	}
-
-	/// An opaque color.
-	pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
-		Self::new(r, g, b, u8::MAX)
-	}
-}
-
-impl From<sys::color32> for Color32 {
-	fn from(value: sys::color32) -> Self {
-		Self::new(value.r, value.g, value.b, value.a)
 	}
 }
 

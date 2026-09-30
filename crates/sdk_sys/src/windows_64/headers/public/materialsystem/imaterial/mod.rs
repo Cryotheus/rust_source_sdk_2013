@@ -26,17 +26,17 @@ pub const MaterialVarFlags_t_MATERIAL_VAR_ENVMAPMODE: MaterialVarFlags_t = 33554
 pub const MaterialVarFlags_t_MATERIAL_VAR_ENVMAPSPHERE: MaterialVarFlags_t = 131072;
 pub const MaterialVarFlags_t_MATERIAL_VAR_FLAT: MaterialVarFlags_t = 4096;
 pub const MaterialVarFlags_t_MATERIAL_VAR_HALFLAMBERT: MaterialVarFlags_t = 134217728;
-pub const MaterialVarFlags_t_MATERIAL_VAR_IGNOREZ: MaterialVarFlags_t = 32768;
 pub const MaterialVarFlags_t_MATERIAL_VAR_IGNORE_ALPHA_MODULATION: MaterialVarFlags_t = 1073741824;
+pub const MaterialVarFlags_t_MATERIAL_VAR_IGNOREZ: MaterialVarFlags_t = 32768;
 pub const MaterialVarFlags_t_MATERIAL_VAR_MODEL: MaterialVarFlags_t = 2048;
 pub const MaterialVarFlags_t_MATERIAL_VAR_MULTIPASS: MaterialVarFlags_t = 512;
 pub const MaterialVarFlags_t_MATERIAL_VAR_NEEDS_SOFTWARE_SKINNING: MaterialVarFlags_t = 8388608;
+pub const MaterialVarFlags_t_MATERIAL_VAR_NO_DEBUG_OVERRIDE: MaterialVarFlags_t = 2;
+pub const MaterialVarFlags_t_MATERIAL_VAR_NO_DRAW: MaterialVarFlags_t = 4;
 pub const MaterialVarFlags_t_MATERIAL_VAR_NOALPHAMOD: MaterialVarFlags_t = 262144;
 pub const MaterialVarFlags_t_MATERIAL_VAR_NOCULL: MaterialVarFlags_t = 8192;
 pub const MaterialVarFlags_t_MATERIAL_VAR_NOFOG: MaterialVarFlags_t = 16384;
 pub const MaterialVarFlags_t_MATERIAL_VAR_NORMALMAPALPHAENVMAPMASK: MaterialVarFlags_t = 4194304;
-pub const MaterialVarFlags_t_MATERIAL_VAR_NO_DEBUG_OVERRIDE: MaterialVarFlags_t = 2;
-pub const MaterialVarFlags_t_MATERIAL_VAR_NO_DRAW: MaterialVarFlags_t = 4;
 pub const MaterialVarFlags_t_MATERIAL_VAR_OPAQUETEXTURE: MaterialVarFlags_t = 16777216;
 pub const MaterialVarFlags_t_MATERIAL_VAR_SELFILLUM: MaterialVarFlags_t = 64;
 pub const MaterialVarFlags_t_MATERIAL_VAR_SUPPRESS_DECALS: MaterialVarFlags_t = 67108864;
@@ -53,11 +53,6 @@ pub const PreviewImageRetVal_t_MATERIAL_PREVIEW_IMAGE_OK: PreviewImageRetVal_t =
 #[derive(Debug, Copy, Clone)]
 pub struct IMaterial {
     pub vtable_: *const IMaterial__bindgen_vtable,
-}
-#[repr(C)]
-#[derive(Debug)]
-pub struct IMaterialVar {
-    _unused: [u8; 0],
 }
 #[repr(C)]
 pub struct IMaterial__bindgen_vtable {
@@ -232,5 +227,10 @@ pub struct IMaterial__bindgen_vtable {
         arg1: *mut IMaterial,
     ) -> bool,
     pub IMaterial_IsPrecached: unsafe extern "C" fn(arg1: *const IMaterial) -> bool,
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct IMaterialVar {
+    _unused: [u8; 0],
 }
 include!("layout_assertions.rs");

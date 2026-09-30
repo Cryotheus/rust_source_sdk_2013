@@ -12,16 +12,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of ICvar"][::std::mem::size_of::<ICvar>() - 8usize];
-    ["Alignment of ICvar"][::std::mem::align_of::<ICvar>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of ICvarQuery"][::std::mem::size_of::<ICvarQuery>() - 8usize];
-    ["Alignment of ICvarQuery"][::std::mem::align_of::<ICvarQuery>() - 8usize];
-};
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
     [
         "Size of ICvar_ICVarIteratorInternal",
     ][::std::mem::size_of::<ICvar_ICVarIteratorInternal>() - 8usize];
@@ -36,4 +26,14 @@ const _: () = {
     [
         "Offset of field: ICvar_Iterator::m_pIter",
     ][::std::mem::offset_of!(ICvar_Iterator, m_pIter) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ICvar"][::std::mem::size_of::<ICvar>() - 8usize];
+    ["Alignment of ICvar"][::std::mem::align_of::<ICvar>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ICvarQuery"][::std::mem::size_of::<ICvarQuery>() - 8usize];
+    ["Alignment of ICvarQuery"][::std::mem::align_of::<ICvarQuery>() - 8usize];
 };

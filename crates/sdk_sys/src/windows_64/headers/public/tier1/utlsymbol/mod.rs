@@ -32,12 +32,6 @@ pub struct CUtlSymbolTable {
     >,
 }
 #[repr(C)]
-#[derive(Debug)]
-pub struct CUtlSymbolTableMT {
-    pub _base: CUtlSymbolTable,
-    pub m_lock: CThreadSpinRWLock,
-}
-#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CUtlSymbolTable_CLess {
     pub _address: u8,
@@ -66,5 +60,11 @@ pub struct CUtlSymbolTable_StringPool_t {
     pub m_TotalLen: ::std::os::raw::c_int,
     pub m_SpaceUsed: ::std::os::raw::c_int,
     pub m_Data: [::std::os::raw::c_char; 1usize],
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct CUtlSymbolTableMT {
+    pub _base: CUtlSymbolTable,
+    pub m_lock: CThreadSpinRWLock,
 }
 include!("layout_assertions.rs");

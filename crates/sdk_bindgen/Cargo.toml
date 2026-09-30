@@ -16,10 +16,10 @@ keywords = []
 anyhow.workspace = true
 bindgen.workspace = true
 clang-sys = { version = "1.9.1", features = ["clang_11_0", "runtime"] }
-crys_bricks = { workspace = true, features = ["determinism"] }
-prettyplease.workspace = true
+crys_bricks = { workspace = true, features = ["bindings"] }
 proc-macro2.workspace = true
 quote.workspace = true
+rscode.workspace = true
 syn.workspace = true
 thiserror.workspace = true
 

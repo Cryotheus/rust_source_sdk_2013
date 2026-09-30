@@ -29,13 +29,6 @@ pub struct CServerNetworkProperty {
 impl CServerNetworkProperty {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn m_bPendingStateChange(&self) -> bool {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u8)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn m_bPendingStateChange_raw(this: *const Self) -> bool {
         unsafe {
             ::std::mem::transmute(
@@ -68,14 +61,6 @@ impl CServerNetworkProperty {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_bPendingStateChange(&mut self, val: bool) {
-        unsafe {
-            let val: u8 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_bPendingStateChange_raw(this: *mut Self, val: bool) {
         unsafe {
             let val: u8 = ::std::mem::transmute(val);
@@ -85,6 +70,21 @@ impl CServerNetworkProperty {
                 0usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bPendingStateChange(&self) -> bool {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u8)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bPendingStateChange(&mut self, val: bool) {
+        unsafe {
+            let val: u8 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
         }
     }
 }

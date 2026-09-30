@@ -16,10 +16,10 @@ use super::super::super::super::__bindgen_prelude::*;
 pub type CCommand__bindgen_ty_1 = ::std::os::raw::c_uint;
 pub type ConCommand_BaseClass = ConCommandBase;
 pub type ConVar_BaseClass = ConCommandBase;
-pub type FnCommandCallbackVoid_t = ::std::option::Option<unsafe extern "C" fn()>;
 pub type FnCommandCallback_t = ::std::option::Option<
     unsafe extern "C" fn(command: *const CCommand),
 >;
+pub type FnCommandCallbackVoid_t = ::std::option::Option<unsafe extern "C" fn()>;
 pub type FnCommandCompletionCallback = ::std::option::Option<
     unsafe extern "C" fn(
         partial: *const ::std::os::raw::c_char,
@@ -48,13 +48,6 @@ pub struct ConCommand {
 impl ConCommand {
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn m_bHasCompletionCallback(&self) -> bool {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u8)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn m_bHasCompletionCallback_raw(this: *const Self) -> bool {
         unsafe {
             ::std::mem::transmute(
@@ -69,13 +62,6 @@ impl ConCommand {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn m_bUsingCommandCallbackInterface(&self) -> bool {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<2usize, 1u8>() as u8)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn m_bUsingCommandCallbackInterface_raw(this: *const Self) -> bool {
         unsafe {
             ::std::mem::transmute(
@@ -86,13 +72,6 @@ impl ConCommand {
                     1u8,
                 >(::std::ptr::addr_of!((*this)._bitfield_1)) as u8,
             )
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn m_bUsingNewCommandCallback(&self) -> bool {
-        unsafe {
-            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 1u8>() as u8)
         }
     }
     #[inline]
@@ -151,14 +130,6 @@ impl ConCommand {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_bHasCompletionCallback(&mut self, val: bool) {
-        unsafe {
-            let val: u8 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_bHasCompletionCallback_raw(this: *mut Self, val: bool) {
         unsafe {
             let val: u8 = ::std::mem::transmute(val);
@@ -168,14 +139,6 @@ impl ConCommand {
                 0usize,
                 1u8,
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
-    pub fn set_m_bUsingCommandCallbackInterface(&mut self, val: bool) {
-        unsafe {
-            let val: u8 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<2usize, 1u8>(val as u64)
         }
     }
     #[inline]
@@ -193,14 +156,6 @@ impl ConCommand {
     }
     #[inline]
     #[allow(unnecessary_transmutes)]
-    pub fn set_m_bUsingNewCommandCallback(&mut self, val: bool) {
-        unsafe {
-            let val: u8 = ::std::mem::transmute(val);
-            self._bitfield_1.set_const::<1usize, 1u8>(val as u64)
-        }
-    }
-    #[inline]
-    #[allow(unnecessary_transmutes)]
     pub unsafe fn set_m_bUsingNewCommandCallback_raw(this: *mut Self, val: bool) {
         unsafe {
             let val: u8 = ::std::mem::transmute(val);
@@ -212,55 +167,51 @@ impl ConCommand {
             >(::std::ptr::addr_of_mut!((*this)._bitfield_1), val as u64)
         }
     }
-}
-#[repr(C)]
-#[derive(Debug)]
-pub struct ConCommandBase {
-    pub vtable_: *const ConCommandBase__bindgen_vtable,
-    pub m_pNext: *mut ConCommandBase,
-    pub m_bRegistered: bool,
-    pub m_pszName: *const ::std::os::raw::c_char,
-    pub m_pszHelpString: *const ::std::os::raw::c_char,
-    pub m_nFlags: ::std::os::raw::c_int,
-}
-#[repr(C)]
-pub struct ConCommandBase__bindgen_vtable {
-    pub ConCommandBase_complete_destructor: unsafe extern "C" fn(
-        arg1: *mut ConCommandBase,
-    ),
-    pub ConCommandBase_deleting_destructor: unsafe extern "C" fn(
-        arg1: *mut ConCommandBase,
-    ),
-    pub ConCommandBase_IsCommand: unsafe extern "C" fn(
-        arg1: *const ConCommandBase,
-    ) -> bool,
-    pub ConCommandBase_IsFlagSet: unsafe extern "C" fn(
-        arg1: *const ConCommandBase,
-        arg2: ::std::os::raw::c_int,
-    ) -> bool,
-    pub ConCommandBase_AddFlags: unsafe extern "C" fn(
-        arg1: *mut ConCommandBase,
-        arg2: ::std::os::raw::c_int,
-    ),
-    pub ConCommandBase_GetName: unsafe extern "C" fn(
-        arg1: *const ConCommandBase,
-    ) -> *const ::std::os::raw::c_char,
-    pub ConCommandBase_GetHelpText: unsafe extern "C" fn(
-        arg1: *const ConCommandBase,
-    ) -> *const ::std::os::raw::c_char,
-    pub ConCommandBase_IsRegistered: unsafe extern "C" fn(
-        arg1: *const ConCommandBase,
-    ) -> bool,
-    pub ConCommandBase_GetDLLIdentifier: unsafe extern "C" fn(
-        arg1: *const ConCommandBase,
-    ) -> CVarDLLIdentifier_t,
-    pub ConCommandBase_CreateBase: unsafe extern "C" fn(
-        arg1: *mut ConCommandBase,
-        arg2: *const ::std::os::raw::c_char,
-        arg3: *const ::std::os::raw::c_char,
-        arg4: ::std::os::raw::c_int,
-    ),
-    pub ConCommandBase_Init: unsafe extern "C" fn(arg1: *mut ConCommandBase),
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bHasCompletionCallback(&self) -> bool {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<0usize, 1u8>() as u8)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bUsingCommandCallbackInterface(&self) -> bool {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<2usize, 1u8>() as u8)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn m_bUsingNewCommandCallback(&self) -> bool {
+        unsafe {
+            ::std::mem::transmute(self._bitfield_1.get_const::<1usize, 1u8>() as u8)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bHasCompletionCallback(&mut self, val: bool) {
+        unsafe {
+            let val: u8 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<0usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bUsingCommandCallbackInterface(&mut self, val: bool) {
+        unsafe {
+            let val: u8 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<2usize, 1u8>(val as u64)
+        }
+    }
+    #[inline]
+    #[allow(unnecessary_transmutes)]
+    pub fn set_m_bUsingNewCommandCallback(&mut self, val: bool) {
+        unsafe {
+            let val: u8 = ::std::mem::transmute(val);
+            self._bitfield_1.set_const::<1usize, 1u8>(val as u64)
+        }
+    }
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -315,6 +266,55 @@ pub struct ConCommand__bindgen_vtable {
         arg1: *mut ConCommand,
         arg2: *const CCommand,
     ),
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct ConCommandBase {
+    pub vtable_: *const ConCommandBase__bindgen_vtable,
+    pub m_pNext: *mut ConCommandBase,
+    pub m_bRegistered: bool,
+    pub m_pszName: *const ::std::os::raw::c_char,
+    pub m_pszHelpString: *const ::std::os::raw::c_char,
+    pub m_nFlags: ::std::os::raw::c_int,
+}
+#[repr(C)]
+pub struct ConCommandBase__bindgen_vtable {
+    pub ConCommandBase_complete_destructor: unsafe extern "C" fn(
+        arg1: *mut ConCommandBase,
+    ),
+    pub ConCommandBase_deleting_destructor: unsafe extern "C" fn(
+        arg1: *mut ConCommandBase,
+    ),
+    pub ConCommandBase_IsCommand: unsafe extern "C" fn(
+        arg1: *const ConCommandBase,
+    ) -> bool,
+    pub ConCommandBase_IsFlagSet: unsafe extern "C" fn(
+        arg1: *const ConCommandBase,
+        arg2: ::std::os::raw::c_int,
+    ) -> bool,
+    pub ConCommandBase_AddFlags: unsafe extern "C" fn(
+        arg1: *mut ConCommandBase,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub ConCommandBase_GetName: unsafe extern "C" fn(
+        arg1: *const ConCommandBase,
+    ) -> *const ::std::os::raw::c_char,
+    pub ConCommandBase_GetHelpText: unsafe extern "C" fn(
+        arg1: *const ConCommandBase,
+    ) -> *const ::std::os::raw::c_char,
+    pub ConCommandBase_IsRegistered: unsafe extern "C" fn(
+        arg1: *const ConCommandBase,
+    ) -> bool,
+    pub ConCommandBase_GetDLLIdentifier: unsafe extern "C" fn(
+        arg1: *const ConCommandBase,
+    ) -> CVarDLLIdentifier_t,
+    pub ConCommandBase_CreateBase: unsafe extern "C" fn(
+        arg1: *mut ConCommandBase,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const ::std::os::raw::c_char,
+        arg4: ::std::os::raw::c_int,
+    ),
+    pub ConCommandBase_Init: unsafe extern "C" fn(arg1: *mut ConCommandBase),
 }
 #[repr(C)]
 #[derive(Debug)]

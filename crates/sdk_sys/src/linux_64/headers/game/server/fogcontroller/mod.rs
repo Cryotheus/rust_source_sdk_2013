@@ -22,11 +22,6 @@ pub struct CFogController {
     pub m_iChangedVariables: ::std::os::raw::c_int,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct CFogController_NetworkVar_m_fog {
-    pub _base: fogparams_t,
-}
-#[repr(C)]
 pub struct CFogController__bindgen_vtable {
     pub CFogController_complete_destructor: unsafe extern "C" fn(
         arg1: *mut CFogController,
@@ -742,5 +737,10 @@ pub struct CFogController__bindgen_vtable {
     pub CFogController_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> bool,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CFogController_NetworkVar_m_fog {
+    pub _base: fogparams_t,
 }
 include!("layout_assertions.rs");
