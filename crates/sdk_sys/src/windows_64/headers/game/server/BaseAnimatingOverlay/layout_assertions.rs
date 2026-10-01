@@ -115,11 +115,11 @@ const _: () = {
 const _: () = {
     [
         "Size of CBaseAnimatingOverlay",
-    ][::std::mem::size_of::<CBaseAnimatingOverlay>() - 1528usize];
+    ][::std::mem::size_of::<CBaseAnimatingOverlay>() - 1544usize];
     [
         "Alignment of CBaseAnimatingOverlay",
     ][::std::mem::align_of::<CBaseAnimatingOverlay>() - 8usize];
     [
         "Offset of field: CBaseAnimatingOverlay::m_AnimOverlay",
-    ][::std::mem::offset_of!(CBaseAnimatingOverlay, m_AnimOverlay) - 1496usize];
+    ][::std::mem::offset_of!(CBaseAnimatingOverlay, m_AnimOverlay) - 1512usize];
 };

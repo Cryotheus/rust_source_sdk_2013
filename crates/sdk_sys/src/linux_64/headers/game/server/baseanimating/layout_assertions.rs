@@ -208,6 +208,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseAnimating"][::std::mem::size_of::<CBaseAnimating>() - 1544usize];
+    ["Size of CBaseAnimating"][::std::mem::size_of::<CBaseAnimating>() - 1560usize];
     ["Alignment of CBaseAnimating"][::std::mem::align_of::<CBaseAnimating>() - 8usize];
 };

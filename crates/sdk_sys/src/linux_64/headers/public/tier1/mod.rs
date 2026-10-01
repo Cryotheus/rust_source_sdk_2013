@@ -2,13 +2,16 @@
 // Regenerate with the `source_sdk_2013_bindgen/generate_bindings` Cargo feature.
 
 pub mod KeyValues;
+pub mod UtlSortVector;
 pub mod byteswap;
 pub mod checksum_crc;
+pub mod checksum_sha1;
 pub mod convar;
 pub mod iconvar;
 pub mod interface;
 pub mod netadr;
 pub mod utlbuffer;
+pub mod utldict;
 pub mod utlhash;
 pub mod utllinkedlist;
 pub mod utlmap;

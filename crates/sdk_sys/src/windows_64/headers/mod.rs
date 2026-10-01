@@ -4,4 +4,5 @@
 pub mod __bindgen;
 pub mod common;
 pub mod game;
+pub mod gcsdk;
 pub mod public;

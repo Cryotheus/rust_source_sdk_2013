@@ -1,5 +1,12 @@
 # Source SDK 2013 (Generated Rust Bindings)
 
+The game-side records use TF2's server build configuration, including economy
+items and NextBot. Full player and shared-player declarations are available in
+`headers::game::server::tf::tf_player` and
+`headers::game::shared::tf::tf_player_shared`, and re-exported at the crate root.
+Their generated vtables use the target's C++ ABI. Nonvirtual engine symbols
+are not linked by these bindings.
+
 To generate the bindings:
 
 - Set environment variable `SOURCE_SDK_2013=/the_path/to_your_repo_for/source-sdk-2013`

@@ -3,6 +3,25 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CTraceFilterSimple",
+    ][::std::mem::size_of::<CTraceFilterSimple>() - 32usize];
+    [
+        "Alignment of CTraceFilterSimple",
+    ][::std::mem::align_of::<CTraceFilterSimple>() - 8usize];
+    [
+        "Offset of field: CTraceFilterSimple::m_pPassEnt",
+    ][::std::mem::offset_of!(CTraceFilterSimple, m_pPassEnt) - 8usize];
+    [
+        "Offset of field: CTraceFilterSimple::m_collisionGroup",
+    ][::std::mem::offset_of!(CTraceFilterSimple, m_collisionGroup) - 16usize];
+    [
+        "Offset of field: CTraceFilterSimple::m_pExtraShouldHitCheckFunction",
+    ][::std::mem::offset_of!(CTraceFilterSimple, m_pExtraShouldHitCheckFunction)
+        - 24usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of CountdownTimer"][::std::mem::size_of::<CountdownTimer>() - 16usize];
     ["Alignment of CountdownTimer"][::std::mem::align_of::<CountdownTimer>() - 8usize];
     [

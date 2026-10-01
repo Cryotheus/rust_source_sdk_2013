@@ -9,27 +9,8 @@ mod native;
 
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::{Game, InterfaceError, Server};
-use std::ffi::{CStr, c_char, c_void};
-use std::mem::transmute;
+use std::ffi::CStr;
 use std::ptr::NonNull;
-
-// SourceMod gamedata/sdktools.games/game.tf.txt (windows64/linux64).
-// Bravo's server.dll primary CTFPlayer RTTI vtable confirms these Windows
-// slots: Weapon_Equip=272, Weapon_GetSlot=279, RemovePlayerItem=281. Its
-// Weapon_GetSlot calls weapon GetSlot at 334. TF2's CEconItemView overload
-// of GiveNamedItem is slot 487 (server.dll VA 1805e5450); its null-item path
-// generates a base economy item before spawning it. CBasePlayer's separate
-// three-argument overload at 413 does not initialize the economy item.
-// Linux server_srv.so's _ZTV9CTFPlayer places
-// _ZN9CTFPlayer13GiveNamedItemEPKciPK13CEconItemViewb at 494; the later
-// TF-specific slots do not share the one-slot base-class ABI difference.
-// _ZTV13CTFWeaponBase places _ZNK17CBaseCombatWeapon7GetSlotEv at 340.
-const ABI_SHIFT: usize = if cfg!(target_os = "linux") { 1 } else { 0 };
-const GIVE: usize = if cfg!(target_os = "linux") { 494 } else { 487 };
-const EQUIP: usize = 272 + ABI_SHIFT;
-const GET_SLOT: usize = 279 + ABI_SHIFT;
-const REMOVE: usize = 281 + ABI_SHIFT;
-const WEAPON_SLOT: usize = if cfg!(target_os = "linux") { 340 } else { 334 };
 
 /// A weapon inventory slot (not an item-schema loadout position).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,11 +109,15 @@ impl<'s> Weapon<'s> {
 	/// The native weapon slot, which can depend on its item definition.
 	pub fn slot(self) -> Result<WeaponSlot, WeaponError> {
 		check_live(self.entity)?;
-		type GetSlot = unsafe extern "C" fn(*mut sys::CBaseEntity) -> i32;
-		// SAFETY: `new` established the CTFWeaponBase ancestry; the native
-		// GetSlot entry returns an integer and leaves the weapon alive.
-		let get: GetSlot = unsafe { transmute(vslot(self.entity, WEAPON_SLOT)) };
-		let index = unsafe { get(self.entity.as_ptr()) };
+		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
+		// SAFETY: `new` established CTFWeaponBase's zero-offset primary entity
+		// base. The generated GetSlot entry leaves the weapon alive.
+		let index = unsafe {
+			let vtable = weapon
+				.cast::<*const sys::CTFWeaponBase__bindgen_vtable>()
+				.read();
+			((*vtable).CTFWeaponBase_GetSlot)(weapon)
+		};
 		u8::try_from(index)
 			.map(WeaponSlot)
 			.map_err(|_| WeaponError::WrongSlot)
@@ -179,15 +164,20 @@ impl<'s> PlayerWeapons<'s> {
 
 	pub fn slot(self, slot: WeaponSlot) -> Result<Option<Weapon<'s>>, WeaponError> {
 		check_live(self.player)?;
-		type GetSlot = unsafe extern "C" fn(*mut sys::CBaseEntity, i32) -> *mut sys::CBaseEntity;
-		// SAFETY: The verified CTFPlayer virtual method scans its own inventory
-		// and returns a live weapon or null. The slot is a comparison value.
-		let get: GetSlot = unsafe { transmute(vslot(self.player, GET_SLOT)) };
-		let raw = unsafe { get(self.player.as_ptr(), i32::from(slot.0)) };
+		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+		// SAFETY: `new` verified the zero-offset CTFPlayer primary base. The
+		// generated virtual method scans its own inventory and returns a live
+		// weapon or null. The slot is a comparison value.
+		let raw = unsafe {
+			let vtable = player
+				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
+				.read();
+			((*vtable).CTFPlayer_Weapon_GetSlot)(player, i32::from(slot.0))
+		};
 		NonNull::new(raw)
 			.map(|raw| {
 				// SAFETY: The player's weapon remains alive through this callback.
-				Weapon::new(self.server, unsafe { Entity::from_raw(raw) })
+				Weapon::new(self.server, unsafe { Entity::from_raw(raw.cast()) })
 			})
 			.transpose()
 	}
@@ -213,11 +203,16 @@ impl<'s> PlayerWeapons<'s> {
 				Err(WeaponError::Rejected)
 			};
 		}
-		type Equip = unsafe extern "C" fn(*mut sys::CBaseEntity, *mut sys::CBaseEntity);
-		// SAFETY: Both checked objects are live and the weapon is not in an inventory. The
-		// native method updates inventory, ownership, and attribute providers.
-		let equip: Equip = unsafe { transmute(vslot(self.player, EQUIP)) };
-		unsafe { equip(self.player.as_ptr(), weapon.entity.as_ptr()) };
+		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+		// SAFETY: Both checked classes have CBaseEntity at primary offset zero.
+		// The live weapon is not in an inventory. Native equip updates inventory,
+		// ownership, and attribute providers through the generated TF2 vtable.
+		unsafe {
+			let vtable = player
+				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
+				.read();
+			((*vtable).CTFPlayer_Weapon_Equip)(player, weapon.entity.as_ptr().cast());
+		}
 		if weapon.owner()? != Some(self.player.handle())
 			|| !self
 				.slot(slot)?
@@ -238,11 +233,17 @@ impl<'s> PlayerWeapons<'s> {
 		if weapon.owner()? != Some(self.player.handle()) {
 			return Err(WeaponError::DifferentOwner);
 		}
-		type Remove = unsafe extern "C" fn(*mut sys::CBaseEntity, *mut sys::CBaseEntity) -> bool;
-		// SAFETY: The player owns this live weapon. RemovePlayerItem detaches
-		// and holsters it; it does not immediately delete either entity.
-		let remove: Remove = unsafe { transmute(vslot(self.player, REMOVE)) };
-		if !unsafe { remove(self.player.as_ptr(), weapon.entity.as_ptr()) } {
+		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+		// SAFETY: `new` verified CTFPlayer's zero-offset primary entity base.
+		// The player owns this live weapon. RemovePlayerItem detaches and
+		// holsters it without immediately deleting either entity.
+		let removed = unsafe {
+			let vtable = player
+				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
+				.read();
+			((*vtable).CTFPlayer_RemovePlayerItem)(player, weapon.entity.as_ptr().cast())
+		};
+		if !removed {
 			return Err(WeaponError::Rejected);
 		}
 		Ok(())
@@ -260,23 +261,23 @@ impl<'s> PlayerWeapons<'s> {
 	pub unsafe fn give(self, classname: &CStr, subtype: i32) -> Result<Weapon<'s>, WeaponError> {
 		check_live(self.player)?;
 		validate_request(classname, subtype)?;
-		type Give = unsafe extern "C" fn(
-			*mut sys::CBaseEntity,
-			*const c_char,
-			i32,
-			*const c_void,
-			bool,
-		) -> *mut sys::CBaseEntity;
-		// SAFETY: This CTFPlayer overload takes a nullable CEconItemView and a
-		// force flag. Null requests native stock-item generation; force keeps the
+		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+		// SAFETY: `new` verified the primary CTFPlayer base. This generated
+		// overload takes a nullable CEconItemView and a force flag. Null requests
+		// native stock-item generation; force keeps the
 		// exact classname instead of translating it for the player's class. The
 		// caller vouches for the spawn/pickup path.
-		let give: Give = unsafe { transmute(vslot(self.player, GIVE)) };
+		let give = unsafe {
+			let vtable = player
+				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
+				.read();
+			(*vtable).CTFPlayer_GiveNamedItem1
+		};
 		// SAFETY: GiveNamedItem returns a newly created callback-live entity.
 		unsafe {
 			self.give_with(None, || {
 				NonNull::new(give(
-					self.player.as_ptr(),
+					player,
 					classname.as_ptr(),
 					subtype,
 					std::ptr::null(),
@@ -510,21 +511,6 @@ fn check_live(entity: Entity<'_>) -> Result<(), WeaponError> {
 	}
 }
 
-/// # Safety
-/// `slot` must be present in this entity's actual primary vtable.
-unsafe fn vslot(entity: Entity<'_>, slot: usize) -> *const () {
-	// SAFETY: CBaseEntity is the zero-offset primary base; callers have checked
-	// the relevant TF2 class and pass slots confirmed for its native vtable.
-	unsafe {
-		entity
-			.as_ptr()
-			.cast::<*const *const ()>()
-			.read()
-			.add(slot)
-			.read()
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -532,9 +518,20 @@ mod tests {
 	use crate::entities::test_support::{base_entity_fields, data_map, field};
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
-	use std::ffi::c_void;
+	use std::ffi::{c_char, c_void};
 	use std::mem::{offset_of, size_of};
 	use std::ptr::null_mut;
+
+	const EQUIP: usize =
+		offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_Equip) / size_of::<usize>();
+	const GET_SLOT: usize =
+		offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_GetSlot) / size_of::<usize>();
+	const GIVE: usize =
+		offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_GiveNamedItem1) / size_of::<usize>();
+	const REMOVE: usize =
+		offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_RemovePlayerItem) / size_of::<usize>();
+	const WEAPON_SLOT: usize =
+		offset_of!(sys::CTFWeaponBase__bindgen_vtable, CTFWeaponBase_GetSlot) / size_of::<usize>();
 
 	#[repr(C)]
 	struct FakeEntity {
@@ -579,26 +576,27 @@ mod tests {
 		c"tf_weapon_bottle".as_ptr()
 	}
 	unsafe extern "C" fn inventory_slot(
-		entity: *mut sys::CBaseEntity,
+		entity: *const sys::CTFPlayer,
 		slot: i32,
-	) -> *mut sys::CBaseEntity {
+	) -> *mut sys::CBaseCombatWeapon {
 		unsafe {
 			let entity = entity.cast::<FakeEntity>();
 			for weapon in [(*entity).second_weapon, (*entity).weapon] {
 				if !weapon.is_null() && (*weapon.cast::<FakeEntity>()).slot == slot {
-					return weapon;
+					return weapon.cast();
 				}
 			}
 			null_mut()
 		}
 	}
-	unsafe extern "C" fn weapon_slot(entity: *mut sys::CBaseEntity) -> i32 {
+	unsafe extern "C" fn weapon_slot(entity: *const sys::CTFWeaponBase) -> i32 {
 		unsafe { (*entity.cast::<FakeEntity>()).slot }
 	}
 
-	unsafe extern "C" fn equip(player: *mut sys::CBaseEntity, weapon: *mut sys::CBaseEntity) {
+	unsafe extern "C" fn equip(player: *mut sys::CTFPlayer, weapon: *mut sys::CBaseCombatWeapon) {
 		unsafe {
 			let player = player.cast::<FakeEntity>();
+			let weapon = weapon.cast::<sys::CBaseEntity>();
 			(*player).equip_calls += 1;
 			if !INVENTORY_FULL.get() {
 				if (*player).weapon.is_null() {
@@ -612,14 +610,15 @@ mod tests {
 		}
 	}
 	unsafe extern "C" fn detach(
-		player: *mut sys::CBaseEntity,
-		weapon: *mut sys::CBaseEntity,
+		player: *mut sys::CTFPlayer,
+		weapon: *mut sys::CBaseCombatWeapon,
 	) -> bool {
 		if REJECT_DETACH.get() {
 			return false;
 		}
 		unsafe {
 			let player = player.cast::<FakeEntity>();
+			let weapon = weapon.cast::<sys::CBaseEntity>();
 			if (*player).weapon == weapon {
 				(*player).weapon = null_mut();
 			} else if (*player).second_weapon == weapon {
@@ -633,10 +632,10 @@ mod tests {
 		}
 	}
 	unsafe extern "C" fn give(
-		player: *mut sys::CBaseEntity,
+		player: *mut sys::CTFPlayer,
 		_: *const c_char,
 		_: i32,
-		item: *const c_void,
+		item: *const sys::CEconItemView,
 		force: bool,
 	) -> *mut sys::CBaseEntity {
 		assert!(
@@ -646,7 +645,7 @@ mod tests {
 		assert!(force, "the requested classname must not be translated");
 		let weapon = GIVE_RESULT.get();
 		if !weapon.is_null() {
-			unsafe { equip(player, weapon) };
+			unsafe { equip(player, weapon.cast()) };
 		}
 		weapon
 	}

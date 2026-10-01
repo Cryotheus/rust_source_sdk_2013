@@ -13,6 +13,15 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of CBasePlayer_NetworkVar_m_AttributeList",
+    ][::std::mem::size_of::<CBasePlayer_NetworkVar_m_AttributeList>() - 48usize];
+    [
+        "Alignment of CBasePlayer_NetworkVar_m_AttributeList",
+    ][::std::mem::align_of::<CBasePlayer_NetworkVar_m_AttributeList>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of CBasePlayer_NetworkVar_m_Local",
     ][::std::mem::size_of::<CBasePlayer_NetworkVar_m_Local>() - 768usize];
     [
@@ -271,6 +280,14 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBasePlayer"][::std::mem::size_of::<CBasePlayer>() - 5224usize];
+    ["Size of CBasePlayer"][::std::mem::size_of::<CBasePlayer>() - 5328usize];
     ["Alignment of CBasePlayer"][::std::mem::align_of::<CBasePlayer>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of CPlayerInfo"][::std::mem::size_of::<CPlayerInfo>() - 24usize];
+    ["Alignment of CPlayerInfo"][::std::mem::align_of::<CPlayerInfo>() - 8usize];
+    [
+        "Offset of field: CPlayerInfo::m_pParent",
+    ][::std::mem::offset_of!(CPlayerInfo, m_pParent) - 16usize];
 };

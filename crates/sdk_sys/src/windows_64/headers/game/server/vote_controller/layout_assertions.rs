@@ -108,48 +108,48 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CVoteController"][::std::mem::size_of::<CVoteController>() - 1392usize];
+    ["Size of CVoteController"][::std::mem::size_of::<CVoteController>() - 1408usize];
     ["Alignment of CVoteController"][::std::mem::align_of::<CVoteController>() - 8usize];
     [
         "Offset of field: CVoteController::m_iActiveIssueIndex",
-    ][::std::mem::offset_of!(CVoteController, m_iActiveIssueIndex) - 1152usize];
+    ][::std::mem::offset_of!(CVoteController, m_iActiveIssueIndex) - 1168usize];
     [
         "Offset of field: CVoteController::m_iOnlyTeamToVote",
-    ][::std::mem::offset_of!(CVoteController, m_iOnlyTeamToVote) - 1156usize];
+    ][::std::mem::offset_of!(CVoteController, m_iOnlyTeamToVote) - 1172usize];
     [
         "Offset of field: CVoteController::m_nVoteOptionCount",
-    ][::std::mem::offset_of!(CVoteController, m_nVoteOptionCount) - 1160usize];
+    ][::std::mem::offset_of!(CVoteController, m_nVoteOptionCount) - 1176usize];
     [
         "Offset of field: CVoteController::m_nPotentialVotes",
-    ][::std::mem::offset_of!(CVoteController, m_nPotentialVotes) - 1180usize];
+    ][::std::mem::offset_of!(CVoteController, m_nPotentialVotes) - 1196usize];
     [
         "Offset of field: CVoteController::m_bIsYesNoVote",
-    ][::std::mem::offset_of!(CVoteController, m_bIsYesNoVote) - 1184usize];
+    ][::std::mem::offset_of!(CVoteController, m_bIsYesNoVote) - 1200usize];
     [
         "Offset of field: CVoteController::m_acceptingVotesTimer",
-    ][::std::mem::offset_of!(CVoteController, m_acceptingVotesTimer) - 1192usize];
+    ][::std::mem::offset_of!(CVoteController, m_acceptingVotesTimer) - 1208usize];
     [
         "Offset of field: CVoteController::m_executeCommandTimer",
-    ][::std::mem::offset_of!(CVoteController, m_executeCommandTimer) - 1208usize];
+    ][::std::mem::offset_of!(CVoteController, m_executeCommandTimer) - 1224usize];
     [
         "Offset of field: CVoteController::m_resetVoteTimer",
-    ][::std::mem::offset_of!(CVoteController, m_resetVoteTimer) - 1224usize];
+    ][::std::mem::offset_of!(CVoteController, m_resetVoteTimer) - 1240usize];
     [
         "Offset of field: CVoteController::m_iEntityHoldingVote",
-    ][::std::mem::offset_of!(CVoteController, m_iEntityHoldingVote) - 1240usize];
+    ][::std::mem::offset_of!(CVoteController, m_iEntityHoldingVote) - 1256usize];
     [
         "Offset of field: CVoteController::m_nVoteIdx",
-    ][::std::mem::offset_of!(CVoteController, m_nVoteIdx) - 1244usize];
+    ][::std::mem::offset_of!(CVoteController, m_nVoteIdx) - 1260usize];
     [
         "Offset of field: CVoteController::m_mapVotesBySteamID",
-    ][::std::mem::offset_of!(CVoteController, m_mapVotesBySteamID) - 1248usize];
+    ][::std::mem::offset_of!(CVoteController, m_mapVotesBySteamID) - 1264usize];
     [
         "Offset of field: CVoteController::m_potentialIssues",
-    ][::std::mem::offset_of!(CVoteController, m_potentialIssues) - 1288usize];
+    ][::std::mem::offset_of!(CVoteController, m_potentialIssues) - 1304usize];
     [
         "Offset of field: CVoteController::m_VoteOptions",
-    ][::std::mem::offset_of!(CVoteController, m_VoteOptions) - 1320usize];
+    ][::std::mem::offset_of!(CVoteController, m_VoteOptions) - 1336usize];
     [
         "Offset of field: CVoteController::m_VoteCallers",
-    ][::std::mem::offset_of!(CVoteController, m_VoteCallers) - 1352usize];
+    ][::std::mem::offset_of!(CVoteController, m_VoteCallers) - 1368usize];
 };

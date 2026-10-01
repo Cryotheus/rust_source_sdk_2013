@@ -20,6 +20,22 @@ pub const TraceType_t_TRACE_EVERYTHING_FILTER_PROPS: TraceType_t = 3;
 pub const TraceType_t_TRACE_WORLD_ONLY: TraceType_t = 1;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct CTraceFilter {
+    pub vtable_: *const CTraceFilter__bindgen_vtable,
+}
+#[repr(C)]
+pub struct CTraceFilter__bindgen_vtable {
+    pub CTraceFilter_ShouldHitEntity: unsafe extern "C" fn(
+        arg1: *mut CTraceFilter,
+        arg2: *mut IHandleEntity,
+        arg3: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CTraceFilter_GetTraceType: unsafe extern "C" fn(
+        arg1: *const CTraceFilter,
+    ) -> TraceType_t,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct IEngineTrace {
     pub vtable_: *const IEngineTrace__bindgen_vtable,
 }

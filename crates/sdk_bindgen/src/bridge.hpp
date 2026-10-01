@@ -1,6 +1,15 @@
 //we're making server-side plugins
 #define GAME_DLL
 #define IS_SERVER_DLL
+#define TF_DLL
+// Match server_tf.vpc, server_econ_base.vpc, and nav_mesh.vpc. These switches
+// affect base-class layouts and the TF2 player/weapon virtual tables.
+#define USES_ECON_ITEMS
+#define NEXT_BOT
+#define USE_NAV_MESH
+#define ENABLE_GC_MATCHMAKING
+#define GLOWS_ENABLE
+#define USE_DYNAMIC_ASSET_LOADING
 
 //suppress engine stamp checks that cause signature mismatch panics
 #define COPY_CHECK_STAMP
@@ -48,6 +57,7 @@ class bf_read {};
 //for gameinterface.h
 #include "game/shared/predictioncopy.h"
 #include "game/shared/ehandle.h"
+#include "game/server/cbase.h"
 #include "game/shared/baseplayer_shared.h"
 #include "game/server/networkstringtable_gamedll.h"
 #include "game/shared/mapentities_shared.h"
@@ -55,11 +65,9 @@ class bf_read {};
 #include "game/server/gameinterface.h"
 #include "game/server/vote_controller.h"
 
-// TF2 condition identifiers; operations use the game's native script bindings.
-// No matchmaking declarations are used here. Its generated protobuf headers
-// are not distributed with the SDK and are unrelated to ETFCond.
-#define TF_MATCHMAKING_SHARED_H
-#include "game/shared/tf/tf_shareddefs.h"
+// Full TF2 player declarations, including their economy and shared state.
+#include "game/server/tf/tf_player.h"
+#include "game/shared/tf/tf_player_shared.h"
 
 //TF2's engine is built with replay support, which adds virtual methods to the
 //client message handler and to IClient. Without it, their later slots would be

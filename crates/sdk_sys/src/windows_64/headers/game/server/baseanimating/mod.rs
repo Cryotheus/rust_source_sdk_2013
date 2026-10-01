@@ -336,6 +336,9 @@ pub struct CBaseAnimating__bindgen_vtable {
         arg2: *mut CBaseEntity,
     ) -> bool,
     pub CBaseAnimating_IsNPC: unsafe extern "C" fn(arg1: *const CBaseAnimating) -> bool,
+    pub CBaseAnimating_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
     pub CBaseAnimating_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CBaseAnimating,
     ) -> *mut CBaseCombatCharacter,
@@ -384,6 +387,15 @@ pub struct CBaseAnimating__bindgen_vtable {
         arg1: *const CBaseAnimating,
     ) -> bool,
     pub CBaseAnimating_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
+    pub CBaseAnimating_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
+    pub CBaseAnimating_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
+    pub CBaseAnimating_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CBaseAnimating,
     ) -> bool,
     pub CBaseAnimating_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -794,6 +806,9 @@ pub struct CBaseAnimating__bindgen_vtable {
     pub CBaseAnimating_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CBaseAnimating,
     ) -> bool,
+    pub CBaseAnimating_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> f32,
     pub CBaseAnimating_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CBaseAnimating,
     ) -> bool,

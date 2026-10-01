@@ -51,33 +51,33 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseFlex"][::std::mem::size_of::<CBaseFlex>() - 2048usize];
+    ["Size of CBaseFlex"][::std::mem::size_of::<CBaseFlex>() - 2064usize];
     ["Alignment of CBaseFlex"][::std::mem::align_of::<CBaseFlex>() - 8usize];
     [
         "Offset of field: CBaseFlex::m_flexWeight",
-    ][::std::mem::offset_of!(CBaseFlex, m_flexWeight) - 1528usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_flexWeight) - 1544usize];
     [
         "Offset of field: CBaseFlex::m_viewtarget",
-    ][::std::mem::offset_of!(CBaseFlex, m_viewtarget) - 1912usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_viewtarget) - 1928usize];
     [
         "Offset of field: CBaseFlex::m_blinktoggle",
-    ][::std::mem::offset_of!(CBaseFlex, m_blinktoggle) - 1924usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_blinktoggle) - 1940usize];
     [
         "Offset of field: CBaseFlex::m_SceneEvents",
-    ][::std::mem::offset_of!(CBaseFlex, m_SceneEvents) - 1928usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_SceneEvents) - 1944usize];
     [
         "Offset of field: CBaseFlex::m_LocalToGlobal",
-    ][::std::mem::offset_of!(CBaseFlex, m_LocalToGlobal) - 1960usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_LocalToGlobal) - 1976usize];
     [
         "Offset of field: CBaseFlex::m_flAllowResponsesEndTime",
-    ][::std::mem::offset_of!(CBaseFlex, m_flAllowResponsesEndTime) - 2000usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_flAllowResponsesEndTime) - 2016usize];
     [
         "Offset of field: CBaseFlex::m_ActiveChoreoScenes",
-    ][::std::mem::offset_of!(CBaseFlex, m_ActiveChoreoScenes) - 2008usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_ActiveChoreoScenes) - 2024usize];
     [
         "Offset of field: CBaseFlex::m_bUpdateLayerPriorities",
-    ][::std::mem::offset_of!(CBaseFlex, m_bUpdateLayerPriorities) - 2040usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_bUpdateLayerPriorities) - 2056usize];
     [
         "Offset of field: CBaseFlex::m_flLastFlexAnimationTime",
-    ][::std::mem::offset_of!(CBaseFlex, m_flLastFlexAnimationTime) - 2044usize];
+    ][::std::mem::offset_of!(CBaseFlex, m_flLastFlexAnimationTime) - 2060usize];
 };

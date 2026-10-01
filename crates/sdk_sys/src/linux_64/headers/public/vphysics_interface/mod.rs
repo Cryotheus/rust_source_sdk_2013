@@ -35,11 +35,6 @@ pub struct IPhysicsCollisionData__bindgen_vtable {
 }
 #[repr(C)]
 #[derive(Debug)]
-pub struct IPhysicsConstraint {
-    _unused: [u8; 0],
-}
-#[repr(C)]
-#[derive(Debug)]
 pub struct IPhysicsFrictionSnapshot {
     _unused: [u8; 0],
 }

@@ -1,8 +1,36 @@
-//! Agabaraya.
+//! Raw Source SDK bindings generated for TF2's server configuration.
+//!
+//! Game-side records include economy items and NextBot. Generated virtual
+//! tables describe each class's primary address point for the target C++ ABI;
+//! secondary base interfaces retain their own generated tables.
 
 use std::mem::offset_of;
 
 const SLOT_SIZE: usize = size_of::<*const ()>();
+
+#[cfg(any(
+	all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"),
+	all(target_os = "windows", target_arch = "x86_64", target_env = "msvc")
+))]
+const _: () = {
+	type Equip = unsafe extern "C" fn(*mut CTFPlayer, *mut CBaseCombatWeapon);
+	type GetSlot = unsafe extern "C" fn(*const CTFPlayer, i32) -> *mut CBaseCombatWeapon;
+	type Remove = unsafe extern "C" fn(*mut CTFPlayer, *mut CBaseCombatWeapon) -> bool;
+	type Give = unsafe extern "C" fn(
+		*mut CTFPlayer,
+		*const std::ffi::c_char,
+		i32,
+		*const CEconItemView,
+		bool,
+	) -> *mut CBaseEntity;
+	type WeaponSlot = unsafe extern "C" fn(*const CTFWeaponBase) -> i32;
+
+	let _: fn(&CTFPlayer__bindgen_vtable) -> Equip = |vtable| vtable.CTFPlayer_Weapon_Equip;
+	let _: fn(&CTFPlayer__bindgen_vtable) -> GetSlot = |vtable| vtable.CTFPlayer_Weapon_GetSlot;
+	let _: fn(&CTFPlayer__bindgen_vtable) -> Remove = |vtable| vtable.CTFPlayer_RemovePlayerItem;
+	let _: fn(&CTFPlayer__bindgen_vtable) -> Give = |vtable| vtable.CTFPlayer_GiveNamedItem1;
+	let _: fn(&CTFWeaponBase__bindgen_vtable) -> WeaponSlot = |vtable| vtable.CTFWeaponBase_GetSlot;
+};
 
 cfg_select! {
 	all(target_os = "linux", target_arch = "x86", target_env = "gnu") => {
@@ -17,12 +45,13 @@ cfg_select! {
 		/// `CBaseEntity::GetDataDescMap` in the Source SDK 2013 primary vtable.
 		/// Derived from `game/server/cbase.h` with the Itanium ABI model.
 		pub const CBASEENTITY_DATAMAP_VTABLE_SLOT: usize = 12;
-		/// `CBaseEntity::Teleport` in the Source SDK 2013 primary vtable.
-		/// Derived from `game/server/cbase.h` with the Itanium ABI model.
+		/// `CBaseEntity::Teleport` in the generic Source SDK 2013 game DLL.
+		/// This preserves the non-TF game layout; generated entity types use TF2.
 		pub const CBASEENTITY_TELEPORT_VTABLE_SLOT: usize = 111;
 		/// `CBaseEntity::Teleport` in TF2's game DLL.
 		/// Verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
-		pub const CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT: usize = 115;
+		pub const CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT: usize =
+			offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_Teleport) / SLOT_SIZE;
 		/// `CBaseEntity::AcceptInput` in the primary vtable. TF2 declares its own
 		/// virtual methods after it, so the slot is the same for every game.
 		/// Derived from `game/server/baseentity.h` with the Itanium ABI model, and
@@ -38,9 +67,25 @@ cfg_select! {
 				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_AcceptInput)
 					== SLOT_SIZE * CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT
 			);
+			assert!(CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT == 115);
+
+			// Checked against the installed TF2 server's primary vtables. These
+			// retain the distinction between the base and economy GiveNamedItem.
 			assert!(
-				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_Teleport)
-					== SLOT_SIZE * CBASEENTITY_TELEPORT_VTABLE_SLOT
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_Equip) == SLOT_SIZE * 273
+			);
+			assert!(
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_GetSlot) == SLOT_SIZE * 280
+			);
+			assert!(
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_RemovePlayerItem)
+					== SLOT_SIZE * 282
+			);
+			assert!(
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_GiveNamedItem1) == SLOT_SIZE * 494
+			);
+			assert!(
+				offset_of!(CTFWeaponBase__bindgen_vtable, CTFWeaponBase_GetSlot) == SLOT_SIZE * 340
 			);
 
 			// `AcceptInput` takes a `variant_t` by value. Its handle member has a
@@ -384,12 +429,13 @@ cfg_select! {
 		/// `CBaseEntity::GetDataDescMap` in the Source SDK 2013 primary vtable.
 		/// Derived from `game/server/cbase.h` with the MSVC ABI model.
 		pub const CBASEENTITY_DATAMAP_VTABLE_SLOT: usize = 11;
-		/// `CBaseEntity::Teleport` in the Source SDK 2013 primary vtable.
-		/// Derived from `game/server/cbase.h` with the MSVC ABI model.
+		/// `CBaseEntity::Teleport` in the generic Source SDK 2013 game DLL.
+		/// This preserves the non-TF game layout; generated entity types use TF2.
 		pub const CBASEENTITY_TELEPORT_VTABLE_SLOT: usize = 110;
 		/// `CBaseEntity::Teleport` in TF2's game DLL.
 		/// Verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
-		pub const CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT: usize = 114;
+		pub const CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT: usize =
+			offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_Teleport) / SLOT_SIZE;
 		/// `CBaseEntity::AcceptInput` in the primary vtable. TF2 declares its own
 		/// virtual methods after it, so the slot is the same for every game.
 		/// Derived from `game/server/baseentity.h` with the MSVC ABI model, and
@@ -405,9 +451,25 @@ cfg_select! {
 				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_AcceptInput)
 					== SLOT_SIZE * CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT
 			);
+			assert!(CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT == 114);
+
+			// Checked against the installed TF2 server's primary vtables. These
+			// retain the distinction between the base and economy GiveNamedItem.
 			assert!(
-				offset_of!(CBaseEntity__bindgen_vtable, CBaseEntity_Teleport)
-					== SLOT_SIZE * CBASEENTITY_TELEPORT_VTABLE_SLOT
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_Equip) == SLOT_SIZE * 272
+			);
+			assert!(
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_GetSlot) == SLOT_SIZE * 279
+			);
+			assert!(
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_RemovePlayerItem)
+					== SLOT_SIZE * 281
+			);
+			assert!(
+				offset_of!(CTFPlayer__bindgen_vtable, CTFPlayer_GiveNamedItem1) == SLOT_SIZE * 487
+			);
+			assert!(
+				offset_of!(CTFWeaponBase__bindgen_vtable, CTFWeaponBase_GetSlot) == SLOT_SIZE * 334
 			);
 
 			// `AcceptInput` takes a `variant_t` by value. Its handle member has a

@@ -433,6 +433,9 @@ pub struct CVoteController__bindgen_vtable {
     pub CVoteController_IsNPC: unsafe extern "C" fn(
         arg1: *const CVoteController,
     ) -> bool,
+    pub CVoteController_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
     pub CVoteController_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CVoteController,
     ) -> *mut CBaseCombatCharacter,
@@ -485,6 +488,15 @@ pub struct CVoteController__bindgen_vtable {
         arg1: *const CVoteController,
     ) -> bool,
     pub CVoteController_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
+    pub CVoteController_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
+    pub CVoteController_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
+    pub CVoteController_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CVoteController,
     ) -> bool,
     pub CVoteController_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -899,6 +911,9 @@ pub struct CVoteController__bindgen_vtable {
     pub CVoteController_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CVoteController,
     ) -> bool,
+    pub CVoteController_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> f32,
     pub CVoteController_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CVoteController,
     ) -> bool,

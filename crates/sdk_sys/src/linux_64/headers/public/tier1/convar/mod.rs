@@ -339,6 +339,81 @@ pub struct ConVar {
     pub m_bCompetitiveRestrictions: bool,
 }
 #[repr(C)]
+pub struct ConVar__bindgen_vtable {
+    pub ConVar_complete_destructor: unsafe extern "C" fn(arg1: *mut ConVar),
+    pub ConVar_deleting_destructor: unsafe extern "C" fn(arg1: *mut ConVar),
+    pub ConVar_IsCommand: unsafe extern "C" fn(arg1: *const ConVar) -> bool,
+    pub ConVar_IsFlagSet: unsafe extern "C" fn(
+        arg1: *const ConVar,
+        arg2: ::std::os::raw::c_int,
+    ) -> bool,
+    pub ConVar_AddFlags: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub ConVar_GetName: unsafe extern "C" fn(
+        arg1: *const ConVar,
+    ) -> *const ::std::os::raw::c_char,
+    pub ConVar_GetHelpText: unsafe extern "C" fn(
+        arg1: *const ConVar,
+    ) -> *const ::std::os::raw::c_char,
+    pub ConVar_IsRegistered: unsafe extern "C" fn(arg1: *const ConVar) -> bool,
+    pub ConVar_GetDLLIdentifier: unsafe extern "C" fn(
+        arg1: *const ConVar,
+    ) -> CVarDLLIdentifier_t,
+    pub ConVar_CreateBase: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const ::std::os::raw::c_char,
+        arg4: ::std::os::raw::c_int,
+    ),
+    pub ConVar_Init: unsafe extern "C" fn(arg1: *mut ConVar),
+    pub ConVar_SetValue: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: *const ::std::os::raw::c_char,
+    ),
+    pub ConVar_SetValue1: unsafe extern "C" fn(arg1: *mut ConVar, arg2: f32),
+    pub ConVar_SetValue2: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub ConVar_InternalSetValue: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: *const ::std::os::raw::c_char,
+    ),
+    pub ConVar_InternalSetFloatValue: unsafe extern "C" fn(arg1: *mut ConVar, arg2: f32),
+    pub ConVar_InternalSetIntValue: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub ConVar_ClampValue: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: *mut f32,
+    ) -> bool,
+    pub ConVar_ChangeStringValue: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: f32,
+    ),
+    pub ConVar_Create_Vtbl: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const ::std::os::raw::c_char,
+        arg4: ::std::os::raw::c_int,
+        arg5: *const ::std::os::raw::c_char,
+        arg6: bool,
+        arg7: f32,
+        arg8: bool,
+        arg9: f32,
+        arg10: FnChangeCallback_t,
+    ),
+    pub ConVar_InternalSetFloatValue2: unsafe extern "C" fn(
+        arg1: *mut ConVar,
+        arg2: f32,
+        arg3: bool,
+    ),
+}
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ICommandCallback {
     pub vtable_: *const ICommandCallback__bindgen_vtable,

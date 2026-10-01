@@ -13,6 +13,39 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
+pub type ShouldHitFunc_t = ::std::option::Option<
+    unsafe extern "C" fn(
+        pHandleEntity: *mut IHandleEntity,
+        contentsMask: ::std::os::raw::c_int,
+    ) -> bool,
+>;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CTraceFilterSimple {
+    pub _base: CTraceFilter,
+    pub m_pPassEnt: *const IHandleEntity,
+    pub m_collisionGroup: ::std::os::raw::c_int,
+    pub m_pExtraShouldHitCheckFunction: ShouldHitFunc_t,
+}
+#[repr(C)]
+pub struct CTraceFilterSimple__bindgen_vtable {
+    pub CTraceFilterSimple_ShouldHitEntity: unsafe extern "C" fn(
+        arg1: *mut CTraceFilterSimple,
+        arg2: *mut IHandleEntity,
+        arg3: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CTraceFilterSimple_GetTraceType: unsafe extern "C" fn(
+        arg1: *const CTraceFilterSimple,
+    ) -> TraceType_t,
+    pub CTraceFilterSimple_SetPassEntity: unsafe extern "C" fn(
+        arg1: *mut CTraceFilterSimple,
+        arg2: *const IHandleEntity,
+    ),
+    pub CTraceFilterSimple_SetCollisionGroup: unsafe extern "C" fn(
+        arg1: *mut CTraceFilterSimple,
+        arg2: ::std::os::raw::c_int,
+    ),
+}
 /** Simple class for counting down a short interval of time.
  Upon creation, the timer is invalidated.  Invalidated countdown timers are considered to have elapsed.*/
 #[repr(C)]

@@ -13,6 +13,11 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::__bindgen_prelude::*;
+pub type std_string = __BindgenOpaqueArray8<[u8; 32usize]>;
+pub const MELEE_CRIT: _bindgen_ty_161 = 2;
+pub const MELEE_MINICRIT: _bindgen_ty_161 = 1;
+pub const MELEE_NOCRIT: _bindgen_ty_161 = 0;
+pub const kSoldierBuffCount: _bindgen_ty_162 = 6;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct __BindgenBitfieldUnit<Storage> {
@@ -537,6 +542,36 @@ impl<T: Copy + Default, const N: usize> Default for __BindgenOpaqueArray8<[T; N]
     }
 }
 #[repr(C)]
+#[repr(align(8))]
+#[derive(Debug, Copy, Clone)]
+pub struct CAttribute_DynamicRecipeComponent {
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 56usize]>,
+}
+#[repr(C)]
+#[repr(align(8))]
+#[derive(Debug, Copy, Clone)]
+pub struct CAttribute_ItemSlotCriteria {
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 32usize]>,
+}
+#[repr(C)]
+#[repr(align(8))]
+#[derive(Debug, Copy, Clone)]
+pub struct CAttribute_String {
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 32usize]>,
+}
+#[repr(C)]
+#[repr(align(8))]
+#[derive(Debug, Copy, Clone)]
+pub struct CAttribute_WorldItemPlacement {
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 56usize]>,
+}
+#[repr(C)]
+#[repr(align(8))]
+#[derive(Debug, Copy, Clone)]
+pub struct CSOItemCriteriaCondition {
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 56usize]>,
+}
+#[repr(C)]
 #[repr(align(1))]
 #[derive(Debug, Copy, Clone)]
 pub struct bf_read {
@@ -548,4 +583,40 @@ pub struct bf_read {
 pub struct bf_write {
     pub _bindgen_opaque_blob: u8,
 }
+/// Opaque placeholder: this vtable's slots are not modeled.
+///
+/// Reason: external dependency type; only its identity and layout are retained.
+#[repr(C)]
+pub struct google_protobuf_DescriptorPool_ErrorCollector__bindgen_vtable(
+    ::std::os::raw::c_void,
+);
+/// Opaque placeholder: this vtable's slots are not modeled.
+///
+/// Reason: external dependency type; only its identity and layout are retained.
+#[repr(C)]
+pub struct google_protobuf_MessageFactory__bindgen_vtable(::std::os::raw::c_void);
+/// Opaque placeholder: this vtable's slots are not modeled.
+///
+/// Reason: external dependency type; only its identity and layout are retained.
+#[repr(C)]
+pub struct google_protobuf_MessageLite__bindgen_vtable(::std::os::raw::c_void);
+/// Opaque placeholder: this vtable's slots are not modeled.
+///
+/// Reason: external dependency type; only its identity and layout are retained.
+#[repr(C)]
+pub struct google_protobuf_Reflection__bindgen_vtable(::std::os::raw::c_void);
+/// Opaque placeholder: this vtable's slots are not modeled.
+///
+/// Reason: external dependency type; only its identity and layout are retained.
+#[repr(C)]
+pub struct google_protobuf_internal_ExtensionFinder__bindgen_vtable(
+    ::std::os::raw::c_void,
+);
+/// Opaque placeholder: this vtable's slots are not modeled.
+///
+/// Reason: external dependency type; only its identity and layout are retained.
+#[repr(C)]
+pub struct google_protobuf_internal_ExtensionSet_LazyMessageExtension__bindgen_vtable(
+    ::std::os::raw::c_void,
+);
 include!("layout_assertions.rs");

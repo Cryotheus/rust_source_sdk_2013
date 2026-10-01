@@ -13,6 +13,15 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of CBasePlayer_NetworkVar_m_AttributeList",
+    ][::std::mem::size_of::<CBasePlayer_NetworkVar_m_AttributeList>() - 48usize];
+    [
+        "Alignment of CBasePlayer_NetworkVar_m_AttributeList",
+    ][::std::mem::align_of::<CBasePlayer_NetworkVar_m_AttributeList>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of CBasePlayer_NetworkVar_m_Local",
     ][::std::mem::size_of::<CBasePlayer_NetworkVar_m_Local>() - 768usize];
     [
@@ -271,506 +280,512 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBasePlayer"][::std::mem::size_of::<CBasePlayer>() - 5176usize];
+    ["Size of CBasePlayer"][::std::mem::size_of::<CBasePlayer>() - 5280usize];
     ["Alignment of CBasePlayer"][::std::mem::align_of::<CBasePlayer>() - 8usize];
     [
         "Offset of field: CBasePlayer::m_nMovementTicksForUserCmdProcessingRemaining",
     ][::std::mem::offset_of!(CBasePlayer, m_nMovementTicksForUserCmdProcessingRemaining)
-        - 2544usize];
+        - 2568usize];
     [
         "Offset of field: CBasePlayer::m_StuckLast",
-    ][::std::mem::offset_of!(CBasePlayer, m_StuckLast) - 2548usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_StuckLast) - 2572usize];
     [
         "Offset of field: CBasePlayer::m_Local",
-    ][::std::mem::offset_of!(CBasePlayer, m_Local) - 2552usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_Local) - 2576usize];
+    [
+        "Offset of field: CBasePlayer::m_AttributeList",
+    ][::std::mem::offset_of!(CBasePlayer, m_AttributeList) - 3344usize];
     [
         "Offset of field: CBasePlayer::m_hTriggerSoundscapeList",
-    ][::std::mem::offset_of!(CBasePlayer, m_hTriggerSoundscapeList) - 3320usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hTriggerSoundscapeList) - 3392usize];
     [
         "Offset of field: CBasePlayer::pl",
-    ][::std::mem::offset_of!(CBasePlayer, pl) - 3352usize];
+    ][::std::mem::offset_of!(CBasePlayer, pl) - 3424usize];
     [
         "Offset of field: CBasePlayer::m_nButtons",
-    ][::std::mem::offset_of!(CBasePlayer, m_nButtons) - 3416usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nButtons) - 3488usize];
     [
         "Offset of field: CBasePlayer::m_afButtonPressed",
-    ][::std::mem::offset_of!(CBasePlayer, m_afButtonPressed) - 3420usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_afButtonPressed) - 3492usize];
     [
         "Offset of field: CBasePlayer::m_afButtonReleased",
-    ][::std::mem::offset_of!(CBasePlayer, m_afButtonReleased) - 3424usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_afButtonReleased) - 3496usize];
     [
         "Offset of field: CBasePlayer::m_afButtonLast",
-    ][::std::mem::offset_of!(CBasePlayer, m_afButtonLast) - 3428usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_afButtonLast) - 3500usize];
     [
         "Offset of field: CBasePlayer::m_afButtonDisabled",
-    ][::std::mem::offset_of!(CBasePlayer, m_afButtonDisabled) - 3432usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_afButtonDisabled) - 3504usize];
     [
         "Offset of field: CBasePlayer::m_afButtonForced",
-    ][::std::mem::offset_of!(CBasePlayer, m_afButtonForced) - 3436usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_afButtonForced) - 3508usize];
     [
         "Offset of field: CBasePlayer::m_fOnTarget",
-    ][::std::mem::offset_of!(CBasePlayer, m_fOnTarget) - 3440usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fOnTarget) - 3512usize];
     [
         "Offset of field: CBasePlayer::m_szAnimExtension",
-    ][::std::mem::offset_of!(CBasePlayer, m_szAnimExtension) - 3441usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_szAnimExtension) - 3513usize];
     [
         "Offset of field: CBasePlayer::m_bPendingClientSettings",
-    ][::std::mem::offset_of!(CBasePlayer, m_bPendingClientSettings) - 3473usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bPendingClientSettings) - 3545usize];
     [
         "Offset of field: CBasePlayer::m_nUpdateRate",
-    ][::std::mem::offset_of!(CBasePlayer, m_nUpdateRate) - 3476usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nUpdateRate) - 3548usize];
     [
         "Offset of field: CBasePlayer::m_fLerpTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_fLerpTime) - 3480usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fLerpTime) - 3552usize];
     [
         "Offset of field: CBasePlayer::m_bLagCompensation",
-    ][::std::mem::offset_of!(CBasePlayer, m_bLagCompensation) - 3484usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bLagCompensation) - 3556usize];
     [
         "Offset of field: CBasePlayer::m_bPredictWeapons",
-    ][::std::mem::offset_of!(CBasePlayer, m_bPredictWeapons) - 3485usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bPredictWeapons) - 3557usize];
     [
         "Offset of field: CBasePlayer::m_bRequestPredict",
-    ][::std::mem::offset_of!(CBasePlayer, m_bRequestPredict) - 3486usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bRequestPredict) - 3558usize];
     [
         "Offset of field: CBasePlayer::m_Activity",
-    ][::std::mem::offset_of!(CBasePlayer, m_Activity) - 3488usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_Activity) - 3560usize];
     [
         "Offset of field: CBasePlayer::m_flLastObjectiveTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flLastObjectiveTime) - 3492usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flLastObjectiveTime) - 3564usize];
     [
         "Offset of field: CBasePlayer::m_vecAdditionalPVSOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecAdditionalPVSOrigin) - 3496usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecAdditionalPVSOrigin) - 3568usize];
     [
         "Offset of field: CBasePlayer::m_vecCameraPVSOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecCameraPVSOrigin) - 3508usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecCameraPVSOrigin) - 3580usize];
     [
         "Offset of field: CBasePlayer::m_hUseEntity",
-    ][::std::mem::offset_of!(CBasePlayer, m_hUseEntity) - 3520usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hUseEntity) - 3592usize];
     [
         "Offset of field: CBasePlayer::m_iTrain",
-    ][::std::mem::offset_of!(CBasePlayer, m_iTrain) - 3524usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iTrain) - 3596usize];
     [
         "Offset of field: CBasePlayer::m_iRespawnFrames",
-    ][::std::mem::offset_of!(CBasePlayer, m_iRespawnFrames) - 3528usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iRespawnFrames) - 3600usize];
     [
         "Offset of field: CBasePlayer::m_afPhysicsFlags",
-    ][::std::mem::offset_of!(CBasePlayer, m_afPhysicsFlags) - 3532usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_afPhysicsFlags) - 3604usize];
     [
         "Offset of field: CBasePlayer::m_hVehicle",
-    ][::std::mem::offset_of!(CBasePlayer, m_hVehicle) - 3536usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hVehicle) - 3608usize];
     [
         "Offset of field: CBasePlayer::m_iVehicleAnalogBias",
-    ][::std::mem::offset_of!(CBasePlayer, m_iVehicleAnalogBias) - 3540usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iVehicleAnalogBias) - 3612usize];
     [
         "Offset of field: CBasePlayer::m_bPauseBonusProgress",
-    ][::std::mem::offset_of!(CBasePlayer, m_bPauseBonusProgress) - 3544usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bPauseBonusProgress) - 3616usize];
     [
         "Offset of field: CBasePlayer::m_iBonusProgress",
-    ][::std::mem::offset_of!(CBasePlayer, m_iBonusProgress) - 3548usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iBonusProgress) - 3620usize];
     [
         "Offset of field: CBasePlayer::m_iBonusChallenge",
-    ][::std::mem::offset_of!(CBasePlayer, m_iBonusChallenge) - 3552usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iBonusChallenge) - 3624usize];
     [
         "Offset of field: CBasePlayer::m_lastDamageAmount",
-    ][::std::mem::offset_of!(CBasePlayer, m_lastDamageAmount) - 3556usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_lastDamageAmount) - 3628usize];
     [
         "Offset of field: CBasePlayer::m_DmgOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_DmgOrigin) - 3560usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_DmgOrigin) - 3632usize];
     [
         "Offset of field: CBasePlayer::m_DmgTake",
-    ][::std::mem::offset_of!(CBasePlayer, m_DmgTake) - 3572usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_DmgTake) - 3644usize];
     [
         "Offset of field: CBasePlayer::m_DmgSave",
-    ][::std::mem::offset_of!(CBasePlayer, m_DmgSave) - 3576usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_DmgSave) - 3648usize];
     [
         "Offset of field: CBasePlayer::m_bitsDamageType",
-    ][::std::mem::offset_of!(CBasePlayer, m_bitsDamageType) - 3580usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bitsDamageType) - 3652usize];
     [
         "Offset of field: CBasePlayer::m_bitsHUDDamage",
-    ][::std::mem::offset_of!(CBasePlayer, m_bitsHUDDamage) - 3584usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bitsHUDDamage) - 3656usize];
     [
         "Offset of field: CBasePlayer::m_flDeathTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flDeathTime) - 3588usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flDeathTime) - 3660usize];
     [
         "Offset of field: CBasePlayer::m_flDeathAnimTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flDeathAnimTime) - 3592usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flDeathAnimTime) - 3664usize];
     [
         "Offset of field: CBasePlayer::m_iObserverMode",
-    ][::std::mem::offset_of!(CBasePlayer, m_iObserverMode) - 3596usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iObserverMode) - 3668usize];
     [
         "Offset of field: CBasePlayer::m_iFOV",
-    ][::std::mem::offset_of!(CBasePlayer, m_iFOV) - 3600usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iFOV) - 3672usize];
     [
         "Offset of field: CBasePlayer::m_iDefaultFOV",
-    ][::std::mem::offset_of!(CBasePlayer, m_iDefaultFOV) - 3604usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iDefaultFOV) - 3676usize];
     [
         "Offset of field: CBasePlayer::m_iFOVStart",
-    ][::std::mem::offset_of!(CBasePlayer, m_iFOVStart) - 3608usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iFOVStart) - 3680usize];
     [
         "Offset of field: CBasePlayer::m_flFOVTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flFOVTime) - 3612usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flFOVTime) - 3684usize];
     [
         "Offset of field: CBasePlayer::m_iObserverLastMode",
-    ][::std::mem::offset_of!(CBasePlayer, m_iObserverLastMode) - 3616usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iObserverLastMode) - 3688usize];
     [
         "Offset of field: CBasePlayer::m_hObserverTarget",
-    ][::std::mem::offset_of!(CBasePlayer, m_hObserverTarget) - 3620usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hObserverTarget) - 3692usize];
     [
         "Offset of field: CBasePlayer::m_bForcedObserverMode",
-    ][::std::mem::offset_of!(CBasePlayer, m_bForcedObserverMode) - 3624usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bForcedObserverMode) - 3696usize];
     [
         "Offset of field: CBasePlayer::m_hZoomOwner",
-    ][::std::mem::offset_of!(CBasePlayer, m_hZoomOwner) - 3628usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hZoomOwner) - 3700usize];
     [
         "Offset of field: CBasePlayer::m_tbdPrev",
-    ][::std::mem::offset_of!(CBasePlayer, m_tbdPrev) - 3632usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_tbdPrev) - 3704usize];
     [
         "Offset of field: CBasePlayer::m_idrowndmg",
-    ][::std::mem::offset_of!(CBasePlayer, m_idrowndmg) - 3636usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_idrowndmg) - 3708usize];
     [
         "Offset of field: CBasePlayer::m_idrownrestored",
-    ][::std::mem::offset_of!(CBasePlayer, m_idrownrestored) - 3640usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_idrownrestored) - 3712usize];
     [
         "Offset of field: CBasePlayer::m_nPoisonDmg",
-    ][::std::mem::offset_of!(CBasePlayer, m_nPoisonDmg) - 3644usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nPoisonDmg) - 3716usize];
     [
         "Offset of field: CBasePlayer::m_nPoisonRestored",
-    ][::std::mem::offset_of!(CBasePlayer, m_nPoisonRestored) - 3648usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nPoisonRestored) - 3720usize];
     [
         "Offset of field: CBasePlayer::m_rgbTimeBasedDamage",
-    ][::std::mem::offset_of!(CBasePlayer, m_rgbTimeBasedDamage) - 3652usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_rgbTimeBasedDamage) - 3724usize];
     [
         "Offset of field: CBasePlayer::m_vphysicsCollisionState",
-    ][::std::mem::offset_of!(CBasePlayer, m_vphysicsCollisionState) - 3660usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vphysicsCollisionState) - 3732usize];
     [
         "Offset of field: CBasePlayer::m_fNextSuicideTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_fNextSuicideTime) - 3664usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fNextSuicideTime) - 3736usize];
     [
         "Offset of field: CBasePlayer::m_iSuicideCustomKillFlags",
-    ][::std::mem::offset_of!(CBasePlayer, m_iSuicideCustomKillFlags) - 3668usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iSuicideCustomKillFlags) - 3740usize];
     [
         "Offset of field: CBasePlayer::m_fDelay",
-    ][::std::mem::offset_of!(CBasePlayer, m_fDelay) - 3672usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fDelay) - 3744usize];
     [
         "Offset of field: CBasePlayer::m_fReplayEnd",
-    ][::std::mem::offset_of!(CBasePlayer, m_fReplayEnd) - 3676usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fReplayEnd) - 3748usize];
     [
         "Offset of field: CBasePlayer::m_iReplayEntity",
-    ][::std::mem::offset_of!(CBasePlayer, m_iReplayEntity) - 3680usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iReplayEntity) - 3752usize];
     [
         "Offset of field: CBasePlayer::m_CommandContext",
-    ][::std::mem::offset_of!(CBasePlayer, m_CommandContext) - 3688usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_CommandContext) - 3760usize];
     [
         "Offset of field: CBasePlayer::m_pPhysicsController",
-    ][::std::mem::offset_of!(CBasePlayer, m_pPhysicsController) - 3720usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_pPhysicsController) - 3792usize];
     [
         "Offset of field: CBasePlayer::m_pShadowStand",
-    ][::std::mem::offset_of!(CBasePlayer, m_pShadowStand) - 3728usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_pShadowStand) - 3800usize];
     [
         "Offset of field: CBasePlayer::m_pShadowCrouch",
-    ][::std::mem::offset_of!(CBasePlayer, m_pShadowCrouch) - 3736usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_pShadowCrouch) - 3808usize];
     [
         "Offset of field: CBasePlayer::m_oldOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_oldOrigin) - 3744usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_oldOrigin) - 3816usize];
     [
         "Offset of field: CBasePlayer::m_vecSmoothedVelocity",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecSmoothedVelocity) - 3756usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecSmoothedVelocity) - 3828usize];
     [
         "Offset of field: CBasePlayer::m_touchedPhysObject",
-    ][::std::mem::offset_of!(CBasePlayer, m_touchedPhysObject) - 3768usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_touchedPhysObject) - 3840usize];
     [
         "Offset of field: CBasePlayer::m_bPhysicsWasFrozen",
-    ][::std::mem::offset_of!(CBasePlayer, m_bPhysicsWasFrozen) - 3769usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bPhysicsWasFrozen) - 3841usize];
     [
         "Offset of field: CBasePlayer::m_iPlayerSound",
-    ][::std::mem::offset_of!(CBasePlayer, m_iPlayerSound) - 3772usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iPlayerSound) - 3844usize];
     [
         "Offset of field: CBasePlayer::m_iTargetVolume",
-    ][::std::mem::offset_of!(CBasePlayer, m_iTargetVolume) - 3776usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iTargetVolume) - 3848usize];
     [
         "Offset of field: CBasePlayer::m_rgItems",
-    ][::std::mem::offset_of!(CBasePlayer, m_rgItems) - 3780usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_rgItems) - 3852usize];
     [
         "Offset of field: CBasePlayer::m_flSwimTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flSwimTime) - 3800usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flSwimTime) - 3872usize];
     [
         "Offset of field: CBasePlayer::m_flDuckTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flDuckTime) - 3804usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flDuckTime) - 3876usize];
     [
         "Offset of field: CBasePlayer::m_flDuckJumpTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flDuckJumpTime) - 3808usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flDuckJumpTime) - 3880usize];
     [
         "Offset of field: CBasePlayer::m_flSuitUpdate",
-    ][::std::mem::offset_of!(CBasePlayer, m_flSuitUpdate) - 3812usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flSuitUpdate) - 3884usize];
     [
         "Offset of field: CBasePlayer::m_rgSuitPlayList",
-    ][::std::mem::offset_of!(CBasePlayer, m_rgSuitPlayList) - 3816usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_rgSuitPlayList) - 3888usize];
     [
         "Offset of field: CBasePlayer::m_iSuitPlayNext",
-    ][::std::mem::offset_of!(CBasePlayer, m_iSuitPlayNext) - 3832usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iSuitPlayNext) - 3904usize];
     [
         "Offset of field: CBasePlayer::m_rgiSuitNoRepeat",
-    ][::std::mem::offset_of!(CBasePlayer, m_rgiSuitNoRepeat) - 3836usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_rgiSuitNoRepeat) - 3908usize];
     [
         "Offset of field: CBasePlayer::m_rgflSuitNoRepeatTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_rgflSuitNoRepeatTime) - 3964usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_rgflSuitNoRepeatTime) - 4036usize];
     [
         "Offset of field: CBasePlayer::m_flgeigerRange",
-    ][::std::mem::offset_of!(CBasePlayer, m_flgeigerRange) - 4092usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flgeigerRange) - 4164usize];
     [
         "Offset of field: CBasePlayer::m_flgeigerDelay",
-    ][::std::mem::offset_of!(CBasePlayer, m_flgeigerDelay) - 4096usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flgeigerDelay) - 4168usize];
     [
         "Offset of field: CBasePlayer::m_igeigerRangePrev",
-    ][::std::mem::offset_of!(CBasePlayer, m_igeigerRangePrev) - 4100usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_igeigerRangePrev) - 4172usize];
     [
         "Offset of field: CBasePlayer::m_fInitHUD",
-    ][::std::mem::offset_of!(CBasePlayer, m_fInitHUD) - 4104usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fInitHUD) - 4176usize];
     [
         "Offset of field: CBasePlayer::m_fGameHUDInitialized",
-    ][::std::mem::offset_of!(CBasePlayer, m_fGameHUDInitialized) - 4105usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fGameHUDInitialized) - 4177usize];
     [
         "Offset of field: CBasePlayer::m_fWeapon",
-    ][::std::mem::offset_of!(CBasePlayer, m_fWeapon) - 4106usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fWeapon) - 4178usize];
     [
         "Offset of field: CBasePlayer::m_iUpdateTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_iUpdateTime) - 4108usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iUpdateTime) - 4180usize];
     [
         "Offset of field: CBasePlayer::m_iClientBattery",
-    ][::std::mem::offset_of!(CBasePlayer, m_iClientBattery) - 4112usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iClientBattery) - 4184usize];
     [
         "Offset of field: CBasePlayer::m_vecAutoAim",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecAutoAim) - 4116usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecAutoAim) - 4188usize];
     [
         "Offset of field: CBasePlayer::m_lastx",
-    ][::std::mem::offset_of!(CBasePlayer, m_lastx) - 4128usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_lastx) - 4200usize];
     [
         "Offset of field: CBasePlayer::m_lasty",
-    ][::std::mem::offset_of!(CBasePlayer, m_lasty) - 4132usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_lasty) - 4204usize];
     [
         "Offset of field: CBasePlayer::m_iFrags",
-    ][::std::mem::offset_of!(CBasePlayer, m_iFrags) - 4136usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iFrags) - 4208usize];
     [
         "Offset of field: CBasePlayer::m_iDeaths",
-    ][::std::mem::offset_of!(CBasePlayer, m_iDeaths) - 4140usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iDeaths) - 4212usize];
     [
         "Offset of field: CBasePlayer::m_flNextDecalTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flNextDecalTime) - 4144usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flNextDecalTime) - 4216usize];
     [
         "Offset of field: CBasePlayer::m_iConnected",
-    ][::std::mem::offset_of!(CBasePlayer, m_iConnected) - 4148usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iConnected) - 4220usize];
     [
         "Offset of field: CBasePlayer::m_ArmorValue",
-    ][::std::mem::offset_of!(CBasePlayer, m_ArmorValue) - 4152usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_ArmorValue) - 4224usize];
     [
         "Offset of field: CBasePlayer::m_AirFinished",
-    ][::std::mem::offset_of!(CBasePlayer, m_AirFinished) - 4156usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_AirFinished) - 4228usize];
     [
         "Offset of field: CBasePlayer::m_PainFinished",
-    ][::std::mem::offset_of!(CBasePlayer, m_PainFinished) - 4160usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_PainFinished) - 4232usize];
     [
         "Offset of field: CBasePlayer::m_iPlayerLocked",
-    ][::std::mem::offset_of!(CBasePlayer, m_iPlayerLocked) - 4164usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iPlayerLocked) - 4236usize];
     [
         "Offset of field: CBasePlayer::m_hViewModel",
-    ][::std::mem::offset_of!(CBasePlayer, m_hViewModel) - 4168usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hViewModel) - 4240usize];
     [
         "Offset of field: CBasePlayer::m_LastCmd",
-    ][::std::mem::offset_of!(CBasePlayer, m_LastCmd) - 4176usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_LastCmd) - 4248usize];
     [
         "Offset of field: CBasePlayer::m_pCurrentCommand",
-    ][::std::mem::offset_of!(CBasePlayer, m_pCurrentCommand) - 4248usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_pCurrentCommand) - 4320usize];
     [
         "Offset of field: CBasePlayer::m_iLockViewanglesTickNumber",
-    ][::std::mem::offset_of!(CBasePlayer, m_iLockViewanglesTickNumber) - 4256usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_iLockViewanglesTickNumber) - 4328usize];
     [
         "Offset of field: CBasePlayer::m_qangLockViewangles",
-    ][::std::mem::offset_of!(CBasePlayer, m_qangLockViewangles) - 4260usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_qangLockViewangles) - 4332usize];
     [
         "Offset of field: CBasePlayer::m_flStepSoundTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flStepSoundTime) - 4272usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flStepSoundTime) - 4344usize];
     [
         "Offset of field: CBasePlayer::m_bAllowInstantSpawn",
-    ][::std::mem::offset_of!(CBasePlayer, m_bAllowInstantSpawn) - 4276usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bAllowInstantSpawn) - 4348usize];
+    [
+        "Offset of field: CBasePlayer::m_hMyWearables",
+    ][::std::mem::offset_of!(CBasePlayer, m_hMyWearables) - 4352usize];
     [
         "Offset of field: CBasePlayer::m_flMaxspeed",
-    ][::std::mem::offset_of!(CBasePlayer, m_flMaxspeed) - 4280usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flMaxspeed) - 4384usize];
     [
         "Offset of field: CBasePlayer::m_flWaterJumpTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flWaterJumpTime) - 4284usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flWaterJumpTime) - 4388usize];
     [
         "Offset of field: CBasePlayer::m_vecWaterJumpVel",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecWaterJumpVel) - 4288usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecWaterJumpVel) - 4392usize];
     [
         "Offset of field: CBasePlayer::m_nImpulse",
-    ][::std::mem::offset_of!(CBasePlayer, m_nImpulse) - 4300usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nImpulse) - 4404usize];
     [
         "Offset of field: CBasePlayer::m_flSwimSoundTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flSwimSoundTime) - 4304usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flSwimSoundTime) - 4408usize];
     [
         "Offset of field: CBasePlayer::m_vecLadderNormal",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecLadderNormal) - 4308usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecLadderNormal) - 4412usize];
     [
         "Offset of field: CBasePlayer::m_flFlashTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flFlashTime) - 4320usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flFlashTime) - 4424usize];
     [
         "Offset of field: CBasePlayer::m_nDrownDmgRate",
-    ][::std::mem::offset_of!(CBasePlayer, m_nDrownDmgRate) - 4324usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nDrownDmgRate) - 4428usize];
     [
         "Offset of field: CBasePlayer::m_nNumCrouches",
-    ][::std::mem::offset_of!(CBasePlayer, m_nNumCrouches) - 4328usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nNumCrouches) - 4432usize];
     [
         "Offset of field: CBasePlayer::m_bDuckToggled",
-    ][::std::mem::offset_of!(CBasePlayer, m_bDuckToggled) - 4332usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bDuckToggled) - 4436usize];
     [
         "Offset of field: CBasePlayer::m_flForwardMove",
-    ][::std::mem::offset_of!(CBasePlayer, m_flForwardMove) - 4336usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flForwardMove) - 4440usize];
     [
         "Offset of field: CBasePlayer::m_flSideMove",
-    ][::std::mem::offset_of!(CBasePlayer, m_flSideMove) - 4340usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flSideMove) - 4444usize];
     [
         "Offset of field: CBasePlayer::m_nNumCrateHudHints",
-    ][::std::mem::offset_of!(CBasePlayer, m_nNumCrateHudHints) - 4344usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nNumCrateHudHints) - 4448usize];
     [
         "Offset of field: CBasePlayer::m_vForcedOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_vForcedOrigin) - 4348usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vForcedOrigin) - 4452usize];
     [
         "Offset of field: CBasePlayer::m_bForceOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_bForceOrigin) - 4360usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bForceOrigin) - 4464usize];
     [
         "Offset of field: CBasePlayer::m_nTickBase",
-    ][::std::mem::offset_of!(CBasePlayer, m_nTickBase) - 4364usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nTickBase) - 4468usize];
     [
         "Offset of field: CBasePlayer::m_bGamePaused",
-    ][::std::mem::offset_of!(CBasePlayer, m_bGamePaused) - 4368usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bGamePaused) - 4472usize];
     [
         "Offset of field: CBasePlayer::m_fLastPlayerTalkTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_fLastPlayerTalkTime) - 4372usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fLastPlayerTalkTime) - 4476usize];
     [
         "Offset of field: CBasePlayer::m_flPlayerTalkAvailableMessagesTier1",
     ][::std::mem::offset_of!(CBasePlayer, m_flPlayerTalkAvailableMessagesTier1)
-        - 4376usize];
+        - 4480usize];
     [
         "Offset of field: CBasePlayer::m_flPlayerTalkAvailableMessagesTier2",
     ][::std::mem::offset_of!(CBasePlayer, m_flPlayerTalkAvailableMessagesTier2)
-        - 4380usize];
+        - 4484usize];
     [
         "Offset of field: CBasePlayer::m_fLastPlayerTalkAttemptTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_fLastPlayerTalkAttemptTime) - 4384usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_fLastPlayerTalkAttemptTime) - 4488usize];
     [
         "Offset of field: CBasePlayer::m_hLastWeapon",
-    ][::std::mem::offset_of!(CBasePlayer, m_hLastWeapon) - 4388usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hLastWeapon) - 4492usize];
     [
         "Offset of field: CBasePlayer::m_SimulatedByThisPlayer",
-    ][::std::mem::offset_of!(CBasePlayer, m_SimulatedByThisPlayer) - 4392usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_SimulatedByThisPlayer) - 4496usize];
     [
         "Offset of field: CBasePlayer::m_flOldPlayerZ",
-    ][::std::mem::offset_of!(CBasePlayer, m_flOldPlayerZ) - 4424usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flOldPlayerZ) - 4528usize];
     [
         "Offset of field: CBasePlayer::m_flOldPlayerViewOffsetZ",
-    ][::std::mem::offset_of!(CBasePlayer, m_flOldPlayerViewOffsetZ) - 4428usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flOldPlayerViewOffsetZ) - 4532usize];
     [
         "Offset of field: CBasePlayer::m_bPlayerUnderwater",
-    ][::std::mem::offset_of!(CBasePlayer, m_bPlayerUnderwater) - 4432usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bPlayerUnderwater) - 4536usize];
     [
         "Offset of field: CBasePlayer::m_hViewEntity",
-    ][::std::mem::offset_of!(CBasePlayer, m_hViewEntity) - 4436usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hViewEntity) - 4540usize];
     [
         "Offset of field: CBasePlayer::m_hConstraintEntity",
-    ][::std::mem::offset_of!(CBasePlayer, m_hConstraintEntity) - 4440usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_hConstraintEntity) - 4544usize];
     [
         "Offset of field: CBasePlayer::m_vecConstraintCenter",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecConstraintCenter) - 4444usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecConstraintCenter) - 4548usize];
     [
         "Offset of field: CBasePlayer::m_flConstraintRadius",
-    ][::std::mem::offset_of!(CBasePlayer, m_flConstraintRadius) - 4456usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flConstraintRadius) - 4560usize];
     [
         "Offset of field: CBasePlayer::m_flConstraintWidth",
-    ][::std::mem::offset_of!(CBasePlayer, m_flConstraintWidth) - 4460usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flConstraintWidth) - 4564usize];
     [
         "Offset of field: CBasePlayer::m_flConstraintSpeedFactor",
-    ][::std::mem::offset_of!(CBasePlayer, m_flConstraintSpeedFactor) - 4464usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flConstraintSpeedFactor) - 4568usize];
     [
         "Offset of field: CBasePlayer::m_szNetname",
-    ][::std::mem::offset_of!(CBasePlayer, m_szNetname) - 4468usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_szNetname) - 4572usize];
     [
         "Offset of field: CBasePlayer::m_flLaggedMovementValue",
-    ][::std::mem::offset_of!(CBasePlayer, m_flLaggedMovementValue) - 4500usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flLaggedMovementValue) - 4604usize];
     [
         "Offset of field: CBasePlayer::m_vNewVPhysicsPosition",
-    ][::std::mem::offset_of!(CBasePlayer, m_vNewVPhysicsPosition) - 4504usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vNewVPhysicsPosition) - 4608usize];
     [
         "Offset of field: CBasePlayer::m_vNewVPhysicsVelocity",
-    ][::std::mem::offset_of!(CBasePlayer, m_vNewVPhysicsVelocity) - 4516usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vNewVPhysicsVelocity) - 4620usize];
     [
         "Offset of field: CBasePlayer::m_vecVehicleViewOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecVehicleViewOrigin) - 4528usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecVehicleViewOrigin) - 4632usize];
     [
         "Offset of field: CBasePlayer::m_vecVehicleViewAngles",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecVehicleViewAngles) - 4540usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecVehicleViewAngles) - 4644usize];
     [
         "Offset of field: CBasePlayer::m_flVehicleViewFOV",
-    ][::std::mem::offset_of!(CBasePlayer, m_flVehicleViewFOV) - 4552usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flVehicleViewFOV) - 4656usize];
     [
         "Offset of field: CBasePlayer::m_nVehicleViewSavedFrame",
-    ][::std::mem::offset_of!(CBasePlayer, m_nVehicleViewSavedFrame) - 4556usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nVehicleViewSavedFrame) - 4660usize];
     [
         "Offset of field: CBasePlayer::m_vecPreviouslyPredictedOrigin",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecPreviouslyPredictedOrigin) - 4560usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecPreviouslyPredictedOrigin) - 4664usize];
     [
         "Offset of field: CBasePlayer::m_nBodyPitchPoseParam",
-    ][::std::mem::offset_of!(CBasePlayer, m_nBodyPitchPoseParam) - 4572usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_nBodyPitchPoseParam) - 4676usize];
     [
         "Offset of field: CBasePlayer::m_szLastPlaceName",
-    ][::std::mem::offset_of!(CBasePlayer, m_szLastPlaceName) - 4576usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_szLastPlaceName) - 4680usize];
     [
         "Offset of field: CBasePlayer::m_szNetworkIDString",
-    ][::std::mem::offset_of!(CBasePlayer, m_szNetworkIDString) - 4594usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_szNetworkIDString) - 4698usize];
     [
         "Offset of field: CBasePlayer::m_PlayerInfo",
-    ][::std::mem::offset_of!(CBasePlayer, m_PlayerInfo) - 4664usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_PlayerInfo) - 4768usize];
     [
         "Offset of field: CBasePlayer::m_surfaceProps",
-    ][::std::mem::offset_of!(CBasePlayer, m_surfaceProps) - 4688usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_surfaceProps) - 4792usize];
     [
         "Offset of field: CBasePlayer::m_pSurfaceData",
-    ][::std::mem::offset_of!(CBasePlayer, m_pSurfaceData) - 4696usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_pSurfaceData) - 4800usize];
     [
         "Offset of field: CBasePlayer::m_surfaceFriction",
-    ][::std::mem::offset_of!(CBasePlayer, m_surfaceFriction) - 4704usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_surfaceFriction) - 4808usize];
     [
         "Offset of field: CBasePlayer::m_chTextureType",
-    ][::std::mem::offset_of!(CBasePlayer, m_chTextureType) - 4708usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_chTextureType) - 4812usize];
     [
         "Offset of field: CBasePlayer::m_chPreviousTextureType",
-    ][::std::mem::offset_of!(CBasePlayer, m_chPreviousTextureType) - 4709usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_chPreviousTextureType) - 4813usize];
     [
         "Offset of field: CBasePlayer::m_bSinglePlayerGameEnding",
-    ][::std::mem::offset_of!(CBasePlayer, m_bSinglePlayerGameEnding) - 4710usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bSinglePlayerGameEnding) - 4814usize];
     [
         "Offset of field: CBasePlayer::m_bhasHaptics",
-    ][::std::mem::offset_of!(CBasePlayer, m_bhasHaptics) - 4711usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_bhasHaptics) - 4815usize];
     [
         "Offset of field: CBasePlayer::m_autoKickDisabled",
-    ][::std::mem::offset_of!(CBasePlayer, m_autoKickDisabled) - 4712usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_autoKickDisabled) - 4816usize];
     [
         "Offset of field: CBasePlayer::m_StepSoundCache",
-    ][::std::mem::offset_of!(CBasePlayer, m_StepSoundCache) - 4716usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_StepSoundCache) - 4820usize];
     [
         "Offset of field: CBasePlayer::m_vecPlayerSimInfo",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecPlayerSimInfo) - 5056usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecPlayerSimInfo) - 5160usize];
     [
         "Offset of field: CBasePlayer::m_vecPlayerCmdInfo",
-    ][::std::mem::offset_of!(CBasePlayer, m_vecPlayerCmdInfo) - 5096usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_vecPlayerCmdInfo) - 5200usize];
     [
         "Offset of field: CBasePlayer::m_weaponFiredTimer",
-    ][::std::mem::offset_of!(CBasePlayer, m_weaponFiredTimer) - 5136usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_weaponFiredTimer) - 5240usize];
     [
         "Offset of field: CBasePlayer::m_flLastUserCommandTime",
-    ][::std::mem::offset_of!(CBasePlayer, m_flLastUserCommandTime) - 5140usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flLastUserCommandTime) - 5244usize];
     [
         "Offset of field: CBasePlayer::m_flAchievementTimes",
-    ][::std::mem::offset_of!(CBasePlayer, m_flAchievementTimes) - 5144usize];
+    ][::std::mem::offset_of!(CBasePlayer, m_flAchievementTimes) - 5248usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

@@ -818,4 +818,9 @@ impl float16_float32bits__bindgen_ty_1 {
         }
     }
 }
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct float16_with_assign {
+    pub _base: float16,
+}
 include!("layout_assertions.rs");

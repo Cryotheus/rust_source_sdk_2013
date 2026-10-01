@@ -20,16 +20,12 @@ pub const PlayerConnectedState_PlayerConnected: PlayerConnectedState = 0;
 pub const PlayerConnectedState_PlayerDisconnected: PlayerConnectedState = 2;
 pub const PlayerConnectedState_PlayerDisconnecting: PlayerConnectedState = 1;
 #[repr(C)]
-#[derive(Debug)]
-pub struct CAI_Expresser {
-    _unused: [u8; 0],
-}
-#[repr(C)]
 pub struct CBasePlayer {
     pub _base: CBaseCombatCharacter,
     pub m_nMovementTicksForUserCmdProcessingRemaining: ::std::os::raw::c_int,
     pub m_StuckLast: ::std::os::raw::c_int,
     pub m_Local: CBasePlayer_NetworkVar_m_Local,
+    pub m_AttributeList: CBasePlayer_NetworkVar_m_AttributeList,
     pub m_hTriggerSoundscapeList: CUtlVector<EHANDLE, CUtlMemory<CHandle>>,
     pub pl: CBasePlayer_NetworkVar_pl,
     pub m_nButtons: ::std::os::raw::c_int,
@@ -133,6 +129,7 @@ pub struct CBasePlayer {
     pub m_qangLockViewangles: QAngle,
     pub m_flStepSoundTime: f32,
     pub m_bAllowInstantSpawn: bool,
+    pub m_hMyWearables: CUtlVector<CHandle, CUtlMemory<CHandle>>,
     pub m_flMaxspeed: CNetworkVarBase<f32>,
     pub m_flWaterJumpTime: f32,
     pub m_vecWaterJumpVel: Vector,
@@ -464,6 +461,7 @@ pub struct CBasePlayer__bindgen_vtable {
         arg2: *mut CBaseEntity,
     ) -> bool,
     pub CBasePlayer_IsNPC: unsafe extern "C" fn(arg1: *const CBasePlayer) -> bool,
+    pub CBasePlayer_IsNextBot: unsafe extern "C" fn(arg1: *const CBasePlayer) -> bool,
     pub CBasePlayer_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CBasePlayer,
     ) -> *mut CBaseCombatCharacter,
@@ -502,6 +500,13 @@ pub struct CBasePlayer__bindgen_vtable {
     pub CBasePlayer_IsBaseObject: unsafe extern "C" fn(arg1: *const CBasePlayer) -> bool,
     pub CBasePlayer_IsBaseTrain: unsafe extern "C" fn(arg1: *const CBasePlayer) -> bool,
     pub CBasePlayer_IsCombatItem: unsafe extern "C" fn(arg1: *const CBasePlayer) -> bool,
+    pub CBasePlayer_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBasePlayer,
+    ) -> bool,
+    pub CBasePlayer_IsFuncLOD: unsafe extern "C" fn(arg1: *const CBasePlayer) -> bool,
+    pub CBasePlayer_IsBaseProjectile: unsafe extern "C" fn(
+        arg1: *const CBasePlayer,
+    ) -> bool,
     pub CBasePlayer_IsBaseCombatWeapon: unsafe extern "C" fn(
         arg1: *const CBasePlayer,
     ) -> bool,
@@ -895,6 +900,9 @@ pub struct CBasePlayer__bindgen_vtable {
     pub CBasePlayer_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CBasePlayer,
     ) -> bool,
+    pub CBasePlayer_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBasePlayer,
+    ) -> f32,
     pub CBasePlayer_BCanCallVote: unsafe extern "C" fn(arg1: *mut CBasePlayer) -> bool,
     pub CBasePlayer_GetIdealSpeed: unsafe extern "C" fn(arg1: *const CBasePlayer) -> f32,
     pub CBasePlayer_GetIdealAccel: unsafe extern "C" fn(arg1: *const CBasePlayer) -> f32,
@@ -1427,6 +1435,9 @@ pub struct CBasePlayer__bindgen_vtable {
         arg1: *mut CBasePlayer,
         arg2: *mut INextBot,
     ),
+    pub CBasePlayer_GetBossType: unsafe extern "C" fn(
+        arg1: *const CBasePlayer,
+    ) -> HalloweenBossType,
     pub CBasePlayer_NetworkStateChanged_m_iAmmo1: unsafe extern "C" fn(
         arg1: *mut CBasePlayer,
         arg2: *mut ::std::os::raw::c_void,
@@ -1790,6 +1801,14 @@ pub struct CBasePlayer__bindgen_vtable {
     pub CBasePlayer_ShouldAnnounceAchievement: unsafe extern "C" fn(
         arg1: *mut CBasePlayer,
     ) -> bool,
+    pub CBasePlayer_EquipWearable: unsafe extern "C" fn(
+        arg1: *mut CBasePlayer,
+        arg2: *mut CEconWearable,
+    ),
+    pub CBasePlayer_RemoveWearable: unsafe extern "C" fn(
+        arg1: *mut CBasePlayer,
+        arg2: *mut CEconWearable,
+    ),
     pub CBasePlayer_IsFollowingPhysics: unsafe extern "C" fn(
         arg1: *mut CBasePlayer,
     ) -> bool,
@@ -1868,6 +1887,11 @@ pub struct CBasePlayer__bindgen_vtable {
 #[derive(Debug, Copy, Clone)]
 pub struct CBasePlayer_NetworkVar_m_ArmorValue {
     pub _address: u8,
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct CBasePlayer_NetworkVar_m_AttributeList {
+    pub _base: CAttributeList,
 }
 #[repr(C)]
 pub struct CBasePlayer_NetworkVar_m_Local {
@@ -2025,6 +2049,55 @@ pub struct CPlayerInfo {
     pub _base: IBotController,
     pub _base_1: IPlayerInfo,
     pub m_pParent: *mut CBasePlayer,
+}
+#[repr(C)]
+pub struct CPlayerInfo__bindgen_vtable {
+    pub CPlayerInfo_SetAbsOrigin: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *mut Vector,
+    ),
+    pub CPlayerInfo_SetAbsAngles: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *mut QAngle,
+    ),
+    pub CPlayerInfo_SetLocalOrigin: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *const Vector,
+    ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CPlayerInfo_GetLocalOrigin: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    pub CPlayerInfo_SetLocalAngles: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *const QAngle,
+    ),
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CPlayerInfo_GetLocalAngles: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
+    pub CPlayerInfo_RemoveAllItems: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: bool,
+    ),
+    pub CPlayerInfo_SetActiveWeapon: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *const ::std::os::raw::c_char,
+    ),
+    pub CPlayerInfo_IsEFlagSet: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CPlayerInfo_RunPlayerMove: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *mut CBotCmd,
+    ),
+    pub CPlayerInfo_SetLastUserCommand: unsafe extern "C" fn(
+        arg1: *mut CPlayerInfo,
+        arg2: *const CBotCmd,
+    ),
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

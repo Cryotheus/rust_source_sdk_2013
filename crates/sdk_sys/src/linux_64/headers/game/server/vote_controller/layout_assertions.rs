@@ -108,6 +108,6 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CVoteController"][::std::mem::size_of::<CVoteController>() - 1432usize];
+    ["Size of CVoteController"][::std::mem::size_of::<CVoteController>() - 1448usize];
     ["Alignment of CVoteController"][::std::mem::align_of::<CVoteController>() - 8usize];
 };

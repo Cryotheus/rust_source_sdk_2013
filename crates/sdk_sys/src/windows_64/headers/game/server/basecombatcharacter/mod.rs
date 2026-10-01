@@ -35,6 +35,7 @@ pub struct CBaseCombatCharacter {
     pub m_bForceServerRagdoll: bool,
     pub m_bPreventWeaponPickup: bool,
     pub m_flNextAttack: CNetworkVarBase<f32>,
+    pub m_bGlowEnabled: CNetworkVarBase<bool>,
     pub m_eHull: Hull_t,
     pub m_bloodColor: ::std::os::raw::c_int,
     pub m_flFieldOfView: f32,
@@ -347,6 +348,9 @@ pub struct CBaseCombatCharacter__bindgen_vtable {
     pub CBaseCombatCharacter_IsNPC: unsafe extern "C" fn(
         arg1: *const CBaseCombatCharacter,
     ) -> bool,
+    pub CBaseCombatCharacter_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CBaseCombatCharacter,
+    ) -> bool,
     pub CBaseCombatCharacter_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CBaseCombatCharacter,
     ) -> *mut CBaseCombatCharacter,
@@ -399,6 +403,15 @@ pub struct CBaseCombatCharacter__bindgen_vtable {
         arg1: *const CBaseCombatCharacter,
     ) -> bool,
     pub CBaseCombatCharacter_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CBaseCombatCharacter,
+    ) -> bool,
+    pub CBaseCombatCharacter_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBaseCombatCharacter,
+    ) -> bool,
+    pub CBaseCombatCharacter_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CBaseCombatCharacter,
+    ) -> bool,
+    pub CBaseCombatCharacter_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CBaseCombatCharacter,
     ) -> bool,
     pub CBaseCombatCharacter_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -821,6 +834,9 @@ pub struct CBaseCombatCharacter__bindgen_vtable {
     pub CBaseCombatCharacter_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CBaseCombatCharacter,
     ) -> bool,
+    pub CBaseCombatCharacter_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBaseCombatCharacter,
+    ) -> f32,
     pub CBaseCombatCharacter_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CBaseCombatCharacter,
     ) -> bool,
@@ -1395,6 +1411,9 @@ pub struct CBaseCombatCharacter__bindgen_vtable {
         arg1: *mut CBaseCombatCharacter,
         arg2: *mut INextBot,
     ),
+    pub CBaseCombatCharacter_GetBossType: unsafe extern "C" fn(
+        arg1: *const CBaseCombatCharacter,
+    ) -> HalloweenBossType,
     pub CBaseCombatCharacter_NetworkStateChanged_m_iAmmo1: unsafe extern "C" fn(
         arg1: *mut CBaseCombatCharacter,
         arg2: *mut ::std::os::raw::c_void,
@@ -1408,6 +1427,11 @@ pub struct CBaseCombatCharacter__bindgen_vtable {
 pub struct CBaseCombatCharacter_DamageHistory {
     pub team: ::std::os::raw::c_int,
     pub interval: IntervalTimer,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CBaseCombatCharacter_NetworkVar_m_bGlowEnabled {
+    pub _address: u8,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

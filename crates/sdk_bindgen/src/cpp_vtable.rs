@@ -10,7 +10,7 @@
 //! `CEntityOutputTemplate<class Vector, FIELD_VECTOR>` and the primary
 //! `CEntityOutputTemplate` pattern are distinct records. Anything whose primary
 //! vtable cannot be derived faithfully (template-dependent layouts, several
-//! polymorphic bases, virtual bases, covariant overriders) is reported as
+//! virtual bases, covariant overriders) is reported as
 //! [`VtableModel::Unsupported`] rather than guessed.
 #![allow(dead_code, non_upper_case_globals)]
 
@@ -74,7 +74,10 @@ pub(crate) enum BaseTarget {
 	/// collected under [`BaseRecord::qualified_name`]; an implicit
 	/// instantiation is only described by its template or partial
 	/// specialization, collected under `pattern`.
-	Specialization { pattern: String },
+	Specialization {
+		pattern: String,
+		arguments: Vec<Option<BaseRecord>>,
+	},
 
 	/// A template parameter, or a specialization which depends on one.
 	Dependent,
@@ -232,9 +235,13 @@ struct Cursor(CXCursor);
 impl Cursor {
 	unsafe fn collect_base(self) -> BaseRecord {
 		let base_type = unsafe { self.cursor_type() };
+		let is_virtual = unsafe { clang_isVirtualBase(self.0) != 0 };
+		unsafe { Self::collect_base_type(base_type, is_virtual) }
+	}
+
+	unsafe fn collect_base_type(base_type: Type, is_virtual: bool) -> BaseRecord {
 		let canonical_type = unsafe { base_type.canonical() };
 		let type_spelling = unsafe { base_type.spelling() };
-		let is_virtual = unsafe { clang_isVirtualBase(self.0) != 0 };
 
 		// Inside a template pattern a base may be a template parameter or a
 		// specialization that depends on one. Neither names a record yet.
@@ -257,6 +264,16 @@ impl Cursor {
 		let target = if unsafe { declaration.is_template_specialization() } {
 			BaseTarget::Specialization {
 				pattern: unsafe { declaration.specialized_template().qualified_name() },
+				arguments: (0..unsafe { clang_Type_getNumTemplateArguments(canonical_type.0) }
+					.max(0) as u32)
+					.map(|index| {
+						let argument = Type(unsafe {
+							clang_Type_getTemplateArgumentAsType(canonical_type.0, index)
+						});
+						(argument.0.kind != CXType_Invalid)
+							.then(|| unsafe { Self::collect_base_type(argument, false) })
+					})
+					.collect(),
 			}
 		} else {
 			BaseTarget::Record
@@ -280,7 +297,15 @@ impl Cursor {
 		}
 
 		let qualified_name = unsafe { self.qualified_name() };
-		let mut children = RecordChildren::default();
+		let mut children = RecordChildren {
+			collect_nonvirtual: unsafe {
+				matches!(
+					self.kind(),
+					CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization
+				)
+			},
+			..RecordChildren::default()
+		};
 		unsafe {
 			clang_visitChildren(
 				self.0,
@@ -301,7 +326,9 @@ impl Cursor {
 			template: unsafe { self.template_role(&children) },
 			bases: children.bases,
 			virtual_methods: children.virtual_methods,
+			nonvirtual_methods: children.nonvirtual_methods,
 			member_names: children.member_names,
+			template_parameters: children.template_parameters,
 		}))
 	}
 
@@ -317,6 +344,7 @@ impl Cursor {
 			format!("{parent_name}::{name}")
 		};
 		let method_type = unsafe { self.cursor_type() };
+		let canonical_method_type = unsafe { method_type.canonical() };
 		let argument_count = unsafe { clang_Cursor_getNumArguments(self.0) };
 		let mut parameters = Vec::with_capacity(argument_count.max(0) as usize);
 		for index in 0..argument_count.max(0) as u32 {
@@ -325,6 +353,9 @@ impl Cursor {
 			let type_spelling = unsafe { argument_type.globally_qualified_spelling() };
 			parameters.push(Parameter {
 				name: unsafe { argument.spelling() },
+				canonical_type: unsafe {
+					Type(clang_getArgType(canonical_method_type.0, index)).spelling()
+				},
 				record: unsafe { argument_type.by_value_record(&type_spelling) },
 				type_spelling,
 			});
@@ -365,6 +396,23 @@ impl Cursor {
 					)
 				}
 			};
+		// libclang's clang_isVolatileQualifiedType does not expose the cv bits
+		// stored inside a FunctionProtoType. Its canonical spelling does. Remove
+		// occurrences belonging to the result and parameters, leaving only the
+		// member-function qualifier (also handles nested function-pointer types).
+		let volatile_tokens = |spelling: &str| {
+			spelling
+				.split(|character: char| !is_cpp_identifier_character(character))
+				.filter(|token| *token == "volatile")
+				.count()
+		};
+		let nested_volatile = volatile_tokens(&canonical_result_type)
+			+ parameters
+				.iter()
+				.map(|parameter| volatile_tokens(&parameter.canonical_type))
+				.sum::<usize>();
+		let is_volatile =
+			volatile_tokens(&unsafe { canonical_method_type.spelling() }) > nested_volatile;
 
 		Ok(VirtualMethod {
 			usr: unsafe { self.usr() },
@@ -372,8 +420,11 @@ impl Cursor {
 			qualified_name,
 			display_name: unsafe { self.display_name() },
 			kind,
+			declaration_index: 0,
 			is_const: kind == VirtualMethodKind::Method
 				&& unsafe { clang_CXXMethod_isConst(self.0) != 0 },
+			is_volatile,
+			ref_qualifier: unsafe { clang_Type_getCXXRefQualifier(method_type.0) },
 			result_type,
 			canonical_result_type,
 			result_record,
@@ -704,6 +755,7 @@ pub(crate) struct MethodReference {
 pub(crate) struct Parameter {
 	pub name: String,
 	pub type_spelling: String,
+	pub canonical_type: String,
 
 	/// The record this parameter takes by value, if any.
 	pub record: Option<RecordValue>,
@@ -729,10 +781,15 @@ pub(crate) struct Record {
 	pub template: TemplateRole,
 	pub bases: Vec<BaseRecord>,
 	pub virtual_methods: Vec<VirtualMethod>,
+	/// Pattern methods may become virtual by overriding a dependent base even
+	/// when their declaration omits the `virtual` keyword.
+	pub nonvirtual_methods: Vec<VirtualMethod>,
 
 	/// Names of the record's own member declarations, in order of first
 	/// declaration. The Microsoft ABI groups new virtual overloads by it.
 	pub member_names: Vec<String>,
+	/// Positional template parameter names used to bind concrete direct bases.
+	pub template_parameters: Vec<String>,
 }
 
 /// The properties of a class which decide how the C++ ABIs pass it by value,
@@ -784,7 +841,11 @@ impl RecordCallTraits {
 struct RecordChildren {
 	bases: Vec<BaseRecord>,
 	virtual_methods: Vec<VirtualMethod>,
+	nonvirtual_methods: Vec<VirtualMethod>,
+	collect_nonvirtual: bool,
+	next_declaration_index: usize,
 	member_names: Vec<String>,
+	template_parameters: Vec<String>,
 	has_members: bool,
 	error: Option<CppVtableError>,
 }
@@ -824,7 +885,7 @@ impl RecordIndex {
 
 			BaseTarget::Record => self.record_slots(&base.qualified_name, abi, active),
 
-			BaseTarget::Specialization { pattern } => match self
+			BaseTarget::Specialization { pattern, arguments } => match self
 				.records
 				.get(&base.qualified_name)
 				.map(|record| record.template)
@@ -837,19 +898,152 @@ impl RecordIndex {
 					self.record_slots(&base.qualified_name, abi, active)
 				}
 
-				_ => self.instantiation_slots(pattern, abi, active),
+				_ => self.concrete_instantiation_slots(base, pattern, arguments, abi, active),
 			},
 		}
 	}
 
+	/// libclang exposes concrete specialization type arguments, but does not
+	/// visit implicit class-template members. Reuse a pattern only when its
+	/// virtual signatures are independent of those arguments; substitute each
+	/// direct parameter base with its concrete Clang type. Dependent signatures
+	/// and nested dependent base expressions remain explicitly unsupported.
+	fn concrete_instantiation_slots(
+		&self,
+		base: &BaseRecord,
+		pattern_name: &str,
+		arguments: &[Option<BaseRecord>],
+		abi: CppAbi,
+		active: &mut BTreeSet<String>,
+	) -> Result<Slots, CppVtableError> {
+		let Some(pattern) = self.records.get(pattern_name) else {
+			return self.instantiation_slots(pattern_name, abi, active);
+		};
+		if pattern.virtual_methods.is_empty()
+			&& !pattern
+				.bases
+				.iter()
+				.any(|base| matches!(base.target, BaseTarget::Dependent))
+		{
+			return self.instantiation_slots(pattern_name, abi, active);
+		}
+		if pattern.template_parameters.len() != arguments.len() {
+			return Ok(Slots::Unknown(format!(
+				"template arguments for `{}` are not fully exposed",
+				base.qualified_name
+			)));
+		}
+		for method in &pattern.virtual_methods {
+			if pattern.template_parameters.iter().any(|parameter| {
+				[
+					method.result_type.as_str(),
+					method.canonical_result_type.as_str(),
+				]
+				.into_iter()
+				.chain(
+					method
+						.parameters
+						.iter()
+						.flat_map(|p| [p.type_spelling.as_str(), p.canonical_type.as_str()]),
+				)
+				.any(|spelling| {
+					replace_unqualified_identifier(spelling, parameter, "__crys_dependent")
+						!= spelling
+				})
+			}) {
+				return Ok(Slots::Unknown(format!(
+					"template `{pattern_name}` has dependent virtual signatures"
+				)));
+			}
+		}
+		let mut concrete = pattern.clone();
+		concrete.qualified_name = base.qualified_name.clone();
+		concrete.template = TemplateRole::ExplicitInstantiation;
+		for inherited in &mut concrete.bases {
+			if matches!(inherited.target, BaseTarget::Dependent) {
+				let Some(index) = pattern
+					.template_parameters
+					.iter()
+					.position(|name| name == &inherited.type_spelling)
+				else {
+					return Ok(Slots::Unknown(format!(
+						"template `{pattern_name}` has a dependent base expression"
+					)));
+				};
+				let Some(argument) = &arguments[index] else {
+					return Ok(Slots::Unknown(format!(
+						"template `{pattern_name}` has a non-type base argument"
+					)));
+				};
+				let is_virtual = inherited.is_virtual;
+				*inherited = argument.clone();
+				inherited.is_virtual = is_virtual;
+			}
+		}
+		let mut inherited_methods = Vec::new();
+		for inherited in &concrete.bases {
+			match self.base_slots(inherited, abi, active)? {
+				Slots::Known(tables) => inherited_methods.extend(
+					tables
+						.primary
+						.into_iter()
+						.chain(tables.secondary)
+						.map(|slot| slot.method),
+				),
+				Slots::Unknown(reason) => return Ok(Slots::Unknown(reason)),
+			}
+		}
+		for method in &pattern.nonvirtual_methods {
+			if inherited_methods
+				.iter()
+				.any(|inherited| inherited.name == method.name)
+				&& pattern.template_parameters.iter().any(|parameter| {
+					[
+						method.canonical_result_type.as_str(),
+						method.result_type.as_str(),
+					]
+					.into_iter()
+					.chain(
+						method
+							.parameters
+							.iter()
+							.flat_map(|p| [p.canonical_type.as_str(), p.type_spelling.as_str()]),
+					)
+					.any(|spelling| {
+						replace_unqualified_identifier(spelling, parameter, "__crys_dependent")
+							!= spelling
+					})
+				}) {
+				return Ok(Slots::Unknown(format!(
+					"template `{pattern_name}` has a potentially virtual dependent signature"
+				)));
+			}
+			if inherited_methods
+				.iter()
+				.any(|inherited| same_method_signature(method, inherited))
+			{
+				concrete.virtual_methods.push(method.clone());
+			}
+		}
+		concrete
+			.virtual_methods
+			.sort_by_key(|method| method.declaration_index);
+		for method in &mut concrete.virtual_methods {
+			method.qualified_name = format!("{}::{}", concrete.qualified_name, method.name);
+		}
+		Self::guarded(active, &base.qualified_name, |active| {
+			self.derived_slots(&concrete, &concrete.bases, Some(&concrete), abi, active)
+		})
+	}
+
 	/// Combines the bases' primary vtables and applies `own` virtual methods.
 	///
-	/// Exactly one base may be polymorphic: its vtable is the record's primary
-	/// vtable under both ABIs. Several polymorphic bases need secondary
-	/// vtables, which a single probe cannot describe.
+	/// The first nonvirtual polymorphic base supplies the primary address
+	/// point. Secondary slots are retained as override metadata: Itanium adds
+	/// their overriders to the primary table, while MSVC leaves them secondary.
 	fn derived_slots(
 		&self,
-		record: &Record,
+		_record: &Record,
 		bases: &[BaseRecord],
 		own: Option<&Record>,
 		abi: CppAbi,
@@ -857,7 +1051,8 @@ impl RecordIndex {
 	) -> Result<Slots, CppVtableError> {
 		const VIRTUAL_BASES: &str = "virtual base classes are not modeled";
 
-		let mut primary = None::<Vec<VtableSlot>>;
+		let mut tables = VtableSet::default();
+		let mut has_primary = false;
 		let mut has_virtual_base = false;
 
 		for base in bases {
@@ -872,41 +1067,38 @@ impl RecordIndex {
 				// A virtual base without virtual functions adds no function slots,
 				// but it does change where the vtable pointers live.
 				Slots::Known(slots) if base.is_virtual => {
-					if !slots.is_empty() {
+					if !slots.primary.is_empty() {
 						return Ok(Slots::Unknown(VIRTUAL_BASES.to_owned()));
 					}
 
 					has_virtual_base = true;
 				}
 
-				Slots::Known(slots) if slots.is_empty() => {}
+				Slots::Known(slots) if slots.primary.is_empty() => {}
 
 				Slots::Known(slots) => {
-					if primary.is_some() {
-						return Ok(Slots::Unknown(format!(
-							"`{}` has more than one polymorphic base class",
-							record.qualified_name
-						)));
+					if has_primary {
+						tables.secondary.extend(slots.primary);
+					} else {
+						tables.primary = slots.primary;
+						has_primary = true;
 					}
-
-					primary = Some(slots);
+					tables.secondary.extend(slots.secondary);
 				}
 			}
 		}
 
-		let mut slots = primary.unwrap_or_default();
-
 		if let Some(own) = own
-			&& let Some(reason) = apply_record_methods(&mut slots, own, abi)?
+			&& let Some(reason) = apply_record_methods(&mut tables, own, abi)?
 		{
 			return Ok(Slots::Unknown(reason));
 		}
 
-		if has_virtual_base && !slots.is_empty() {
+		if has_virtual_base && !tables.primary.is_empty() {
 			return Ok(Slots::Unknown(VIRTUAL_BASES.to_owned()));
 		}
 
-		Ok(Slots::Known(slots))
+		Ok(Slots::Known(tables))
 	}
 
 	/// Returns whether `qualified_name` declares or inherits any virtual slots.
@@ -977,7 +1169,7 @@ impl RecordIndex {
 			TemplateRole::Pattern | TemplateRole::DependentMember => {
 				return Ok(
 					match self.instantiation_slots(qualified_name, abi, active)? {
-						Slots::Known(slots) if slots.is_empty() => Slots::Known(slots),
+						Slots::Known(slots) if slots.primary.is_empty() => Slots::Known(slots),
 
 						Slots::Known(_) | Slots::Unknown(_) => Slots::Unknown(format!(
 							"`{qualified_name}` depends on template arguments"
@@ -1046,12 +1238,12 @@ impl RecordIndex {
 		let mut active = BTreeSet::new();
 
 		Ok(match self.record_slots(qualified_name, abi, &mut active)? {
-			Slots::Known(slots) if slots.is_empty() => VtableModel::NotPolymorphic,
+			Slots::Known(slots) if slots.primary.is_empty() => VtableModel::NotPolymorphic,
 
 			Slots::Known(slots) => VtableModel::Modeled(VtableLayout {
 				record: qualified_name.to_owned(),
 				abi,
-				slots,
+				slots: slots.primary,
 			}),
 
 			Slots::Unknown(reason) => VtableModel::Unsupported { reason },
@@ -1089,8 +1281,16 @@ pub(crate) struct RecordValue {
 
 /// Primary-vtable slots, or why they are unknown.
 enum Slots {
-	Known(Vec<VtableSlot>),
+	Known(VtableSet),
 	Unknown(String),
+}
+
+/// Secondary entries are tracked solely to resolve inherited override
+/// lineages. Generated probes describe the primary address point only.
+#[derive(Default)]
+struct VtableSet {
+	primary: Vec<VtableSlot>,
+	secondary: Vec<VtableSlot>,
 }
 
 struct SourceRootFilter {
@@ -1310,7 +1510,11 @@ pub(crate) struct VirtualMethod {
 	pub qualified_name: String,
 	pub display_name: String,
 	pub kind: VirtualMethodKind,
+	/// Direct-child order, including ordinary methods of a template pattern.
+	pub declaration_index: usize,
 	pub is_const: bool,
+	pub is_volatile: bool,
+	pub ref_qualifier: CXRefQualifierKind,
 	pub result_type: String,
 
 	/// The canonical result type, which detects covariant overriders.
@@ -1435,10 +1639,33 @@ pub(crate) enum VtableSlotKind {
 ///
 /// Returns why the table cannot be modeled, if it cannot.
 fn apply_record_methods(
-	slots: &mut Vec<VtableSlot>,
+	tables: &mut VtableSet,
 	record: &Record,
 	abi: CppAbi,
 ) -> Result<Option<String>, CppVtableError> {
+	let mut record = record.clone();
+	if record.template == TemplateRole::ExplicitInstantiation {
+		// A pattern with a dependent base has no override cursors. All method
+		// types here are concrete and argument-independent. Recover the exact
+		// overrides from canonical parameter types in the instantiated bases.
+		for method in &mut record.virtual_methods {
+			for slot in tables.primary.iter().chain(&tables.secondary) {
+				if same_method_signature(method, &slot.method)
+					&& !method
+						.overrides
+						.iter()
+						.any(|reference| reference.usr == slot.method.usr)
+				{
+					method.overrides.push(MethodReference {
+						usr: slot.method.usr.clone(),
+						qualified_name: slot.method.qualified_name.clone(),
+						display_name: slot.method.display_name.clone(),
+					});
+				}
+			}
+		}
+	}
+	let slots = &mut tables.primary;
 	let mut introduced = Vec::new();
 
 	for (declaration_index, method) in record.virtual_methods.iter().enumerate() {
@@ -1451,11 +1678,20 @@ fn apply_record_methods(
 				})
 				.collect::<Vec<_>>();
 
-			if destructor_slots.is_empty() {
+			let secondary_destructor = tables
+				.secondary
+				.iter()
+				.any(|slot| slot.method.kind == VirtualMethodKind::Destructor);
+			if destructor_slots.is_empty() && (!abi.is_microsoft() || !secondary_destructor) {
 				introduced.push(declaration_index);
 			} else {
 				for index in destructor_slots {
 					replace_slot_method(&mut slots[index], method);
+				}
+			}
+			for slot in &mut tables.secondary {
+				if slot.method.kind == VirtualMethodKind::Destructor {
+					replace_slot_method(slot, method);
 				}
 			}
 
@@ -1476,15 +1712,52 @@ fn apply_record_methods(
 			.iter()
 			.enumerate()
 			.filter_map(|(index, slot)| {
-				slot.lineage
+				(slot
+					.lineage
 					.iter()
 					.any(|usr| overridden_usrs.contains(usr.as_str()))
-					.then_some(index)
+					|| (same_method_signature(method, &slot.method)
+						&& method.overrides.iter().any(|reference| {
+							reference.qualified_name == slot.method.qualified_name
+						})))
+				.then_some(index)
 			})
 			.collect::<Vec<_>>();
+		let secondary_slots = tables
+			.secondary
+			.iter()
+			.enumerate()
+			.filter_map(|(index, slot)| {
+				(slot
+					.lineage
+					.iter()
+					.any(|usr| overridden_usrs.contains(usr.as_str()))
+					|| (same_method_signature(method, &slot.method)
+						&& method.overrides.iter().any(|reference| {
+							reference.qualified_name == slot.method.qualified_name
+						})))
+				.then_some(index)
+			})
+			.collect::<Vec<_>>();
+		for &index in &secondary_slots {
+			let slot = &mut tables.secondary[index];
+			if slot.method.canonical_result_type != method.canonical_result_type {
+				return Ok(Some(format!(
+					"`{}` overrides `{}` with a covariant return type",
+					method.qualified_name, slot.method.qualified_name
+				)));
+			}
+			replace_slot_method(slot, method);
+		}
 
 		match matching_slots.as_slice() {
 			[] => {
+				if !secondary_slots.is_empty() {
+					if !abi.is_microsoft() {
+						introduced.push(declaration_index);
+					}
+					continue;
+				}
 				return Err(CppVtableError::MissingOverrideSlot {
 					record: record.qualified_name.clone(),
 					method: method.display_name.clone(),
@@ -1567,8 +1840,40 @@ fn apply_record_methods(
 			)),
 		}
 	}
+	if !abi.is_microsoft()
+		&& !slots
+			.iter()
+			.any(|slot| slot.method.kind == VirtualMethodKind::Destructor)
+		&& let Some(inherited) = tables
+			.secondary
+			.iter()
+			.find(|slot| slot.method.kind == VirtualMethodKind::Destructor)
+	{
+		// Clang appends an implicit destructor after the class's explicit
+		// methods when only a secondary base supplies a virtual destructor.
+		let mut destructor = inherited.method.clone();
+		destructor.usr = format!("{}#implicit-destructor", record.usr);
+		destructor.name = format!("~{}", record.name);
+		destructor.qualified_name = format!("{}::{}", record.qualified_name, destructor.name);
+		slots.extend(new_destructor_slots(&destructor, abi));
+	}
 
 	Ok(None)
+}
+
+fn same_method_signature(left: &VirtualMethod, right: &VirtualMethod) -> bool {
+	left.kind == right.kind
+		&& (left.kind == VirtualMethodKind::Destructor
+			|| (left.name == right.name
+				&& left.is_const == right.is_const
+				&& left.is_volatile == right.is_volatile
+				&& left.ref_qualifier == right.ref_qualifier
+				&& left.is_variadic == right.is_variadic
+				&& left
+					.parameters
+					.iter()
+					.map(|p| p.canonical_type.as_str())
+					.eq(right.parameters.iter().map(|p| p.canonical_type.as_str()))))
 }
 
 extern "C" fn call_trait_query_visitor(
@@ -1633,8 +1938,18 @@ extern "C" fn collect_record_child_visitor(
 	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
 		let cursor = Cursor(cursor);
 		let kind = cursor.kind();
+		let declaration_index = children.next_declaration_index;
+		children.next_declaration_index += 1;
+		let method = |kind| -> Result<VirtualMethod, CppVtableError> {
+			let mut method = cursor.collect_virtual_method(kind)?;
+			method.declaration_index = declaration_index;
+			Ok(method)
+		};
 
 		match kind {
+			CXCursor_TemplateTypeParameter
+			| CXCursor_NonTypeTemplateParameter
+			| CXCursor_TemplateTemplateParameter => children.template_parameters.push(cursor.spelling()),
 			CXCursor_CXXBaseSpecifier => {
 				children.has_members = true;
 				children.bases.push(cursor.collect_base());
@@ -1643,14 +1958,24 @@ extern "C" fn collect_record_child_visitor(
 			CXCursor_CXXMethod if cursor.is_virtual_method() => {
 				children
 					.virtual_methods
-					.push(cursor.collect_virtual_method(VirtualMethodKind::Method)?);
+					.push(method(VirtualMethodKind::Method)?);
+			}
+			CXCursor_CXXMethod
+				if children.collect_nonvirtual && clang_CXXMethod_isStatic(cursor.0) == 0 =>
+			{
+				children
+					.nonvirtual_methods
+					.push(method(VirtualMethodKind::Method)?);
 			}
 
 			CXCursor_Destructor if cursor.is_virtual_method() => {
 				children
 					.virtual_methods
-					.push(cursor.collect_virtual_method(VirtualMethodKind::Destructor)?);
+					.push(method(VirtualMethodKind::Destructor)?);
 			}
+			CXCursor_Destructor if children.collect_nonvirtual => children
+				.nonvirtual_methods
+				.push(method(VirtualMethodKind::Destructor)?),
 
 			_ => {}
 		}
@@ -2212,6 +2537,8 @@ pub(crate) fn render_vtable_probe(
 		format!("::{qualified_record_name}")
 	};
 	let mut aliases = String::new();
+	let mut alias_exports = String::new();
+	let alias_scope = format!("{stem}_scope");
 	let mut fields = String::new();
 	let mut field_names = Vec::with_capacity(layout.slots.len());
 
@@ -2283,6 +2610,9 @@ pub(crate) fn render_vtable_probe(
 			"using {alias} = auto ({calling_convention}*)({}) -> {result_type};",
 			parameters.join(", ")
 		);
+		if !record.namespaces.is_empty() {
+			let _ = writeln!(alias_exports, "using {alias} = ::{alias_scope}::{alias};");
+		}
 
 		// Bindgen carries these onto the generated field's documentation.
 		for (position, note) in notes.iter().enumerate() {
@@ -2297,12 +2627,18 @@ pub(crate) fn render_vtable_probe(
 		field_names.push(field);
 	}
 
-	let namespace_context = if record.namespaces.is_empty() {
-		String::new()
-	} else {
-		format!("using namespace ::{};\n\n", record.namespaces.join("::"))
-	};
-	let source = format!("{namespace_context}{aliases}\nstruct {stem} {{\n{fields}}};\n");
+	// Clang may preserve relative names inside template specializations and
+	// partially qualified parameter types. Resolve them in the original
+	// namespace, but isolate the using-directive so it cannot affect subsequent
+	// probes or delayed template instantiations (protobuf::int64 versus Steam).
+	// Export aliases with their original global names for the probe transform.
+	if !record.namespaces.is_empty() {
+		aliases = format!(
+			"namespace {alias_scope} {{\nusing namespace ::{};\n{aliases}}}\n{alias_exports}",
+			record.namespaces.join("::")
+		);
+	}
+	let source = format!("{aliases}\nstruct {stem} {{\n{fields}}};\n");
 
 	Ok(VtableProbe {
 		record: qualified_record_name.to_owned(),
@@ -2325,6 +2661,9 @@ fn replace_slot_method(slot: &mut VtableSlot, method: &VirtualMethod) {
 }
 
 fn replace_unqualified_identifier(spelling: &str, name: &str, replacement: &str) -> String {
+	if name.is_empty() {
+		return spelling.to_owned();
+	}
 	let mut rendered = String::with_capacity(spelling.len() + replacement.len());
 	let mut remaining = spelling;
 
@@ -2614,6 +2953,7 @@ mod tests {
 			[Parameter {
 				name: "amount".to_owned(),
 				type_spelling: "double".to_owned(),
+				canonical_type: "double".to_owned(),
 				record: None,
 			}]
 		);
@@ -3258,8 +3598,72 @@ mod tests {
 		);
 
 		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
-		assert!(probe.source.starts_with("using namespace ::fixture;"));
+		assert!(
+			probe
+				.source
+				.starts_with("namespace __crys_vtable_fixture__Typed_scope {")
+		);
 		let _ = records(&format!("{fixture}\n{}", probe.source));
+	}
+
+	#[test]
+	fn rendered_probe_does_not_pollute_global_type_lookup() {
+		let fixture = r#"
+			using int64 = long long;
+			namespace fixture {
+			using int64 = long;
+			struct Typed {
+				virtual int64 exchange(int64 value) = 0;
+			};
+			}
+			"#;
+		let index = records(fixture);
+		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
+		assert!(probe.source.contains("::fixture::int64"));
+		let _ = records(&format!(
+			"{fixture}\n{}\nstruct AfterProbe {{ int64 value; }};",
+			probe.source
+		));
+	}
+
+	#[test]
+	fn scoped_aliases_resolve_relative_names_and_keep_probe_transform_stable() {
+		let fixture = r#"
+			using int64 = long long;
+			template <class T> struct Vector {};
+			namespace fixture {
+			using int64 = long;
+			namespace io { struct Stream {}; }
+			struct Field {};
+			struct Typed {
+				virtual void parse(io::Stream *, Vector<Field *> *) = 0;
+			};
+			}
+			"#;
+		let index = records(fixture);
+		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
+		let source = format!(
+			"{fixture}\n{}\nstruct AfterProbe {{ int64 value; }};",
+			probe.source
+		);
+		let _ = records(&source);
+		let bindings = bindgen::builder()
+			.header_contents("scoped_vtable_alias_fixture.hpp", &source)
+			.clang_args(["-x", "c++", "-std=c++17"])
+			.allowlist_type("__crys_vtable_fixture__Typed")
+			.generate()
+			.unwrap()
+			.to_string();
+		let mut syntax = syn::parse_file(&bindings).unwrap();
+		let targets = BTreeMap::from([("fixture__Typed".to_owned(), "fixture_Typed".to_owned())]);
+		let installed =
+			crate::transform::install_vtable_probes(&mut syntax, &targets, &[]).unwrap();
+		assert_eq!(installed["fixture__Typed"], ["fixture_Typed_parse"]);
+		assert!(
+			!quote::quote!(#syntax)
+				.to_string()
+				.contains("__crys_vtable_")
+		);
 	}
 
 	#[test]
@@ -3438,7 +3842,7 @@ mod tests {
 	}
 
 	#[test]
-	fn reports_multiple_and_virtual_inheritance_as_unsupported() {
+	fn models_primary_address_point_of_multiple_bases_but_refuses_virtual_bases() {
 		let records = records(
 			r#"
 			struct Left { virtual void left() = 0; };
@@ -3450,7 +3854,7 @@ mod tests {
 			"#,
 		);
 
-		for record in ["Multiple", "Virtual"] {
+		for record in ["Virtual"] {
 			for abi in [CppAbi::Itanium, CppAbi::Msvc] {
 				assert!(
 					matches!(
@@ -3462,12 +3866,9 @@ mod tests {
 			}
 		}
 
-		let multiple = records
-			.vtable_layout("Multiple", CppAbi::Itanium)
-			.unwrap_err();
-		assert!(
-			matches!(multiple, CppVtableError::Unsupported { ref reason, .. } if reason.contains("more than one polymorphic base"))
-		);
+		for abi in [CppAbi::Itanium, CppAbi::Msvc] {
+			assert_eq!(slot_names(&records, "Multiple", abi), ["left()"]);
+		}
 
 		let virtual_base = records
 			.vtable_layout("Virtual", CppAbi::Itanium)
@@ -3490,6 +3891,178 @@ mod tests {
 	}
 
 	#[test]
+	fn secondary_overrides_and_implicit_destructors_follow_clang_abi_layouts() {
+		// Verified with clang -Xclang -fdump-vtable-layouts on both targets.
+		let records = records(
+			r#"
+		struct Left { virtual void left(); };
+		struct Right { virtual ~Right(); virtual void right(); };
+		struct Both : Left, Right { virtual void own(); };
+		struct Over : Left, Right { void right() override; virtual void own(); };
+		struct Last : Over { void right() override; };
+		struct Explicit : Left, Right { ~Explicit() override; virtual void own(); };
+		"#,
+		);
+		assert_eq!(
+			slot_names(&records, "Both", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Both", CppAbi::Itanium),
+			["left()", "own()", "~complete", "~deleting"]
+		);
+		assert_eq!(
+			slot_names(&records, "Over", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Over", CppAbi::Itanium),
+			["left()", "right()", "own()", "~complete", "~deleting"]
+		);
+		assert_eq!(
+			slot_names(&records, "Last", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Last", CppAbi::Itanium),
+			["left()", "right()", "own()", "~complete", "~deleting"]
+		);
+		assert_eq!(
+			slot_names(&records, "Explicit", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Explicit", CppAbi::Itanium),
+			["left()", "~complete", "~deleting", "own()"]
+		);
+	}
+
+	#[test]
+	fn specializes_dependent_primary_bases_and_reuses_concrete_virtual_signatures() {
+		let records = records(
+			r#"
+		struct Player { virtual ~Player(); virtual void criteria(int); virtual int response(); virtual bool can_speak(); };
+		struct Sink { virtual void sink(); };
+		template<class Base> struct Host : Base, Sink {
+			virtual void speak(float);
+			virtual void criteria(int);
+			virtual int response();
+			bool can_speak();
+		};
+		struct Multiplayer : Host<Player> { void criteria(int) override; bool can_speak() override; virtual void extra(); };
+		struct Attributes { virtual void attribute(); };
+		struct TfPlayer : Multiplayer, Attributes { void attribute() override; virtual void give(); };
+		"#,
+		);
+		assert_eq!(
+			slot_names(&records, "TfPlayer", CppAbi::Msvc),
+			[
+				"~scalar",
+				"criteria(int)",
+				"response()",
+				"can_speak()",
+				"speak(float)",
+				"extra()",
+				"give()"
+			]
+		);
+		assert_eq!(
+			slot_names(&records, "TfPlayer", CppAbi::Itanium),
+			[
+				"~complete",
+				"~deleting",
+				"criteria(int)",
+				"response()",
+				"can_speak()",
+				"speak(float)",
+				"extra()",
+				"attribute()",
+				"give()"
+			]
+		);
+		let layout = records.vtable_layout("TfPlayer", CppAbi::Itanium).unwrap();
+		assert_eq!(
+			layout.slots[2].method.qualified_name,
+			"Multiplayer::criteria"
+		);
+		assert!(
+			layout.slots[3]
+				.method
+				.qualified_name
+				.contains("Host<Player>::response")
+		);
+	}
+
+	#[test]
+	fn specialized_implicit_virtual_declarations_keep_their_original_order() {
+		let records = records(
+			r#"
+		struct Left { virtual void left(); };
+		struct Right { virtual ~Right(); virtual void right(); };
+		template<class Base> struct Host : Left, Base { ~Host(); void right(); virtual void own(); };
+		struct Concrete : Host<Right> {};
+		"#,
+		);
+		assert_eq!(
+			slot_names(&records, "Concrete", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Concrete", CppAbi::Itanium),
+			["left()", "~complete", "~deleting", "right()", "own()"]
+		);
+	}
+
+	#[test]
+	fn specialized_secondary_overrides_match_instantiated_clang_references() {
+		let index = records(
+			r#"
+			struct Left { virtual void left(); };
+			struct Right { virtual void right(); };
+			template <class Base> struct Host : Base { void right(); };
+			struct Combined : Left, Host<Right> { void right() override; virtual void own(); };
+			struct Last : Combined { void right() override; };
+			"#,
+		);
+		for record in ["Combined", "Last"] {
+			assert_eq!(
+				slot_names(&index, record, CppAbi::Msvc),
+				["left()", "own()"]
+			);
+			assert_eq!(
+				slot_names(&index, record, CppAbi::Itanium),
+				["left()", "right()", "own()"]
+			);
+		}
+	}
+
+	#[test]
+	fn template_override_matching_preserves_cv_and_ref_qualifiers() {
+		let index = records(
+			r#"
+			struct Base {
+				virtual void same(int);
+				virtual void qualified() volatile;
+				virtual void reference() &;
+			};
+			template <class Parent> struct Host : Parent {
+				void same(const int);
+				void qualified();
+				void reference() &&;
+			};
+			struct Concrete : Host<Base> {};
+			"#,
+		);
+		for abi in [CppAbi::Msvc, CppAbi::Itanium] {
+			let layout = index.vtable_layout("Concrete", abi).unwrap();
+			assert_eq!(layout.slots.len(), 3);
+			assert_eq!(layout.slots[0].method.qualified_name, "Host<Base>::same");
+			assert_eq!(layout.slots[1].method.qualified_name, "Base::qualified");
+			assert_eq!(layout.slots[2].method.qualified_name, "Base::reference");
+		}
+	}
+
+	#[test]
 	fn reports_template_dependent_vtables_as_unsupported() {
 		let records = records(
 			r#"
@@ -3504,7 +4077,7 @@ mod tests {
 			"#,
 		);
 
-		for record in ["UsesFactory", "UsesMixin", "Factory", "Outer::Inner"] {
+		for record in ["UsesFactory", "Factory", "Outer::Inner"] {
 			assert!(
 				matches!(
 					records.vtable_model(record, CppAbi::Itanium).unwrap(),
@@ -3513,6 +4086,10 @@ mod tests {
 				"{record}"
 			);
 		}
+		assert_eq!(
+			slot_names(&records, "UsesMixin", CppAbi::Itanium),
+			["run()"]
+		);
 
 		assert_eq!(
 			records.vtable_model("Outer", CppAbi::Itanium).unwrap(),

@@ -19,6 +19,15 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of CBaseCombatCharacter_NetworkVar_m_bGlowEnabled",
+    ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_bGlowEnabled>() - 1usize];
+    [
+        "Alignment of CBaseCombatCharacter_NetworkVar_m_bGlowEnabled",
+    ][::std::mem::align_of::<CBaseCombatCharacter_NetworkVar_m_bGlowEnabled>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of CBaseCombatCharacter_NetworkVar_m_flNextAttack",
     ][::std::mem::size_of::<CBaseCombatCharacter_NetworkVar_m_flNextAttack>() - 1usize];
     [
@@ -64,80 +73,83 @@ const _: () = {
 const _: () = {
     [
         "Size of CBaseCombatCharacter",
-    ][::std::mem::size_of::<CBaseCombatCharacter>() - 2544usize];
+    ][::std::mem::size_of::<CBaseCombatCharacter>() - 2568usize];
     [
         "Alignment of CBaseCombatCharacter",
     ][::std::mem::align_of::<CBaseCombatCharacter>() - 8usize];
     [
         "Offset of field: CBaseCombatCharacter::m_bForceServerRagdoll",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_bForceServerRagdoll) - 2048usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_bForceServerRagdoll) - 2064usize];
     [
         "Offset of field: CBaseCombatCharacter::m_bPreventWeaponPickup",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_bPreventWeaponPickup) - 2049usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_bPreventWeaponPickup) - 2065usize];
     [
         "Offset of field: CBaseCombatCharacter::m_flNextAttack",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_flNextAttack) - 2052usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_flNextAttack) - 2068usize];
+    [
+        "Offset of field: CBaseCombatCharacter::m_bGlowEnabled",
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_bGlowEnabled) - 2072usize];
     [
         "Offset of field: CBaseCombatCharacter::m_eHull",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_eHull) - 2056usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_eHull) - 2076usize];
     [
         "Offset of field: CBaseCombatCharacter::m_bloodColor",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_bloodColor) - 2060usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_bloodColor) - 2080usize];
     [
         "Offset of field: CBaseCombatCharacter::m_flFieldOfView",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_flFieldOfView) - 2064usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_flFieldOfView) - 2084usize];
     [
         "Offset of field: CBaseCombatCharacter::m_HackedGunPos",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_HackedGunPos) - 2068usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_HackedGunPos) - 2088usize];
     [
         "Offset of field: CBaseCombatCharacter::m_RelationshipString",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_RelationshipString) - 2080usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_RelationshipString) - 2104usize];
     [
         "Offset of field: CBaseCombatCharacter::m_impactEnergyScale",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_impactEnergyScale) - 2088usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_impactEnergyScale) - 2112usize];
     [
         "Offset of field: CBaseCombatCharacter::m_LastHitGroup",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_LastHitGroup) - 2092usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_LastHitGroup) - 2116usize];
     [
         "Offset of field: CBaseCombatCharacter::m_flDamageAccumulator",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_flDamageAccumulator) - 2096usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_flDamageAccumulator) - 2120usize];
     [
         "Offset of field: CBaseCombatCharacter::m_iDamageCount",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_iDamageCount) - 2100usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_iDamageCount) - 2124usize];
     [
         "Offset of field: CBaseCombatCharacter::m_CurrentWeaponProficiency",
     ][::std::mem::offset_of!(CBaseCombatCharacter, m_CurrentWeaponProficiency)
-        - 2104usize];
+        - 2128usize];
     [
         "Offset of field: CBaseCombatCharacter::m_Relationship",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_Relationship) - 2112usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_Relationship) - 2136usize];
     [
         "Offset of field: CBaseCombatCharacter::m_iAmmo",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_iAmmo) - 2144usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_iAmmo) - 2168usize];
     [
         "Offset of field: CBaseCombatCharacter::m_hMyWeapons",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_hMyWeapons) - 2272usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_hMyWeapons) - 2296usize];
     [
         "Offset of field: CBaseCombatCharacter::m_hActiveWeapon",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_hActiveWeapon) - 2464usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_hActiveWeapon) - 2488usize];
     [
         "Offset of field: CBaseCombatCharacter::m_aliveTimer",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_aliveTimer) - 2468usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_aliveTimer) - 2492usize];
     [
         "Offset of field: CBaseCombatCharacter::m_hasBeenInjured",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_hasBeenInjured) - 2472usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_hasBeenInjured) - 2496usize];
     [
         "Offset of field: CBaseCombatCharacter::m_damageHistory",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_damageHistory) - 2476usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_damageHistory) - 2500usize];
     [
         "Offset of field: CBaseCombatCharacter::m_lastNavArea",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_lastNavArea) - 2512usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_lastNavArea) - 2536usize];
     [
         "Offset of field: CBaseCombatCharacter::m_NavAreaUpdateMonitor",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_NavAreaUpdateMonitor) - 2520usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_NavAreaUpdateMonitor) - 2544usize];
     [
         "Offset of field: CBaseCombatCharacter::m_registeredNavTeam",
-    ][::std::mem::offset_of!(CBaseCombatCharacter, m_registeredNavTeam) - 2536usize];
+    ][::std::mem::offset_of!(CBaseCombatCharacter, m_registeredNavTeam) - 2560usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

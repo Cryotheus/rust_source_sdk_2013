@@ -13,10 +13,18 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
+pub type CUtlConstString = CUtlConstStringBase<::std::os::raw::c_char>;
+pub type CUtlConstStringBase_AltArgumentType_t<T> = *const T;
 pub type CUtlString_AltArgumentType_t = *const ::std::os::raw::c_char;
 pub type CUtlString_TUtlStringPattern = ::std::os::raw::c_uint;
 pub const CUtlString_TUtlStringPattern_PATTERN_DIRECTORY: CUtlString_TUtlStringPattern = 1;
 pub const CUtlString_TUtlStringPattern_PATTERN_NONE: CUtlString_TUtlStringPattern = 0;
+#[repr(C)]
+#[derive(Debug)]
+pub struct CUtlConstStringBase<T> {
+    pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
+    pub m_pString: *const T,
+}
 #[repr(C)]
 #[derive(Debug)]
 pub struct CUtlString {

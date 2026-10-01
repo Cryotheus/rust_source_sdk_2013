@@ -69,6 +69,15 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of float16_with_assign",
+    ][::std::mem::size_of::<float16_with_assign>() - 2usize];
+    [
+        "Alignment of float16_with_assign",
+    ][::std::mem::align_of::<float16_with_assign>() - 2usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of float16"][::std::mem::size_of::<float16>() - 2usize];
     ["Alignment of float16"][::std::mem::align_of::<float16>() - 2usize];
     [

@@ -208,132 +208,132 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CBaseAnimating"][::std::mem::size_of::<CBaseAnimating>() - 1496usize];
+    ["Size of CBaseAnimating"][::std::mem::size_of::<CBaseAnimating>() - 1512usize];
     ["Alignment of CBaseAnimating"][::std::mem::align_of::<CBaseAnimating>() - 8usize];
     [
         "Offset of field: CBaseAnimating::m_flGroundSpeed",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flGroundSpeed) - 1152usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flGroundSpeed) - 1168usize];
     [
         "Offset of field: CBaseAnimating::m_flLastEventCheck",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flLastEventCheck) - 1156usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flLastEventCheck) - 1172usize];
     [
         "Offset of field: CBaseAnimating::m_nForceBone",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nForceBone) - 1160usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nForceBone) - 1176usize];
     [
         "Offset of field: CBaseAnimating::m_vecForce",
-    ][::std::mem::offset_of!(CBaseAnimating, m_vecForce) - 1164usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_vecForce) - 1180usize];
     [
         "Offset of field: CBaseAnimating::m_nSkin",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nSkin) - 1176usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nSkin) - 1192usize];
     [
         "Offset of field: CBaseAnimating::m_nBody",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nBody) - 1180usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nBody) - 1196usize];
     [
         "Offset of field: CBaseAnimating::m_nHitboxSet",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nHitboxSet) - 1184usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nHitboxSet) - 1200usize];
     [
         "Offset of field: CBaseAnimating::m_flModelScale",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flModelScale) - 1188usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flModelScale) - 1204usize];
     [
         "Offset of field: CBaseAnimating::m_flPlaybackRate",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flPlaybackRate) - 1192usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flPlaybackRate) - 1208usize];
     [
         "Offset of field: CBaseAnimating::m_flIKGroundContactTime",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flIKGroundContactTime) - 1196usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flIKGroundContactTime) - 1212usize];
     [
         "Offset of field: CBaseAnimating::m_flIKGroundMinHeight",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flIKGroundMinHeight) - 1200usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flIKGroundMinHeight) - 1216usize];
     [
         "Offset of field: CBaseAnimating::m_flIKGroundMaxHeight",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flIKGroundMaxHeight) - 1204usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flIKGroundMaxHeight) - 1220usize];
     [
         "Offset of field: CBaseAnimating::m_flEstIkFloor",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flEstIkFloor) - 1208usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flEstIkFloor) - 1224usize];
     [
         "Offset of field: CBaseAnimating::m_flEstIkOffset",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flEstIkOffset) - 1212usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flEstIkOffset) - 1228usize];
     [
         "Offset of field: CBaseAnimating::m_pIk",
-    ][::std::mem::offset_of!(CBaseAnimating, m_pIk) - 1216usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_pIk) - 1232usize];
     [
         "Offset of field: CBaseAnimating::m_iIKCounter",
-    ][::std::mem::offset_of!(CBaseAnimating, m_iIKCounter) - 1224usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_iIKCounter) - 1240usize];
     [
         "Offset of field: CBaseAnimating::m_bSequenceFinished",
-    ][::std::mem::offset_of!(CBaseAnimating, m_bSequenceFinished) - 1228usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_bSequenceFinished) - 1244usize];
     [
         "Offset of field: CBaseAnimating::m_bSequenceLoops",
-    ][::std::mem::offset_of!(CBaseAnimating, m_bSequenceLoops) - 1229usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_bSequenceLoops) - 1245usize];
     [
         "Offset of field: CBaseAnimating::m_bResetSequenceInfoOnLoad",
-    ][::std::mem::offset_of!(CBaseAnimating, m_bResetSequenceInfoOnLoad) - 1230usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_bResetSequenceInfoOnLoad) - 1246usize];
     [
         "Offset of field: CBaseAnimating::m_flDissolveStartTime",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flDissolveStartTime) - 1232usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flDissolveStartTime) - 1248usize];
     [
         "Offset of field: CBaseAnimating::m_flCycle",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flCycle) - 1236usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flCycle) - 1252usize];
     [
         "Offset of field: CBaseAnimating::m_nSequence",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nSequence) - 1240usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nSequence) - 1256usize];
     [
         "Offset of field: CBaseAnimating::m_flPoseParameter",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flPoseParameter) - 1244usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flPoseParameter) - 1260usize];
     [
         "Offset of field: CBaseAnimating::m_flEncodedController",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flEncodedController) - 1340usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flEncodedController) - 1356usize];
     [
         "Offset of field: CBaseAnimating::m_bClientSideAnimation",
-    ][::std::mem::offset_of!(CBaseAnimating, m_bClientSideAnimation) - 1356usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_bClientSideAnimation) - 1372usize];
     [
         "Offset of field: CBaseAnimating::m_bClientSideFrameReset",
-    ][::std::mem::offset_of!(CBaseAnimating, m_bClientSideFrameReset) - 1357usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_bClientSideFrameReset) - 1373usize];
     [
         "Offset of field: CBaseAnimating::m_nNewSequenceParity",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nNewSequenceParity) - 1360usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nNewSequenceParity) - 1376usize];
     [
         "Offset of field: CBaseAnimating::m_nResetEventsParity",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nResetEventsParity) - 1364usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nResetEventsParity) - 1380usize];
     [
         "Offset of field: CBaseAnimating::m_nMuzzleFlashParity",
-    ][::std::mem::offset_of!(CBaseAnimating, m_nMuzzleFlashParity) - 1368usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_nMuzzleFlashParity) - 1384usize];
     [
         "Offset of field: CBaseAnimating::m_hLightingOrigin",
-    ][::std::mem::offset_of!(CBaseAnimating, m_hLightingOrigin) - 1372usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_hLightingOrigin) - 1388usize];
     [
         "Offset of field: CBaseAnimating::m_hLightingOriginRelative",
-    ][::std::mem::offset_of!(CBaseAnimating, m_hLightingOriginRelative) - 1376usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_hLightingOriginRelative) - 1392usize];
     [
         "Offset of field: CBaseAnimating::m_iszLightingOriginRelative",
-    ][::std::mem::offset_of!(CBaseAnimating, m_iszLightingOriginRelative) - 1384usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_iszLightingOriginRelative) - 1400usize];
     [
         "Offset of field: CBaseAnimating::m_iszLightingOrigin",
-    ][::std::mem::offset_of!(CBaseAnimating, m_iszLightingOrigin) - 1392usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_iszLightingOrigin) - 1408usize];
     [
         "Offset of field: CBaseAnimating::m_boneCacheHandle",
-    ][::std::mem::offset_of!(CBaseAnimating, m_boneCacheHandle) - 1400usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_boneCacheHandle) - 1416usize];
     [
         "Offset of field: CBaseAnimating::m_fBoneCacheFlags",
-    ][::std::mem::offset_of!(CBaseAnimating, m_fBoneCacheFlags) - 1408usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_fBoneCacheFlags) - 1424usize];
     [
         "Offset of field: CBaseAnimating::m_fadeMinDist",
-    ][::std::mem::offset_of!(CBaseAnimating, m_fadeMinDist) - 1412usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_fadeMinDist) - 1428usize];
     [
         "Offset of field: CBaseAnimating::m_fadeMaxDist",
-    ][::std::mem::offset_of!(CBaseAnimating, m_fadeMaxDist) - 1416usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_fadeMaxDist) - 1432usize];
     [
         "Offset of field: CBaseAnimating::m_flFadeScale",
-    ][::std::mem::offset_of!(CBaseAnimating, m_flFadeScale) - 1420usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_flFadeScale) - 1436usize];
     [
         "Offset of field: CBaseAnimating::m_OnIgnite",
-    ][::std::mem::offset_of!(CBaseAnimating, m_OnIgnite) - 1424usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_OnIgnite) - 1440usize];
     [
         "Offset of field: CBaseAnimating::m_pStudioHdr",
-    ][::std::mem::offset_of!(CBaseAnimating, m_pStudioHdr) - 1456usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_pStudioHdr) - 1472usize];
     [
         "Offset of field: CBaseAnimating::m_StudioHdrInitLock",
-    ][::std::mem::offset_of!(CBaseAnimating, m_StudioHdrInitLock) - 1464usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_StudioHdrInitLock) - 1480usize];
     [
         "Offset of field: CBaseAnimating::m_BoneSetupMutex",
-    ][::std::mem::offset_of!(CBaseAnimating, m_BoneSetupMutex) - 1480usize];
+    ][::std::mem::offset_of!(CBaseAnimating, m_BoneSetupMutex) - 1496usize];
 };

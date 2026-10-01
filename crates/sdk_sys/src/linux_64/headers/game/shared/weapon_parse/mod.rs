@@ -13,7 +13,6 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
-pub type WEAPON_FILE_INFO_HANDLE = ::std::os::raw::c_ushort;
 pub type WeaponSound_t = ::std::os::raw::c_uint;
 pub const WeaponSound_t_BURST: WeaponSound_t = 5;
 pub const WeaponSound_t_DEPLOY: WeaponSound_t = 15;

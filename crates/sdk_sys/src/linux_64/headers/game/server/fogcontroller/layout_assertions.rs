@@ -12,15 +12,15 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of CFogController"][::std::mem::size_of::<CFogController>() - 1280usize];
+    ["Size of CFogController"][::std::mem::size_of::<CFogController>() - 1296usize];
     ["Alignment of CFogController"][::std::mem::align_of::<CFogController>() - 8usize];
     [
         "Offset of field: CFogController::m_fog",
-    ][::std::mem::offset_of!(CFogController, m_fog) - 1200usize];
+    ][::std::mem::offset_of!(CFogController, m_fog) - 1216usize];
     [
         "Offset of field: CFogController::m_bUseAngles",
-    ][::std::mem::offset_of!(CFogController, m_bUseAngles) - 1272usize];
+    ][::std::mem::offset_of!(CFogController, m_bUseAngles) - 1288usize];
     [
         "Offset of field: CFogController::m_iChangedVariables",
-    ][::std::mem::offset_of!(CFogController, m_iChangedVariables) - 1276usize];
+    ][::std::mem::offset_of!(CFogController, m_iChangedVariables) - 1292usize];
 };

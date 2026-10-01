@@ -134,12 +134,12 @@ pub struct CBaseIssue_FailedVote {
 }
 /// Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.
 ///
-/// Generated as fields, its Rust size is 1440, but C++ says 1432.
+/// Generated as fields, its Rust size is 1456, but C++ says 1448.
 #[repr(C)]
 #[repr(align(8))]
 #[derive(Debug, Copy, Clone)]
 pub struct CVoteController {
-    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 1432usize]>,
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 1448usize]>,
 }
 #[repr(C)]
 pub struct CVoteController__bindgen_vtable {
@@ -418,6 +418,9 @@ pub struct CVoteController__bindgen_vtable {
     pub CVoteController_IsNPC: unsafe extern "C" fn(
         arg1: *const CVoteController,
     ) -> bool,
+    pub CVoteController_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
     pub CVoteController_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CVoteController,
     ) -> *mut CBaseCombatCharacter,
@@ -470,6 +473,15 @@ pub struct CVoteController__bindgen_vtable {
         arg1: *const CVoteController,
     ) -> bool,
     pub CVoteController_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
+    pub CVoteController_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
+    pub CVoteController_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> bool,
+    pub CVoteController_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CVoteController,
     ) -> bool,
     pub CVoteController_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -868,6 +880,9 @@ pub struct CVoteController__bindgen_vtable {
     pub CVoteController_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CVoteController,
     ) -> bool,
+    pub CVoteController_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CVoteController,
+    ) -> f32,
     pub CVoteController_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CVoteController,
     ) -> bool,

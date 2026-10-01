@@ -32,6 +32,912 @@ pub struct CBaseViewModel {
     pub m_hScreens: CUtlVector<CBaseViewModel_ScreenHandle_t, CUtlMemory<CHandle>>,
 }
 #[repr(C)]
+pub struct CBaseViewModel__bindgen_vtable {
+    pub CBaseViewModel_destructor: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_uint,
+    ) -> *mut ::std::os::raw::c_void,
+    pub CBaseViewModel_SetRefEHandle: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CBaseHandle,
+    ),
+    pub CBaseViewModel_GetRefEHandle: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> *const CBaseHandle,
+    pub CBaseViewModel_GetCollideable: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut ICollideable,
+    pub CBaseViewModel_GetNetworkable: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut IServerNetworkable,
+    pub CBaseViewModel_GetBaseEntity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseEntity,
+    pub CBaseViewModel_GetModelIndex: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    /// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_GetModelName: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: *mut string_t,
+    ) -> *mut string_t,
+    pub CBaseViewModel_SetModelIndex: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_GetServerClass: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut ServerClass,
+    pub CBaseViewModel_YouForgotToImplementOrDeclareServerClass: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_GetDataDescMap: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut datamap_t,
+    pub CBaseViewModel_GetScriptDesc: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut ScriptClassDesc_t,
+    pub CBaseViewModel_SetModelIndexOverride: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+        arg3: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_TestCollision: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Ray_t,
+        arg3: ::std::os::raw::c_uint,
+        arg4: *mut trace_t,
+    ) -> bool,
+    pub CBaseViewModel_TestHitboxes: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Ray_t,
+        arg3: ::std::os::raw::c_uint,
+        arg4: *mut trace_t,
+    ) -> bool,
+    pub CBaseViewModel_ComputeWorldSpaceSurroundingBox: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+        arg3: *mut Vector,
+    ),
+    pub CBaseViewModel_ShouldCollide: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+        arg3: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CBaseViewModel_SetOwnerEntity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_SetScriptOwnerEntity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: HSCRIPT,
+    ),
+    pub CBaseViewModel_ShouldTransmit: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CCheckTransmitInfo,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_UpdateTransmitState: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_SetTransmit: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CCheckTransmitInfo,
+        arg3: bool,
+    ),
+    pub CBaseViewModel_GetTracerType: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *const ::std::os::raw::c_char,
+    pub CBaseViewModel_Spawn: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_Precache: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_SetModel: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+    ),
+    pub CBaseViewModel_OnNewModel: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CStudioHdr,
+    pub CBaseViewModel_PostConstructor: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+    ),
+    pub CBaseViewModel_PostClientActive: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_ParseMapData: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CEntityMapData,
+    ),
+    pub CBaseViewModel_KeyValue2: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const Vector,
+    ) -> bool,
+    pub CBaseViewModel_KeyValue1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: f32,
+    ) -> bool,
+    pub CBaseViewModel_KeyValue: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *const ::std::os::raw::c_char,
+    ) -> bool,
+    pub CBaseViewModel_GetKeyValue: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *mut ::std::os::raw::c_char,
+        arg4: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CBaseViewModel_Activate: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_SetParent: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+        arg3: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_ObjectCaps: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    /// C++ takes `::variant_t` by value. `arg5` points to a temporary copy the caller makes; the callee may modify it, and the callee destroys it.
+    pub CBaseViewModel_AcceptInput: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *mut CBaseEntity,
+        arg4: *mut CBaseEntity,
+        arg5: *mut variant_t,
+        arg6: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CBaseViewModel_GetInputDispatchEffectPosition: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *mut Vector,
+        arg4: *mut QAngle,
+    ),
+    pub CBaseViewModel_DrawDebugGeometryOverlays: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_DrawDebugTextOverlays: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_Save: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ISave,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_Restore: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut IRestore,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_ShouldSavePhysics: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_OnSave: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut IEntitySaveUtils,
+    ),
+    pub CBaseViewModel_OnRestore: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_RequiredEdictIndex: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_MoveDone: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_Think: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_NetworkStateChanged_m_nNextThinkTick1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_nNextThinkTick: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_GetBaseAnimating: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseAnimating,
+    pub CBaseViewModel_GetResponseSystem: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut IResponseSystem,
+    pub CBaseViewModel_DispatchResponse: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+    ),
+    pub CBaseViewModel_Classify: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> Class_T,
+    pub CBaseViewModel_DeathNotice: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_ShouldAttractAutoAim: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_GetAutoAimRadius: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> f32,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_GetAutoAimCenter: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    pub CBaseViewModel_GetBeamTraceFilter: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut ITraceFilter,
+    pub CBaseViewModel_PassesDamageFilter: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CTakeDamageInfo,
+    ) -> bool,
+    pub CBaseViewModel_TraceAttack: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CTakeDamageInfo,
+        arg3: *const Vector,
+        arg4: *mut trace_t,
+        arg5: *mut CDmgAccumulator,
+    ),
+    pub CBaseViewModel_CanBeHitByMeleeAttack: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_OnTakeDamage: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CTakeDamageInfo,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_AdjustDamageDirection: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CTakeDamageInfo,
+        arg3: *mut Vector,
+        arg4: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_TakeHealth: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+        arg3: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_IsAlive: unsafe extern "C" fn(arg1: *mut CBaseViewModel) -> bool,
+    pub CBaseViewModel_Event_Killed: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CTakeDamageInfo,
+    ),
+    pub CBaseViewModel_Event_KilledOther: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+        arg3: *const CTakeDamageInfo,
+    ),
+    pub CBaseViewModel_BloodColor: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_IsTriggered: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_IsNPC: unsafe extern "C" fn(arg1: *const CBaseViewModel) -> bool,
+    pub CBaseViewModel_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_MyCombatCharacterPointer: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseCombatCharacter,
+    pub CBaseViewModel_MyNextBotPointer: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut INextBot,
+    pub CBaseViewModel_GetDelay: unsafe extern "C" fn(arg1: *mut CBaseViewModel) -> f32,
+    pub CBaseViewModel_IsMoving: unsafe extern "C" fn(arg1: *mut CBaseViewModel) -> bool,
+    pub CBaseViewModel_DamageDecal: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+        arg3: ::std::os::raw::c_int,
+    ) -> *const ::std::os::raw::c_char,
+    pub CBaseViewModel_DecalTrace: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut trace_t,
+        arg3: *const ::std::os::raw::c_char,
+    ),
+    pub CBaseViewModel_ImpactTrace: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut trace_t,
+        arg3: ::std::os::raw::c_int,
+        arg4: *const ::std::os::raw::c_char,
+    ),
+    pub CBaseViewModel_OnControls: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_HasTarget: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: string_t,
+    ) -> bool,
+    pub CBaseViewModel_IsPlayer: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsNetClient: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsTemplate: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsBaseObject: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsBaseTrain: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsBaseProjectile: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsBaseCombatWeapon: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_IsWearable: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_MyCombatWeaponPointer: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseCombatWeapon,
+    pub CBaseViewModel_GetServerVehicle: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut IServerVehicle,
+    pub CBaseViewModel_IsViewable: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_ChangeTeam: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_OnEntityEvent: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: EntityEvent_t,
+        arg3: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_CanStandOn1: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: *mut edict_t,
+    ) -> bool,
+    pub CBaseViewModel_CanStandOn: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_GetEnemy1: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> *mut CBaseEntity,
+    pub CBaseViewModel_GetEnemy: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseEntity,
+    pub CBaseViewModel_Use: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+        arg3: *mut CBaseEntity,
+        arg4: USE_TYPE,
+        arg5: f32,
+    ),
+    pub CBaseViewModel_StartTouch: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_Touch: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_EndTouch: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_StartBlocked: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_Blocked: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_EndBlocked: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_PhysicsSimulate: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_UpdateOnRemove: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_StopLoopingSounds: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_SUB_AllowedToFade: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_Teleport: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Vector,
+        arg3: *const QAngle,
+        arg4: *const Vector,
+    ),
+    pub CBaseViewModel_NotifySystemEvent: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+        arg3: notify_system_event_t,
+        arg4: *const notify_system_event_params_t,
+    ),
+    pub CBaseViewModel_MakeTracer: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Vector,
+        arg3: *const trace_t,
+        arg4: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_GetTracerAttachment: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_FireBullets: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const FireBulletsInfo_t,
+    ),
+    pub CBaseViewModel_DoImpactEffect: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut trace_t,
+        arg3: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_ModifyFireBulletsDamage: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CTakeDamageInfo,
+    ),
+    pub CBaseViewModel_Respawn: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseEntity,
+    pub CBaseViewModel_IsLockedByMaster: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_GetMaxHealth: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_ModifyOrAppendCriteria: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut AI_CriteriaSet,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_iMaxHealth1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_iMaxHealth: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_iHealth1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_iHealth: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_lifeState1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_lifeState: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_takedamage1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_takedamage: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_RunVScripts: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_GetDamageType: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_GetDamage: unsafe extern "C" fn(arg1: *mut CBaseViewModel) -> f32,
+    pub CBaseViewModel_SetDamage: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+    ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_EyePosition: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    pub CBaseViewModel_EyeAngles: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *const QAngle,
+    pub CBaseViewModel_LocalEyeAngles: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *const QAngle,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_EarPosition: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_BodyTarget: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+        arg4: bool,
+    ) -> *mut Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_HeadTarget: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+        arg3: *const Vector,
+    ) -> *mut Vector,
+    pub CBaseViewModel_GetVectors: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: *mut Vector,
+        arg3: *mut Vector,
+        arg4: *mut Vector,
+    ),
+    pub CBaseViewModel_GetViewOffset: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> *const Vector,
+    pub CBaseViewModel_SetViewOffset: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Vector,
+    ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_GetSmoothedVelocity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    pub CBaseViewModel_GetVelocity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+        arg3: *mut AngularImpulse,
+    ),
+    pub CBaseViewModel_FVisible1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Vector,
+        arg3: ::std::os::raw::c_int,
+        arg4: *mut *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_FVisible: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+        arg3: ::std::os::raw::c_int,
+        arg4: *mut *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_CanBeSeenBy: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CAI_BaseNPC,
+    ) -> bool,
+    pub CBaseViewModel_GetAttackDamageScale: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> f32,
+    pub CBaseViewModel_GetReceivedDamageScale: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> f32,
+    pub CBaseViewModel_GetGroundVelocityToApply: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+    ),
+    pub CBaseViewModel_PhysicsSplash: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Vector,
+        arg3: *const Vector,
+        arg4: f32,
+        arg5: f32,
+    ) -> bool,
+    pub CBaseViewModel_Splash: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_WorldSpaceCenter: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> *const Vector,
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_GetSoundEmissionOrigin: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    pub CBaseViewModel_ModifyEmitSoundParams: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut EmitSound_t,
+    ),
+    pub CBaseViewModel_IsDeflectable: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_Deflected: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+        arg3: *mut Vector,
+    ),
+    pub CBaseViewModel_CreateVPhysics: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_ForceVPhysicsCollide: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ) -> bool,
+    pub CBaseViewModel_VPhysicsDestroyObject: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_VPhysicsUpdate: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut IPhysicsObject,
+    ),
+    pub CBaseViewModel_VPhysicsTakeDamage: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const CTakeDamageInfo,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_VPhysicsShadowCollision: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+        arg3: *mut gamevcollisionevent_t,
+    ),
+    pub CBaseViewModel_VPhysicsShadowUpdate: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut IPhysicsObject,
+    ),
+    pub CBaseViewModel_VPhysicsCollision: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+        arg3: *mut gamevcollisionevent_t,
+    ),
+    pub CBaseViewModel_VPhysicsFriction: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut IPhysicsObject,
+        arg3: f32,
+        arg4: ::std::os::raw::c_int,
+        arg5: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_UpdatePhysicsShadowToCurrentPosition: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+    ),
+    pub CBaseViewModel_VPhysicsGetObjectList: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut *mut IPhysicsObject,
+        arg3: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseViewModel_VPhysicsIsFlesh: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_HasPhysicsAttacker: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+    ) -> *mut CBasePlayer,
+    pub CBaseViewModel_PhysicsSolidMaskForEntity: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> ::std::os::raw::c_uint,
+    pub CBaseViewModel_ResolveFlyCollisionCustom: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut trace_t,
+        arg3: *mut Vector,
+    ),
+    pub CBaseViewModel_PerformCustomPhysics: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+        arg3: *mut Vector,
+        arg4: *mut QAngle,
+        arg5: *mut QAngle,
+    ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_GetStepOrigin: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    /// C++ returns `::QAngle` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_GetStepAngles: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+        arg2: *mut QAngle,
+    ) -> *mut QAngle,
+    pub CBaseViewModel_ShouldDrawWaterImpacts: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_NetworkStateChanged_m_fFlags1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_fFlags: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_nWaterLevel1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_nWaterLevel: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_hGroundEntity1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_hGroundEntity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_vecBaseVelocity1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_vecBaseVelocity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_flFriction1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_flFriction: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_vecVelocity1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_vecVelocity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_vecViewOffset1: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut ::std::os::raw::c_void,
+    ),
+    pub CBaseViewModel_NetworkStateChanged_m_vecViewOffset: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_ShouldBlockNav: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_ShouldForceTransmitsForTeam: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CBaseViewModel_IsTruceValidForEnt: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> f32,
+    pub CBaseViewModel_BCanCallVote: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_GetIdealSpeed: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> f32,
+    pub CBaseViewModel_GetIdealAccel: unsafe extern "C" fn(
+        arg1: *const CBaseViewModel,
+    ) -> f32,
+    pub CBaseViewModel_StudioFrameAdvance: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_SetSequence: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_IsActivityFinished: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_GetSequenceGroundSpeed: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CStudioHdr,
+        arg3: ::std::os::raw::c_int,
+    ) -> f32,
+    pub CBaseViewModel_ClampRagdollForce: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Vector,
+        arg3: *mut Vector,
+    ),
+    pub CBaseViewModel_BecomeRagdollOnClient: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const Vector,
+    ) -> bool,
+    pub CBaseViewModel_IsRagdoll: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_CanBecomeRagdoll: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+    pub CBaseViewModel_GetSkeleton: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CStudioHdr,
+        arg3: *mut Vector,
+        arg4: *mut Quaternion,
+        arg5: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_GetBoneTransform: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+        arg3: *mut matrix3x4_t,
+    ),
+    pub CBaseViewModel_SetupBones: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut matrix3x4_t,
+        arg3: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_CalculateIKLocks: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+    ),
+    pub CBaseViewModel_DispatchAnimEvents: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseAnimating,
+    ),
+    pub CBaseViewModel_HandleAnimEvent: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut animevent_t,
+    ),
+    pub CBaseViewModel_PopulatePoseParameters: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_GetAttachment: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+        arg3: *mut matrix3x4_t,
+    ) -> bool,
+    pub CBaseViewModel_InitBoneControllers: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    /// C++ returns `::Vector` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+    pub CBaseViewModel_GetGroundSpeedVelocity: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+    ) -> *mut Vector,
+    pub CBaseViewModel_RefreshCollisionBounds: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ),
+    pub CBaseViewModel_Ignite: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+        arg3: bool,
+        arg4: f32,
+        arg5: bool,
+    ),
+    pub CBaseViewModel_IgniteLifetime: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+    ),
+    pub CBaseViewModel_IgniteNumHitboxFires: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_IgniteHitboxFireScale: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: f32,
+    ),
+    pub CBaseViewModel_Extinguish: unsafe extern "C" fn(arg1: *mut CBaseViewModel),
+    pub CBaseViewModel_SetLightingOriginRelative: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_SetLightingOrigin: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseViewModel_SendViewModelMatchingSequence: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_SetWeaponModel: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *mut CBaseCombatWeapon,
+    ),
+    pub CBaseViewModel_CalcViewModelLag: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut Vector,
+        arg3: *mut QAngle,
+        arg4: *mut QAngle,
+    ),
+    pub CBaseViewModel_CalcViewModelView: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBasePlayer,
+        arg3: *const Vector,
+        arg4: *const QAngle,
+    ),
+    pub CBaseViewModel_AddViewModelBob: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: *mut CBasePlayer,
+        arg3: *mut Vector,
+        arg4: *mut QAngle,
+    ),
+    pub CBaseViewModel_GetOwner: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseEntity,
+    pub CBaseViewModel_AddEffects: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_RemoveEffects: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+        arg2: ::std::os::raw::c_int,
+    ),
+    pub CBaseViewModel_GetOwningWeapon: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> *mut CBaseCombatWeapon,
+    pub CBaseViewModel_IsSelfAnimating: unsafe extern "C" fn(
+        arg1: *mut CBaseViewModel,
+    ) -> bool,
+}
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CBaseViewModel_NetworkVar_m_hOwner {
     pub _address: u8,

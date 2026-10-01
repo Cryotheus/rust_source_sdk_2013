@@ -142,158 +142,167 @@ const _: () = {
 const _: () = {
     [
         "Size of CBaseCombatWeapon",
-    ][::std::mem::size_of::<CBaseCombatWeapon>() - 1792usize];
+    ][::std::mem::size_of::<CBaseCombatWeapon>() - 2192usize];
     [
         "Alignment of CBaseCombatWeapon",
     ][::std::mem::align_of::<CBaseCombatWeapon>() - 8usize];
     [
         "Offset of field: CBaseCombatWeapon::m_hOwner",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_hOwner) - 1496usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_hOwner) - 1880usize];
+    [
+        "Offset of field: CBaseCombatWeapon::m_flCritTokenBucket",
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flCritTokenBucket) - 1884usize];
+    [
+        "Offset of field: CBaseCombatWeapon::m_nCritChecks",
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_nCritChecks) - 1888usize];
+    [
+        "Offset of field: CBaseCombatWeapon::m_nCritSeedRequests",
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_nCritSeedRequests) - 1892usize];
     [
         "Offset of field: CBaseCombatWeapon::m_nViewModelIndex",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_nViewModelIndex) - 1500usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_nViewModelIndex) - 1896usize];
     [
         "Offset of field: CBaseCombatWeapon::m_flNextPrimaryAttack",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flNextPrimaryAttack) - 1504usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flNextPrimaryAttack) - 1900usize];
     [
         "Offset of field: CBaseCombatWeapon::m_flNextSecondaryAttack",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flNextSecondaryAttack) - 1508usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flNextSecondaryAttack) - 1904usize];
     [
         "Offset of field: CBaseCombatWeapon::m_flTimeWeaponIdle",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flTimeWeaponIdle) - 1512usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flTimeWeaponIdle) - 1908usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bInReload",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bInReload) - 1516usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bInReload) - 1912usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bFireOnEmpty",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFireOnEmpty) - 1517usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFireOnEmpty) - 1913usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bFiringWholeClip",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFiringWholeClip) - 1518usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFiringWholeClip) - 1914usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iViewModelIndex",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iViewModelIndex) - 1520usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iViewModelIndex) - 1916usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iWorldModelIndex",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iWorldModelIndex) - 1524usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iWorldModelIndex) - 1920usize];
     [
         "Offset of field: CBaseCombatWeapon::m_flNextEmptySoundTime",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flNextEmptySoundTime) - 1528usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flNextEmptySoundTime) - 1924usize];
     [
         "Offset of field: CBaseCombatWeapon::m_Activity",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_Activity) - 1532usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_Activity) - 1928usize];
     [
         "Offset of field: CBaseCombatWeapon::m_nIdealSequence",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_nIdealSequence) - 1536usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_nIdealSequence) - 1932usize];
     [
         "Offset of field: CBaseCombatWeapon::m_IdealActivity",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_IdealActivity) - 1540usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_IdealActivity) - 1936usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bRemoveable",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bRemoveable) - 1544usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bRemoveable) - 1940usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iPrimaryAmmoCount",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iPrimaryAmmoCount) - 1548usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iPrimaryAmmoCount) - 1944usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iSecondaryAmmoCount",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iSecondaryAmmoCount) - 1552usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iSecondaryAmmoCount) - 1948usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iState",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iState) - 1556usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iState) - 1952usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iszName",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iszName) - 1560usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iszName) - 1960usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iPrimaryAmmoType",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iPrimaryAmmoType) - 1568usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iPrimaryAmmoType) - 1968usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iSecondaryAmmoType",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iSecondaryAmmoType) - 1572usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iSecondaryAmmoType) - 1972usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iClip1",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iClip1) - 1576usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iClip1) - 1976usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iClip2",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iClip2) - 1580usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iClip2) - 1980usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bFiresUnderwater",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFiresUnderwater) - 1584usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFiresUnderwater) - 1984usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bAltFiresUnderwater",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bAltFiresUnderwater) - 1585usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bAltFiresUnderwater) - 1985usize];
     [
         "Offset of field: CBaseCombatWeapon::m_fMinRange1",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMinRange1) - 1588usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMinRange1) - 1988usize];
     [
         "Offset of field: CBaseCombatWeapon::m_fMinRange2",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMinRange2) - 1592usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMinRange2) - 1992usize];
     [
         "Offset of field: CBaseCombatWeapon::m_fMaxRange1",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMaxRange1) - 1596usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMaxRange1) - 1996usize];
     [
         "Offset of field: CBaseCombatWeapon::m_fMaxRange2",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMaxRange2) - 1600usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fMaxRange2) - 2000usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bReloadsSingly",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bReloadsSingly) - 1604usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bReloadsSingly) - 2004usize];
     [
         "Offset of field: CBaseCombatWeapon::m_fFireDuration",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fFireDuration) - 1608usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_fFireDuration) - 2008usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iSubType",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iSubType) - 1612usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iSubType) - 2012usize];
     [
         "Offset of field: CBaseCombatWeapon::m_flUnlockTime",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flUnlockTime) - 1616usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flUnlockTime) - 2016usize];
     [
         "Offset of field: CBaseCombatWeapon::m_hLocker",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_hLocker) - 1620usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_hLocker) - 2020usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bFlipViewModel",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFlipViewModel) - 1624usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bFlipViewModel) - 2024usize];
     [
         "Offset of field: CBaseCombatWeapon::m_hWeaponFileInfo",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_hWeaponFileInfo) - 1626usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_hWeaponFileInfo) - 2026usize];
     [
         "Offset of field: CBaseCombatWeapon::m_pConstraint",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_pConstraint) - 1632usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_pConstraint) - 2032usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iAltFireHudHintCount",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iAltFireHudHintCount) - 1640usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iAltFireHudHintCount) - 2040usize];
     [
         "Offset of field: CBaseCombatWeapon::m_iReloadHudHintCount",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iReloadHudHintCount) - 1644usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_iReloadHudHintCount) - 2044usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bAltFireHudHintDisplayed",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bAltFireHudHintDisplayed) - 1648usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bAltFireHudHintDisplayed) - 2048usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bReloadHudHintDisplayed",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bReloadHudHintDisplayed) - 1649usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bReloadHudHintDisplayed) - 2049usize];
     [
         "Offset of field: CBaseCombatWeapon::m_flHudHintPollTime",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flHudHintPollTime) - 1652usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flHudHintPollTime) - 2052usize];
     [
         "Offset of field: CBaseCombatWeapon::m_flHudHintMinDisplayTime",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flHudHintMinDisplayTime) - 1656usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_flHudHintMinDisplayTime) - 2056usize];
     [
         "Offset of field: CBaseCombatWeapon::m_nCustomViewmodelModelIndex",
     ][::std::mem::offset_of!(CBaseCombatWeapon, m_nCustomViewmodelModelIndex)
-        - 1660usize];
+        - 2060usize];
     [
         "Offset of field: CBaseCombatWeapon::m_bSoundsEnabled",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bSoundsEnabled) - 1662usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_bSoundsEnabled) - 2062usize];
     [
         "Offset of field: CBaseCombatWeapon::m_OnPlayerUse",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnPlayerUse) - 1664usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnPlayerUse) - 2064usize];
     [
         "Offset of field: CBaseCombatWeapon::m_OnPlayerPickup",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnPlayerPickup) - 1696usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnPlayerPickup) - 2096usize];
     [
         "Offset of field: CBaseCombatWeapon::m_OnNPCPickup",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnNPCPickup) - 1728usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnNPCPickup) - 2128usize];
     [
         "Offset of field: CBaseCombatWeapon::m_OnCacheInteraction",
-    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnCacheInteraction) - 1760usize];
+    ][::std::mem::offset_of!(CBaseCombatWeapon, m_OnCacheInteraction) - 2160usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {

@@ -3,6 +3,11 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of CTraceFilter"][::std::mem::size_of::<CTraceFilter>() - 8usize];
+    ["Alignment of CTraceFilter"][::std::mem::align_of::<CTraceFilter>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of IEngineTrace"][::std::mem::size_of::<IEngineTrace>() - 8usize];
     ["Alignment of IEngineTrace"][::std::mem::align_of::<IEngineTrace>() - 8usize];
 };

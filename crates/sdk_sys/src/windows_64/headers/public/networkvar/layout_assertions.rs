@@ -13,6 +13,24 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseCombatWeapon_CTFPlayer_NetworkVar_m_hSecondaryLastWeapon_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseCombatWeapon_CTFPlayer_NetworkVar_m_hSecondaryLastWeapon_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseCombatWeapon_CTFPlayerShared_NetworkVar_m_hSwitchTo_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseCombatWeapon_CTFPlayerShared_NetworkVar_m_hSwitchTo_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseAnimating_NetworkVar_m_hLightingOrigin_close0",
     ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
     [
@@ -62,6 +80,15 @@ const _: () = {
     ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
     [
         "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseEntity_NetworkVar_m_hOwnerEntity_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseObject_NetworkVar_m_hBuiltOnEntity_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CBaseObject_NetworkVar_m_hBuiltOnEntity_close0",
     ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -121,9 +148,180 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CTFPlayer_NetworkVar_m_hGrapplingHookTarget_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CTFPlayer_NetworkVar_m_hGrapplingHookTarget_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CTFPlayer_NetworkVar_m_hRagdoll_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CTFPlayer_NetworkVar_m_hRagdoll_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_CTFWearable_NetworkVar_m_hWeaponAssociatedWith_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_CTFWearable_NetworkVar_m_hWeaponAssociatedWith_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseEntity_condition_source_t_NetworkVar_m_pProvider_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseEntity_condition_source_t_NetworkVar_m_pProvider_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseObject_CTFPlayerShared_NetworkVar_m_hCarriedObject_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseObject_CTFPlayerShared_NetworkVar_m_hCarriedObject_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBaseObject_CTFWeaponBuilder_NetworkVar_m_hObjectBeingBuilt_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBaseObject_CTFWeaponBuilder_NetworkVar_m_hObjectBeingBuilt_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CBasePlayer_CAttributeContainerPlayer_NetworkVar_m_hPlayer_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CBasePlayer_CAttributeContainerPlayer_NetworkVar_m_hPlayer_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CNetworkHandleBase_open0_CFogController_fogplayerparams_t_NetworkVar_m_hCtrl_close0",
     ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
     [
         "Align of template specialization: CNetworkHandleBase_open0_CFogController_fogplayerparams_t_NetworkVar_m_hCtrl_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFItem_CTFPlayer_NetworkVar_m_hItem_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFItem_CTFPlayer_NetworkVar_m_hItem_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFPlayer_CBaseObject_NetworkVar_m_hBuilder_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFPlayer_CBaseObject_NetworkVar_m_hBuilder_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayer_NetworkVar_m_hCoach_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayer_NetworkVar_m_hCoach_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayer_NetworkVar_m_hHighFivePartner_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayer_NetworkVar_m_hHighFivePartner_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayer_NetworkVar_m_hStudent_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayer_NetworkVar_m_hStudent_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayerShared_NetworkVar_m_hDisguiseTarget_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayerShared_NetworkVar_m_hDisguiseTarget_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayerShared_NetworkVar_m_hPasstimePassTarget_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayerShared_NetworkVar_m_hPasstimePassTarget_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayerShared_NetworkVar_m_hStunner_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFPlayer_CTFPlayerShared_NetworkVar_m_hStunner_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFWeaponBase_CTFPlayer_NetworkVar_m_hOffHandWeapon_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFWeaponBase_CTFPlayer_NetworkVar_m_hOffHandWeapon_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFWeaponBase_CTFPlayerShared_NetworkVar_m_hDisguiseWeapon_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFWeaponBase_CTFPlayerShared_NetworkVar_m_hDisguiseWeapon_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFWearable_CTFWeaponBase_NetworkVar_m_hExtraWearable_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFWearable_CTFWeaponBase_NetworkVar_m_hExtraWearable_close0",
+    ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CNetworkHandleBase_open0_CTFWearable_CTFWeaponBase_NetworkVar_m_hExtraWearableViewModel_close0",
+    ][::std::mem::size_of::<CNetworkHandleBase>() - 4usize];
+    [
+        "Align of template specialization: CNetworkHandleBase_open0_CTFWearable_CTFWeaponBase_NetworkVar_m_hExtraWearableViewModel_close0",
     ][::std::mem::align_of::<CNetworkHandleBase>() - 4usize];
 };

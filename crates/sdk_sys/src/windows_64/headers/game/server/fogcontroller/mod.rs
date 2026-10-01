@@ -294,6 +294,9 @@ pub struct CFogController__bindgen_vtable {
         arg2: *mut CBaseEntity,
     ) -> bool,
     pub CFogController_IsNPC: unsafe extern "C" fn(arg1: *const CFogController) -> bool,
+    pub CFogController_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CFogController,
+    ) -> bool,
     pub CFogController_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> *mut CBaseCombatCharacter,
@@ -342,6 +345,15 @@ pub struct CFogController__bindgen_vtable {
         arg1: *const CFogController,
     ) -> bool,
     pub CFogController_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CFogController,
+    ) -> bool,
+    pub CFogController_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CFogController,
+    ) -> bool,
+    pub CFogController_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CFogController,
+    ) -> bool,
+    pub CFogController_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CFogController,
     ) -> bool,
     pub CFogController_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -752,6 +764,9 @@ pub struct CFogController__bindgen_vtable {
     pub CFogController_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CFogController,
     ) -> bool,
+    pub CFogController_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CFogController,
+    ) -> f32,
     pub CFogController_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CFogController,
     ) -> bool,

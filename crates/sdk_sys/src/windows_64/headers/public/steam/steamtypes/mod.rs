@@ -14,3 +14,4 @@
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
 pub type AccountID_t = uint32;
+pub type AppId_t = uint32;

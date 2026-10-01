@@ -20,6 +20,12 @@ pub type CUtlVector_iterator<T> = *mut T;
 pub type CUtlVectorConservative_BaseClass<T> = CUtlVector<T, CUtlMemoryConservative<T>>;
 pub type base_vector_t__bindgen_ty_1 = ::std::os::raw::c_uint;
 pub const base_vector_t_IsUtlVector: base_vector_t__bindgen_ty_1 = 1;
+/// Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.
+///
+/// Generated as fields, `CCopyableUtlVector` refers to `A`, which is not defined.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CCopyableUtlVector {}
 #[repr(C)]
 #[derive(Debug)]
 pub struct CUtlVector<T, A> {

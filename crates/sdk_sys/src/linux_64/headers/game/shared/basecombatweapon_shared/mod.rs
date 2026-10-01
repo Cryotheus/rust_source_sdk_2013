@@ -13,60 +13,16 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
-pub type CBaseCombatWeapon_BaseClass = CBaseAnimating;
+pub type CBaseCombatWeapon_BaseClass = CEconEntity;
 pub type CBaseCombatWeapon_CBaseCombatCharacterHandle = CHandle;
+/// Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.
+///
+/// Generated as fields, its Rust size is 2240, but C++ says 2232.
 #[repr(C)]
+#[repr(align(8))]
+#[derive(Debug, Copy, Clone)]
 pub struct CBaseCombatWeapon {
-    pub _base: CBaseAnimating,
-    pub m_hOwner: CNetworkVarBase<CBaseCombatWeapon_CBaseCombatCharacterHandle>,
-    pub m_nViewModelIndex: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_flNextPrimaryAttack: CNetworkVarBase<f32>,
-    pub m_flNextSecondaryAttack: CNetworkVarBase<f32>,
-    pub m_flTimeWeaponIdle: CNetworkVarBase<f32>,
-    pub m_bInReload: bool,
-    pub m_bFireOnEmpty: bool,
-    pub m_bFiringWholeClip: bool,
-    pub m_iViewModelIndex: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_iWorldModelIndex: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_flNextEmptySoundTime: f32,
-    pub m_Activity: Activity,
-    pub m_nIdealSequence: ::std::os::raw::c_int,
-    pub m_IdealActivity: Activity,
-    pub m_bRemoveable: bool,
-    pub m_iPrimaryAmmoCount: ::std::os::raw::c_int,
-    pub m_iSecondaryAmmoCount: ::std::os::raw::c_int,
-    pub m_iState: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_iszName: string_t,
-    pub m_iPrimaryAmmoType: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_iSecondaryAmmoType: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_iClip1: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_iClip2: CNetworkVarBase<::std::os::raw::c_int>,
-    pub m_bFiresUnderwater: bool,
-    pub m_bAltFiresUnderwater: bool,
-    pub m_fMinRange1: f32,
-    pub m_fMinRange2: f32,
-    pub m_fMaxRange1: f32,
-    pub m_fMaxRange2: f32,
-    pub m_bReloadsSingly: bool,
-    pub m_fFireDuration: f32,
-    pub m_iSubType: ::std::os::raw::c_int,
-    pub m_flUnlockTime: f32,
-    pub m_hLocker: EHANDLE,
-    pub m_bFlipViewModel: CNetworkVarBase<bool>,
-    pub m_hWeaponFileInfo: WEAPON_FILE_INFO_HANDLE,
-    pub m_pConstraint: *mut IPhysicsConstraint,
-    pub m_iAltFireHudHintCount: ::std::os::raw::c_int,
-    pub m_iReloadHudHintCount: ::std::os::raw::c_int,
-    pub m_bAltFireHudHintDisplayed: bool,
-    pub m_bReloadHudHintDisplayed: bool,
-    pub m_flHudHintPollTime: f32,
-    pub m_flHudHintMinDisplayTime: f32,
-    pub m_nCustomViewmodelModelIndex: CNetworkVarBase<::std::os::raw::c_short>,
-    pub m_bSoundsEnabled: bool,
-    pub m_OnPlayerUse: COutputEvent,
-    pub m_OnPlayerPickup: COutputEvent,
-    pub m_OnNPCPickup: COutputEvent,
-    pub m_OnCacheInteraction: COutputEvent,
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 2232usize]>,
 }
 #[repr(C)]
 pub struct CBaseCombatWeapon__bindgen_vtable {
@@ -345,6 +301,9 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_IsNPC: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
     ) -> bool,
+    pub CBaseCombatWeapon_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CBaseCombatWeapon,
+    ) -> bool,
     pub CBaseCombatWeapon_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> *mut CBaseCombatCharacter,
@@ -397,6 +356,15 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
         arg1: *const CBaseCombatWeapon,
     ) -> bool,
     pub CBaseCombatWeapon_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CBaseCombatWeapon,
+    ) -> bool,
+    pub CBaseCombatWeapon_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBaseCombatWeapon,
+    ) -> bool,
+    pub CBaseCombatWeapon_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CBaseCombatWeapon,
+    ) -> bool,
+    pub CBaseCombatWeapon_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
     ) -> bool,
     pub CBaseCombatWeapon_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -799,6 +767,9 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
     pub CBaseCombatWeapon_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
     ) -> bool,
+    pub CBaseCombatWeapon_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBaseCombatWeapon,
+    ) -> f32,
     pub CBaseCombatWeapon_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
     ) -> bool,
@@ -912,6 +883,38 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
         arg1: *mut CBaseCombatWeapon,
         arg2: *mut CBaseEntity,
     ),
+    pub CBaseCombatWeapon_GiveTo: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+        arg2: *mut CBaseEntity,
+    ),
+    pub CBaseCombatWeapon_CalculateVisibleClassFor: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+        arg2: *mut CBaseCombatCharacter,
+    ) -> ::std::os::raw::c_int,
+    pub CBaseCombatWeapon_GetAttributeManager: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+    ) -> *mut CAttributeManager,
+    pub CBaseCombatWeapon_GetAttributeContainer: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+    ) -> *mut CAttributeContainer,
+    pub CBaseCombatWeapon_GetAttributeOwner: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+    ) -> *mut CBaseEntity,
+    pub CBaseCombatWeapon_GetAttributeList: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+    ) -> *mut CAttributeList,
+    pub CBaseCombatWeapon_ReapplyProvision: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+    ),
+    pub CBaseCombatWeapon_UpdateBodygroups: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+        arg2: *mut CBaseCombatCharacter,
+        arg3: ::std::os::raw::c_int,
+    ) -> bool,
+    pub CBaseCombatWeapon_TranslateViewmodelHandActivityInternal: unsafe extern "C" fn(
+        arg1: *mut CBaseCombatWeapon,
+        arg2: Activity,
+    ) -> Activity,
     pub CBaseCombatWeapon_IsPredicted: unsafe extern "C" fn(
         arg1: *const CBaseCombatWeapon,
     ) -> bool,
@@ -950,10 +953,6 @@ pub struct CBaseCombatWeapon__bindgen_vtable {
         arg1: *mut CBaseCombatWeapon,
     ),
     pub CBaseCombatWeapon_DefaultTouch: unsafe extern "C" fn(
-        arg1: *mut CBaseCombatWeapon,
-        arg2: *mut CBaseEntity,
-    ),
-    pub CBaseCombatWeapon_GiveTo: unsafe extern "C" fn(
         arg1: *mut CBaseCombatWeapon,
         arg2: *mut CBaseEntity,
     ),

@@ -14,10 +14,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use syn::visit::Visit;
 use syn::{File, Item, Type, UseTree};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CollectorConfig {
 	source_root: PathBuf,
 	bridge_files: BTreeSet<PathBuf>,
+	external_roots: Vec<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -108,9 +109,23 @@ impl ProvenanceCollector {
 			config: Arc::new(CollectorConfig {
 				source_root,
 				bridge_files,
+				external_roots: Vec::new(),
 			}),
 			state: Arc::new(Mutex::new(CollectorState::default())),
 		}
+	}
+
+	/// Treat vendored dependencies as external even when they live under the
+	/// source root. Configure this before passing clones to bindgen.
+	pub fn with_external_roots(
+		mut self,
+		roots: impl IntoIterator<Item = impl AsRef<Path>>,
+	) -> Self {
+		Arc::make_mut(&mut self.config).external_roots = roots
+			.into_iter()
+			.map(|path| normalize_path(path.as_ref()))
+			.collect();
+		self
 	}
 
 	fn classify(&self, source_location: Option<&SourceLocation>) -> SourceOrigin {
@@ -128,6 +143,15 @@ impl ProvenanceCollector {
 			.any(|bridge| paths_equal(bridge, &path))
 		{
 			return SourceOrigin::Bridge { path };
+		}
+
+		if self
+			.config
+			.external_roots
+			.iter()
+			.any(|root| strip_prefix(&path, root).is_some())
+		{
+			return SourceOrigin::External { path };
 		}
 
 		if let Some(relative_path) = strip_prefix(&path, &self.config.source_root) {
@@ -768,6 +792,33 @@ fn use_tree_owner(tree: &UseTree, provenance: &ProvenanceIndex) -> Option<Module
 mod tests {
 	use super::*;
 	use syn::parse_quote;
+
+	#[test]
+	fn vendored_dependencies_are_external_without_hiding_game_headers() {
+		let collector =
+			ProvenanceCollector::new("sdk", ["bridge.hpp"]).with_external_roots(["sdk/thirdparty"]);
+		assert!(
+			collector
+				.classify(Some(&location("sdk/thirdparty/protobuf/message.h")))
+				.is_external()
+		);
+		assert!(
+			collector
+				.classify(Some(&location("sdk/game/server/tf/tf_player.h")))
+				.is_source()
+		);
+		assert!(
+			collector
+				.classify(Some(&location("sdk/thirdparty_support/owned.h")))
+				.is_source()
+		);
+		assert!(
+			collector
+				.clone()
+				.classify(Some(&location("sdk/thirdparty/protobuf/message.h")))
+				.is_external()
+		);
+	}
 
 	#[test]
 	fn assigns_a_renamed_use_to_the_source_items_module() {

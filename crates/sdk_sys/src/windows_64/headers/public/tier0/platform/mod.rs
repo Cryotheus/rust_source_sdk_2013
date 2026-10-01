@@ -13,6 +13,7 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
+pub type RTime32 = uint32;
 pub type float64 = f64;
 pub type int16 = ::std::os::raw::c_short;
 pub type int32 = ::std::os::raw::c_int;

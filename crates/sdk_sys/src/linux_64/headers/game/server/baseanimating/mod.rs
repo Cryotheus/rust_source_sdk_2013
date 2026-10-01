@@ -19,12 +19,12 @@ pub const CBaseAnimating_NUM_BONECTRLS: CBaseAnimating__bindgen_ty_1 = 4;
 pub const CBaseAnimating_NUM_POSEPAREMETERS: CBaseAnimating__bindgen_ty_1 = 24;
 /// Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.
 ///
-/// Generated as fields, its Rust field `m_flEstIkFloor` is at offset 1256, but C++ says 1252.
+/// Generated as fields, its Rust field `m_flEstIkFloor` is at offset 1272, but C++ says 1268.
 #[repr(C)]
 #[repr(align(8))]
 #[derive(Debug, Copy, Clone)]
 pub struct CBaseAnimating {
-    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 1544usize]>,
+    pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 1560usize]>,
 }
 #[repr(C)]
 pub struct CBaseAnimating__bindgen_vtable {
@@ -297,6 +297,9 @@ pub struct CBaseAnimating__bindgen_vtable {
         arg2: *mut CBaseEntity,
     ) -> bool,
     pub CBaseAnimating_IsNPC: unsafe extern "C" fn(arg1: *const CBaseAnimating) -> bool,
+    pub CBaseAnimating_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
     pub CBaseAnimating_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CBaseAnimating,
     ) -> *mut CBaseCombatCharacter,
@@ -345,6 +348,15 @@ pub struct CBaseAnimating__bindgen_vtable {
         arg1: *const CBaseAnimating,
     ) -> bool,
     pub CBaseAnimating_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
+    pub CBaseAnimating_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
+    pub CBaseAnimating_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> bool,
+    pub CBaseAnimating_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CBaseAnimating,
     ) -> bool,
     pub CBaseAnimating_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -739,6 +751,9 @@ pub struct CBaseAnimating__bindgen_vtable {
     pub CBaseAnimating_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CBaseAnimating,
     ) -> bool,
+    pub CBaseAnimating_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBaseAnimating,
+    ) -> f32,
     pub CBaseAnimating_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CBaseAnimating,
     ) -> bool,

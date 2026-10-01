@@ -15,11 +15,6 @@
 use super::super::super::super::__bindgen_prelude::*;
 pub type CBaseFlex_BaseClass = CBaseAnimatingOverlay;
 #[repr(C)]
-#[derive(Debug)]
-pub struct AI_Response {
-    _unused: [u8; 0],
-}
-#[repr(C)]
 pub struct CBaseFlex {
     pub _base: CBaseAnimatingOverlay,
     pub m_flexWeight: CBaseFlex_NetworkVar_m_flexWeight,
@@ -312,6 +307,7 @@ pub struct CBaseFlex__bindgen_vtable {
         arg2: *mut CBaseEntity,
     ) -> bool,
     pub CBaseFlex_IsNPC: unsafe extern "C" fn(arg1: *const CBaseFlex) -> bool,
+    pub CBaseFlex_IsNextBot: unsafe extern "C" fn(arg1: *const CBaseFlex) -> bool,
     pub CBaseFlex_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CBaseFlex,
     ) -> *mut CBaseCombatCharacter,
@@ -350,6 +346,11 @@ pub struct CBaseFlex__bindgen_vtable {
     pub CBaseFlex_IsBaseObject: unsafe extern "C" fn(arg1: *const CBaseFlex) -> bool,
     pub CBaseFlex_IsBaseTrain: unsafe extern "C" fn(arg1: *const CBaseFlex) -> bool,
     pub CBaseFlex_IsCombatItem: unsafe extern "C" fn(arg1: *const CBaseFlex) -> bool,
+    pub CBaseFlex_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBaseFlex,
+    ) -> bool,
+    pub CBaseFlex_IsFuncLOD: unsafe extern "C" fn(arg1: *const CBaseFlex) -> bool,
+    pub CBaseFlex_IsBaseProjectile: unsafe extern "C" fn(arg1: *const CBaseFlex) -> bool,
     pub CBaseFlex_IsBaseCombatWeapon: unsafe extern "C" fn(
         arg1: *const CBaseFlex,
     ) -> bool,
@@ -733,6 +734,9 @@ pub struct CBaseFlex__bindgen_vtable {
     pub CBaseFlex_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CBaseFlex,
     ) -> bool,
+    pub CBaseFlex_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBaseFlex,
+    ) -> f32,
     pub CBaseFlex_BCanCallVote: unsafe extern "C" fn(arg1: *mut CBaseFlex) -> bool,
     pub CBaseFlex_GetIdealSpeed: unsafe extern "C" fn(arg1: *const CBaseFlex) -> f32,
     pub CBaseFlex_GetIdealAccel: unsafe extern "C" fn(arg1: *const CBaseFlex) -> f32,

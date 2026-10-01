@@ -361,6 +361,9 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_IsNPC: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
     ) -> bool,
+    pub CBaseAnimatingOverlay_IsNextBot: unsafe extern "C" fn(
+        arg1: *const CBaseAnimatingOverlay,
+    ) -> bool,
     pub CBaseAnimatingOverlay_MyCombatCharacterPointer: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> *mut CBaseCombatCharacter,
@@ -413,6 +416,15 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
         arg1: *const CBaseAnimatingOverlay,
     ) -> bool,
     pub CBaseAnimatingOverlay_IsCombatItem: unsafe extern "C" fn(
+        arg1: *const CBaseAnimatingOverlay,
+    ) -> bool,
+    pub CBaseAnimatingOverlay_IsProjectileCollisionTarget: unsafe extern "C" fn(
+        arg1: *const CBaseAnimatingOverlay,
+    ) -> bool,
+    pub CBaseAnimatingOverlay_IsFuncLOD: unsafe extern "C" fn(
+        arg1: *const CBaseAnimatingOverlay,
+    ) -> bool,
+    pub CBaseAnimatingOverlay_IsBaseProjectile: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
     ) -> bool,
     pub CBaseAnimatingOverlay_IsBaseCombatWeapon: unsafe extern "C" fn(
@@ -835,6 +847,9 @@ pub struct CBaseAnimatingOverlay__bindgen_vtable {
     pub CBaseAnimatingOverlay_IsTruceValidForEnt: unsafe extern "C" fn(
         arg1: *const CBaseAnimatingOverlay,
     ) -> bool,
+    pub CBaseAnimatingOverlay_GetDefaultItemChargeMeterValue: unsafe extern "C" fn(
+        arg1: *const CBaseAnimatingOverlay,
+    ) -> f32,
     pub CBaseAnimatingOverlay_BCanCallVote: unsafe extern "C" fn(
         arg1: *mut CBaseAnimatingOverlay,
     ) -> bool,

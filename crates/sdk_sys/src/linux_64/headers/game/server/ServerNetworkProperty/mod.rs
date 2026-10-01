@@ -88,4 +88,46 @@ impl CServerNetworkProperty {
         }
     }
 }
+#[repr(C)]
+pub struct CServerNetworkProperty__bindgen_vtable {
+    pub CServerNetworkProperty_GetEntityHandle: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ) -> *mut IHandleEntity,
+    pub CServerNetworkProperty_GetServerClass: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ) -> *mut ServerClass,
+    pub CServerNetworkProperty_GetEdict: unsafe extern "C" fn(
+        arg1: *const CServerNetworkProperty,
+    ) -> *mut edict_t,
+    pub CServerNetworkProperty_GetClassName: unsafe extern "C" fn(
+        arg1: *const CServerNetworkProperty,
+    ) -> *const ::std::os::raw::c_char,
+    pub CServerNetworkProperty_Release: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ),
+    pub CServerNetworkProperty_AreaNum: unsafe extern "C" fn(
+        arg1: *const CServerNetworkProperty,
+    ) -> ::std::os::raw::c_int,
+    pub CServerNetworkProperty_GetBaseNetworkable: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ) -> *mut CBaseNetworkable,
+    pub CServerNetworkProperty_GetBaseEntity: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ) -> *mut CBaseEntity,
+    pub CServerNetworkProperty_GetPVSInfo: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ) -> *mut PVSInfo_t,
+    pub CServerNetworkProperty_complete_destructor: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ),
+    pub CServerNetworkProperty_deleting_destructor: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ),
+    pub CServerNetworkProperty_GetDataDescMap: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ) -> *mut datamap_t,
+    pub CServerNetworkProperty_FireEvent: unsafe extern "C" fn(
+        arg1: *mut CServerNetworkProperty,
+    ),
+}
 include!("layout_assertions.rs");
