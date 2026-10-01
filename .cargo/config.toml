@@ -2,7 +2,7 @@
 _bind = [
 	"run",
 	"--package", "source_sdk_2013_bindgen_runner",
-#	"--release",
+	"--release", # it takes less time to compile in the release profile than to run the debug binary
 ]
 
 bind-linux = [
@@ -15,7 +15,6 @@ bind-linux = [
 
 bind-windows = [
 	"_bind",
-	"--release",
 	"--target", "x86_64-pc-windows-msvc",
 	"--",
 	"--manifest-dir", "./crates/sdk_sys_win64/",
@@ -31,10 +30,14 @@ rscodefmt = [
 	"rscode", "fmt",
 	"--package", "metamod_source",
 	"--package", "metamod_source_sys",
+	"--package", "source_sdk_2013",
 	"--package", "source_sdk_2013_bindgen",
 	"--package", "source_sdk_2013_bindgen_runner",
 	"--package", "source_sdk_2013_declmacros",
-	"--package", "source_sdk_2013",
+	"--package", "source_sdk_2013_raw",
+	"--package", "source_sdk_2013_sys",
+#	"--package", "source_sdk_2013_sys_x64_linux", # these format their bindings automatically!
+#	"--package", "source_sdk_2013_sys_x64_windows", #
 	"--package", "crys_bricks",
 	"--all-features",
 ]
