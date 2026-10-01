@@ -13,6 +13,19 @@
 )]
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
+/** Simple class for counting down a short interval of time.
+ Upon creation, the timer is invalidated.  Invalidated countdown timers are considered to have elapsed.*/
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CountdownTimer {
+    pub vtable_: *const CountdownTimer__bindgen_vtable,
+    pub m_duration: f32,
+    pub m_timestamp: f32,
+}
+#[repr(C)]
+pub struct CountdownTimer__bindgen_vtable {
+    pub CountdownTimer_Now: unsafe extern "C" fn(arg1: *const CountdownTimer) -> f32,
+}
 /** Simple class for tracking intervals of game time.
  Upon creation, the timer is invalidated.  To measure time intervals, start the timer via Start().*/
 #[repr(C)]

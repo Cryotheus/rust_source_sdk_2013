@@ -2037,9 +2037,4 @@ pub struct CPlayerSimInfo {
     pub m_flServerFrameTime: f32,
     pub m_vecAbsOrigin: Vector,
 }
-#[repr(C)]
-#[derive(Debug)]
-pub struct CVoteController {
-    _unused: [u8; 0],
-}
 include!("layout_assertions.rs");

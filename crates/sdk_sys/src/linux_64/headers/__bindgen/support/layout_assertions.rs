@@ -1440,6 +1440,15 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CUtlMemory_open0_ptr_FailedVote_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*mut CBaseIssue_FailedVote>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_FailedVote_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*mut CBaseIssue_FailedVote>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CUtlMemory_open0_ptr_IEntityListener_int_close0",
     ][::std::mem::size_of::<CUtlMemory<*mut IEntityListener>>() - 16usize];
     [
@@ -1463,6 +1472,42 @@ const _: () = {
     [
         "Align of template specialization: CUtlMemory_open0_ptr_StringPool_t_int_close0",
     ][::std::mem::align_of::<CUtlMemory<*mut CUtlSymbolTable_StringPool_t>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_const_char_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*const ::std::os::raw::c_char>>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -1575,7 +1620,7 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_225346_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
+        "Size of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_226682_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
     ][::std::mem::size_of::<
         CUtlRBTree<
             CBaseFlex_FS_LocalToGlobal_t,
@@ -1592,7 +1637,7 @@ const _: () = {
         >,
     >() - 40usize];
     [
-        "Align of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_225346_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
+        "Align of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_226682_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
     ][::std::mem::align_of::<
         CUtlRBTree<
             CBaseFlex_FS_LocalToGlobal_t,
@@ -1997,6 +2042,19 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CUtlVector_open0_ptr_FailedVote_CUtlMemory_open1_ptr_FailedVote_int_close1_close0",
+    ][::std::mem::size_of::<
+        CUtlVector<*mut CBaseIssue_FailedVote, CUtlMemory<*mut CBaseIssue_FailedVote>>,
+    >() - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_FailedVote_CUtlMemory_open1_ptr_FailedVote_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<*mut CBaseIssue_FailedVote, CUtlMemory<*mut CBaseIssue_FailedVote>>,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CUtlVector_open0_ptr_IEntityListener_CUtlMemory_open1_ptr_IEntityListener_int_close1_close0",
     ][::std::mem::size_of::<
         CUtlVector<*mut IEntityListener, CUtlMemory<*mut IEntityListener>>,
@@ -2036,6 +2094,82 @@ const _: () = {
         CUtlVector<
             *mut CUtlSymbolTable_StringPool_t,
             CUtlMemory<*mut CUtlSymbolTable_StringPool_t>,
+        >,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::size_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
+        >,
+    >() - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
+        >,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::size_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
+        >,
+    >() - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
+        >,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::size_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
+        >,
+    >() - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
+        >,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::size_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
+        >,
+    >() - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_const_char_CUtlMemory_open1_ptr_const_char_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<
+            *const ::std::os::raw::c_char,
+            CUtlMemory<*const ::std::os::raw::c_char>,
         >,
     >() - 8usize];
 };

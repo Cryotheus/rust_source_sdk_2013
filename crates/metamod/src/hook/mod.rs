@@ -300,7 +300,8 @@ impl HookTarget {
 	///
 	/// # Safety
 	///
-	/// An object of the target must be live.
+	/// For an object target, that object must be live. For a direct vtable
+	/// target, the table must be live; no instance is required.
 	unsafe fn resolve(self) -> Option<(NonNull<*mut c_void>, Option<NonNull<c_void>>)> {
 		// SAFETY: As the caller promises, a polymorphic object starts with its
 		// vtable pointer.
@@ -391,9 +392,10 @@ impl MetamodApi<'_> {
 	///
 	/// # Safety
 	///
-	/// An object of `target` must be live, and its vtable must hold, at
-	/// `function`'s slot, a function of the C++ type `S` stands for. The vtable
-	/// and the function must stay loaded until Metamod unloads the plugin.
+	/// For an object target, that object must be live. For a direct vtable
+	/// target, the table must be live; no instance is required. The table must
+	/// hold, at `function`'s slot, a function of the C++ type `S` stands for.
+	/// The vtable and function must stay loaded until Metamod unloads the plugin.
 	pub unsafe fn add_hook<S: Signature>(
 		self,
 		function: VirtualFunction<S>,

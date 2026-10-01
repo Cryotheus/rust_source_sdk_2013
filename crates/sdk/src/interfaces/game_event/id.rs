@@ -447,7 +447,11 @@ game_events! {
 		TrainingComplete = b"training_complete" c"training_complete",
 		UpdateStatusItem = b"update_status_item" c"update_status_item",
 		UpgradesFileChanged = b"upgrades_file_changed" c"upgrades_file_changed",
+		/// Accepted ballot; `entityid` is an entity index, not a user ID.
+		VoteCast = b"vote_cast" c"vote_cast",
 		VoteMapsChanged = b"vote_maps_changed" c"vote_maps_changed",
+		/// A vote has been created; `voteidx` correlates its later ballots.
+		VoteOptions = b"vote_options" c"vote_options",
 		WinlimitChanged = b"winlimit_changed" c"winlimit_changed",
 		WinpanelShowScores = b"winpanel_show_scores" c"winpanel_show_scores",
 		WorldStatusChanged = b"world_status_changed" c"world_status_changed",

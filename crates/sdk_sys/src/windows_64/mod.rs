@@ -42,6 +42,7 @@ mod __bindgen_prelude {
     pub use super::headers::game::server::timedeventmgr::*;
     pub use super::headers::game::server::util::*;
     pub use super::headers::game::server::variant_t::*;
+    pub use super::headers::game::server::vote_controller::*;
     pub use super::headers::game::server::vscript_server::*;
     pub use super::headers::game::shared::ai_activity::*;
     pub use super::headers::game::shared::basecombatweapon_shared::*;

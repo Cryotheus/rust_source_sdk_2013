@@ -3,6 +3,17 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of CountdownTimer"][::std::mem::size_of::<CountdownTimer>() - 16usize];
+    ["Alignment of CountdownTimer"][::std::mem::align_of::<CountdownTimer>() - 8usize];
+    [
+        "Offset of field: CountdownTimer::m_duration",
+    ][::std::mem::offset_of!(CountdownTimer, m_duration) - 8usize];
+    [
+        "Offset of field: CountdownTimer::m_timestamp",
+    ][::std::mem::offset_of!(CountdownTimer, m_timestamp) - 12usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of IntervalTimer"][::std::mem::size_of::<IntervalTimer>() - 4usize];
     ["Alignment of IntervalTimer"][::std::mem::align_of::<IntervalTimer>() - 4usize];
     [

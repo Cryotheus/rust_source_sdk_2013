@@ -63,3 +63,5 @@ pub mod user_messages;
 
 pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
 pub use sys;
+
+pub mod voting;

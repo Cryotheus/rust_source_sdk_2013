@@ -37,3 +37,8 @@ pub use sys;
 
 #[cfg(feature = "sdk")]
 pub mod damage_hooks;
+
+#[cfg(feature = "sdk")]
+mod vote_hooks;
+#[cfg(feature = "sdk")]
+pub use vote_hooks::{VoteHookError, VoteHooks};

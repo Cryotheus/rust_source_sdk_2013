@@ -51,6 +51,8 @@ headers/game/server/util/layout_assertions.rs
 headers/game/server/util/mod.rs
 headers/game/server/variant_t/layout_assertions.rs
 headers/game/server/variant_t/mod.rs
+headers/game/server/vote_controller/layout_assertions.rs
+headers/game/server/vote_controller/mod.rs
 headers/game/server/vscript_server/layout_assertions.rs
 headers/game/server/vscript_server/mod.rs
 headers/game/shared/ai_activity/mod.rs

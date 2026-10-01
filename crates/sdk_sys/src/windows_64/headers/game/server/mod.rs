@@ -24,4 +24,5 @@ pub mod recipientfilter;
 pub mod timedeventmgr;
 pub mod util;
 pub mod variant_t;
+pub mod vote_controller;
 pub mod vscript_server;

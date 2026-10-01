@@ -1787,9 +1787,4 @@ pub struct CBasePlayer_StepSoundCache_t {
     pub m_SoundParameters: CSoundParameters,
     pub m_usSoundNameIndex: ::std::os::raw::c_ushort,
 }
-#[repr(C)]
-#[derive(Debug)]
-pub struct CVoteController {
-    _unused: [u8; 0],
-}
 include!("layout_assertions.rs");

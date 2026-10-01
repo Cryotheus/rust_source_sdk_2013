@@ -76,6 +76,15 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CHandle_open0_CBasePlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBasePlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CHandle_open0_CBaseViewModel_close0",
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [

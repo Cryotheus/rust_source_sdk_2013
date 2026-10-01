@@ -53,6 +53,7 @@ class bf_read {};
 #include "game/shared/mapentities_shared.h"
 
 #include "game/server/gameinterface.h"
+#include "game/server/vote_controller.h"
 
 // TF2 condition identifiers; operations use the game's native script bindings.
 // No matchmaking declarations are used here. Its generated protobuf headers
