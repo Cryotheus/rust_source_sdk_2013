@@ -15,8 +15,20 @@
 use super::super::super::super::__bindgen_prelude::*;
 pub type CVariant = CVariantBase;
 pub type CVariantDefaultAllocator__bindgen_ty_1 = ::std::os::raw::c_uint;
+pub type ExtendedFieldType_t = ::std::os::raw::c_uint;
 pub type HSCRIPT = *mut HSCRIPT__;
 pub const CVariantDefaultAllocator_ALWAYS_COPY: CVariantDefaultAllocator__bindgen_ty_1 = 0;
+pub const ExtendedFieldType_t_FIELD_CSTRING: ExtendedFieldType_t = 30;
+pub const ExtendedFieldType_t_FIELD_FLOAT64: ExtendedFieldType_t = 34;
+pub const ExtendedFieldType_t_FIELD_HSCRIPT: ExtendedFieldType_t = 31;
+pub const ExtendedFieldType_t_FIELD_HSCRIPT_NEW_INSTANCE: ExtendedFieldType_t = 36;
+pub const ExtendedFieldType_t_FIELD_POSITIVEINTEGER_OR_NULL: ExtendedFieldType_t = 35;
+pub const ExtendedFieldType_t_FIELD_QANGLE: ExtendedFieldType_t = 39;
+pub const ExtendedFieldType_t_FIELD_TYPEUNKNOWN: ExtendedFieldType_t = 29;
+pub const ExtendedFieldType_t_FIELD_UINT: ExtendedFieldType_t = 37;
+pub const ExtendedFieldType_t_FIELD_UINT64: ExtendedFieldType_t = 33;
+pub const ExtendedFieldType_t_FIELD_UTLSTRINGTOKEN: ExtendedFieldType_t = 38;
+pub const ExtendedFieldType_t_FIELD_VARIANT: ExtendedFieldType_t = 32;
 #[repr(C)]
 pub struct CVariantBase {
     pub __bindgen_anon_1: CVariantBase__bindgen_ty_1,

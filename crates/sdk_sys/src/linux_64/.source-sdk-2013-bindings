@@ -93,6 +93,8 @@ headers/game/shared/shareddefs/layout_assertions.rs
 headers/game/shared/shareddefs/mod.rs
 headers/game/shared/takedamageinfo/layout_assertions.rs
 headers/game/shared/takedamageinfo/mod.rs
+headers/game/shared/tf/mod.rs
+headers/game/shared/tf/tf_shareddefs/mod.rs
 headers/game/shared/touchlink/layout_assertions.rs
 headers/game/shared/touchlink/mod.rs
 headers/game/shared/usercmd/layout_assertions.rs

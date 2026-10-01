@@ -63,6 +63,7 @@ mod __bindgen_prelude {
     pub use super::headers::game::shared::sceneentity_shared::*;
     pub use super::headers::game::shared::shareddefs::*;
     pub use super::headers::game::shared::takedamageinfo::*;
+    pub use super::headers::game::shared::tf::tf_shareddefs::*;
     pub use super::headers::game::shared::touchlink::*;
     pub use super::headers::game::shared::usercmd::*;
     pub use super::headers::game::shared::util_shared::*;

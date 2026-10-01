@@ -54,6 +54,12 @@ class bf_read {};
 
 #include "game/server/gameinterface.h"
 
+// TF2 condition identifiers; operations use the game's native script bindings.
+// No matchmaking declarations are used here. Its generated protobuf headers
+// are not distributed with the SDK and are unrelated to ETFCond.
+#define TF_MATCHMAKING_SHARED_H
+#include "game/shared/tf/tf_shareddefs.h"
+
 //TF2's engine is built with replay support, which adds virtual methods to the
 //client message handler and to IClient. Without it, their later slots would be
 //off by one. Nothing included above depends on it.

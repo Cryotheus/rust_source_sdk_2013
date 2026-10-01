@@ -21,6 +21,7 @@ pub mod predictioncopy;
 pub mod sceneentity_shared;
 pub mod shareddefs;
 pub mod takedamageinfo;
+pub mod tf;
 pub mod touchlink;
 pub mod usercmd;
 pub mod util_shared;
