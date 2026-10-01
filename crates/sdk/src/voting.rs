@@ -252,7 +252,9 @@ pub fn vote_issue_vtables(
 	if server.game() != Game::TeamFortress2 {
 		return Err(VoteHookTargetError::WrongGame);
 	}
-	let image = vtables::Image::load(server.game_server_factory().as_raw() as usize)?;
+	// SAFETY: Server keeps the factory and its game module loaded for this
+	// callback, including the loader metadata used while taking the snapshot.
+	let image = unsafe { vtables::Image::load(server.game_server_factory().as_raw() as usize) }?;
 	VoteIssue::ALL
 		.into_iter()
 		.map(|issue| {
