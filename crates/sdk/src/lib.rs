@@ -53,6 +53,7 @@ pub mod net;
 pub mod players;
 mod rtti;
 pub mod server;
+pub mod sigscan;
 pub mod soundscapes;
 mod tier0;
 pub mod user_messages;
