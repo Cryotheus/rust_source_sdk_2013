@@ -4,10 +4,11 @@
 //!
 //! Everything starts from a [`Server`], which [`Server::new`] creates from the
 //! engine's and game server's interface factories for the duration of one
-//! callback. That constructor is the only `unsafe` function needed to reach
-//! the engine: its contract covers what every other type relies on, and each
-//! interface is then a safe accessor away, such as [`Server::valve_engine`] or
-//! [`Server::server_game_dll`].
+//! callback. Its safety contract covers what every other type relies on, and
+//! each interface is then a safe accessor away, such as [`Server::valve_engine`]
+//! or [`Server::server_game_dll`]. Operations with additional requirements,
+//! such as entity spawning or schema-dependent attribute writes, document
+//! their own `unsafe` contracts.
 //!
 //! # Handles and aliasing
 //!
@@ -39,6 +40,7 @@
 
 pub mod abi;
 pub mod ambient_sounds;
+pub mod attributes;
 pub mod bitbuf;
 pub mod commands;
 pub mod conditions;
@@ -60,10 +62,8 @@ pub mod sigscan;
 pub mod soundscapes;
 mod tier0;
 pub mod user_messages;
+pub mod voting;
+pub mod weapons;
 
 pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
 pub use sys;
-
-pub mod voting;
-
-pub mod weapons;
