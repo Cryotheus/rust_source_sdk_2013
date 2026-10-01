@@ -1,7 +1,6 @@
 use clap::{Arg, value_parser};
 use log::{LevelFilter, info};
 use source_sdk_2013_bindgen::SupportedTarget;
-use std::env::args;
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
@@ -59,7 +58,7 @@ fn main() -> anyhow::Result<()> {
 
 	let builder = source_sdk_2013_bindgen::Builder::new().build()?;
 	let bindings = builder.generate_for(supported_target)?;
-	let bindings_dir = manifest_dir.join("src").join(supported_target.short_name());
+	let bindings_dir = manifest_dir.join("src").join("generated");
 
 	// The SDK is supplied outside this Cargo workspace, so Cargo cannot infer
 	// which headers affect the generated modules from package dependencies.

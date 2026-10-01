@@ -1,22 +1,40 @@
 [alias]
-bind = ["run", "--package", "source_sdk_2013_bindgen_runner", "--release", "--", "--manifest-dir", "./crates/sdk_sys/"]
+_bind = [
+	"run",
+	"--package", "source_sdk_2013_bindgen_runner",
+#	"--release",
+]
+
+bind-linux = [
+	"_bind",
+	"--target", "x86_64-unknown-linux-gnu",
+	"--",
+	"--manifest-dir", "./crates/sdk_sys_linux64/",
+	"--target", "x86_64-unknown-linux-gnu"
+]
+
+bind-windows = [
+	"_bind",
+	"--release",
+	"--target", "x86_64-pc-windows-msvc",
+	"--",
+	"--manifest-dir", "./crates/sdk_sys_win64/",
+	"--target", "x86_64-pc-windows-msvc"
+]
+
+bind-wsl = [
+	"bind-linux",
+	"--dotenv", "./wsl.env"
+]
 
 rscodefmt = [
-	"rscode",
-	"fmt",
-	"-p",
-	"metamod_source",
-	"-p",
-	"metamod_source_sys",
-	"-p",
-	"source_sdk_2013_bindgen",
-	"-p",
-	"source_sdk_2013_bindgen_runner",
-	"-p",
-	"source_sdk_2013_declmacros",
-	"-p",
-	"source_sdk_2013",
-	"-p",
-	"crys_bricks",
+	"rscode", "fmt",
+	"--package", "metamod_source",
+	"--package", "metamod_source_sys",
+	"--package", "source_sdk_2013_bindgen",
+	"--package", "source_sdk_2013_bindgen_runner",
+	"--package", "source_sdk_2013_declmacros",
+	"--package", "source_sdk_2013",
+	"--package", "crys_bricks",
 	"--all-features",
 ]

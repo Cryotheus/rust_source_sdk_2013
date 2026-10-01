@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 /// Simplifies the declaration of Source SDK console commands.
 ///
 /// Todo: invocation syntax

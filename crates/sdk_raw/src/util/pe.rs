@@ -8,15 +8,6 @@ pub(super) struct Headers {
 	pub sections: Vec<SectionHeader>,
 }
 
-pub(super) struct SectionHeader {
-	pub offset: usize,
-	pub len: usize,
-	raw_offset: usize,
-	raw_len: usize,
-	pub executable: bool,
-	pub writable: bool,
-}
-
 impl Headers {
 	pub fn read(
 		mut read: impl FnMut(usize, usize) -> Result<Vec<u8>, Error>,
@@ -83,6 +74,15 @@ impl Headers {
 			sections,
 		})
 	}
+}
+
+pub(super) struct SectionHeader {
+	pub offset: usize,
+	pub len: usize,
+	raw_offset: usize,
+	raw_len: usize,
+	pub executable: bool,
+	pub writable: bool,
 }
 
 /// Snapshot a PE file using its preferred load address and virtual section sizes.

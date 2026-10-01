@@ -2,6 +2,9 @@
 //! Linux module. These utilities identify addresses; they do not call them or
 //! establish the ABI of any function.
 
+#[cfg(target_os = "linux")]
+use super::{Error, MemoryReader, Module, platform};
+
 use super::{u16_at, u32_at, word_at};
 
 /// A checked view of a little-endian x86-64 ET_DYN file's section table.
@@ -86,9 +89,6 @@ impl<'a> Elf<'a> {
 	}
 }
 
-#[cfg(target_os = "linux")]
-use super::{Error, MemoryReader, Module, platform};
-
 /// Owns an ELF file and checked load ranges for a Linux module. It does not
 /// pin the library or promise that returned addresses remain loaded.
 #[cfg(target_os = "linux")]
@@ -153,15 +153,15 @@ impl LoadedElf {
 		})
 	}
 
-	pub fn module(&self) -> &Module {
-		&self.module
-	}
-
 	/// Checks readable PT_LOAD bounds and any additional requested flags.
 	pub fn contains(&self, address: usize, len: usize, executable: bool, writable: bool) -> bool {
 		self.segments
 			.iter()
 			.any(|segment| segment.contains(address, len, executable, writable))
+	}
+
+	pub fn module(&self) -> &Module {
+		&self.module
 	}
 
 	/// Copies current memory only inside this image's readable load ranges.
@@ -220,43 +220,6 @@ mod tests {
 		bytes
 	}
 
-	#[test]
-	fn parser_rejects_truncation_and_wrong_abi() {
-		let mut bytes = fixture();
-		assert!(Elf::new(&[]).is_none());
-		assert!(Elf::new(&bytes[..100]).is_none());
-		assert!(Elf::new(&bytes).is_some());
-		bytes[4] = 1;
-		assert!(Elf::new(&bytes).is_none());
-	}
-
-	#[test]
-	fn symbols_require_unique_executable_bounded_definitions() {
-		let mut bytes = fixture();
-		assert_eq!(
-			Elf::new(&bytes).unwrap().symbol(b"test"),
-			Some((0x1000, [0x31, 0xc0, 0xc3].as_slice()))
-		);
-		assert!(Elf::new(&bytes).unwrap().symbol(b"absent").is_none());
-		bytes[136..144].copy_from_slice(&0_usize.to_le_bytes());
-		assert!(Elf::new(&bytes).unwrap().symbol(b"test").is_none());
-		bytes = fixture();
-		bytes[336..344].copy_from_slice(&5_usize.to_le_bytes());
-		assert!(Elf::new(&bytes).unwrap().symbol(b"test").is_none());
-		bytes = fixture();
-		let duplicate = bytes[320..344].to_vec();
-		bytes[344..368].copy_from_slice(&duplicate);
-		bytes[224..232].copy_from_slice(&48_usize.to_le_bytes());
-		assert!(Elf::new(&bytes).unwrap().symbol(b"test").is_none());
-	}
-
-	#[cfg(target_os = "linux")]
-	#[unsafe(no_mangle)]
-	#[inline(never)]
-	extern "C" fn source_sdk_raw_loaded_elf_test_anchor(value: u64) -> u64 {
-		value.wrapping_add(7)
-	}
-
 	#[cfg(target_os = "linux")]
 	#[test]
 	fn loaded_function_requires_matching_file_and_memory() {
@@ -286,5 +249,42 @@ mod tests {
 				.resolve(b"source_sdk_raw_loaded_elf_test_anchor")
 				.is_none()
 		);
+	}
+
+	#[test]
+	fn parser_rejects_truncation_and_wrong_abi() {
+		let mut bytes = fixture();
+		assert!(Elf::new(&[]).is_none());
+		assert!(Elf::new(&bytes[..100]).is_none());
+		assert!(Elf::new(&bytes).is_some());
+		bytes[4] = 1;
+		assert!(Elf::new(&bytes).is_none());
+	}
+
+	#[cfg(target_os = "linux")]
+	#[unsafe(no_mangle)]
+	#[inline(never)]
+	extern "C" fn source_sdk_raw_loaded_elf_test_anchor(value: u64) -> u64 {
+		value.wrapping_add(7)
+	}
+
+	#[test]
+	fn symbols_require_unique_executable_bounded_definitions() {
+		let mut bytes = fixture();
+		assert_eq!(
+			Elf::new(&bytes).unwrap().symbol(b"test"),
+			Some((0x1000, [0x31, 0xc0, 0xc3].as_slice()))
+		);
+		assert!(Elf::new(&bytes).unwrap().symbol(b"absent").is_none());
+		bytes[136..144].copy_from_slice(&0_usize.to_le_bytes());
+		assert!(Elf::new(&bytes).unwrap().symbol(b"test").is_none());
+		bytes = fixture();
+		bytes[336..344].copy_from_slice(&5_usize.to_le_bytes());
+		assert!(Elf::new(&bytes).unwrap().symbol(b"test").is_none());
+		bytes = fixture();
+		let duplicate = bytes[320..344].to_vec();
+		bytes[344..368].copy_from_slice(&duplicate);
+		bytes[224..232].copy_from_slice(&48_usize.to_le_bytes());
+		assert!(Elf::new(&bytes).unwrap().symbol(b"test").is_none());
 	}
 }

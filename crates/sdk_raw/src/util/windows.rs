@@ -2,6 +2,8 @@ use super::{Error, Image, MAX_IMAGE_BYTES, Section, pe};
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
 
+const _: () = assert!(size_of::<MemoryInformation>() == 48);
+
 #[repr(C)]
 struct MemoryInformation {
 	base: *mut c_void,
@@ -12,61 +14,6 @@ struct MemoryInformation {
 	state: u32,
 	protection: u32,
 	kind: u32,
-}
-
-const _: () = assert!(size_of::<MemoryInformation>() == 48);
-
-#[link(name = "kernel32")]
-unsafe extern "system" {
-	fn FreeLibrary(module: *mut c_void) -> i32;
-	fn GetCurrentProcess() -> *mut c_void;
-	fn GetModuleHandleExW(flags: u32, address: *const u16, module: *mut *mut c_void) -> i32;
-	fn ReadProcessMemory(
-		process: *mut c_void,
-		base: *const c_void,
-		buffer: *mut c_void,
-		len: usize,
-		read: *mut usize,
-	) -> i32;
-	fn VirtualQuery(
-		address: *const c_void,
-		information: *mut MemoryInformation,
-		size: usize,
-	) -> usize;
-}
-
-/// A loader reference pinning a Windows module until dropped.
-#[derive(Debug)]
-pub struct Module(*mut c_void);
-
-impl Module {
-	/// Acquire the loaded module containing `address`.
-	///
-	/// # Safety
-	/// The module must remain loaded until its loader reference is acquired.
-	pub unsafe fn at(address: usize) -> Result<Self, Error> {
-		let mut handle = std::ptr::null_mut();
-		// SAFETY: FROM_ADDRESS treats the value as an address rather than UTF-16;
-		// the output is valid and the caller keeps the module loaded during lookup.
-		if unsafe { GetModuleHandleExW(4, address as *const u16, &mut handle) } == 0 {
-			return Err(std::io::Error::last_os_error().into());
-		}
-		Ok(Self(handle))
-	}
-
-	/// The module's live load address.
-	pub fn base(&self) -> usize {
-		self.0 as usize
-	}
-}
-
-impl Drop for Module {
-	fn drop(&mut self) {
-		// SAFETY: Balances exactly the loader reference acquired by Module::at.
-		unsafe {
-			FreeLibrary(self.0);
-		}
-	}
 }
 
 /// Copies process memory through the OS without creating borrowed references.
@@ -104,6 +51,61 @@ impl MemoryReader {
 		}
 		Ok(bytes)
 	}
+}
+
+/// A loader reference pinning a Windows module until dropped.
+#[derive(Debug)]
+pub struct Module(*mut c_void);
+
+impl Module {
+	/// Acquire the loaded module containing `address`.
+	///
+	/// # Safety
+	/// The module must remain loaded until its loader reference is acquired.
+	pub unsafe fn at(address: usize) -> Result<Self, Error> {
+		let mut handle = std::ptr::null_mut();
+		// SAFETY: FROM_ADDRESS treats the value as an address rather than UTF-16;
+		// the output is valid and the caller keeps the module loaded during lookup.
+		if unsafe { GetModuleHandleExW(4, address as *const u16, &mut handle) } == 0 {
+			return Err(std::io::Error::last_os_error().into());
+		}
+		Ok(Self(handle))
+	}
+
+	/// The module's live load address.
+	pub fn base(&self) -> usize {
+		self.0 as usize
+	}
+}
+
+impl Drop for Module {
+	fn drop(&mut self) {
+		// SAFETY: Balances exactly the loader reference acquired by Module::at.
+		unsafe {
+			FreeLibrary(self.0);
+		}
+	}
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+	fn FreeLibrary(module: *mut c_void) -> i32;
+	fn GetCurrentProcess() -> *mut c_void;
+	fn GetModuleHandleExW(flags: u32, address: *const u16, module: *mut *mut c_void) -> i32;
+
+	fn ReadProcessMemory(
+		process: *mut c_void,
+		base: *const c_void,
+		buffer: *mut c_void,
+		len: usize,
+		read: *mut usize,
+	) -> i32;
+
+	fn VirtualQuery(
+		address: *const c_void,
+		information: *mut MemoryInformation,
+		size: usize,
+	) -> usize;
 }
 
 /// Whether the OS currently reports committed executable memory at `address`.

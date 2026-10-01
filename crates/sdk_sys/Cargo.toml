@@ -12,9 +12,11 @@ description = "Low-level bindings for the Source SDK."
 categories = ["external-ffi-bindings"]
 keywords = []
 
-[dependencies]
+[target.x86_64-unknown-linux-gnu.dependencies]
+source_sdk_2013_sys_x64_linux = { path = "../sdk_sys_linux64", version = "0.1.0-alpha.4" }
 
-[features]
+[target.x86_64-pc-windows-msvc.dependencies]
+source_sdk_2013_sys_x64_windows = { path = "../sdk_sys_win64", version = "0.1.0-alpha.4" }
 
 [package.metadata.docs.rs]
 all-features = true

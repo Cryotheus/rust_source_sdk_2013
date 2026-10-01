@@ -1,14 +1,5 @@
 use super::{Error, SignaturePattern, pattern, platform, relative};
 
-/// Owned bytes and permissions for one readable image region.
-#[derive(Debug, Clone)]
-pub struct Section {
-	pub address: usize,
-	pub bytes: Vec<u8>,
-	pub executable: bool,
-	pub writable: bool,
-}
-
 /// An owned snapshot of a module's readable image regions.
 #[derive(Debug, Clone)]
 pub struct Image {
@@ -28,14 +19,14 @@ impl Image {
 		unsafe { platform::load(address) }
 	}
 
-	/// Read bytes wholly contained in one snapshotted region.
-	pub fn read(&self, address: usize, len: usize) -> Option<&[u8]> {
-		address.checked_add(len)?;
-		self.sections.iter().find_map(|section| {
-			section.address.checked_add(section.bytes.len())?;
-			let offset = address.checked_sub(section.address)?;
-			section.bytes.get(offset..offset.checked_add(len)?)
-		})
+	/// Resolve an x86 CALL rel32, requiring its destination inside image code.
+	pub fn call(&self, address: usize) -> Option<usize> {
+		let bytes = self.read(address, 5)?;
+		if bytes[0] != 0xe8 {
+			return None;
+		}
+		let target = relative(address, bytes, 1)?;
+		self.executable(target).then_some(target)
 	}
 
 	/// Check that a range belongs to one region with the requested permissions.
@@ -59,14 +50,35 @@ impl Image {
 		self.contains(address, 1, true, false)
 	}
 
-	/// Resolve an x86 CALL rel32, requiring its destination inside image code.
-	pub fn call(&self, address: usize) -> Option<usize> {
-		let bytes = self.read(address, 5)?;
-		if bytes[0] != 0xe8 {
-			return None;
+	/// Find aligned exact byte strings in non-executable data regions.
+	/// Empty strings or zero alignment have no matches.
+	pub fn matches(&self, bytes: &[u8], alignment: usize) -> Vec<usize> {
+		if bytes.is_empty() || alignment == 0 {
+			return Vec::new();
 		}
-		let target = relative(address, bytes, 1)?;
-		self.executable(target).then_some(target)
+		self.sections
+			.iter()
+			.filter(|section| !section.executable)
+			.filter(|section| section.address.checked_add(section.bytes.len()).is_some())
+			.flat_map(|section| {
+				section.bytes.windows(bytes.len()).enumerate().filter_map(
+					move |(offset, candidate)| {
+						let address = section.address.checked_add(offset)?;
+						(address % alignment == 0 && candidate == bytes).then_some(address)
+					},
+				)
+			})
+			.collect()
+	}
+
+	/// Read bytes wholly contained in one snapshotted region.
+	pub fn read(&self, address: usize, len: usize) -> Option<&[u8]> {
+		address.checked_add(len)?;
+		self.sections.iter().find_map(|section| {
+			section.address.checked_add(section.bytes.len())?;
+			let offset = address.checked_sub(section.address)?;
+			section.bytes.get(offset..offset.checked_add(len)?)
+		})
 	}
 
 	/// Find exactly one aligned signature in executable regions.
@@ -102,56 +114,21 @@ impl Image {
 		}
 		found
 	}
+}
 
-	/// Find aligned exact byte strings in non-executable data regions.
-	/// Empty strings or zero alignment have no matches.
-	pub fn matches(&self, bytes: &[u8], alignment: usize) -> Vec<usize> {
-		if bytes.is_empty() || alignment == 0 {
-			return Vec::new();
-		}
-		self.sections
-			.iter()
-			.filter(|section| !section.executable)
-			.filter(|section| section.address.checked_add(section.bytes.len()).is_some())
-			.flat_map(|section| {
-				section.bytes.windows(bytes.len()).enumerate().filter_map(
-					move |(offset, candidate)| {
-						let address = section.address.checked_add(offset)?;
-						(address % alignment == 0 && candidate == bytes).then_some(address)
-					},
-				)
-			})
-			.collect()
-	}
+/// Owned bytes and permissions for one readable image region.
+#[derive(Debug, Clone)]
+pub struct Section {
+	pub address: usize,
+	pub bytes: Vec<u8>,
+	pub executable: bool,
+	pub writable: bool,
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use crate::sig;
-
-	#[test]
-	fn signatures_reject_ambiguity_and_calls_outside_executable_sections() {
-		let mut image = Image {
-			base: 0x1000,
-			sections: vec![Section {
-				address: 0x1000,
-				bytes: vec![0x90; 256],
-				executable: true,
-				writable: false,
-			}],
-		};
-		image.sections[0].bytes[0x10..0x13].copy_from_slice(&[0x48, 0x89, 0xff]);
-		assert!(image.unique(&sig![], 16).is_none());
-		assert!(image.unique(&sig![0x48 ? 0xff], 0).is_none());
-		assert_eq!(image.unique(&sig![0x48 ? 0xff], 16), Some(0x1010));
-		image.sections[0].bytes[0x20..0x23].copy_from_slice(&[0x48, 0x89, 0xff]);
-		assert!(image.unique(&sig![0x48 ? 0xff], 16).is_none());
-		image.sections[0].bytes[0x30..0x35].copy_from_slice(&[0xe8, 0, 0, 0, 0]);
-		assert_eq!(image.call(0x1030), Some(0x1035));
-		image.sections[0].bytes[0x31..0x35].copy_from_slice(&0x1000_i32.to_le_bytes());
-		assert!(image.call(0x1030).is_none());
-	}
 
 	#[test]
 	fn ranges_alignment_and_permissions_are_checked() {
@@ -177,5 +154,28 @@ mod tests {
 		image.sections[0].address = usize::MAX;
 		assert!(image.read(usize::MAX, 1).is_none());
 		assert!(image.matches(&[0xff], 1).is_empty());
+	}
+
+	#[test]
+	fn signatures_reject_ambiguity_and_calls_outside_executable_sections() {
+		let mut image = Image {
+			base: 0x1000,
+			sections: vec![Section {
+				address: 0x1000,
+				bytes: vec![0x90; 256],
+				executable: true,
+				writable: false,
+			}],
+		};
+		image.sections[0].bytes[0x10..0x13].copy_from_slice(&[0x48, 0x89, 0xff]);
+		assert!(image.unique(&sig![], 16).is_none());
+		assert!(image.unique(&sig![0x48 ? 0xff], 0).is_none());
+		assert_eq!(image.unique(&sig![0x48 ? 0xff], 16), Some(0x1010));
+		image.sections[0].bytes[0x20..0x23].copy_from_slice(&[0x48, 0x89, 0xff]);
+		assert!(image.unique(&sig![0x48 ? 0xff], 16).is_none());
+		image.sections[0].bytes[0x30..0x35].copy_from_slice(&[0xe8, 0, 0, 0, 0]);
+		assert_eq!(image.call(0x1030), Some(0x1035));
+		image.sections[0].bytes[0x31..0x35].copy_from_slice(&0x1000_i32.to_le_bytes());
+		assert!(image.call(0x1030).is_none());
 	}
 }

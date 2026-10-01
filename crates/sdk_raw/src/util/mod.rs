@@ -4,16 +4,16 @@
 //! addresses describe the snapshot and can become stale when a module unloads.
 
 mod bytes;
+pub mod elf;
 mod image;
+pub mod pe;
 mod rtti;
 mod signature;
-
-pub mod elf;
-pub mod pe;
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
+
 #[cfg(target_os = "windows")]
 #[path = "windows.rs"]
 mod platform;
@@ -32,6 +32,7 @@ pub const MAX_IMAGE_BYTES: usize = 0x40000000;
 pub enum Error {
 	#[error("unsupported or malformed executable image")]
 	InvalidImage,
+
 	#[error("could not inspect executable image: {0}")]
 	Io(#[from] std::io::Error),
 }

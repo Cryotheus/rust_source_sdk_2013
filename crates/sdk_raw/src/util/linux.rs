@@ -13,9 +13,22 @@ struct DlInfo {
 	address: *mut c_void,
 }
 
-#[link(name = "dl")]
-unsafe extern "C" {
-	fn dladdr(address: *const c_void, info: *mut DlInfo) -> c_int;
+pub(super) struct LoadSegment {
+	pub address: usize,
+	pub len: usize,
+	pub executable: bool,
+	pub writable: bool,
+}
+
+impl LoadSegment {
+	pub fn contains(&self, address: usize, len: usize, executable: bool, writable: bool) -> bool {
+		(!executable || self.executable)
+			&& (!writable || self.writable)
+			&& address >= self.address
+			&& address
+				.checked_add(len)
+				.is_some_and(|end| end <= self.address + self.len)
+	}
 }
 
 /// Copies process memory through the kernel without creating Rust references
@@ -78,9 +91,15 @@ impl Module {
 	pub fn base(&self) -> usize {
 		self.base
 	}
+
 	pub fn path(&self) -> &Path {
 		&self.path
 	}
+}
+
+#[link(name = "dl")]
+unsafe extern "C" {
+	fn dladdr(address: *const c_void, info: *mut DlInfo) -> c_int;
 }
 
 /// Checks current process mapping permissions. The result is a snapshot;
@@ -108,79 +127,6 @@ pub fn is_executable(address: usize) -> bool {
 		};
 		(start..end).contains(&address)
 	})
-}
-
-pub(super) struct LoadSegment {
-	pub address: usize,
-	pub len: usize,
-	pub executable: bool,
-	pub writable: bool,
-}
-
-impl LoadSegment {
-	pub fn contains(&self, address: usize, len: usize, executable: bool, writable: bool) -> bool {
-		(!executable || self.executable)
-			&& (!writable || self.writable)
-			&& address >= self.address
-			&& address
-				.checked_add(len)
-				.is_some_and(|end| end <= self.address + self.len)
-	}
-}
-
-pub(super) fn program_headers(
-	memory: &MemoryReader,
-	base: usize,
-	header: &[u8],
-) -> Result<Vec<u8>, Error> {
-	if header.get(..7) != Some(b"\x7fELF\x02\x01\x01")
-		|| u16_at(header, 16) != Some(3)
-		|| u16_at(header, 18) != Some(62)
-	{
-		return Err(Error::InvalidImage);
-	}
-	let offset = word_at(header, 32).ok_or(Error::InvalidImage)?;
-	let entry_size = u16_at(header, 54).ok_or(Error::InvalidImage)? as usize;
-	let count = u16_at(header, 56).ok_or(Error::InvalidImage)? as usize;
-	if entry_size != 56 || !(1..=128).contains(&count) || offset > 0x100000 {
-		return Err(Error::InvalidImage);
-	}
-	memory.copy(
-		base.checked_add(offset).ok_or(Error::InvalidImage)?,
-		entry_size * count,
-	)
-}
-
-pub(super) fn load_segments(base: usize, programs: &[u8]) -> Result<Vec<LoadSegment>, Error> {
-	if programs.len() % 56 != 0 {
-		return Err(Error::InvalidImage);
-	}
-	let mut segments = Vec::new();
-	let mut total = 0_usize;
-	for program in programs.chunks_exact(56) {
-		let flags = u32_at(program, 4).ok_or(Error::InvalidImage)?;
-		if u32_at(program, 0) != Some(1) || flags & 4 == 0 {
-			continue;
-		}
-		let address = base
-			.checked_add(word_at(program, 16).ok_or(Error::InvalidImage)?)
-			.ok_or(Error::InvalidImage)?;
-		let len = word_at(program, 40).ok_or(Error::InvalidImage)?;
-		address.checked_add(len).ok_or(Error::InvalidImage)?;
-		total = total
-			.checked_add(len)
-			.filter(|total| *total <= MAX_IMAGE_BYTES)
-			.ok_or(Error::InvalidImage)?;
-		if len != 0 {
-			segments.push(LoadSegment {
-				address,
-				len,
-				executable: flags & 1 != 0,
-				writable: flags & 2 != 0,
-			});
-		}
-	}
-	Ok(segments)
 }
 
 /// Snapshots all readable PT_LOAD segments of a little-endian x86-64 ET_DYN
@@ -219,6 +165,61 @@ pub unsafe fn load(address: usize) -> Result<Image, Error> {
 	})
 }
 
+pub(super) fn load_segments(base: usize, programs: &[u8]) -> Result<Vec<LoadSegment>, Error> {
+	if programs.len() % 56 != 0 {
+		return Err(Error::InvalidImage);
+	}
+	let mut segments = Vec::new();
+	let mut total = 0_usize;
+	for program in programs.chunks_exact(56) {
+		let flags = u32_at(program, 4).ok_or(Error::InvalidImage)?;
+		if u32_at(program, 0) != Some(1) || flags & 4 == 0 {
+			continue;
+		}
+		let address = base
+			.checked_add(word_at(program, 16).ok_or(Error::InvalidImage)?)
+			.ok_or(Error::InvalidImage)?;
+		let len = word_at(program, 40).ok_or(Error::InvalidImage)?;
+		address.checked_add(len).ok_or(Error::InvalidImage)?;
+		total = total
+			.checked_add(len)
+			.filter(|total| *total <= MAX_IMAGE_BYTES)
+			.ok_or(Error::InvalidImage)?;
+		if len != 0 {
+			segments.push(LoadSegment {
+				address,
+				len,
+				executable: flags & 1 != 0,
+				writable: flags & 2 != 0,
+			});
+		}
+	}
+	Ok(segments)
+}
+
+pub(super) fn program_headers(
+	memory: &MemoryReader,
+	base: usize,
+	header: &[u8],
+) -> Result<Vec<u8>, Error> {
+	if header.get(..7) != Some(b"\x7fELF\x02\x01\x01")
+		|| u16_at(header, 16) != Some(3)
+		|| u16_at(header, 18) != Some(62)
+	{
+		return Err(Error::InvalidImage);
+	}
+	let offset = word_at(header, 32).ok_or(Error::InvalidImage)?;
+	let entry_size = u16_at(header, 54).ok_or(Error::InvalidImage)? as usize;
+	let count = u16_at(header, 56).ok_or(Error::InvalidImage)? as usize;
+	if entry_size != 56 || !(1..=128).contains(&count) || offset > 0x100000 {
+		return Err(Error::InvalidImage);
+	}
+	memory.copy(
+		base.checked_add(offset).ok_or(Error::InvalidImage)?,
+		entry_size * count,
+	)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -243,6 +244,19 @@ mod tests {
 	}
 
 	#[test]
+	fn rejects_overflowing_or_excessive_load_segments() {
+		let mut program = [0_u8; 56];
+		program[..4].copy_from_slice(&1_u32.to_le_bytes());
+		program[4..8].copy_from_slice(&5_u32.to_le_bytes());
+		program[16..24].copy_from_slice(&usize::MAX.to_le_bytes());
+		program[40..48].copy_from_slice(&1_usize.to_le_bytes());
+		assert!(load_segments(1, &program).is_err());
+		program[16..24].copy_from_slice(&0_usize.to_le_bytes());
+		program[40..48].copy_from_slice(&(MAX_IMAGE_BYTES + 1).to_le_bytes());
+		assert!(load_segments(0, &program).is_err());
+	}
+
+	#[test]
 	fn snapshots_code_and_data_with_load_permissions() {
 		let anchor = snapshots_code_and_data_with_load_permissions as *const () as usize;
 		// SAFETY: The test executable stays loaded throughout this test.
@@ -260,18 +274,5 @@ mod tests {
 		);
 		assert!(image.sections.iter().any(|section| section.writable));
 		assert!(image.sections.iter().any(|section| !section.executable));
-	}
-
-	#[test]
-	fn rejects_overflowing_or_excessive_load_segments() {
-		let mut program = [0_u8; 56];
-		program[..4].copy_from_slice(&1_u32.to_le_bytes());
-		program[4..8].copy_from_slice(&5_u32.to_le_bytes());
-		program[16..24].copy_from_slice(&usize::MAX.to_le_bytes());
-		program[40..48].copy_from_slice(&1_usize.to_le_bytes());
-		assert!(load_segments(1, &program).is_err());
-		program[16..24].copy_from_slice(&0_usize.to_le_bytes());
-		program[40..48].copy_from_slice(&(MAX_IMAGE_BYTES + 1).to_le_bytes());
-		assert!(load_segments(0, &program).is_err());
 	}
 }

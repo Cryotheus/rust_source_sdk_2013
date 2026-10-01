@@ -2,33 +2,10 @@
 
 #[cfg(any(target_os = "windows", test))]
 use super::u32_at;
+
 use super::{Image, is_executable, word_at};
 
 impl Image {
-	/// Finds one primary vtable for a global, unqualified C++ class name.
-	/// Uses MSVC x64 RTTI on Windows and Itanium RTTI on Linux. Secondary and
-	/// ambiguous tables are rejected, as are tables lacking an executable entry
-	/// at `slot`. An entry may point to a hook trampoline outside this image.
-	///
-	/// The returned address is metadata from the snapshot. It does not keep the
-	/// module loaded, establish a function signature, or authorize dereferencing
-	/// the address. Callers must establish those guarantees before using it.
-	pub fn primary_vtable(&self, class: &str, slot: usize) -> Option<usize> {
-		if self.base == 0 || class.is_empty() || class.as_bytes().contains(&0) {
-			return None;
-		}
-
-		#[cfg(target_os = "windows")]
-		let candidates = self.msvc(class, slot);
-
-		#[cfg(target_os = "linux")]
-		let candidates = self.itanium(class, slot);
-
-		let mut candidates = candidates.into_iter();
-		let one = candidates.next()?;
-		candidates.next().is_none().then_some(one)
-	}
-
 	#[cfg(any(target_os = "linux", test))]
 	fn itanium(&self, class: &str, slot: usize) -> Vec<usize> {
 		let mut tables = Vec::new();
@@ -112,6 +89,30 @@ impl Image {
 		tables
 	}
 
+	/// Finds one primary vtable for a global, unqualified C++ class name.
+	/// Uses MSVC x64 RTTI on Windows and Itanium RTTI on Linux. Secondary and
+	/// ambiguous tables are rejected, as are tables lacking an executable entry
+	/// at `slot`. An entry may point to a hook trampoline outside this image.
+	///
+	/// The returned address is metadata from the snapshot. It does not keep the
+	/// module loaded, establish a function signature, or authorize dereferencing
+	/// the address. Callers must establish those guarantees before using it.
+	pub fn primary_vtable(&self, class: &str, slot: usize) -> Option<usize> {
+		if self.base == 0 || class.is_empty() || class.as_bytes().contains(&0) {
+			return None;
+		}
+
+		#[cfg(target_os = "windows")]
+		let candidates = self.msvc(class, slot);
+
+		#[cfg(target_os = "linux")]
+		let candidates = self.itanium(class, slot);
+
+		let mut candidates = candidates.into_iter();
+		let one = candidates.next()?;
+		candidates.next().is_none().then_some(one)
+	}
+
 	// RTTI and vtable records must stay wholly inside a data snapshot, even
 	// when a matched reference is adjacent to an executable section.
 	fn rtti_read(&self, address: usize, len: usize) -> Option<&[u8]> {
@@ -191,6 +192,19 @@ mod tests {
 	}
 
 	#[test]
+	fn malformed_locator_and_slot_arithmetic_cannot_wrap() {
+		let mut image = fixture();
+		assert!(!image.valid_table(BASE, usize::MAX));
+		image.base = usize::MAX - 2047;
+		image.sections[0].address = image.base;
+		image.sections[0].bytes[0x110..0x121].copy_from_slice(b".?AVCKickIssue@@\0");
+		for (offset, value) in [(0x180, 1_u32), (0x18c, 0x100), (0x194, u32::MAX)] {
+			image.sections[0].bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+		}
+		assert!(image.msvc("CKickIssue", 8).is_empty());
+	}
+
+	#[test]
 	fn msvc_requires_unique_primary_locator_and_executable_slot() {
 		let mut image = fixture();
 		image.sections[0].bytes[0x110..0x121].copy_from_slice(b".?AVCKickIssue@@\0");
@@ -219,19 +233,6 @@ mod tests {
 		let data = vec![0_u8; 32];
 		word(&mut image, 0x100 + 8 * 8, data.as_ptr() as usize);
 		assert!(!image.valid_table(BASE + 0x100, 8));
-	}
-
-	#[test]
-	fn malformed_locator_and_slot_arithmetic_cannot_wrap() {
-		let mut image = fixture();
-		assert!(!image.valid_table(BASE, usize::MAX));
-		image.base = usize::MAX - 2047;
-		image.sections[0].address = image.base;
-		image.sections[0].bytes[0x110..0x121].copy_from_slice(b".?AVCKickIssue@@\0");
-		for (offset, value) in [(0x180, 1_u32), (0x18c, 0x100), (0x194, u32::MAX)] {
-			image.sections[0].bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-		}
-		assert!(image.msvc("CKickIssue", 8).is_empty());
 	}
 
 	#[test]
