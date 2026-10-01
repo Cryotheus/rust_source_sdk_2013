@@ -1,9 +1,9 @@
-//! Console commands implemented in Rust.
+//! Console commands and variables implemented in Rust.
 //!
 //! A [`ConsoleCommand`] is laid out as the engine's `ConCommand`, so the
 //! engine lists, finds, and runs it like any command a game module declares.
-//! Registering one takes it pinned and `'static`, since the engine keeps its
-//! address.
+//! A [`ConsoleVariable`] is laid out as its `ConVar` likewise. Registering
+//! either takes it pinned and `'static`, since the engine keeps its address.
 //!
 //! # Who runs a command
 //!
@@ -33,6 +33,7 @@ mod error;
 mod object;
 mod registrar;
 mod route;
+mod variable;
 
 #[cfg(test)]
 mod tests;
@@ -56,6 +57,7 @@ pub use object::ConsoleCommand;
 pub use registrar::{CommandRegistrar, UnlinksBeforeUnload};
 pub use route::{ClientRoute, route_client_command};
 pub use source_sdk_2013_declmacros::commands;
+pub use variable::ConsoleVariable;
 
 /// A plain function handler, which keeps `ConsoleCommand<CommandFn>` nameable
 /// in a `static`.
@@ -97,7 +99,8 @@ pub enum CommandAccess {
 	/// The game also handles some client commands by name without registering
 	/// them, such as TF2's `build` and `jointeam`, which the registry cannot
 	/// report as taken; a client-runnable command with such a name replaces the
-	/// game's handling of it.
+	/// game's handling of it, except for the invocations its handler leaves
+	/// [unhandled](CommandError::Unhandled).
 	Clients,
 
 	/// Server-side invokers and connected clients. As for
@@ -211,6 +214,16 @@ pub enum CommandError {
 
 	#[error(transparent)]
 	Other(Box<dyn std::error::Error>),
+
+	/// The handler leaves the invocation to whoever would have handled it had
+	/// the command not been registered, and nothing is printed.
+	///
+	/// A client's invocation goes on to the game, so a client-runnable command
+	/// named after one the game handles itself, such as TF2's `jointeam`, can
+	/// take over only some invocations. A server-side invocation has nothing
+	/// to go on to, so it just ends.
+	#[error("the command was left unhandled")]
+	Unhandled,
 }
 
 impl CommandError {
@@ -227,7 +240,8 @@ impl CommandError {
 	}
 }
 
-/// The `FCVAR_*` flags a command may carry, from `public/tier1/iconvar.h`.
+/// The `FCVAR_*` flags a command or variable may carry, from
+/// `public/tier1/iconvar.h`.
 ///
 /// `FCVAR_GAMEDLL` cannot be expressed: the engine would then dispatch
 /// clients' invocations without saying who ran them (see the
@@ -250,6 +264,10 @@ impl CommandFlags {
 	pub const HIDDEN: Self = Self(1 << 4);
 
 	pub const NONE: Self = Self(0);
+
+	/// `FCVAR_NOTIFY`: changes to a variable are announced to players and
+	/// written to the server log.
+	pub const NOTIFY: Self = Self(1 << 8);
 
 	pub const fn bits(self) -> c_int {
 		self.0

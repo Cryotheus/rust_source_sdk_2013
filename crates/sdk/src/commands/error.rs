@@ -60,17 +60,27 @@ pub enum InvalidCommandName {
 	Reserved,
 }
 
-/// A command could not be registered.
+/// A command or variable could not be registered.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("could not register console command `{}`: {kind}", .name.to_string_lossy())]
+#[error("could not register console {base} `{}`: {kind}", .name.to_string_lossy())]
 pub struct RegisterCommandError {
 	name: &'static CStr,
+	base: CommandBaseKind,
 	kind: RegisterCommandErrorKind,
 }
 
 impl RegisterCommandError {
-	pub(crate) const fn new(name: &'static CStr, kind: RegisterCommandErrorKind) -> Self {
-		Self { name, kind }
+	pub(crate) const fn new(
+		name: &'static CStr,
+		base: CommandBaseKind,
+		kind: RegisterCommandErrorKind,
+	) -> Self {
+		Self { name, base, kind }
+	}
+
+	/// Whether a command or a variable could not be registered.
+	pub const fn base(&self) -> CommandBaseKind {
+		self.base
 	}
 
 	pub const fn kind(&self) -> &RegisterCommandErrorKind {
@@ -84,34 +94,44 @@ impl RegisterCommandError {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RegisterCommandErrorKind {
-	/// The engine lists the command already. Registering it again would cut
-	/// the engine's list short, since the command is relinked in place.
-	#[error("the command is already registered")]
+	/// The engine lists it already. Registering it again would cut the
+	/// engine's list short, since it is relinked in place.
+	#[error("it is already registered")]
 	AlreadyRegistered,
 
 	#[error("the name is already used by a console {0}")]
 	NameTaken(CommandBaseKind),
 
-	/// The registrar returned without the engine listing the command under its
-	/// name. It was unlinked again if the engine marked it registered.
-	#[error("the engine did not list the command")]
+	/// The registrar returned without the engine listing it under its name.
+	/// It was unlinked again if the engine marked it registered.
+	#[error("the engine did not list it")]
 	NotLinked,
 
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 }
 
-/// A command could not be unregistered.
+/// A command or variable could not be unregistered.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("could not unregister console command `{}`: {kind}", .name.to_string_lossy())]
+#[error("could not unregister console {base} `{}`: {kind}", .name.to_string_lossy())]
 pub struct UnregisterCommandError {
 	name: &'static CStr,
+	base: CommandBaseKind,
 	kind: UnregisterCommandErrorKind,
 }
 
 impl UnregisterCommandError {
-	pub(crate) const fn new(name: &'static CStr, kind: UnregisterCommandErrorKind) -> Self {
-		Self { name, kind }
+	pub(crate) const fn new(
+		name: &'static CStr,
+		base: CommandBaseKind,
+		kind: UnregisterCommandErrorKind,
+	) -> Self {
+		Self { name, base, kind }
+	}
+
+	/// Whether a command or a variable could not be unregistered.
+	pub const fn base(&self) -> CommandBaseKind {
+		self.base
 	}
 
 	pub const fn kind(&self) -> &UnregisterCommandErrorKind {
@@ -125,11 +145,11 @@ impl UnregisterCommandError {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UnregisterCommandErrorKind {
-	#[error("the command is not registered")]
+	#[error("it is not registered")]
 	NotRegistered,
 
-	/// The registrar returned with the engine still listing the command.
-	#[error("the engine still lists the command")]
+	/// The registrar returned with the engine still listing it.
+	#[error("the engine still lists it")]
 	StillLinked,
 
 	#[error(transparent)]

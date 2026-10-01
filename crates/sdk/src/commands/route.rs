@@ -2,7 +2,7 @@
 
 use super::args::{CommandArgs, CommandLine};
 use super::object::{CommandHeader, RegisteredCommand};
-use super::{Client, CommandContext, CommandFlags, Invoker, line_from};
+use super::{Client, CommandContext, CommandError, CommandFlags, Invoker, line_from};
 use crate::edicts::Edict;
 use crate::interfaces::Cvar;
 use crate::players::ABSOLUTE_PLAYER_LIMIT;
@@ -20,7 +20,8 @@ pub enum ClientRoute {
 	/// game must not handle it too, or it would report an unknown command.
 	Handled,
 
-	/// Not a command clients may run here: let the game handle it as usual.
+	/// Not a command clients may run here, or its handler left this invocation
+	/// [unhandled](CommandError::Unhandled): let the game handle it as usual.
 	NotRouted,
 }
 
@@ -80,6 +81,7 @@ pub(super) unsafe fn dispatch_from_engine(
 			return;
 		}
 
+		// Nothing else would handle a server-side invocation left unhandled.
 		run(header, &context);
 	}));
 
@@ -89,7 +91,7 @@ pub(super) unsafe fn dispatch_from_engine(
 }
 
 /// Drops a panic's payload, whose own drop may panic too.
-fn drop_payload(payload: Box<dyn Any + Send>) {
+pub(super) fn drop_payload(payload: Box<dyn Any + Send>) {
 	if let Err(nested) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
 		mem::forget(nested);
 	}
@@ -163,8 +165,10 @@ unsafe fn route(
 		return ClientRoute::Handled;
 	}
 
-	run(header, &context);
-	ClientRoute::Handled
+	match run(header, &context) {
+		true => ClientRoute::NotRouted,
+		false => ClientRoute::Handled,
+	}
 }
 
 /// Runs a client's string command if it names a command registered through
@@ -201,19 +205,25 @@ pub unsafe fn route_client_command(
 	})
 }
 
-/// Runs the handler, reporting its error or panic to the invoker.
-fn run(header: RegisteredCommand, context: &CommandContext<'_>) {
+/// Runs the handler, reporting its error or panic to the invoker. Returns
+/// whether the handler left the invocation [unhandled](CommandError::Unhandled).
+fn run(header: RegisteredCommand, context: &CommandContext<'_>) -> bool {
 	let name = header.name().to_string_lossy();
 
 	// The error's message is the handler's code too, so it is guarded as well.
-	let outcome = catch_unwind(AssertUnwindSafe(|| {
-		if let Err(error) = header.dispatch(context) {
+	let outcome = catch_unwind(AssertUnwindSafe(|| match header.dispatch(context) {
+		Ok(()) => false,
+		Err(CommandError::Unhandled) => true,
+
+		Err(error) => {
 			let _ = context.reply(format_args!("{name}: {error}"));
+			false
 		}
 	}));
 
-	let Err(payload) = outcome else {
-		return;
+	let payload = match outcome {
+		Ok(unhandled) => return unhandled,
+		Err(payload) => payload,
 	};
 
 	print_to_console(
@@ -226,4 +236,7 @@ fn run(header: RegisteredCommand, context: &CommandContext<'_>) {
 	}
 
 	drop_payload(payload);
+
+	// A handler that panicked never lets the game run the command.
+	false
 }

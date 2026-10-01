@@ -3,7 +3,8 @@
 use crate::interfaces::Cvar;
 use std::ptr::NonNull;
 
-/// Links console commands into, and unlinks them from, the engine's `ICvar`.
+/// Links console commands and variables into, and unlinks them from, the
+/// engine's `ICvar`.
 ///
 /// # Safety
 ///
@@ -15,7 +16,8 @@ pub unsafe trait CommandRegistrar {
 	/// # Safety
 	///
 	/// `command` is a pinned, `'static` [`ConsoleCommand`](super::ConsoleCommand)
-	/// ready to be linked, and this runs on the server's main thread.
+	/// or [`ConsoleVariable`](super::ConsoleVariable) ready to be linked, and
+	/// this runs on the server's main thread.
 	unsafe fn link(&self, command: NonNull<sys::ConCommandBase>);
 
 	/// # Safety

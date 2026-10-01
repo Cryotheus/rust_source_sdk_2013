@@ -19,7 +19,12 @@ interface! {
 pub struct QueryCvarCookie(pub c_int);
 
 impl<'s> PluginHelpers<'s> {
-	/// Runs a command on a client, as though its player entered it.
+	/// Injects one command into the server's client-command processing path,
+	/// including for fake clients. Hooks and game events may run synchronously.
+	///
+	/// These calls count toward `sv_quota_stringcmdspersecond`. Engine console
+	/// commands such as `status` can require a real incoming packet's client
+	/// context; use the server console for those instead.
 	#[doc(alias = "ClientCommand")]
 	pub fn client_command(self, client: Edict<'_>, command: &CStr) {
 		// SAFETY: `Server::new` guarantees the interface is live, and the edict is live.

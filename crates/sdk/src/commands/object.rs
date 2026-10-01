@@ -145,12 +145,6 @@ impl CommandHeader {
 		unsafe { (&raw const (*self.raw.get())._base.m_nFlags).read() }
 	}
 
-	/// Whether the engine has marked the command registered.
-	fn is_registered(&self) -> bool {
-		// SAFETY: As for `current_flags`.
-		unsafe { (&raw const (*self.raw.get())._base.m_bRegistered).read() }
-	}
-
 	pub(super) const fn name(&self) -> &'static CStr {
 		self.name
 	}
@@ -335,45 +329,19 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 		registrar: &impl CommandRegistrar,
 	) -> Result<(), RegisterCommandError> {
 		let header = &self.get_ref().header;
-		let error = |kind| RegisterCommandError::new(header.name, kind);
-		let cvar = server.cvar().map_err(|interface| error(interface.into()))?;
 
-		// Metamod clears the list link before linking, so linking a listed
-		// command again would cut off every command after it.
-		if header.is_registered() {
-			return Err(error(RegisterCommandErrorKind::AlreadyRegistered));
+		// SAFETY: The command is pinned and `'static`, `prepare` fills in every
+		// field the engine reads, and the caller unregisters it in time.
+		unsafe {
+			register_base(
+				self.get_ref().as_base(),
+				header.name,
+				CommandBaseKind::Command,
+				server,
+				registrar,
+				|dll_identifier| header.prepare(binding, dll_identifier),
+			)
 		}
-
-		// The engine does not refuse a duplicate command name: it lists the new
-		// command first, which hides the existing one.
-		if let Some(existing) = cvar.find_command_base(header.name) {
-			// SAFETY: The engine's registry holds live commands and variables.
-			let kind = if unsafe { vcall!(existing.as_ptr() => ConCommandBase_IsCommand()) } {
-				CommandBaseKind::Command
-			} else {
-				CommandBaseKind::Variable
-			};
-
-			return Err(error(RegisterCommandErrorKind::NameTaken(kind)));
-		}
-
-		header.prepare(binding, cvar.allocate_dll_identifier());
-
-		let command = self.get_ref().as_base();
-
-		// SAFETY: The command is pinned, `'static`, and prepared, and the
-		// server's existence confines this call to the main thread.
-		unsafe { registrar.link(command) };
-
-		if header.is_registered() && cvar.find_command_base(header.name) == Some(command) {
-			return Ok(());
-		}
-
-		// Unlinking also stops a host like Metamod from tracking the command.
-		// SAFETY: As for `link`.
-		unsafe { registrar.unlink(command) };
-
-		Err(error(RegisterCommandErrorKind::NotLinked))
 	}
 
 	/// Unregisters the command, which then no longer runs.
@@ -384,26 +352,17 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 		server: Server<'_>,
 		registrar: &impl CommandRegistrar,
 	) -> Result<(), UnregisterCommandError> {
-		let header = &self.header;
-		let error = |kind| UnregisterCommandError::new(header.name, kind);
-
-		if !header.is_registered() {
-			return Err(error(UnregisterCommandErrorKind::NotRegistered));
-		}
-
-		let cvar = server.cvar().map_err(|interface| error(interface.into()))?;
-		let command = self.as_base();
-
 		// SAFETY: Only `register` makes the engine list a command, and it takes
-		// the command pinned and `'static`. The server confines this call to the
-		// main thread.
-		unsafe { registrar.unlink(command) };
-
-		if header.is_registered() || cvar.find_command_base(header.name) == Some(command) {
-			return Err(error(UnregisterCommandErrorKind::StillLinked));
+		// the command pinned and `'static`.
+		unsafe {
+			unregister_base(
+				self.as_base(),
+				self.header.name,
+				CommandBaseKind::Command,
+				server,
+				registrar,
+			)
 		}
-
-		Ok(())
 	}
 }
 
@@ -503,6 +462,17 @@ unsafe extern "C" fn auto_complete_suggest(
 	0
 }
 
+/// Whether the engine has marked a command or variable registered.
+///
+/// # Safety
+///
+/// `base` must point to a live `ConCommandBase`.
+pub(super) unsafe fn base_is_registered(base: NonNull<sys::ConCommandBase>) -> bool {
+	// SAFETY: The caller guarantees the object is live. The field is read
+	// without forming a reference, since C++ writes it too.
+	unsafe { (&raw const (*base.as_ptr()).m_bRegistered).read() }
+}
+
 unsafe extern "C" fn can_auto_complete(_this: *mut sys::ConCommand) -> bool {
 	false
 }
@@ -583,6 +553,103 @@ unsafe extern "C" fn is_flag_set(this: *const sys::ConCommand, flag: c_int) -> b
 unsafe extern "C" fn is_registered(this: *const sys::ConCommand) -> bool {
 	// SAFETY: See above.
 	unsafe { (&raw const (*this)._base.m_bRegistered).read() }
+}
+
+/// Links a command or variable, after checking that it is not registered
+/// already and that nothing else uses its name, then checks that the engine
+/// lists it under its name, since neither the engine nor Metamod reports
+/// failure.
+///
+/// `prepare` fills in the engine-visible fields, given the DLL identifier the
+/// registry allocated, just before linking.
+///
+/// # Safety
+///
+/// `base` must be a pinned, `'static` command or variable of this crate, whose
+/// fields the engine reads are filled in once `prepare` returns, and which is
+/// unregistered before the module containing its code is unloaded.
+pub(super) unsafe fn register_base(
+	base: NonNull<sys::ConCommandBase>,
+	name: &'static CStr,
+	kind: CommandBaseKind,
+	server: Server<'_>,
+	registrar: &impl CommandRegistrar,
+	prepare: impl FnOnce(sys::CVarDLLIdentifier_t),
+) -> Result<(), RegisterCommandError> {
+	let error = |error| RegisterCommandError::new(name, kind, error);
+	let cvar = server.cvar().map_err(|interface| error(interface.into()))?;
+
+	// Metamod clears the list link before linking, so linking a listed
+	// command again would cut off every command after it.
+	// SAFETY: The caller guarantees the object is live.
+	if unsafe { base_is_registered(base) } {
+		return Err(error(RegisterCommandErrorKind::AlreadyRegistered));
+	}
+
+	// The engine does not refuse a duplicate name: it lists a new command
+	// first, which hides the existing one, and links a new variable to the
+	// existing one without listing it.
+	if let Some(existing) = cvar.find_command_base(name) {
+		// SAFETY: The engine's registry holds live commands and variables.
+		let existing = if unsafe { vcall!(existing.as_ptr() => ConCommandBase_IsCommand()) } {
+			CommandBaseKind::Command
+		} else {
+			CommandBaseKind::Variable
+		};
+
+		return Err(error(RegisterCommandErrorKind::NameTaken(existing)));
+	}
+
+	prepare(cvar.allocate_dll_identifier());
+
+	// SAFETY: The object is pinned, `'static`, and prepared, and the server's
+	// existence confines this call to the main thread.
+	unsafe { registrar.link(base) };
+
+	// SAFETY: As above.
+	if unsafe { base_is_registered(base) } && cvar.find_command_base(name) == Some(base) {
+		return Ok(());
+	}
+
+	// Unlinking also stops a host like Metamod from tracking the object.
+	// SAFETY: As for `link`.
+	unsafe { registrar.unlink(base) };
+
+	Err(error(RegisterCommandErrorKind::NotLinked))
+}
+
+/// Unlinks a command or variable [`register_base`] linked.
+///
+/// # Safety
+///
+/// `base` must be a live command or variable of this crate, which only
+/// `register_base` makes the engine list.
+pub(super) unsafe fn unregister_base(
+	base: NonNull<sys::ConCommandBase>,
+	name: &'static CStr,
+	kind: CommandBaseKind,
+	server: Server<'_>,
+	registrar: &impl CommandRegistrar,
+) -> Result<(), UnregisterCommandError> {
+	let error = |error| UnregisterCommandError::new(name, kind, error);
+
+	// SAFETY: The caller guarantees the object is live.
+	if !unsafe { base_is_registered(base) } {
+		return Err(error(UnregisterCommandErrorKind::NotRegistered));
+	}
+
+	let cvar = server.cvar().map_err(|interface| error(interface.into()))?;
+
+	// SAFETY: `register_base` only links pinned, `'static` objects. The server
+	// confines this call to the main thread.
+	unsafe { registrar.unlink(base) };
+
+	// SAFETY: As above.
+	if unsafe { base_is_registered(base) } || cvar.find_command_base(name) == Some(base) {
+		return Err(error(UnregisterCommandErrorKind::StillLinked));
+	}
+
+	Ok(())
 }
 
 fn vtable() -> *const ConCommandVtable {

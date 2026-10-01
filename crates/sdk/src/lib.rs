@@ -45,6 +45,7 @@ pub mod datatables;
 pub mod edicts;
 pub mod entities;
 mod ffi;
+pub mod host_timescale;
 pub mod inputs;
 pub mod interfaces;
 pub mod math;

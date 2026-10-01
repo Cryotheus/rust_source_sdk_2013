@@ -268,12 +268,27 @@ game_events! {
 		PlayerCarryobject = b"player_carryobject" c"player_carryobject",
 		PlayerChangeclass = b"player_changeclass" c"player_changeclass",
 		PlayerChargedeployed = b"player_chargedeployed" c"player_chargedeployed",
+
+		/// A client began connecting, before it loads the level or has a player.
+		/// Bots connect too, with `bot` set. The engine fires it, not the game,
+		/// and only to the server's listeners.
+		PlayerConnect = b"player_connect" c"player_connect",
+
+		/// As [`PlayerConnect`](Self::PlayerConnect), without the address, for
+		/// clients' listeners. The engine fires it.
+		PlayerConnectClient = b"player_connect_client" c"player_connect_client",
 		PlayerCurrencyChanged = b"player_currency_changed" c"player_currency_changed",
 		PlayerDamageDodged = b"player_damage_dodged" c"player_damage_dodged",
 		PlayerDamaged = b"player_damaged" c"player_damaged",
 		PlayerDeath = b"player_death" c"player_death",
 		PlayerDestroyedPipebomb = b"player_destroyed_pipebomb" c"player_destroyed_pipebomb",
 		PlayerDirecthitStun = b"player_directhit_stun" c"player_directhit_stun",
+
+		/// A client is disconnecting, including one that had not finished
+		/// connecting. Its player, if it had one, still exists. The engine fires
+		/// it, not the game.
+		PlayerDisconnect = b"player_disconnect" c"player_disconnect",
+
 		PlayerDomination = b"player_domination" c"player_domination",
 		PlayerDropobject = b"player_dropobject" c"player_dropobject",
 		PlayerEscortScore = b"player_escort_score" c"player_escort_score",
@@ -309,6 +324,11 @@ game_events! {
 		PlayerStatsUpdated = b"player_stats_updated" c"player_stats_updated",
 		PlayerStealsandvich = b"player_stealsandvich" c"player_stealsandvich",
 		PlayerStunned = b"player_stunned" c"player_stunned",
+
+		/// A player's team is changing; the team lists still hold the old team.
+		/// Fired only for a change, including on disconnecting (`disconnect`).
+		PlayerTeam = b"player_team" c"player_team",
+
 		PlayerTeleported = b"player_teleported" c"player_teleported",
 		PlayerTurnedToGhost = b"player_turned_to_ghost" c"player_turned_to_ghost",
 		PlayerUpgraded = b"player_upgraded" c"player_upgraded",

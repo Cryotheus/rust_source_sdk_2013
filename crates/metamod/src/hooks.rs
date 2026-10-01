@@ -17,8 +17,9 @@ use std::ptr::{self, NonNull};
 
 /// Runs once per server frame, before the game simulates it.
 ///
-/// `simulating` is false while the server is paused or has no players, when
-/// the game runs no entity logic that frame.
+/// `simulating` can be false while the server is paused or empty, and during
+/// startup before the engine has client slots. Do not assume client slots are
+/// available just because this callback runs.
 pub type GameFrameFn = fn(server: Server<'_>, simulating: bool);
 
 static GAME_FRAME: Route<GameFrameFn> = Route::new();
@@ -62,12 +63,11 @@ impl HookError {
 /// Metamod's notifications about levels.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LevelEvents {
-	/// A level is loading, before the game's own `LevelInit`, with its map's
-	/// name. No entity of the level exists yet.
+	/// Called after the game's own `LevelInit`, with the map's name.
 	pub init: Option<fn(server: Server<'_>, map: &CStr)>,
 
-	/// The level is shutting down, before the game's own `LevelShutdown`. Its
-	/// entities still exist, but are freed right after.
+	/// Called after the game's own `LevelShutdown`. Do not access the level's
+	/// entities here; discard map-specific state instead.
 	pub shutdown: Option<fn(server: Server<'_>)>,
 }
 

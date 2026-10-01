@@ -1,5 +1,6 @@
 //! `ICvar`, the registry of console variables and commands.
 
+use crate::commands::CommandFlags;
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
 use std::ffi::{CStr, CString, c_int};
 use std::marker::PhantomData;
@@ -15,6 +16,13 @@ interface! {
 ///
 /// Every accessor reads the current value, which commands and code may change
 /// at any time.
+///
+/// The setters change the value as the engine does when the console sets it,
+/// through the variable's own `SetValue`, which clamps it to the variable's
+/// bounds and runs its change callbacks: those tell clients of a value marked
+/// `FCVAR_REPLICATED`, and announce one marked `FCVAR_NOTIFY`. The console's
+/// own checks are skipped, so a variable marked `FCVAR_CHEAT` changes whether
+/// or not `sv_cheats` is set, as it does for other server plugins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConVar<'s> {
 	raw: NonNull<sys::ConVar>,
@@ -23,9 +31,29 @@ pub struct ConVar<'s> {
 }
 
 impl<'s> ConVar<'s> {
+	/// # Safety
+	///
+	/// `raw` must point to a live, registered variable that stays registered
+	/// for `'s`, used only on the server's main thread.
+	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::ConVar>) -> Self {
+		Self {
+			raw,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
 	/// Returns the native pointer for low-level interop.
 	pub const fn as_ptr(self) -> *mut sys::ConVar {
 		self.raw.as_ptr()
+	}
+
+	/// The value the variable was declared with.
+	#[doc(alias = "GetDefault")]
+	pub fn default_string(self) -> CString {
+		// SAFETY: As for `string`.
+		unsafe { copy_cstr((&raw const (*self.parent()).m_pszDefaultValue).read()) }
+			.unwrap_or_default()
 	}
 
 	/// The current value as a float.
@@ -40,6 +68,16 @@ impl<'s> ConVar<'s> {
 	pub fn int(self) -> c_int {
 		// SAFETY: As for `name`.
 		unsafe { (&raw const (*self.parent()).m_nValue).read() }
+	}
+
+	/// The value's `IConVar` interface, whose `SetValue` overloads the variable
+	/// implements.
+	///
+	/// MSVC places those overloads only in this interface's vtable, not in the
+	/// variable's own, and they expect the pointer to this subobject.
+	fn interface(self) -> *mut sys::IConVar {
+		// SAFETY: The variable is live, and the subobject lies within it.
+		unsafe { &raw mut (*self.as_ptr())._base_1 }
 	}
 
 	/// The variable's name.
@@ -65,6 +103,54 @@ impl<'s> ConVar<'s> {
 		}
 	}
 
+	/// Sets the value from a float, which the string then shows with six
+	/// decimals. Nothing happens if the float value is unchanged.
+	#[doc(alias = "SetValue")]
+	pub fn set_float(self, value: f32) {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.interface() => IConVar_SetValue1(value)) };
+	}
+
+	/// Sets the value from an integer. Nothing happens if the integer value is
+	/// unchanged.
+	#[doc(alias = "SetValue")]
+	pub fn set_int(self, value: c_int) {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.interface() => IConVar_SetValue2(value)) };
+	}
+
+	/// Sets the value from a string, as the console does.
+	#[doc(alias = "SetValue")]
+	pub fn set_string(self, value: &CStr) {
+		// SAFETY: As for `name`. The variable copies the string.
+		unsafe { vcall!(self.interface() => IConVar_SetValue(value.as_ptr())) };
+	}
+
+	/// Sets the value from a string as [`Self::set_string`] does, without
+	/// announcing the change to players and the server log, even if the
+	/// variable is marked `FCVAR_NOTIFY`. Clients are still told of a
+	/// replicated value.
+	///
+	/// The flag is cleared while the variable's change callbacks run, since
+	/// the engine's checks it then.
+	pub fn set_string_quietly(self, value: &CStr) {
+		let notify = CommandFlags::NOTIFY.bits();
+
+		// SAFETY: As for `name`. The flags are read and written without forming
+		// references, since C++ writes them too.
+		let flags = unsafe { &raw mut (*self.parent())._base.m_nFlags };
+
+		// SAFETY: As above.
+		let announced = unsafe { flags.read() } & notify;
+
+		// SAFETY: As above.
+		unsafe { flags.write(flags.read() & !notify) };
+		self.set_string(value);
+
+		// SAFETY: As above. Flags the callbacks added are kept.
+		unsafe { flags.write(flags.read() | announced) };
+	}
+
 	/// The current value as a string.
 	#[doc(alias = "GetString")]
 	pub fn string(self) -> CString {
@@ -81,6 +167,30 @@ impl<'s> Cvar<'s> {
 	pub(crate) fn allocate_dll_identifier(self) -> sys::CVarDLLIdentifier_t {
 		// SAFETY: As for `find_var`.
 		unsafe { vcall!(self.as_ptr() => ICvar_AllocateDLLIdentifier()) }
+	}
+
+	/// Runs the callbacks every variable's change runs, such as the engine's,
+	/// which tells clients of replicated values and announces notifying ones.
+	///
+	/// # Safety
+	///
+	/// `var` must be a live, registered variable whose value just changed from
+	/// `old_value`, as `ConVar::ChangeStringValue` calls it.
+	#[doc(alias = "CallGlobalChangeCallbacks")]
+	pub(crate) unsafe fn call_global_change_callbacks(
+		self,
+		var: NonNull<sys::ConVar>,
+		old_value: &CStr,
+		old_float: f32,
+	) {
+		// SAFETY: As for `find_var`, and the caller upholds the contract.
+		unsafe {
+			vcall!(self.as_ptr() => ICvar_CallGlobalChangeCallbacks(
+				var.as_ptr(),
+				old_value.as_ptr(),
+				old_float,
+			))
+		};
 	}
 
 	/// Prints to the console display functions, which a dedicated server does
@@ -105,11 +215,9 @@ impl<'s> Cvar<'s> {
 		// SAFETY: `Server::new` guarantees the interface is live.
 		let var = NonNull::new(unsafe { vcall!(self.as_ptr() => ICvar_FindVar(name.as_ptr())) })?;
 
-		Some(ConVar {
-			raw: var,
-			_scope: PhantomData,
-			_not_thread_safe: PhantomData,
-		})
+		// SAFETY: The registry holds live variables, which the server keeps
+		// registered for `'s`.
+		Some(unsafe { ConVar::from_raw(var) })
 	}
 
 	/// Links a command into the registry.

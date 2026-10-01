@@ -2,6 +2,8 @@
 //! and dispatch.
 
 use super::args::CommandLine;
+use super::variable::test_support::interface_of;
+use super::variable::{parse_float, parse_int};
 use super::*;
 use crate::edicts::test_support::mock_edict;
 use crate::ffi::test_support::{mock_vtable, unexpected_call};
@@ -10,7 +12,7 @@ use crate::interfaces::{Cvar, ValveEngine};
 use crate::server::Module;
 use crate::server::test_support::{export, mock_binding, mock_server};
 use std::cell::{Cell, RefCell};
-use std::ffi::c_char;
+use std::ffi::{c_char, c_void};
 use std::pin::Pin;
 use std::ptr::{self, NonNull, null_mut};
 
@@ -32,6 +34,21 @@ thread_local! {
 	static DISPLAY_FUNCS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 	static CLIENT_PRINTS: RefCell<Vec<(c_int, String)>> = const { RefCell::new(Vec::new()) };
 	static SEEN: RefCell<Vec<Seen>> = const { RefCell::new(Vec::new()) };
+
+	/// What the engine's global change callbacks saw.
+	static CHANGES: RefCell<Vec<Change>> = const { RefCell::new(Vec::new()) };
+
+	/// How many changes the engine's global change callbacks would announce.
+	static ANNOUNCED: Cell<usize> = const { Cell::new(0) };
+}
+
+/// A change the engine's global change callbacks saw.
+#[derive(Debug, PartialEq)]
+struct Change {
+	name: String,
+	old: String,
+	old_float: f32,
+	new: String,
 }
 
 /// A registrar standing in for Metamod's, which unlinks commands on unload.
@@ -66,6 +83,40 @@ unsafe extern "C" fn allocate_dll_identifier(_: *mut sys::ICvar) -> c_int {
 
 fn base_of<H>(command: &ConsoleCommand<H>) -> *mut sys::ConCommandBase {
 	ptr::from_ref(command).cast_mut().cast()
+}
+
+/// Records a change as the engine's own global callback would see it, reading
+/// the new value through the variable.
+unsafe extern "C" fn call_global_change_callbacks(
+	_: *mut sys::ICvar,
+	var: *mut sys::ConVar,
+	old: *const c_char,
+	old_float: f32,
+) {
+	let text = |pointer| {
+		unsafe { CStr::from_ptr(pointer) }
+			.to_str()
+			.unwrap()
+			.to_owned()
+	};
+	let change = Change {
+		name: text(unsafe { name_of(var.cast()) }.as_ptr()),
+		old: text(old),
+		old_float,
+		new: text(unsafe { (&raw const (*var).m_pszString).read() }),
+	};
+
+	CHANGES.with_borrow_mut(|changes| changes.push(change));
+
+	if unsafe {
+		vcall!(var.cast::<sys::ConCommandBase>() => ConCommandBase_IsFlagSet(CommandFlags::NOTIFY.bits()))
+	} {
+		ANNOUNCED.set(ANNOUNCED.get() + 1);
+	}
+}
+
+fn changes() -> Vec<Change> {
+	CHANGES.take()
 }
 
 #[test]
@@ -352,11 +403,24 @@ unsafe extern "C" fn find_command_base(
 }
 
 unsafe extern "C" fn find_var(_: *mut sys::ICvar, name: *const c_char) -> *mut sys::ConVar {
-	if unsafe { CStr::from_ptr(name) } == c"sv_cheats" {
-		CHEATS.get()
-	} else {
-		null_mut()
+	let name = unsafe { CStr::from_ptr(name) };
+
+	if name == c"sv_cheats" {
+		return CHEATS.get();
 	}
+
+	REGISTRY.with_borrow(|registry| {
+		registry
+			.iter()
+			.copied()
+			.find(|&base| {
+				!unsafe { vcall!(base => ConCommandBase_IsCommand()) }
+					&& unsafe { name_of(base) }
+						.to_bytes()
+						.eq_ignore_ascii_case(name.to_bytes())
+			})
+			.map_or(null_mut(), |base| base.cast())
+	})
 }
 
 unsafe extern "C" fn foreign_name(this: *const sys::ConCommandBase) -> *const c_char {
@@ -408,6 +472,8 @@ fn mock_engine() {
 			(&raw mut (*vtable).ICvar_AllocateDLLIdentifier).write(allocate_dll_identifier);
 			(&raw mut (*vtable).ICvar_FindVar).write(find_var);
 			(&raw mut (*vtable).ICvar_ConsolePrintf).write(console_printf);
+			(&raw mut (*vtable).ICvar_CallGlobalChangeCallbacks)
+				.write(call_global_change_callbacks);
 		})
 	};
 	let engine_vtable = unsafe {
@@ -545,7 +611,7 @@ fn registration_links_once_and_unregisters() {
 	// Registering again would relink the command in place.
 	assert_eq!(
 		register(command).unwrap_err().to_string(),
-		"could not register console command `sb_ping`: the command is already registered"
+		"could not register console command `sb_ping`: it is already registered"
 	);
 	assert_eq!(listed(), ["sb_ping", "sb_other"]);
 
@@ -710,6 +776,262 @@ thread_local! {
 static SELF_REMOVING: ConsoleCommand<CommandFn> =
 	ConsoleCommand::new(c"sb_once", remove_self as CommandFn).access(CommandAccess::Everyone);
 
+/// As the Windows version, for libstdc++.
+#[cfg(target_os = "linux")]
+#[test]
+fn casts_to_the_engines_classes_fail() {
+	use super::variable::test_support::{class_type_info_vtable, type_info};
+
+	#[repr(C)]
+	struct TypeInfo {
+		vtable: *const *const c_void,
+		name: *const c_char,
+	}
+
+	unsafe extern "C" {
+		/// libstdc++'s runtime for `dynamic_cast` to a pointer.
+		fn __dynamic_cast(
+			object: *const c_void,
+			source: *const c_void,
+			target: *const c_void,
+			source_to_target: isize,
+		) -> *mut c_void;
+	}
+
+	let class = |name: &'static CStr| TypeInfo {
+		vtable: class_type_info_vtable(),
+		name: name.as_ptr(),
+	};
+	let convar = class(c"6ConVar");
+	let iconvar = class(c"7IConVar");
+	let bounded = class(c"20ConVar_ServerBounded");
+
+	mock_engine();
+
+	let variable = leak_variable(ConsoleVariable::new(c"sb_cast", c"0"));
+
+	register_variable(variable).unwrap();
+
+	let object = variable_base(variable.get_ref()).cast::<c_void>();
+	let interface = interface_of(variable.get_ref()).cast::<c_void>();
+	let cast = |from, source: *const c_void, target: *const c_void, hint| unsafe {
+		__dynamic_cast(from, source, target, hint)
+	};
+
+	// As `ConVar_PrintDescription`'s cast, whose target derives from `ConVar`
+	// at offset 0.
+	assert!(
+		cast(
+			object,
+			(&raw const convar).cast(),
+			(&raw const bounded).cast(),
+			0
+		)
+		.is_null()
+	);
+	assert!(
+		cast(
+			interface,
+			(&raw const iconvar).cast(),
+			(&raw const bounded).cast(),
+			-1
+		)
+		.is_null()
+	);
+
+	// Every cast fails, since the class claims no bases, but the type
+	// information describes the whole variable from either table.
+	assert!(cast(object, (&raw const convar).cast(), type_info(), 0).is_null());
+	assert_eq!(
+		unsafe { crate::rtti::subobject_offset(object, "RustConsoleVariable") },
+		Some(0)
+	);
+	assert_eq!(
+		unsafe { crate::rtti::subobject_offset(interface, "RustConsoleVariable") },
+		Some(48)
+	);
+}
+
+/// The engine `dynamic_cast`s every variable it describes, as `help` does, to
+/// a class of its own, which must fail rather than crash.
+#[cfg(target_os = "windows")]
+#[test]
+fn casts_to_the_engines_classes_fail() {
+	#[repr(C)]
+	struct TypeDescriptor<const N: usize> {
+		vtable: *const c_void,
+		undecorated_name: *mut c_void,
+		name: [u8; N],
+	}
+
+	unsafe extern "C" {
+		/// MSVC's runtime for `dynamic_cast` to a pointer.
+		fn __RTDynamicCast(
+			object: *mut c_void,
+			vfptr_offset: c_int,
+			source: *const c_void,
+			target: *const c_void,
+			is_reference: c_int,
+		) -> *mut c_void;
+
+		/// MSVC's runtime for `typeid`, returning the complete object's
+		/// `std::type_info`.
+		fn __RTtypeid(object: *mut c_void) -> *mut c_void;
+	}
+
+	fn descriptor<const N: usize>(name: [u8; N]) -> TypeDescriptor<N> {
+		TypeDescriptor {
+			vtable: ptr::null(),
+			undecorated_name: null_mut(),
+			name,
+		}
+	}
+
+	let convar = descriptor(*b".?AVConVar@@\0");
+	let iconvar = descriptor(*b".?AVIConVar@@\0");
+	let bounded = descriptor(*b".?AVConVar_ServerBounded@@\0");
+	let own = descriptor(*b".?AVRustConsoleVariable@@\0");
+
+	mock_engine();
+
+	let variable = leak_variable(ConsoleVariable::new(c"sb_cast", c"0"));
+
+	register_variable(variable).unwrap();
+
+	let object = variable_base(variable.get_ref()).cast::<c_void>();
+	let interface = interface_of(variable.get_ref()).cast::<c_void>();
+	let cast = |from, source: *const c_void, target: *const c_void| unsafe {
+		__RTDynamicCast(from, 0, source, target, 0)
+	};
+
+	assert!(
+		cast(
+			object,
+			(&raw const convar).cast(),
+			(&raw const bounded).cast()
+		)
+		.is_null()
+	);
+	assert!(
+		cast(
+			interface,
+			(&raw const iconvar).cast(),
+			(&raw const bounded).cast()
+		)
+		.is_null()
+	);
+
+	// Every cast fails, since the class claims no bases, but the type
+	// information describes the whole variable from either table.
+	assert!(cast(object, (&raw const convar).cast(), (&raw const own).cast()).is_null());
+
+	for from in [object, interface] {
+		let name = unsafe { CStr::from_ptr(__RTtypeid(from).cast::<c_char>().add(16)) };
+
+		assert_eq!(name, c".?AVRustConsoleVariable@@");
+	}
+
+	assert_eq!(
+		unsafe { crate::rtti::subobject_offset(object, "RustConsoleVariable") },
+		Some(0)
+	);
+	assert_eq!(
+		unsafe { crate::rtti::subobject_offset(interface, "RustConsoleVariable") },
+		Some(48)
+	);
+}
+
+#[test]
+fn change_callbacks_get_the_interface_and_the_old_value() {
+	thread_local! {
+		static SEEN_BY_CALLBACK: RefCell<Vec<(usize, String, f32)>> = const { RefCell::new(Vec::new()) };
+	}
+
+	unsafe extern "C" fn callback(var: *mut sys::IConVar, old: *const c_char, old_float: f32) {
+		let old = unsafe { CStr::from_ptr(old) }.to_str().unwrap().to_owned();
+
+		SEEN_BY_CALLBACK.with_borrow_mut(|seen| seen.push((var.addr(), old, old_float)));
+	}
+
+	mock_engine();
+
+	let variable = leak_variable(ConsoleVariable::new(c"sb_speed", c"1.5"));
+
+	register_variable(variable).unwrap();
+
+	// The engine installs a callback when another module registers a variable
+	// of the same name.
+	let raw = variable_base(variable.get_ref()).cast::<sys::ConVar>();
+
+	unsafe { (&raw mut (*raw).m_fnChangeCallback).write(Some(callback)) };
+
+	let scope = ();
+	let server = mock_server(&scope);
+
+	variable.set_float(server, 2.0);
+	assert_eq!(
+		SEEN_BY_CALLBACK.take(),
+		[(
+			interface_of(variable.get_ref()).addr(),
+			"1.5".to_owned(),
+			1.5
+		)]
+	);
+	assert_eq!(changes().len(), 1);
+	assert_eq!(variable.string(server).as_c_str(), c"2.000000");
+}
+
+#[test]
+fn handlers_can_leave_client_invocations_to_the_game() {
+	mock_engine();
+
+	let command = leak(
+		ConsoleCommand::new(c"jointeam", |command: &CommandContext<'_>| {
+			let Invoker::Client(client) = command.invoker() else {
+				return Err(CommandError::Unhandled);
+			};
+
+			// Takes the invocation for the blue team only.
+			if command.args().get(0) == Some(c"blue") {
+				return record(command);
+			}
+
+			SEEN.with_borrow_mut(|seen| {
+				seen.push(Seen {
+					slot: Some(client.slot()),
+					typed: "left to the game".to_owned(),
+					args: vec![],
+				})
+			});
+
+			Err(CommandError::Unhandled)
+		})
+		.access(CommandAccess::Everyone),
+	);
+
+	register(command).unwrap();
+
+	let mut table = [mock_edict(0, false), mock_edict(1, false)];
+	let binding = mock_binding();
+	let mut route = |line: &str| unsafe {
+		route_client_command(
+			&binding,
+			NonNull::from(&mut table[1]),
+			NonNull::from(&*tokenized(line)),
+		)
+	};
+
+	assert_eq!(route("jointeam red"), ClientRoute::NotRouted);
+	assert_eq!(route("jointeam blue"), ClientRoute::Handled);
+	assert_eq!(seen().len(), 2);
+	assert_eq!(client_prints(), [(1, "ran jointeam\n".to_owned())]);
+
+	// Nothing else handles a server-side invocation, and nothing is printed.
+	engine_dispatch(command.get_ref(), &*tokenized("jointeam red"));
+	assert!(seen().is_empty());
+	assert!(console().is_empty());
+}
+
 #[test]
 fn handlers_may_unregister_their_own_command() {
 	mock_engine();
@@ -760,6 +1082,16 @@ fn handlers_with_state_dispatch_through_the_whole_command() {
 #[should_panic = "console command names may only contain ASCII letters, digits, and `_`"]
 fn invalid_names_panic() {
 	let _ = ConsoleCommand::new(c"sb;quit", record);
+}
+
+#[test]
+#[should_panic = "console variable names may only contain ASCII letters, digits, and `_`"]
+fn invalid_variable_names_panic() {
+	let _ = ConsoleVariable::new(c"sb rounds", c"3");
+}
+
+fn leak_variable(variable: ConsoleVariable) -> Pin<&'static ConsoleVariable> {
+	Pin::static_ref(Box::leak(Box::new(variable)))
 }
 
 #[test]
@@ -851,6 +1183,40 @@ fn nested_invocations_keep_their_own_invoker_and_arguments() {
 	);
 }
 
+#[test]
+fn quiet_changes_are_not_announced() {
+	mock_engine();
+
+	let variable =
+		leak_variable(ConsoleVariable::new(c"sb_loud", c"0").flags(CommandFlags::NOTIFY));
+	let scope = ();
+	let server = mock_server(&scope);
+
+	register_variable(variable).unwrap();
+
+	let var = server.cvar().unwrap().find_var(c"sb_loud").unwrap();
+
+	var.set_string(c"1");
+	assert_eq!(ANNOUNCED.get(), 1);
+
+	// Still changed, and the callbacks still run, but unannounced.
+	var.set_string_quietly(c"2");
+	assert_eq!(ANNOUNCED.get(), 1);
+	assert_eq!(changes().len(), 2);
+	assert_eq!(var.int(), 2);
+
+	let base = variable_base(variable.get_ref());
+
+	assert!(unsafe { vcall!(base => ConCommandBase_IsFlagSet(CommandFlags::NOTIFY.bits())) });
+}
+
+fn register_variable(variable: Pin<&'static ConsoleVariable>) -> Result<(), RegisterCommandError> {
+	let scope = ();
+	let server = mock_server(&scope);
+
+	variable.register(server, mock_binding(), &Host(server.cvar().unwrap()))
+}
+
 fn remove_self(command: &CommandContext<'_>) -> CommandResult {
 	let server = command.server();
 
@@ -888,6 +1254,104 @@ fn server_replies_use_the_console_display_functions_without_tier0() {
 }
 
 #[test]
+fn the_engine_sets_variables_through_their_interface() {
+	mock_engine();
+
+	let variable = leak_variable(ConsoleVariable::new(c"sb_bots", c"10").min(1.0).max(32.0));
+	let scope = ();
+	let server = mock_server(&scope);
+
+	register_variable(variable).unwrap();
+
+	let var = server.cvar().unwrap().find_var(c"sb_bots").unwrap();
+	let change = |old: &str, old_float, new: &str| Change {
+		name: "sb_bots".to_owned(),
+		old: old.to_owned(),
+		old_float,
+		new: new.to_owned(),
+	};
+
+	var.set_string(c"20");
+	assert_eq!((var.int(), var.float()), (20, 20.0));
+	assert_eq!(changes(), [change("10", 10.0, "20")]);
+
+	// Out-of-bounds values are clamped, and shown as the float they became.
+	var.set_string(c"40");
+	assert_eq!(var.string().as_c_str(), c"32.000000");
+	assert_eq!(variable.int(server), 32);
+	assert_eq!(changes(), [change("20", 20.0, "32.000000")]);
+
+	var.set_float(0.5);
+	assert_eq!(var.string().as_c_str(), c"1.000000");
+	assert_eq!(var.int(), 1);
+
+	var.set_int(7);
+	assert_eq!(var.string().as_c_str(), c"7");
+	assert_eq!(
+		changes(),
+		[
+			change("32.000000", 32.0, "1.000000"),
+			change("1.000000", 1.0, "7")
+		]
+	);
+
+	// Unchanged values run no callbacks.
+	var.set_int(7);
+	var.set_string(c"7");
+	var.set_float(7.0);
+	assert!(changes().is_empty());
+
+	// Strings that are not numbers read as 0, clamped to the minimum.
+	var.set_string(c"many");
+	assert_eq!(var.string().as_c_str(), c"1.000000");
+	assert_eq!(changes(), [change("7", 7.0, "1.000000")]);
+
+	// Setting from Rust behaves the same.
+	variable.revert(server);
+	assert_eq!(var.string().as_c_str(), c"10");
+	assert_eq!(changes(), [change("1.000000", 1.0, "10")]);
+}
+
+/// The Itanium ABI also calls `SetValue` through the primary vtable, for
+/// callers holding a `ConVar *`.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_primary_vtable_sets_values_without_adjusting_this() {
+	mock_engine();
+
+	let variable = leak_variable(ConsoleVariable::new(c"sb_primary", c"1"));
+	let scope = ();
+	let server = mock_server(&scope);
+
+	register_variable(variable).unwrap();
+
+	let raw = variable_base(variable.get_ref()).cast::<sys::ConVar>();
+	let slot = |index: usize| unsafe {
+		(&raw const (*raw)._base.vtable_)
+			.read()
+			.cast::<*const c_void>()
+			.add(index)
+			.read()
+	};
+
+	unsafe {
+		let set_string: unsafe extern "C" fn(*mut sys::ConVar, *const c_char) =
+			std::mem::transmute(slot(11));
+		let set_float: unsafe extern "C" fn(*mut sys::ConVar, f32) = std::mem::transmute(slot(12));
+		let set_int: unsafe extern "C" fn(*mut sys::ConVar, c_int) = std::mem::transmute(slot(13));
+
+		set_string(raw, c"4".as_ptr());
+		assert_eq!(variable.int(server), 4);
+		set_float(raw, 2.5);
+		assert_eq!(variable.string(server).as_c_str(), c"2.500000");
+		set_int(raw, 9);
+		assert_eq!(variable.string(server).as_c_str(), c"9");
+	}
+
+	assert_eq!(changes().len(), 3);
+}
+
+#[test]
 fn the_vtable_fills_its_page() {
 	mock_engine();
 
@@ -898,4 +1362,149 @@ fn the_vtable_fills_its_page() {
 		ptr::from_ref(engine_vtable(command.get_ref())).addr() % 4096,
 		0
 	);
+}
+
+#[test]
+fn values_parse_as_c_does() {
+	assert_eq!(parse_float(b"3.0"), 3.0);
+	assert_eq!(parse_float(b" \t-1.5e1x"), -15.0);
+	assert_eq!(parse_float(b"+2E-1"), 0.2);
+	assert_eq!(parse_float(b".5"), 0.5);
+	assert_eq!(parse_float(b"5."), 5.0);
+	assert_eq!(parse_float(b"1e"), 1.0);
+	assert_eq!(parse_float(b"1e+"), 1.0);
+	assert_eq!(parse_float(b"e5"), 0.0);
+	assert_eq!(parse_float(b"."), 0.0);
+	assert_eq!(parse_float(b""), 0.0);
+	assert_eq!(parse_float(b"1e999"), f64::INFINITY);
+	assert_eq!(
+		parse_float(b"123456789012345678901234") as f32,
+		1.234_567_9e23
+	);
+
+	assert_eq!(parse_int(b" 42 bots"), 42);
+	assert_eq!(parse_int(b"-7"), -7);
+	assert_eq!(parse_int(b"3.9"), 3);
+	assert_eq!(parse_int(b"x"), 0);
+	assert_eq!(parse_int(b"99999999999"), c_int::MAX);
+	assert_eq!(parse_int(b"-99999999999"), c_int::MIN);
+}
+
+fn variable_base(variable: &ConsoleVariable) -> *mut sys::ConCommandBase {
+	ptr::from_ref(variable).cast_mut().cast()
+}
+
+#[test]
+fn variable_vtables_share_their_page() {
+	mock_engine();
+
+	let variable = leak_variable(ConsoleVariable::new(c"sb_page", c"0"));
+
+	register_variable(variable).unwrap();
+
+	let base = variable_base(variable.get_ref());
+	let primary = unsafe { (&raw const (*base).vtable_).read() }.addr();
+	let secondary =
+		unsafe { (&raw const (*interface_of(variable.get_ref())).vtable_).read() }.addr();
+
+	// Both tables, and the type information before each, fill one page.
+	assert_eq!(primary / 4096, secondary / 4096);
+	assert_eq!(
+		primary % 4096,
+		if cfg!(windows) { 1 } else { 2 } * size_of::<usize>()
+	);
+}
+
+#[test]
+fn variables_hold_long_floats_as_tier1_does() {
+	mock_engine();
+
+	let variable = leak_variable(ConsoleVariable::new(c"sb_scale", c"0"));
+	let scope = ();
+	let server = mock_server(&scope);
+
+	register_variable(variable).unwrap();
+
+	// `%f`, in tier1's 32-byte buffer.
+	variable.set_float(server, 1.0e30);
+
+	let string = variable.string(server);
+
+	assert_eq!(string.as_bytes().len(), 31);
+	assert!(
+		string
+			.to_str()
+			.unwrap()
+			.starts_with("1000000015047466219876688855040")
+	);
+
+	variable.set_float(server, f32::NEG_INFINITY);
+	assert_eq!(variable.string(server).as_c_str(), c"-inf");
+	assert_eq!(variable.int(server), c_int::MIN);
+}
+
+#[test]
+fn variables_hold_their_default_and_register_as_variables() {
+	mock_engine();
+
+	let variable =
+		leak_variable(ConsoleVariable::new(c"sb_rounds", c"  12.5 rounds").help(c"Rounds."));
+	let scope = ();
+	let server = mock_server(&scope);
+
+	// The default is parsed as tier1 parses it, before registration too.
+	assert_eq!(variable.float(server), 12.5);
+	assert_eq!(variable.int(server), 12);
+	assert!(variable.bool(server));
+	assert_eq!(variable.string(server).as_c_str(), c"  12.5 rounds");
+
+	// Setting an unregistered variable runs no callbacks.
+	variable.set_int(server, 3);
+	assert_eq!(variable.string(server).as_c_str(), c"3");
+	assert!(changes().is_empty());
+
+	register_variable(variable).unwrap();
+	assert_eq!(listed(), ["sb_rounds"]);
+
+	let base = variable_base(variable.get_ref());
+
+	unsafe {
+		assert!(!vcall!(base => ConCommandBase_IsCommand()));
+		assert!(vcall!(base => ConCommandBase_IsRegistered()));
+		assert_eq!(name_of(base), c"sb_rounds");
+		assert_eq!(
+			CStr::from_ptr(vcall!(base => ConCommandBase_GetHelpText())),
+			c"Rounds."
+		);
+		assert_eq!(vcall!(base => ConCommandBase_GetDLLIdentifier()), 7);
+	}
+
+	// The engine finds it as a variable, and reads it through its parent.
+	let var = server.cvar().unwrap().find_var(c"SB_Rounds").unwrap();
+
+	assert_eq!(var.name(), c"sb_rounds");
+	assert_eq!(var.int(), 3);
+	assert_eq!(var.string().as_c_str(), c"3");
+	assert_eq!(var.default_string().as_c_str(), c"  12.5 rounds");
+
+	// Registering again, or another object under the name, is refused.
+	let error = register_variable(variable).unwrap_err();
+
+	assert_eq!(error.base(), CommandBaseKind::Variable);
+	assert_eq!(
+		error.to_string(),
+		"could not register console variable `sb_rounds`: it is already registered"
+	);
+	assert_eq!(
+		register(leak(ConsoleCommand::new(c"sb_rounds", record)))
+			.unwrap_err()
+			.kind(),
+		&RegisterCommandErrorKind::NameTaken(CommandBaseKind::Variable)
+	);
+
+	variable
+		.unregister(server, &server.cvar().unwrap())
+		.unwrap();
+	assert!(listed().is_empty());
+	assert!(server.cvar().unwrap().find_var(c"sb_rounds").is_none());
 }

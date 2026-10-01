@@ -9,16 +9,16 @@ use std::ffi::{CStr, c_char, c_void};
 #[cfg(target_os = "windows")]
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CompleteObjectLocator {
+pub(crate) struct CompleteObjectLocator {
 	/// 1 for 64-bit images.
-	signature: u32,
+	pub(crate) signature: u32,
 	/// The subobject's offset in its complete object.
-	offset: u32,
-	constructor_displacement: u32,
-	type_descriptor: u32,
-	class_descriptor: u32,
+	pub(crate) offset: u32,
+	pub(crate) constructor_displacement: u32,
+	pub(crate) type_descriptor: u32,
+	pub(crate) class_descriptor: u32,
 	/// The locator's own offset in the image.
-	this: u32,
+	pub(crate) this: u32,
 }
 
 /// As the Windows version, for the Itanium ABI: the vtable stores the offset
