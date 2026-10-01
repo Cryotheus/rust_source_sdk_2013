@@ -3,6 +3,7 @@
 
 pub mod attribute_manager;
 pub mod econ_entity;
+pub mod econ_entity_creation;
 pub mod econ_item;
 pub mod econ_item_constants;
 pub mod econ_item_interface;

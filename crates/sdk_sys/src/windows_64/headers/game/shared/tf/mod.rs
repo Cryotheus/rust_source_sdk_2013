@@ -9,6 +9,7 @@ pub mod tf_condition;
 pub mod tf_item_constants;
 pub mod tf_item_inventory;
 pub mod tf_item_schema;
+pub mod tf_item_system;
 pub mod tf_item_wearable;
 pub mod tf_player_shared;
 pub mod tf_playeranimstate;

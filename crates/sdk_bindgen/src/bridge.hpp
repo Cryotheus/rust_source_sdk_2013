@@ -69,6 +69,10 @@ class bf_read {};
 #include "game/server/tf/tf_player.h"
 #include "game/shared/tf/tf_player_shared.h"
 
+// Item-generation declarations and TF2's concrete base-item criteria.
+#include "game/shared/econ/econ_entity_creation.h"
+#include "game/shared/tf/tf_item_system.h"
+
 //TF2's engine is built with replay support, which adds virtual methods to the
 //client message handler and to IClient. Without it, their later slots would be
 //off by one. Nothing included above depends on it.

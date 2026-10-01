@@ -43,6 +43,12 @@ const ROOT_TYPES: &[&str] = &[
 	"CTFPlayer",
 	"CTFPlayerShared",
 	"CTFWeaponBase",
+	// econ_entity_creation.h's game system and its nonvirtual methods' inputs.
+	// The methods themselves are deliberately not directly linked.
+	"CItemGeneration",
+	"CItemSelectionCriteria",
+	"baseitemcriteria_t",
+	"entityquality_t",
 	"CBaseIssue",
 	"vote_create_failed_t",
 	"ETFCond",
@@ -1366,6 +1372,51 @@ fn vtable_transform_error(error: transform::VtableTransformError) -> BindgenErro
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn item_generation_types_do_not_link_nonvirtual_engine_symbols() {
+		let header = r#"
+			struct CBaseEntity {};
+			struct Vector {};
+			struct QAngle {};
+			struct CItemSelectionCriteria { int level; };
+			struct baseitemcriteria_t { int iClass; int iSlot; };
+			typedef int entityquality_t;
+			class CAutoGameSystem { public: virtual ~CAutoGameSystem(); virtual bool Init(); };
+			class CItemGeneration : public CAutoGameSystem {
+			public:
+				CBaseEntity *GenerateItemFromDefIndex(int, const Vector &, const QAngle &);
+				CBaseEntity *GenerateBaseItem(baseitemcriteria_t *);
+			};
+			extern CItemGeneration *ItemGeneration();
+		"#;
+		let arguments = ["-x", "c++", "-std=c++17"].map(str::to_owned);
+		let provenance = ProvenanceCollector::new(Path::new("/sdk"), [BRIDGE_FILE]);
+		let bindings = binding_builder(header, &arguments, provenance, &[], false)
+			.generate()
+			.unwrap();
+		let syntax = syn::parse_file(&bindings.to_string()).unwrap();
+		assert!(reject_directly_linked_symbols(&syntax).is_ok());
+		for name in [
+			"CItemGeneration",
+			"CItemSelectionCriteria",
+			"baseitemcriteria_t",
+		] {
+			assert!(
+				syntax
+					.items
+					.iter()
+					.any(|item| matches!(item, Item::Struct(item) if item.ident == name)),
+				"missing {name}"
+			);
+		}
+		assert!(
+			syntax
+				.items
+				.iter()
+				.any(|item| matches!(item, Item::Type(item) if item.ident == "entityquality_t"))
+		);
+	}
 
 	#[test]
 	fn generated_items_are_sorted_whatever_their_emission_order() {

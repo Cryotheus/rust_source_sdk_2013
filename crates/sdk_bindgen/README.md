@@ -9,6 +9,13 @@ includes the complete `tf_player.h` and `tf_player_shared.h` headers; their
 types and transitive dependencies are generated together with typed primary
 vtables for `CTFPlayer`, `CTFPlayerShared`, and `CTFWeaponBase`.
 
+`econ_entity_creation.h` contributes `CItemGeneration` and its inherited
+game-system vtable. Its criteria and quality types are retained, including
+TF2's complete `baseitemcriteria_t` from `tf_item_system.h`. Item-generation
+methods and the `ItemGeneration()` getter are nonvirtual and remain excluded
+from direct linking. These declarations describe the checked-out SDK; native
+runtime resolvers must independently validate the running game's signatures.
+
 Bindings contain no directly linked engine functions. Virtual functions are
 called through the generated tables, using the matching Windows MSVC or Linux
 Itanium ABI. The generated base entity/player layouts describe TF2's build.

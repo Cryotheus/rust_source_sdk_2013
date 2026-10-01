@@ -13,6 +13,7 @@ pub mod ehandle;
 pub mod entitylist_base;
 pub mod groundlink;
 pub mod hintsystem;
+pub mod igamesystem;
 pub mod imovehelper;
 pub mod iplayeranimstate;
 pub mod ipredictionsystem;

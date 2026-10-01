@@ -5559,7 +5559,7 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_534458_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
+        "Size of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_534904_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
     ][::std::mem::size_of::<
         CUtlRBTree<
             AI_CriteriaSet_CritEntry_t,
@@ -5576,7 +5576,7 @@ const _: () = {
         >,
     >() - 40usize];
     [
-        "Align of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_534458_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
+        "Align of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_534904_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
     ][::std::mem::align_of::<
         CUtlRBTree<
             AI_CriteriaSet_CritEntry_t,
@@ -5596,7 +5596,7 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_491311_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
+        "Size of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_491755_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
     ][::std::mem::size_of::<
         CUtlRBTree<
             CBaseFlex_FS_LocalToGlobal_t,
@@ -5613,7 +5613,7 @@ const _: () = {
         >,
     >() - 40usize];
     [
-        "Align of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_491311_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
+        "Align of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_491755_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
     ][::std::mem::align_of::<
         CUtlRBTree<
             CBaseFlex_FS_LocalToGlobal_t,

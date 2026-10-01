@@ -19,6 +19,7 @@ pub type attrib_definition_index_t = uint16;
 pub type attrib_value_t = uint32;
 pub type eEconItemOrigin = ::std::os::raw::c_int;
 pub type econ_tag_handle_t = ::std::os::raw::c_int;
+pub type entityquality_t = int32;
 pub type equip_region_mask_t = uint32;
 pub type item_definition_index_t = uint16;
 pub type itemid_t = uint64;

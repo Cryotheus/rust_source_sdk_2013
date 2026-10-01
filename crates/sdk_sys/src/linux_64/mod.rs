@@ -67,6 +67,7 @@ mod __bindgen_prelude {
     pub use super::headers::game::shared::collisionproperty::*;
     pub use super::headers::game::shared::econ::attribute_manager::*;
     pub use super::headers::game::shared::econ::econ_entity::*;
+    pub use super::headers::game::shared::econ::econ_entity_creation::*;
     pub use super::headers::game::shared::econ::econ_item::*;
     pub use super::headers::game::shared::econ::econ_item_constants::*;
     pub use super::headers::game::shared::econ::econ_item_interface::*;
@@ -82,6 +83,7 @@ mod __bindgen_prelude {
     pub use super::headers::game::shared::entitylist_base::*;
     pub use super::headers::game::shared::groundlink::*;
     pub use super::headers::game::shared::hintsystem::*;
+    pub use super::headers::game::shared::igamesystem::*;
     pub use super::headers::game::shared::imovehelper::*;
     pub use super::headers::game::shared::iplayeranimstate::*;
     pub use super::headers::game::shared::ipredictionsystem::*;
@@ -103,6 +105,7 @@ mod __bindgen_prelude {
     pub use super::headers::game::shared::tf::tf_item_constants::*;
     pub use super::headers::game::shared::tf::tf_item_inventory::*;
     pub use super::headers::game::shared::tf::tf_item_schema::*;
+    pub use super::headers::game::shared::tf::tf_item_system::*;
     pub use super::headers::game::shared::tf::tf_item_wearable::*;
     pub use super::headers::game::shared::tf::tf_player_shared::*;
     pub use super::headers::game::shared::tf::tf_playeranimstate::*;

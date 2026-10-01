@@ -103,6 +103,8 @@ headers/game/shared/econ/attribute_manager/layout_assertions.rs
 headers/game/shared/econ/attribute_manager/mod.rs
 headers/game/shared/econ/econ_entity/layout_assertions.rs
 headers/game/shared/econ/econ_entity/mod.rs
+headers/game/shared/econ/econ_entity_creation/layout_assertions.rs
+headers/game/shared/econ/econ_entity_creation/mod.rs
 headers/game/shared/econ/econ_item/layout_assertions.rs
 headers/game/shared/econ/econ_item/mod.rs
 headers/game/shared/econ/econ_item_constants/mod.rs
@@ -132,6 +134,8 @@ headers/game/shared/groundlink/layout_assertions.rs
 headers/game/shared/groundlink/mod.rs
 headers/game/shared/hintsystem/layout_assertions.rs
 headers/game/shared/hintsystem/mod.rs
+headers/game/shared/igamesystem/layout_assertions.rs
+headers/game/shared/igamesystem/mod.rs
 headers/game/shared/imovehelper/layout_assertions.rs
 headers/game/shared/imovehelper/mod.rs
 headers/game/shared/iplayeranimstate/mod.rs
@@ -173,6 +177,8 @@ headers/game/shared/tf/tf_item_inventory/layout_assertions.rs
 headers/game/shared/tf/tf_item_inventory/mod.rs
 headers/game/shared/tf/tf_item_schema/layout_assertions.rs
 headers/game/shared/tf/tf_item_schema/mod.rs
+headers/game/shared/tf/tf_item_system/layout_assertions.rs
+headers/game/shared/tf/tf_item_system/mod.rs
 headers/game/shared/tf/tf_item_wearable/layout_assertions.rs
 headers/game/shared/tf/tf_item_wearable/mod.rs
 headers/game/shared/tf/tf_player_shared/layout_assertions.rs
