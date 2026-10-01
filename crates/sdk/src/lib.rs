@@ -42,6 +42,7 @@ pub mod ambient_sounds;
 pub mod bitbuf;
 pub mod commands;
 pub mod conditions;
+pub mod damage;
 pub mod datatables;
 pub mod edicts;
 pub mod entities;

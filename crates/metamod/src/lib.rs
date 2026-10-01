@@ -34,3 +34,6 @@ pub use plugin::{ErrorBuffer, PluginCallbacks, PluginDescriptor, PluginMetadata}
 pub use server_hooks::{GameFrameFn, LevelEvents, NetMessageHookError};
 
 pub use sys;
+
+#[cfg(feature = "sdk")]
+pub mod damage_hooks;
