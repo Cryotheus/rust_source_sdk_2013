@@ -2,13 +2,14 @@
 
 mod api;
 mod context;
+pub mod hook;
 mod plugin;
 
 #[cfg(feature = "sdk")]
 mod commands;
 
 #[cfg(feature = "sdk")]
-mod hooks;
+mod server_hooks;
 
 pub use api::{
 	LoaderVersionInfo, MetamodApi, MetamodApiBinding, MetamodFeature, MetamodVersion,
@@ -25,9 +26,11 @@ pub use context::{CachedContext, ContextKey, cached_context_key};
 #[doc(hidden)]
 pub use crys_bricks::env_cstr as __private_env_cstr;
 
+pub use hook::HookError;
+pub use plugin::{ErrorBuffer, PluginCallbacks, PluginDescriptor, PluginMetadata};
+
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
-pub use hooks::{GameFrameFn, HookError, LevelEvents, NetMessageHookError};
+pub use server_hooks::{GameFrameFn, LevelEvents, NetMessageHookError};
 
-pub use plugin::{ErrorBuffer, PluginCallbacks, PluginDescriptor, PluginMetadata};
 pub use sys;

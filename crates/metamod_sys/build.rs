@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
 	let dev_src = PathBuf::from(
 		require_var_os(
 			ENV_MMS_DEV,
-			"set it to the Metamod:Source 2.0 git1469 source directory with recursive submodules",
+			"set it to the Metamod:Source 2.0 git1472 source directory with recursive submodules",
 		)?
 		.emit(),
 	);

@@ -1,20 +1,7 @@
 //! C ABI shared with the small C++ `ISmmPlugin` shell.
 
 use std::ffi::{c_char, c_int, c_void};
-use std::mem::size_of;
-
-/// Runs a client's string command: the arguments of
-/// `IServerGameClients::ClientCommand(edict_t *, const CCommand &)`, and the
-/// context given to [`cpp_metamod_hook_client_commands`].
-///
-/// Returns true if the command was handled, which keeps it from the game.
-pub type ClientCommandCallback =
-	unsafe extern "C" fn(context: *mut c_void, edict: *mut c_void, command: *const c_void) -> bool;
-
-/// Runs once per server frame, before the game's own frame: the argument of
-/// `IServerGameDLL::GameFrame(bool simulating)`, and the context given to
-/// [`cpp_metamod_hook_game_frame`].
-pub type GameFrameCallback = unsafe extern "C" fn(context: *mut c_void, simulating: bool);
+use std::mem::{offset_of, size_of};
 
 /// Metamod's `IMetamodListener::OnLevelInit`, with the name of the level
 /// loading.
@@ -23,27 +10,20 @@ pub type LevelInitCallback = unsafe extern "C" fn(context: *mut c_void, map: *co
 /// Metamod's `IMetamodListener::OnLevelShutdown`.
 pub type LevelShutdownCallback = unsafe extern "C" fn(context: *mut c_void);
 
-/// A net message from a client, before its handler processes it.
-///
-/// `kind` indexes the slots given to [`cpp_metamod_hook_net_messages`],
-/// `handler` is the engine's message handler, which the method is called on,
-/// and `message` its argument. Returns true to block the message, which the
-/// engine then treats as processed.
-pub type NetMessageCallback = unsafe extern "C" fn(
-	context: *mut c_void,
-	kind: c_int,
-	handler: *mut c_void,
-	message: *mut c_void,
-) -> bool;
-
 const _: () = {
 	let slot = size_of::<*const ()>();
 
 	assert!(size_of::<PluginCallbacks>() == 6 * slot);
 	assert!(size_of::<PluginMetadata>() == 8 * slot);
+
+	assert!(offset_of!(PluginStatus, generation) == 0);
+	assert!(offset_of!(PluginStatus, id) == 8);
+	assert!(offset_of!(PluginStatus, loaded) == 12);
+	assert!(offset_of!(PluginStatus, paused) == 13);
+	assert!(size_of::<PluginStatus>() == 16);
 };
 
-/// The result of [`cpp_metamod_hook_client_commands`].
+/// The result of [`cpp_metamod_listen_levels`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct HookStatus(pub c_int);
@@ -53,8 +33,7 @@ impl HookStatus {
 	pub const INSTALLED: Self = Self(0);
 	pub const INVALID_ARGUMENT: Self = Self(3);
 
-	/// The shell is not between `Load` and `Unload`, or Metamod supplied no
-	/// hooking library.
+	/// The shell is not between `Load` and `Unload`.
 	pub const NOT_BOUND: Self = Self(1);
 
 	/// The hooking library refused the hook.
@@ -88,47 +67,36 @@ pub struct PluginMetadata {
 	pub log_tag: *const c_char,
 }
 
+/// What the shell knows of the plugin Metamod loaded through it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct PluginStatus {
+	/// Counts the shell's `Load` calls, telling apart what an earlier load of
+	/// a library that stayed mapped left behind.
+	pub generation: u64,
+
+	/// The `PluginId` Metamod passed to `Load`, while loaded, or else 0.
+	pub id: c_int,
+
+	/// Whether Metamod has loaded the shell and not yet unloaded it, as
+	/// [`cpp_metamod_plugin_is_loaded`] reports.
+	pub loaded: bool,
+
+	/// Whether Metamod has paused the plugin.
+	pub paused: bool,
+}
+
+impl PluginStatus {
+	/// Reported for a plugin API version without a shell.
+	pub const UNLOADED: Self = Self {
+		generation: 0,
+		id: 0,
+		loaded: false,
+		paused: false,
+	};
+}
+
 unsafe extern "C" {
-	fn cpp_metamod_hook_client_commands_dev(
-		clients: *mut c_void,
-		callback: ClientCommandCallback,
-		context: *mut c_void,
-	) -> c_int;
-
-	fn cpp_metamod_hook_client_commands_stable(
-		clients: *mut c_void,
-		callback: ClientCommandCallback,
-		context: *mut c_void,
-	) -> c_int;
-
-	fn cpp_metamod_hook_game_frame_dev(
-		game_dll: *mut c_void,
-		callback: GameFrameCallback,
-		context: *mut c_void,
-	) -> c_int;
-
-	fn cpp_metamod_hook_game_frame_stable(
-		game_dll: *mut c_void,
-		callback: GameFrameCallback,
-		context: *mut c_void,
-	) -> c_int;
-
-	fn cpp_metamod_hook_net_messages_dev(
-		handler: *mut c_void,
-		slots: *const c_int,
-		kinds: c_int,
-		callback: NetMessageCallback,
-		context: *mut c_void,
-	) -> c_int;
-
-	fn cpp_metamod_hook_net_messages_stable(
-		handler: *mut c_void,
-		slots: *const c_int,
-		kinds: c_int,
-		callback: NetMessageCallback,
-		context: *mut c_void,
-	) -> c_int;
-
 	fn cpp_metamod_listen_levels_dev(
 		init: Option<LevelInitCallback>,
 		shutdown: Option<LevelShutdownCallback>,
@@ -148,6 +116,7 @@ unsafe extern "C" {
 
 	fn cpp_metamod_plugin_dev_instance() -> *mut c_void;
 	fn cpp_metamod_plugin_dev_is_loaded() -> bool;
+	fn cpp_metamod_plugin_dev_status() -> PluginStatus;
 
 	fn cpp_metamod_plugin_stable(
 		callbacks: *const PluginCallbacks,
@@ -156,87 +125,7 @@ unsafe extern "C" {
 
 	fn cpp_metamod_plugin_stable_instance() -> *mut c_void;
 	fn cpp_metamod_plugin_stable_is_loaded() -> bool;
-}
-
-/// Hooks `IServerGameClients::ClientCommand` ahead of the game, passing each
-/// call to `callback` until Metamod unloads the plugin.
-///
-/// The shell stops calling `callback` when the plugin unloads or is paused,
-/// and Metamod removes the hook after unloading the plugin.
-///
-/// # Safety
-///
-/// Call it on the server's main thread while Metamod runs one of the shell's
-/// callbacks, from `Load` on. `clients` must be the game's `IServerGameClients`,
-/// and `callback(context, ...)` must stay callable for as long as the library
-/// is loaded. The hook calls it on the main thread.
-pub unsafe fn cpp_metamod_hook_client_commands(
-	api_version: c_int,
-	clients: *mut c_void,
-	callback: ClientCommandCallback,
-	context: *mut c_void,
-) -> HookStatus {
-	HookStatus(match api_version {
-		16 => unsafe { cpp_metamod_hook_client_commands_stable(clients, callback, context) },
-		18 => unsafe { cpp_metamod_hook_client_commands_dev(clients, callback, context) },
-		_ => return HookStatus::UNSUPPORTED,
-	})
-}
-
-/// Hooks `IServerGameDLL::GameFrame` ahead of the game, passing each frame to
-/// `callback` until Metamod unloads the plugin.
-///
-/// The shell stops calling `callback` when the plugin unloads or is paused,
-/// and Metamod removes the hook after unloading the plugin.
-///
-/// # Safety
-///
-/// As for [`cpp_metamod_hook_client_commands`], with the game's
-/// `IServerGameDLL` as `game_dll`.
-pub unsafe fn cpp_metamod_hook_game_frame(
-	api_version: c_int,
-	game_dll: *mut c_void,
-	callback: GameFrameCallback,
-	context: *mut c_void,
-) -> HookStatus {
-	HookStatus(match api_version {
-		16 => unsafe { cpp_metamod_hook_game_frame_stable(game_dll, callback, context) },
-		18 => unsafe { cpp_metamod_hook_game_frame_dev(game_dll, callback, context) },
-		_ => return HookStatus::UNSUPPORTED,
-	})
-}
-
-/// Hooks the `Process*` methods at `slots` of the vtable `handler` shares with
-/// every other object of its class, passing each call to `callback` before the
-/// engine's handler runs, until Metamod unloads the plugin.
-///
-/// # Safety
-///
-/// As for [`cpp_metamod_hook_client_commands`]. `handler` must be a live
-/// object whose vtable's methods at `slots` each take one pointer and return
-/// `bool`, and at most 14 slots may be given.
-pub unsafe fn cpp_metamod_hook_net_messages(
-	api_version: c_int,
-	handler: *mut c_void,
-	slots: &[c_int],
-	callback: NetMessageCallback,
-	context: *mut c_void,
-) -> HookStatus {
-	let Ok(kinds) = c_int::try_from(slots.len()) else {
-		return HookStatus::INVALID_ARGUMENT;
-	};
-
-	HookStatus(match api_version {
-		16 => unsafe {
-			cpp_metamod_hook_net_messages_stable(handler, slots.as_ptr(), kinds, callback, context)
-		},
-
-		18 => unsafe {
-			cpp_metamod_hook_net_messages_dev(handler, slots.as_ptr(), kinds, callback, context)
-		},
-
-		_ => return HookStatus::UNSUPPORTED,
-	})
+	fn cpp_metamod_plugin_stable_status() -> PluginStatus;
 }
 
 /// Registers a Metamod listener passing level notifications to the callbacks
@@ -301,5 +190,14 @@ pub fn cpp_metamod_plugin_is_loaded(api_version: c_int) -> bool {
 		16 => unsafe { cpp_metamod_plugin_stable_is_loaded() },
 		18 => unsafe { cpp_metamod_plugin_dev_is_loaded() },
 		_ => false,
+	}
+}
+
+/// The state of the shell for a plugin API version.
+pub fn cpp_metamod_plugin_status(api_version: c_int) -> PluginStatus {
+	match api_version {
+		16 => unsafe { cpp_metamod_plugin_stable_status() },
+		18 => unsafe { cpp_metamod_plugin_dev_status() },
+		_ => PluginStatus::UNLOADED,
 	}
 }

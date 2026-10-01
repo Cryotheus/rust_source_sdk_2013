@@ -2,15 +2,27 @@
 //! Metamod.
 
 use crate::MetamodApi;
-use crate::hooks::HookError;
+
+use crate::hook::{
+	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
+};
+
 use crate::sys::plugin as raw;
 use source_sdk_2013::ServerBinding;
 use source_sdk_2013::commands::{CommandRegistrar, UnlinksBeforeUnload, route_client_command};
 use source_sdk_2013::interfaces::ServerGameClients;
-use source_sdk_2013::sys::ConCommandBase;
+use source_sdk_2013::sys::{self, ConCommandBase};
 use std::cell::Cell;
 use std::ffi::c_void;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
+
+/// `void IServerGameClients::ClientCommand(edict_t *, const CCommand &)`.
+type ClientCommand =
+	unsafe extern "C" fn(*mut sys::IServerGameClients, *mut sys::edict_t, *const sys::CCommand);
+
+/// `IServerGameClients` declares no virtual destructor, so `ClientCommand` has
+/// this slot under the MSVC and Itanium ABIs alike.
+const CLIENT_COMMAND: VirtualFunction<ClientCommand> = VirtualFunction::new(5);
 
 static ROUTED_SERVER: RoutedServer = RoutedServer(Cell::new(None));
 
@@ -26,8 +38,8 @@ pub struct MetamodRegistrar<'callback> {
 }
 
 // SAFETY: Both calls pass the command unchanged to the engine's `ICvar`, in
-// 1.12 build 1226 and 2.0 build 1469 alike, and Metamod keeps it only to unlink
-// it again.
+// 1.12 build 1226 and 2.0 builds 1469 through 1472 alike, and Metamod keeps it
+// only to unlink it again.
 unsafe impl CommandRegistrar for MetamodRegistrar<'_> {
 	unsafe fn link(&self, command: NonNull<ConCommandBase>) {
 		// SAFETY: `command_registrar` checked that Metamod loaded the plugin
@@ -52,11 +64,38 @@ unsafe impl CommandRegistrar for MetamodRegistrar<'_> {
 // `Unload` (forced or not) or a refused `Load`, before the library is unloaded.
 unsafe impl UnlinksBeforeUnload for MetamodRegistrar<'_> {}
 
-/// The server the client-command hook runs commands for.
-struct RoutedServer(Cell<Option<ServerBinding>>);
+/// The server the client-command hook runs commands for, with the hook.
+struct RoutedServer(Cell<Option<(HookId, ServerBinding)>>);
 
-// SAFETY: Only the server's main thread reaches it: the hook runs there, and
-// `route_client_commands` takes a `MetamodApi`, which is confined to it.
+impl Handler<ClientCommand> for RoutedServer {
+	fn call(&self, call: &HookCall<'_, ClientCommand>) -> HookAction<()> {
+		// An earlier hook, such as a SourceMod command listener, blocked it.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let (edict, command) = call.args();
+
+		let (Some((_, binding)), Some(edict), Some(command)) = (
+			self.0.get(),
+			NonNull::new(edict),
+			NonNull::new(command.cast_mut()),
+		) else {
+			return HookAction::Ignore;
+		};
+
+		// SAFETY: The hook runs ahead of the game's `ClientCommand`, on the main
+		// thread, with the engine's arguments. Panics are caught inside.
+		match unsafe { route_client_command(&binding, edict, command) }.is_handled() {
+			true => HookAction::Supersede(()),
+			false => HookAction::Ignore,
+		}
+	}
+}
+
+// SAFETY: Only the server's main thread reaches it: hooks only run their
+// handlers there, and `route_client_commands` takes a `MetamodApi`, which is
+// confined to it.
 unsafe impl Sync for RoutedServer {}
 
 impl<'callback> MetamodApi<'callback> {
@@ -90,42 +129,27 @@ impl<'callback> MetamodApi<'callback> {
 		clients: ServerGameClients<'_>,
 		binding: ServerBinding,
 	) -> Result<(), HookError> {
-		ROUTED_SERVER.0.set(Some(binding));
+		if let Some((hook, _)) = ROUTED_SERVER.0.get()
+			&& self.has_hook(hook)
+		{
+			return Err(HookError::AlreadyInstalled);
+		}
+
+		let clients = NonNull::new(clients.as_ptr()).ok_or(HookError::InvalidArgument)?;
 
 		// SAFETY: A `MetamodApi` only exists during a callback, on the main
-		// thread. `clients` is the game's interface, and the callback is a
-		// function of this library, which only reads a static.
-		let status = unsafe {
-			raw::cpp_metamod_hook_client_commands(
-				self.version().plugin_api_version(),
-				clients.as_ptr().cast(),
-				route,
-				ptr::from_ref(&ROUTED_SERVER).cast_mut().cast(),
+		// thread. `clients` is the game's interface, which outlives the plugin,
+		// and has `ClientCommand` at the slot.
+		let hook = unsafe {
+			self.add_hook(
+				CLIENT_COMMAND,
+				HookTarget::instance(clients),
+				HookTiming::Pre,
+				&ROUTED_SERVER,
 			)
-		};
+		}?;
 
-		HookError::check(status)
+		ROUTED_SERVER.0.set(Some((hook, binding)));
+		Ok(())
 	}
-}
-
-/// The shell's client-command callback.
-unsafe extern "C" fn route(
-	context: *mut c_void,
-	edict: *mut c_void,
-	command: *const c_void,
-) -> bool {
-	let (Some(edict), Some(command)) = (NonNull::new(edict), NonNull::new(command.cast_mut()))
-	else {
-		return false;
-	};
-
-	// SAFETY: `route_client_commands` passes a pointer to the static.
-	let Some(binding) = (unsafe { &*context.cast::<RoutedServer>() }).0.get() else {
-		return false;
-	};
-
-	// SAFETY: The shell calls this from its hook on
-	// `IServerGameClients::ClientCommand`, ahead of the game, on the main thread,
-	// with the engine's arguments. Panics are caught inside.
-	unsafe { route_client_command(&binding, edict.cast(), command.cast()) }.is_handled()
 }

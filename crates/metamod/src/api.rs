@@ -153,6 +153,23 @@ impl MetamodApi<'_> {
 		};
 	}
 
+	/// `ISmmAPI::MetaFactory`: one of Metamod's own interfaces by name, such as
+	/// SourceHook's on the stable channel. The caller must validate and bind the
+	/// returned opaque pointer before dereferencing it.
+	pub fn meta_interface(&self, name: &CStr) -> Option<NonNull<c_void>> {
+		let suffix = self.binding.vtable.suffix();
+		let meta_factory = unsafe { (&raw const (*suffix.as_ptr()).meta_factory).read() };
+
+		NonNull::new(unsafe {
+			meta_factory(
+				self.binding.this.as_ptr(),
+				name.as_ptr(),
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			)
+		})
+	}
+
 	/// `ISmmAPI::RegisterConCommandBase`, which links a command or variable and
 	/// tracks it for `plugin`. Metamod's result is always `true`.
 	///
@@ -352,9 +369,16 @@ impl Display for MetamodReleaseChannel {
 	}
 }
 
+/// A supported Metamod:Source, by the build its layouts were taken from.
+///
+/// Metamod reports only its API versions, which later builds share while
+/// they keep the layouts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetamodVersion {
+	/// 1.12, the stable channel, from build 1226.
 	Stable1226,
+
+	/// 2.0, the dev channel, from build 1469. Build 1472 has the same layouts.
 	Dev1469,
 }
 
@@ -372,6 +396,8 @@ impl MetamodVersion {
 		}
 	}
 
+	/// The build the version's layouts were taken from, not necessarily the
+	/// running one: Metamod does not report its build.
 	pub fn build_number(&self) -> u32 {
 		match self {
 			Self::Stable1226 => 1226,
