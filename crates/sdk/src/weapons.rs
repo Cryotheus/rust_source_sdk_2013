@@ -1,8 +1,11 @@
 //! TF2 weapon creation, inventory slots, equipment, and replacement.
 //!
-//! `give` uses TF2's native item generation to create a stock economy weapon
-//! by classname, including its item definition and models. Attributes can be
-//! changed through the `attributes` module.
+//! `give` creates a stock weapon by classname; `give_item` selects an economy
+//! item definition, such as the Iron Bomber. Native item generation initializes
+//! item definitions, schema attributes, and models before spawning. Attributes
+//! can also be changed through the `attributes` module.
+
+mod native;
 
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::{Game, InterfaceError, Server};
@@ -32,6 +35,29 @@ const WEAPON_SLOT: usize = if cfg!(target_os = "linux") { 340 } else { 334 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WeaponSlot(pub u8);
 
+/// An item definition in TF2's economy schema. A valid index need not exist in
+/// the running server's schema, and can describe a cosmetic instead of a weapon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ItemDefinitionIndex(u16);
+
+impl ItemDefinitionIndex {
+	pub const IRON_BOMBER: Self = Self(1151);
+	pub const BRASS_BEAST: Self = Self(312);
+
+	/// Excludes the engine's invalid sentinel, 65535. Index zero is valid.
+	pub const fn new(index: u16) -> Option<Self> {
+		if index == u16::MAX {
+			None
+		} else {
+			Some(Self(index))
+		}
+	}
+
+	pub const fn get(self) -> u16 {
+		self.0
+	}
+}
+
 impl WeaponSlot {
 	pub const PRIMARY: Self = Self(0);
 	pub const SECONDARY: Self = Self(1);
@@ -53,6 +79,10 @@ pub enum WeaponError {
 	InvalidRequest,
 	#[error("the game could not create the weapon (including an existing weapon of the same type)")]
 	CreationFailed,
+	#[error("native TF2 item generation could not be resolved for this server build")]
+	NativeUnavailable,
+	#[error("the player's absolute position could not be read")]
+	MissingOrigin,
 	#[error("the weapon belongs to another player")]
 	DifferentOwner,
 	#[error("the weapon slot is already occupied; use replace to exchange its weapon")]
@@ -230,14 +260,6 @@ impl<'s> PlayerWeapons<'s> {
 	pub unsafe fn give(self, classname: &CStr, subtype: i32) -> Result<Weapon<'s>, WeaponError> {
 		check_live(self.player)?;
 		validate_request(classname, subtype)?;
-		let tools = self.server.server_tools()?;
-		// GiveNamedItem runs Touch, which can equip a different classname into
-		// an occupied slot before returning. Snapshot first so slot iteration
-		// order cannot hide that collision after the pickup.
-		let mut occupied = [false; 256];
-		for (index, occupied) in occupied.iter_mut().enumerate() {
-			*occupied = self.slot(WeaponSlot(index as u8))?.is_some();
-		}
 		type Give = unsafe extern "C" fn(
 			*mut sys::CBaseEntity,
 			*const c_char,
@@ -250,20 +272,98 @@ impl<'s> PlayerWeapons<'s> {
 		// exact classname instead of translating it for the player's class. The
 		// caller vouches for the spawn/pickup path.
 		let give: Give = unsafe { transmute(vslot(self.player, GIVE)) };
-		let raw = unsafe {
-			give(
-				self.player.as_ptr(),
-				classname.as_ptr(),
-				subtype,
-				std::ptr::null(),
-				true,
-			)
-		};
-		let raw = NonNull::new(raw).ok_or(WeaponError::CreationFailed)?;
-		// SAFETY: The native method returned the spawned entity; the caller's
-		// contract guarantees it remains allocated for the callback.
+		// SAFETY: GiveNamedItem returns a newly created callback-live entity.
+		unsafe {
+			self.give_with(None, || {
+				NonNull::new(give(
+					self.player.as_ptr(),
+					classname.as_ptr(),
+					subtype,
+					std::ptr::null(),
+					true,
+				))
+				.ok_or(WeaponError::CreationFailed)
+			})
+		}
+	}
+
+	/// Creates and equips a weapon from its economy item definition, with its
+	/// schema attributes and models initialized before spawning. Uses Unique
+	/// quality and level 1. Existing weapons are not replaced.
+	///
+	/// Definitions whose schema uses a generic classname such as
+	/// `tf_weapon_shotgun` need [`Self::give_item_as`] with a concrete classname.
+	/// Missing definitions return `CreationFailed`; cosmetics return `NotWeapon`.
+	///
+	/// # Safety
+	/// The definition's constructor, spawn, activation and equipment callbacks
+	/// must uphold `Server::new`'s no-immediate-deletion contract.
+	pub unsafe fn give_item(
+		self,
+		definition: ItemDefinitionIndex,
+	) -> Result<Weapon<'s>, WeaponError> {
+		// SAFETY: The caller supplies the native creation guarantees.
+		unsafe { self.give_item_inner(definition, None) }
+	}
+
+	/// As [`Self::give_item`], using an exact classname instead of the schema's
+	/// classname. For example, a generic shotgun definition can use
+	/// `tf_weapon_shotgun_soldier`. The definition's static attributes are retained.
+	///
+	/// # Safety
+	/// The guarantees of `give_item` apply, and the classname must be a weapon
+	/// implementation compatible with the chosen item definition.
+	pub unsafe fn give_item_as(
+		self,
+		definition: ItemDefinitionIndex,
+		classname: &CStr,
+	) -> Result<Weapon<'s>, WeaponError> {
+		validate_request(classname, 0)?;
+		// SAFETY: The caller supplies the native creation/class guarantees.
+		unsafe { self.give_item_inner(definition, Some(classname)) }
+	}
+
+	unsafe fn give_item_inner(
+		self,
+		definition: ItemDefinitionIndex,
+		classname: Option<&CStr>,
+	) -> Result<Weapon<'s>, WeaponError> {
+		check_live(self.player)?;
+		let origin = self.player.position().ok_or(WeaponError::MissingOrigin)?;
+		// SAFETY: The caller vouches for the native creation path. The generator
+		// initializes CEconItemView before Spawn/Activate and returns a fresh
+		// callback-live entity; it must not be passed through DispatchSpawn again.
+		unsafe {
+			self.give_with(classname, || {
+				native::spawn(self.server, definition.get(), origin.into(), classname)
+			})
+		}
+	}
+
+	/// `create` must return a newly created entity, live through this callback.
+	unsafe fn give_with(
+		self,
+		expected_classname: Option<&CStr>,
+		create: impl FnOnce() -> Result<NonNull<sys::CBaseEntity>, WeaponError>,
+	) -> Result<Weapon<'s>, WeaponError> {
+		check_live(self.player)?;
+		let tools = self.server.server_tools()?;
+		// GiveNamedItem can equip before returning. Snapshot before creation so
+		// slot iteration order cannot hide a collision after native pickup.
+		let mut occupied = [false; 256];
+		for (index, occupied) in occupied.iter_mut().enumerate() {
+			*occupied = self.slot(WeaponSlot(index as u8))?.is_some();
+		}
+		let raw = create()?;
+		// SAFETY: The caller guarantees a newly created callback-live entity.
 		let entity = unsafe { Entity::from_raw(raw) };
 		check_live(entity)?;
+		if expected_classname.is_some_and(|expected| entity.class_name() != expected) {
+			// SpawnItem falls back to the schema classname when an override has
+			// no factory. Enforce *_as semantics before the fallback can be equipped.
+			let _ = tools.remove(entity);
+			return Err(WeaponError::CreationFailed);
+		}
 		let weapon = match Weapon::new(self.server, entity) {
 			Ok(weapon) => weapon,
 			Err(error) => {
@@ -308,18 +408,61 @@ impl<'s> PlayerWeapons<'s> {
 		subtype: i32,
 	) -> Result<Weapon<'s>, WeaponError> {
 		validate_request(classname, subtype)?;
+		// SAFETY: The caller supplies the same guarantees as for `give`.
+		self.replace_with(slot, || unsafe { self.give(classname, subtype) })
+	}
+
+	/// Replaces a slot with an economy item definition. The old weapon is only
+	/// deleted after the new weapon is equipped in that slot. Failure attempts
+	/// to restore the old weapon.
+	/// Uses the same item generation and defaults as [`Self::give_item`].
+	///
+	/// # Safety
+	/// The same native creation/callback guarantees as `give_item` apply.
+	pub unsafe fn replace_item(
+		self,
+		slot: WeaponSlot,
+		definition: ItemDefinitionIndex,
+	) -> Result<Weapon<'s>, WeaponError> {
+		// SAFETY: The caller supplies the same guarantees as for `give_item`.
+		self.replace_with(slot, || unsafe { self.give_item(definition) })
+	}
+
+	/// As [`Self::replace_item`], with the exact classname override described
+	/// by [`Self::give_item_as`].
+	///
+	/// # Safety
+	/// The same creation and compatible-classname guarantees as `give_item_as` apply.
+	pub unsafe fn replace_item_as(
+		self,
+		slot: WeaponSlot,
+		definition: ItemDefinitionIndex,
+		classname: &CStr,
+	) -> Result<Weapon<'s>, WeaponError> {
+		validate_request(classname, 0)?;
+		// SAFETY: The caller supplies the same guarantees as for `give_item_as`.
+		self.replace_with(slot, || unsafe { self.give_item_as(definition, classname) })
+	}
+
+	fn replace_with(
+		self,
+		slot: WeaponSlot,
+		create: impl FnOnce() -> Result<Weapon<'s>, WeaponError>,
+	) -> Result<Weapon<'s>, WeaponError> {
 		let tools = self.server.server_tools()?;
 		let old = self.slot(slot)?;
 		if let Some(old) = old {
 			self.detach(old)?;
 		}
-		// SAFETY: The caller supplies the same guarantees as for `give`.
-		let replacement = unsafe { self.give(classname, subtype) }.and_then(|weapon| {
+		let replacement = create().and_then(|weapon| {
 			if weapon.slot()? == slot {
 				return Ok(weapon);
 			}
-			self.detach(weapon)?;
+			let detached = self.detach(weapon);
+			// The new weapon must be removed even if native inventory detach
+			// refuses it; otherwise a failed exchange leaks the unwanted item.
 			let _ = tools.remove(weapon.entity);
+			detached?;
 			Err(WeaponError::WrongSlot)
 		});
 		match replacement {
@@ -412,6 +555,8 @@ mod tests {
 		static TOOLS: Cell<*mut c_void> = const { Cell::new(null_mut()) };
 		static GIVE_RESULT: Cell<*mut sys::CBaseEntity> = const { Cell::new(null_mut()) };
 		static INVENTORY_FULL: Cell<bool> = const { Cell::new(false) };
+		static REJECT_DETACH: Cell<bool> = const { Cell::new(false) };
+		static NETWORKABLE: Cell<*mut sys::IServerNetworkable> = const { Cell::new(null_mut()) };
 	}
 
 	unsafe extern "C" fn factory(name: *const c_char, _: *mut i32) -> *mut c_void {
@@ -426,6 +571,12 @@ mod tests {
 	}
 	unsafe extern "C" fn datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
 		unsafe { (*entity.cast::<FakeEntity>()).map }
+	}
+	unsafe extern "C" fn networkable(_: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
+		NETWORKABLE.get()
+	}
+	unsafe extern "C" fn classname(_: *const sys::IServerNetworkable) -> *const c_char {
+		c"tf_weapon_bottle".as_ptr()
 	}
 	unsafe extern "C" fn inventory_slot(
 		entity: *mut sys::CBaseEntity,
@@ -464,6 +615,9 @@ mod tests {
 		player: *mut sys::CBaseEntity,
 		weapon: *mut sys::CBaseEntity,
 	) -> bool {
+		if REJECT_DETACH.get() {
+			return false;
+		}
 		unsafe {
 			let player = player.cast::<FakeEntity>();
 			if (*player).weapon == weapon {
@@ -598,6 +752,23 @@ mod tests {
 		weapon_table[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
 		weapon_table[WEAPON_SLOT] = weapon_slot as *const ();
 		weapon_table[handle_slot] = handle as *const ();
+		let networkable_slot = offset_of!(
+			sys::IServerUnknown__bindgen_vtable,
+			IServerUnknown_GetNetworkable
+		) / size_of::<usize>();
+		weapon_table[networkable_slot] = networkable as *const ();
+		let networkable_vtable = unsafe {
+			mock_vtable::<sys::IServerNetworkable__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).IServerNetworkable_GetClassName).write(classname);
+				},
+			)
+		};
+		let mut networkable = sys::IServerNetworkable {
+			vtable_: &*networkable_vtable,
+		};
+		NETWORKABLE.set(&raw mut networkable);
 		let mut old = FakeEntity {
 			vtable: weapon_table.as_ptr(),
 			map: weapon_map,
@@ -742,12 +913,137 @@ mod tests {
 			"failed native detach must not leak the new entity"
 		);
 		INVENTORY_FULL.set(false);
+
+		// Item generation returns a spawned, unequipped entity. Exercise that
+		// path independently of stock GiveNamedItem's implicit Touch pickup.
+		unsafe {
+			(&raw mut player.weapon).write(old_ptr);
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+		}
+		let fresh_ptr = NonNull::from(&mut fresh).cast();
+		assert!(matches!(
+			unsafe { inventory.give_with(None, || Ok(fresh_ptr)) },
+			Err(WeaponError::SlotOccupied)
+		));
+		assert_eq!(player.weapon, old_ptr);
+		assert_eq!(fresh.flags, 1);
+		assert_eq!(old.flags, 0);
+
+		assert!(matches!(
+			inventory.replace_with(WeaponSlot::MELEE, || Err(WeaponError::CreationFailed)),
+			Err(WeaponError::CreationFailed)
+		));
+		assert_eq!(
+			player.weapon, old_ptr,
+			"missing item definition restores the old weapon"
+		);
+
+		unsafe {
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.slot).write(0);
+		}
+		assert!(matches!(
+			inventory.replace_with(WeaponSlot::MELEE, || unsafe {
+				inventory.give_with(None, || Ok(fresh_ptr))
+			}),
+			Err(WeaponError::WrongSlot)
+		));
+		assert_eq!(
+			player.weapon, old_ptr,
+			"wrong item slot restores the old weapon"
+		);
+		assert_eq!(fresh.flags, 1, "wrong-slot item is removed");
+		assert_eq!(fresh.owner, EntityHandle::INVALID.to_raw());
+
+		unsafe {
+			(&raw mut fresh.flags).write(0);
+		}
+		let rejected_detach = inventory.replace_with(WeaponSlot::MELEE, || {
+			let replacement = unsafe { inventory.give_with(None, || Ok(fresh_ptr)) }?;
+			REJECT_DETACH.set(true);
+			Ok(replacement)
+		});
+		REJECT_DETACH.set(false);
+		assert!(matches!(rejected_detach, Err(WeaponError::Rejected)));
+		assert_eq!(
+			fresh.flags, 1,
+			"wrong-slot item is removed even when detach rejects"
+		);
+		assert_eq!(
+			inventory
+				.slot(WeaponSlot::MELEE)
+				.unwrap()
+				.unwrap()
+				.entity()
+				.as_ptr(),
+			old_ptr
+		);
+
+		unsafe {
+			(&raw mut player.weapon).write(old_ptr);
+			(&raw mut player.second_weapon).write(null_mut());
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+			(&raw mut fresh.map).write(data_map(c"CEconWearable", vec![], base));
+		}
+		assert!(matches!(
+			inventory.replace_with(WeaponSlot::MELEE, || unsafe {
+				inventory.give_with(None, || Ok(fresh_ptr))
+			}),
+			Err(WeaponError::NotWeapon)
+		));
+		assert_eq!(
+			player.weapon, old_ptr,
+			"cosmetic item restores the old weapon"
+		);
+		assert_eq!(fresh.flags, 1, "nonweapon item is removed");
+		assert_eq!(old.flags, 0);
+
+		unsafe {
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.map).write(weapon_map);
+			(&raw mut fresh.slot).write(2);
+		}
+		assert!(matches!(
+			inventory.replace_with(WeaponSlot::MELEE, || unsafe {
+				inventory.give_with(Some(c"tf_weapon_sdk_missing"), || Ok(fresh_ptr))
+			}),
+			Err(WeaponError::CreationFailed)
+		));
+		assert_eq!(fresh.flags, 1, "native classname fallback must be removed");
+		assert_eq!(
+			player.weapon, old_ptr,
+			"override mismatch restores the old weapon"
+		);
+		unsafe {
+			(&raw mut fresh.flags).write(0);
+		}
+		let replacement = inventory
+			.replace_with(WeaponSlot::MELEE, || unsafe {
+				inventory.give_with(Some(c"tf_weapon_bottle"), || Ok(fresh_ptr))
+			})
+			.unwrap();
+		assert_eq!(replacement.entity().as_ptr(), fresh_ptr.as_ptr());
+		assert_eq!(player.weapon, fresh_ptr.as_ptr());
+		assert_eq!(fresh.owner, 1);
+		assert_eq!(fresh.flags, 0);
+		assert_eq!(
+			old.flags, 1,
+			"successful economy replacement removes the old weapon"
+		);
 		TOOLS.set(null_mut());
 		GIVE_RESULT.set(null_mut());
+		NETWORKABLE.set(null_mut());
 	}
 
 	#[test]
 	fn weapon_creation_rejects_nonweapon_entities_and_negative_subtypes() {
+		assert_eq!(ItemDefinitionIndex::new(0).unwrap().get(), 0);
+		assert_eq!(ItemDefinitionIndex::new(65534).unwrap().get(), 65534);
+		assert!(ItemDefinitionIndex::new(65535).is_none());
+		assert_eq!(ItemDefinitionIndex::IRON_BOMBER.get(), 1151);
+		assert_eq!(ItemDefinitionIndex::BRASS_BEAST.get(), 312);
 		for classname in [
 			c"point_servercommand",
 			c"tf_weapon_",

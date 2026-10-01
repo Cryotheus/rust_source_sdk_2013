@@ -23,7 +23,7 @@ All entity access stays inside a main-thread `Server` callback. Keep an
 | Player conditions | `conditions::PlayerConditions::{add, remove, in_cond, remove_all}`; `Condition` validates generated `ETFCond` IDs and `ConditionDuration` validates lifetimes. |
 | Damage | `damage::DamageInfo` edits amount, type, and critical classification. With Metamod's `sdk` feature, `MetamodApi::hook_player_damage` intercepts incoming or already-scaled damage. |
 | Voting | Listen to `voting::VoteEvent::EVENTS` and decode with `VoteEvent::from_event`. `MetamodApi::hook_vote_starts` can veto built-in player, server, and coordinator requests. Ballots contain entity indices, not user IDs. |
-| Weapons | `weapons::PlayerWeapons` queries inventory slots, gives stock weapons by entity classname, equips/detaches, and replaces with rollback on failure. |
+| Weapons | `weapons::PlayerWeapons` queries inventory slots, gives stock weapons by classname or non-stock weapons by `ItemDefinitionIndex`, equips/detaches, and replaces with rollback on failure. |
 | Attributes | `attributes::Attributes` reads, sets, and removes default-type numeric gameplay attributes on weapons, wearables, and players; player attributes optionally expire. Names are item-schema names such as `damage bonus`. |
 
 Condition and attribute operations call TF2's native typed binding adapters,
@@ -39,6 +39,26 @@ and that its value is valid for that attribute. The native getter does not
 support explicit `float`, string, blob, or 64-bit schema types; string/blob
 attributes cannot be placed in the game's 32-bit runtime list.
 These APIs do not change a Steam inventory or save changes across respawns.
+
+`PlayerWeapons::give_item` and `replace_item` use the game's item generator,
+which initializes the selected definition, models, and built-in attributes
+before spawning. `ItemDefinitionIndex::IRON_BOMBER` is 1151 and
+`ItemDefinitionIndex::BRASS_BEAST` is 312; `ItemDefinitionIndex::new` accepts
+other schema indices. These items use Unique quality and level 1. For example,
+inside a callback where the spawning safety contract is satisfied:
+
+```rust,ignore
+use source_sdk_2013::weapons::{ItemDefinitionIndex, PlayerWeapons, WeaponSlot};
+
+let weapons = PlayerWeapons::new(server, player)?;
+unsafe { weapons.replace_item(WeaponSlot::PRIMARY, ItemDefinitionIndex::IRON_BOMBER)? };
+```
+
+The `give_item_as` and `replace_item_as` variants accept a compatible concrete
+classname for schema definitions with generic names, such as
+`tf_weapon_shotgun_soldier` for a shotgun. Unknown definitions and unsupported
+game binaries return errors. Rejected items are removed; failed replacements
+attempt to restore the old weapon.
 
 Install damage hooks on each distinct player class, including bots. Hooks are
 managed across pause and unload; Metamod 2.0 can activate them asynchronously,
