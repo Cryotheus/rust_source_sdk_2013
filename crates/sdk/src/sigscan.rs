@@ -41,6 +41,27 @@ mod tests {
 	use super::find_all;
 
 	#[test]
+	fn a_partial_match_does_not_hide_a_later_match() {
+		let pattern = [Some(0x48), Some(0x8b), Some(0x0d)];
+		assert_eq!(
+			find_all(&[0x48, 0x48, 0x8b, 0x0d], &pattern).collect::<Vec<_>>(),
+			[1]
+		);
+	}
+
+	#[test]
+	fn empty_or_short_inputs_have_no_matches() {
+		assert!(find_all(&[], &[]).next().is_none());
+		assert!(find_all(&[0x48], &[]).next().is_none());
+		assert!(find_all(&[], &[None]).next().is_none());
+		assert!(
+			find_all(&[0x48], &[Some(0x48), Some(0x8b)])
+				.next()
+				.is_none()
+		);
+	}
+
+	#[test]
 	fn matches_at_zero_and_the_last_possible_offset() {
 		let pattern = [Some(0x48), Some(0x8b), Some(0x0d)];
 		assert_eq!(
@@ -50,15 +71,6 @@ mod tests {
 		assert_eq!(
 			find_all(&[0x48, 0x8b, 0x0d, 0x90, 0x48, 0x8b, 0x0d], &pattern).collect::<Vec<_>>(),
 			[0, 4]
-		);
-	}
-
-	#[test]
-	fn a_partial_match_does_not_hide_a_later_match() {
-		let pattern = [Some(0x48), Some(0x8b), Some(0x0d)];
-		assert_eq!(
-			find_all(&[0x48, 0x48, 0x8b, 0x0d], &pattern).collect::<Vec<_>>(),
-			[1]
 		);
 	}
 
@@ -95,18 +107,6 @@ mod tests {
 		);
 		assert!(
 			find_all(&[1, 0xff], &[Some(0), Some(0xff)])
-				.next()
-				.is_none()
-		);
-	}
-
-	#[test]
-	fn empty_or_short_inputs_have_no_matches() {
-		assert!(find_all(&[], &[]).next().is_none());
-		assert!(find_all(&[0x48], &[]).next().is_none());
-		assert!(find_all(&[], &[None]).next().is_none());
-		assert!(
-			find_all(&[0x48], &[Some(0x48), Some(0x8b)])
 				.next()
 				.is_none()
 		);

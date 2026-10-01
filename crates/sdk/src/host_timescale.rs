@@ -293,6 +293,31 @@ mod scan {
 		const DEMO: usize = BASE + 0x2200;
 		const TIMESCALE: usize = BASE + 0x2000;
 
+		#[test]
+		fn candidates_at_nonzero_section_offsets_are_found() {
+			let mut code = CodeSection {
+				offset: 0x100,
+				bytes: vec![0x90; 0x80],
+			};
+			code.bytes.extend(section(0x180).bytes);
+			assert_eq!(find(&[code]).unwrap(), 0x180 + PATCH_OFFSET);
+		}
+
+		#[test]
+		fn every_candidate_in_a_section_is_validated() {
+			let mut code = section(0x100);
+			code.bytes.extend(section(0x200).bytes);
+			assert!(matches!(
+				find(std::slice::from_ref(&code)),
+				Err(PatchError::AmbiguousGate)
+			));
+
+			// A signature match with the wrong variable must not hide the valid
+			// candidate later in the same section or make it ambiguous.
+			put_relative(&mut code.bytes, 3, 7, CHEATS, BASE + code.offset);
+			assert_eq!(find(&[code]).unwrap(), 0x200 + PATCH_OFFSET);
+		}
+
 		fn find(code: &[CodeSection]) -> Result<usize, PatchError> {
 			find_gate(
 				BASE,
@@ -362,31 +387,6 @@ mod scan {
 				find(&[section(0x100), section(0x500)]),
 				Err(PatchError::AmbiguousGate)
 			));
-		}
-
-		#[test]
-		fn candidates_at_nonzero_section_offsets_are_found() {
-			let mut code = CodeSection {
-				offset: 0x100,
-				bytes: vec![0x90; 0x80],
-			};
-			code.bytes.extend(section(0x180).bytes);
-			assert_eq!(find(&[code]).unwrap(), 0x180 + PATCH_OFFSET);
-		}
-
-		#[test]
-		fn every_candidate_in_a_section_is_validated() {
-			let mut code = section(0x100);
-			code.bytes.extend(section(0x200).bytes);
-			assert!(matches!(
-				find(std::slice::from_ref(&code)),
-				Err(PatchError::AmbiguousGate)
-			));
-
-			// A signature match with the wrong variable must not hide the valid
-			// candidate later in the same section or make it ambiguous.
-			put_relative(&mut code.bytes, 3, 7, CHEATS, BASE + code.offset);
-			assert_eq!(find(&[code]).unwrap(), 0x200 + PATCH_OFFSET);
 		}
 
 		#[test]
