@@ -9,8 +9,8 @@ license.workspace = true
 repository.workspace = true
 
 description = "Low-level module inspection utilities for Source engine integrations."
-categories = ["api-bindings"]
-keywords = ["gamedev", "source-engine", "valve"]
+categories = []
+keywords = []
 
 [dependencies]
 thiserror.workspace = true
