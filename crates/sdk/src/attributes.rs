@@ -15,14 +15,19 @@ use std::ffi::CStr;
 pub enum AttributeError {
 	#[error("attributes require Team Fortress 2")]
 	UnsupportedGame,
+
 	#[error("the entity is neither a TF2 player nor an economy item")]
 	UnsupportedEntity,
+
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
+
 	#[error("attribute values must be finite and player durations must be positive")]
 	InvalidValue,
+
 	#[error("the game does not expose the expected native attribute method")]
 	UnsupportedMethod,
+
 	#[error("the native attribute method rejected the call")]
 	Rejected,
 }
@@ -55,6 +60,7 @@ impl<'s> Attributes<'s> {
 		if server.game() != Game::TeamFortress2 {
 			return Err(AttributeError::UnsupportedGame);
 		}
+
 		for map in entity.data_maps() {
 			match data_map_class(map) {
 				Some(name) if name == c"CTFPlayer" => {
@@ -63,20 +69,27 @@ impl<'s> Attributes<'s> {
 						player: true,
 					});
 				}
+
 				Some(name) if name == c"CEconEntity" => {
 					return Ok(Self {
 						entity,
 						player: false,
 					});
 				}
+
 				_ => {}
 			}
 		}
+
 		Err(AttributeError::UnsupportedEntity)
 	}
 
-	pub const fn entity(self) -> Entity<'s> {
-		self.entity
+	fn check_live(self) -> Result<(), AttributeError> {
+		if self.entity.is_marked_for_deletion() {
+			Err(AttributeError::MarkedForDeletion)
+		} else {
+			Ok(())
+		}
 	}
 
 	fn class(self) -> &'static CStr {
@@ -87,12 +100,8 @@ impl<'s> Attributes<'s> {
 		}
 	}
 
-	fn check_live(self) -> Result<(), AttributeError> {
-		if self.entity.is_marked_for_deletion() {
-			Err(AttributeError::MarkedForDeletion)
-		} else {
-			Ok(())
-		}
+	pub const fn entity(self) -> Entity<'s> {
+		self.entity
 	}
 
 	/// Looks up the attribute's legacy numeric storage as a float, matching
@@ -104,11 +113,13 @@ impl<'s> Attributes<'s> {
 	/// as its missing-value sentinel and cannot distinguish these cases.
 	pub fn get(self, name: &CStr) -> Result<Option<f32>, AttributeError> {
 		self.check_live()?;
+
 		let method = if self.player {
 			c"GetCustomAttribute"
 		} else {
 			c"GetAttribute"
 		};
+
 		// SAFETY: These two native getters only iterate the respective attribute
 		// lists. Strings remain alive for the synchronous lookup. A NaN fallback
 		// distinguishes absence from all values accepted by `set`.
@@ -123,7 +134,80 @@ impl<'s> Attributes<'s> {
 		}?;
 		// SAFETY: `call` checked FIELD_FLOAT before returning.
 		let value = unsafe { result.__bindgen_anon_1.m_float };
+
 		Ok((!value.is_nan()).then_some(value))
+	}
+
+	/// Removes a runtime override and refreshes the manager's caches. An item
+	/// can still expose a static item-definition value afterwards. On players,
+	/// this removes attributes registered by `set`/`AddCustomAttribute`.
+	pub fn remove(self, name: &CStr) -> Result<(), AttributeError> {
+		self.check_live()?;
+
+		let method = if self.player {
+			c"RemoveCustomAttribute"
+		} else {
+			c"RemoveAttribute"
+		};
+
+		// SAFETY: These native methods remove list entries and invalidate caches;
+		// they do not destroy entities or retain the name pointer.
+		unsafe {
+			binding::call(
+				self.entity,
+				self.class(),
+				method,
+				&mut [binding::string(name)],
+				binding::VOID,
+			)
+		}?;
+
+		Ok(())
+	}
+
+	/// As `set`, with a player-only expiry. Item attributes reject a duration.
+	///
+	/// # Safety
+	/// The full contract of [`Self::set_unchecked`] applies, including its default schema
+	/// type requirement and attribute-specific valid value domain.
+	pub unsafe fn set_for_unchecked(
+		self,
+		name: &CStr,
+		value: f32,
+		duration: Option<f32>,
+	) -> Result<bool, AttributeError> {
+		self.check_live()?;
+
+		if !value.is_finite()
+			|| duration.is_some_and(|seconds| !seconds.is_finite() || seconds <= 0.0)
+			|| (!self.player && duration.is_some())
+		{
+			return Err(AttributeError::InvalidValue);
+		}
+
+		let method = if self.player {
+			c"AddCustomAttribute"
+		} else {
+			c"AddAttribute"
+		};
+
+		// SAFETY: Both native methods copy/consume the schema name and change
+		// the attribute list via its manager. They do not destroy entities.
+		unsafe {
+			binding::call(
+				self.entity,
+				self.class(),
+				method,
+				&mut [
+					binding::string(name),
+					binding::float(value),
+					binding::float(duration.unwrap_or(-1.0)),
+				],
+				binding::VOID,
+			)
+		}?;
+
+		Ok(self.get(name)?.is_some_and(|stored| stored == value))
 	}
 
 	/// Sets a runtime numeric attribute and refreshes the manager's caches.
@@ -146,74 +230,9 @@ impl<'s> Attributes<'s> {
 	/// `value` must also be valid for that attribute's gameplay domain; merely
 	/// being finite does not prevent an extreme multiplier overflowing later
 	/// native damage, health, or movement calculations.
-	pub unsafe fn set(self, name: &CStr, value: f32) -> Result<bool, AttributeError> {
+	pub unsafe fn set_unchecked(self, name: &CStr, value: f32) -> Result<bool, AttributeError> {
 		// SAFETY: The caller vouches for the schema attribute's runtime type.
-		unsafe { self.set_for(name, value, None) }
-	}
-
-	/// As `set`, with a player-only expiry. Item attributes reject a duration.
-	///
-	/// # Safety
-	/// The full contract of [`Self::set`] applies, including its default schema
-	/// type requirement and attribute-specific valid value domain.
-	pub unsafe fn set_for(
-		self,
-		name: &CStr,
-		value: f32,
-		duration: Option<f32>,
-	) -> Result<bool, AttributeError> {
-		self.check_live()?;
-		if !value.is_finite()
-			|| duration.is_some_and(|seconds| !seconds.is_finite() || seconds <= 0.0)
-			|| (!self.player && duration.is_some())
-		{
-			return Err(AttributeError::InvalidValue);
-		}
-		let method = if self.player {
-			c"AddCustomAttribute"
-		} else {
-			c"AddAttribute"
-		};
-		// SAFETY: Both native methods copy/consume the schema name and change
-		// the attribute list via its manager. They do not destroy entities.
-		unsafe {
-			binding::call(
-				self.entity,
-				self.class(),
-				method,
-				&mut [
-					binding::string(name),
-					binding::float(value),
-					binding::float(duration.unwrap_or(-1.0)),
-				],
-				binding::VOID,
-			)
-		}?;
-		Ok(self.get(name)?.is_some_and(|stored| stored == value))
-	}
-
-	/// Removes a runtime override and refreshes the manager's caches. An item
-	/// can still expose a static item-definition value afterwards. On players,
-	/// this removes attributes registered by `set`/`AddCustomAttribute`.
-	pub fn remove(self, name: &CStr) -> Result<(), AttributeError> {
-		self.check_live()?;
-		let method = if self.player {
-			c"RemoveCustomAttribute"
-		} else {
-			c"RemoveAttribute"
-		};
-		// SAFETY: These native methods remove list entries and invalidate caches;
-		// they do not destroy entities or retain the name pointer.
-		unsafe {
-			binding::call(
-				self.entity,
-				self.class(),
-				method,
-				&mut [binding::string(name)],
-				binding::VOID,
-			)
-		}?;
-		Ok(())
+		unsafe { self.set_for_unchecked(name, value, None) }
 	}
 }
 
@@ -239,15 +258,6 @@ mod tests {
 		calls: Cell<usize>,
 	}
 
-	unsafe extern "C" fn factory(_: *const c_char, _: *mut i32) -> *mut c_void {
-		null_mut()
-	}
-	unsafe extern "C" fn datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
-		unsafe { (*entity.cast::<FakeEntity>()).map }
-	}
-	unsafe extern "C" fn description(entity: *mut sys::CBaseEntity) -> *mut sys::ScriptClassDesc_t {
-		unsafe { (*entity.cast::<FakeEntity>()).description }
-	}
 	unsafe extern "C" fn adapter(
 		function: sys::ScriptFunctionBindingStorageType_t,
 		object: *mut c_void,
@@ -268,6 +278,7 @@ mod tests {
 				};
 				unsafe { result.write(binding::float(value)) };
 			}
+
 			1 => {
 				assert!(result.is_null());
 				if name == c"damage bonus" {
@@ -279,28 +290,27 @@ mod tests {
 						.set(unsafe { (*arguments.add(2)).__bindgen_anon_1.m_float });
 				}
 			}
+
 			2 => {
 				assert!(result.is_null());
 				object.value.set(f32::NAN);
 			}
+
 			_ => unreachable!(),
 		}
 		true
 	}
 
-	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
-		sys::CUtlVector {
-			_phantom_0: Default::default(),
-			_phantom_1: Default::default(),
-			m_Memory: sys::CUtlMemory {
-				_phantom_0: Default::default(),
-				m_pMemory: values.as_mut_ptr(),
-				m_nAllocationCount: values.len() as i32,
-				m_nGrowSize: 0,
-			},
-			m_Size: values.len() as i32,
-			m_pElements: values.as_mut_ptr(),
-		}
+	unsafe extern "C" fn datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
+		unsafe { (*entity.cast::<FakeEntity>()).map }
+	}
+
+	unsafe extern "C" fn description(entity: *mut sys::CBaseEntity) -> *mut sys::ScriptClassDesc_t {
+		unsafe { (*entity.cast::<FakeEntity>()).description }
+	}
+
+	unsafe extern "C" fn factory(_: *const c_char, _: *mut i32) -> *mut c_void {
+		null_mut()
 	}
 
 	#[test]
@@ -363,31 +373,49 @@ mod tests {
 			let attributes = Attributes::new(&server, entity).unwrap();
 			assert_eq!(attributes.get(c"damage bonus").unwrap(), None);
 			// SAFETY: The mock schema implements this numeric attribute only.
-			assert!(unsafe { attributes.set(c"damage bonus", 1.5) }.unwrap());
+			assert!(unsafe { attributes.set_unchecked(c"damage bonus", 1.5) }.unwrap());
 			assert_eq!(attributes.get(c"damage bonus").unwrap(), Some(1.5));
 			assert_eq!(object.duration.get(), -1.0);
-			assert!(!unsafe { attributes.set(c"unknown", 1.5) }.unwrap());
+			assert!(!unsafe { attributes.set_unchecked(c"unknown", 1.5) }.unwrap());
 			let calls = object.calls.get();
 			assert_eq!(
-				unsafe { attributes.set(c"damage bonus", f32::NAN) },
+				unsafe { attributes.set_unchecked(c"damage bonus", f32::NAN) },
 				Err(AttributeError::InvalidValue)
 			);
 			assert_eq!(
-				unsafe { attributes.set_for(c"damage bonus", 2.0, Some(0.0)) },
+				unsafe { attributes.set_for_unchecked(c"damage bonus", 2.0, Some(0.0)) },
 				Err(AttributeError::InvalidValue)
 			);
 			assert_eq!(object.calls.get(), calls);
 			if player {
-				assert!(unsafe { attributes.set_for(c"damage bonus", 2.0, Some(5.0)) }.unwrap());
+				assert!(
+					unsafe { attributes.set_for_unchecked(c"damage bonus", 2.0, Some(5.0)) }
+						.unwrap()
+				);
 				assert_eq!(object.duration.get(), 5.0);
 			} else {
 				assert_eq!(
-					unsafe { attributes.set_for(c"damage bonus", 2.0, Some(5.0)) },
+					unsafe { attributes.set_for_unchecked(c"damage bonus", 2.0, Some(5.0)) },
 					Err(AttributeError::InvalidValue)
 				);
 			}
 			attributes.remove(c"damage bonus").unwrap();
 			assert_eq!(attributes.get(c"damage bonus").unwrap(), None);
+		}
+	}
+
+	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
+		sys::CUtlVector {
+			_phantom_0: Default::default(),
+			_phantom_1: Default::default(),
+			m_Memory: sys::CUtlMemory {
+				_phantom_0: Default::default(),
+				m_pMemory: values.as_mut_ptr(),
+				m_nAllocationCount: values.len() as i32,
+				m_nGrowSize: 0,
+			},
+			m_Size: values.len() as i32,
+			m_pElements: values.as_mut_ptr(),
 		}
 	}
 }

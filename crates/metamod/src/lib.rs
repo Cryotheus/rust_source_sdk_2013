@@ -9,7 +9,13 @@ mod plugin;
 mod commands;
 
 #[cfg(feature = "sdk")]
+pub mod damage_hooks;
+
+#[cfg(feature = "sdk")]
 mod server_hooks;
+
+#[cfg(feature = "sdk")]
+mod vote_hooks;
 
 pub use api::{
 	LoaderVersionInfo, MetamodApi, MetamodApiBinding, MetamodFeature, MetamodVersion,
@@ -35,10 +41,5 @@ pub use server_hooks::{GameFrameFn, LevelEvents, NetMessageHookError};
 
 pub use sys;
 
-#[cfg(feature = "sdk")]
-pub mod damage_hooks;
-
-#[cfg(feature = "sdk")]
-mod vote_hooks;
 #[cfg(feature = "sdk")]
 pub use vote_hooks::{VoteHookError, VoteHooks};

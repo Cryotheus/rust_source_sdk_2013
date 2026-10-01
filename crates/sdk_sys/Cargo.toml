@@ -14,12 +14,7 @@ keywords = []
 
 [dependencies]
 
-[build-dependencies]
-anyhow.workspace = true
-source_sdk_2013_bindgen = { path = "../sdk_bindgen", version = "0.1.0-alpha.3", optional = true }
-
 [features]
-generate_bindings = ["dep:source_sdk_2013_bindgen"]
 
 [package.metadata.docs.rs]
 all-features = true

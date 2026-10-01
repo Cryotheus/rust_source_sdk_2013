@@ -9,12 +9,12 @@ use crate::ffi::borrow_cstr;
 use std::ffi::CStr;
 use std::mem::{offset_of, size_of, transmute, zeroed};
 
-pub(crate) const VOID: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_VOID as _;
-pub(crate) const FLOAT: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_FLOAT as _;
-pub(crate) const INT: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_INTEGER as _;
 pub(crate) const BOOL: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_BOOLEAN as _;
-pub(crate) const STRING: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_CSTRING as _;
+pub(crate) const FLOAT: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_FLOAT as _;
 pub(crate) const HANDLE: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_HSCRIPT as _;
+pub(crate) const INT: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_INTEGER as _;
+pub(crate) const STRING: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_CSTRING as _;
+pub(crate) const VOID: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_VOID as _;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum BindingError {
@@ -26,42 +26,9 @@ pub(crate) enum BindingError {
 	Rejected,
 }
 
-fn variant(kind: sys::ScriptDataType_t) -> sys::ScriptVariant_t {
-	// SAFETY: Null union storage, FIELD_VOID, and zero flags form an empty
-	// non-owning variant. All helpers initialize the selected union member.
-	let mut value: sys::ScriptVariant_t = unsafe { zeroed() };
-	value.m_type = kind as _;
-	value
-}
-
-pub(crate) fn int(value: i32) -> sys::ScriptVariant_t {
-	let mut result = variant(INT);
-	result.__bindgen_anon_1.m_int = value;
-	result
-}
-
-pub(crate) fn float(value: f32) -> sys::ScriptVariant_t {
-	let mut result = variant(FLOAT);
-	result.__bindgen_anon_1.m_float = value;
-	result
-}
-
 pub(crate) fn boolean(value: bool) -> sys::ScriptVariant_t {
 	let mut result = variant(BOOL);
 	result.__bindgen_anon_1.m_bool = value;
-	result
-}
-
-/// The caller of `call` keeps this string alive until the native call ends.
-pub(crate) fn string(value: &CStr) -> sys::ScriptVariant_t {
-	let mut result = variant(STRING);
-	result.__bindgen_anon_1.m_pszString = value.as_ptr();
-	result
-}
-
-pub(crate) fn handle(value: sys::HSCRIPT) -> sys::ScriptVariant_t {
-	let mut result = variant(HANDLE);
-	result.__bindgen_anon_1.m_hScript = value;
 	result
 }
 
@@ -183,6 +150,39 @@ pub(crate) unsafe fn call(
 	Err(BindingError::Unavailable)
 }
 
+pub(crate) fn float(value: f32) -> sys::ScriptVariant_t {
+	let mut result = variant(FLOAT);
+	result.__bindgen_anon_1.m_float = value;
+	result
+}
+
+pub(crate) fn handle(value: sys::HSCRIPT) -> sys::ScriptVariant_t {
+	let mut result = variant(HANDLE);
+	result.__bindgen_anon_1.m_hScript = value;
+	result
+}
+
+pub(crate) fn int(value: i32) -> sys::ScriptVariant_t {
+	let mut result = variant(INT);
+	result.__bindgen_anon_1.m_int = value;
+	result
+}
+
+/// The caller of `call` keeps this string alive until the native call ends.
+pub(crate) fn string(value: &CStr) -> sys::ScriptVariant_t {
+	let mut result = variant(STRING);
+	result.__bindgen_anon_1.m_pszString = value.as_ptr();
+	result
+}
+
+fn variant(kind: sys::ScriptDataType_t) -> sys::ScriptVariant_t {
+	// SAFETY: Null union storage, FIELD_VOID, and zero flags form an empty
+	// non-owning variant. All helpers initialize the selected union member.
+	let mut value: sys::ScriptVariant_t = unsafe { zeroed() };
+	value.m_type = kind as _;
+	value
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -194,12 +194,6 @@ mod tests {
 		vtable: *const *const (),
 		description: *mut sys::ScriptClassDesc_t,
 		calls: Cell<usize>,
-	}
-
-	unsafe extern "C" fn get_description(
-		object: *mut sys::CBaseEntity,
-	) -> *mut sys::ScriptClassDesc_t {
-		unsafe { (*object.cast::<Object>()).description }
 	}
 
 	unsafe extern "C" fn adapter(
@@ -219,19 +213,10 @@ mod tests {
 		true
 	}
 
-	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
-		sys::CUtlVector {
-			_phantom_0: Default::default(),
-			_phantom_1: Default::default(),
-			m_Memory: sys::CUtlMemory {
-				_phantom_0: Default::default(),
-				m_pMemory: values.as_mut_ptr(),
-				m_nAllocationCount: values.len() as i32,
-				m_nGrowSize: 0,
-			},
-			m_Size: values.len() as i32,
-			m_pElements: values.as_mut_ptr(),
-		}
+	unsafe extern "C" fn get_description(
+		object: *mut sys::CBaseEntity,
+	) -> *mut sys::ScriptClassDesc_t {
+		unsafe { (*object.cast::<Object>()).description }
 	}
 
 	#[test]
@@ -288,5 +273,20 @@ mod tests {
 			unsafe { call(entity, c"Base", c"SetValue", &mut [float(3.0)], VOID) }.err(),
 			Some(BindingError::Unavailable)
 		);
+	}
+
+	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
+		sys::CUtlVector {
+			_phantom_0: Default::default(),
+			_phantom_1: Default::default(),
+			m_Memory: sys::CUtlMemory {
+				_phantom_0: Default::default(),
+				m_pMemory: values.as_mut_ptr(),
+				m_nAllocationCount: values.len() as i32,
+				m_nGrowSize: 0,
+			},
+			m_Size: values.len() as i32,
+			m_pElements: values.as_mut_ptr(),
+		}
 	}
 }

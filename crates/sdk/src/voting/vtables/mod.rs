@@ -16,6 +16,7 @@ impl Image {
 			util::Error::InvalidImage => VoteHookTargetError::InvalidImage,
 			util::Error::Io(error) => VoteHookTargetError::Image(error),
 		})?;
+
 		Ok(Self(image))
 	}
 

@@ -7,9 +7,11 @@
 //! calling handlers while the plugin is paused.
 
 use crate::MetamodApi;
+
 use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
+
 use source_sdk_2013::damage::DamageEvent;
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::{Game, Server, ServerBinding, sys};
@@ -17,33 +19,14 @@ use std::cell::Cell;
 use std::ffi::c_int;
 use std::ptr::NonNull;
 
+/// A callback-scoped server and victim with an independently owned record.
+/// A panic is contained by the hook dispatcher and lets the game continue
+/// with the original damage arguments.
+pub type DamageFn = for<'s> fn(Server<'s>, DamageStage, &mut DamageEvent<'s>) -> DamageAction;
+
 type TakeDamage = unsafe extern "C" fn(*mut sys::CBaseEntity, *const sys::CTakeDamageInfo) -> c_int;
 
-/// Where in TF2's damage processing a hook runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DamageStage {
-	/// `CTFPlayer::OnTakeDamage`, before TF2 applies damage rules. Changes to
-	/// amount, type and incoming critical classification flow through those
-	/// rules, and can affect the rest of the damage and death processing.
-	Incoming,
-	/// `CTFPlayer::OnTakeDamage_Alive`, after full and mini critical bonuses
-	/// were calculated, before health loss and resistance processing. Use
-	/// `DamageInfo::apply_critical_policy` here. Earlier visuals and assist
-	/// statistics, and the caller's later death processing, are not rewritten.
-	Alive,
-}
-
-impl DamageStage {
-	/// TF2's slots from SourceMod's
-	/// `gamedata/sdkhooks.games/engine.ep2v.txt`, the `tf` section.
-	const fn function(self) -> VirtualFunction<TakeDamage> {
-		let windows_slot = match self {
-			Self::Incoming => 64,
-			Self::Alive => 283,
-		};
-		VirtualFunction::new(windows_slot + if cfg!(target_os = "linux") { 1 } else { 0 })
-	}
-}
+static ROUTES: [DamageRoute; 32] = [const { DamageRoute::new() }; 32];
 
 /// What to do with the original call after inspecting or editing damage.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -61,27 +44,12 @@ pub enum DamageAction {
 	Block,
 }
 
-/// A callback-scoped server and victim with an independently owned record.
-/// A panic is contained by the hook dispatcher and lets the game continue
-/// with the original damage arguments.
-pub type DamageFn = for<'s> fn(Server<'s>, DamageStage, &mut DamageEvent<'s>) -> DamageAction;
-
 #[derive(Debug, thiserror::Error)]
 pub enum DamageHookError {
 	#[error("damage hooks require a TF2 server and a CTFPlayer entity")]
 	NotTfPlayer,
 	#[error(transparent)]
 	Hook(#[from] HookError),
-}
-
-#[derive(Clone, Copy)]
-struct RoutedDamage {
-	binding: ServerBinding,
-	callback: DamageFn,
-	original: TakeDamage,
-	hook: HookId,
-	stage: DamageStage,
-	vtable: usize,
 }
 
 struct DamageRoute {
@@ -95,12 +63,6 @@ impl DamageRoute {
 		}
 	}
 }
-
-// SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
-// calls handlers only on that thread. Cell borrows are never held over calls.
-unsafe impl Sync for DamageRoute {}
-
-static ROUTES: [DamageRoute; 32] = [const { DamageRoute::new() }; 32];
 
 impl Handler<TakeDamage> for DamageRoute {
 	fn call(&self, call: &HookCall<'_, TakeDamage>) -> HookAction<c_int> {
@@ -134,31 +96,44 @@ impl Handler<TakeDamage> for DamageRoute {
 	}
 }
 
-/// # Safety
-/// The pointers must be the live arguments of the selected native damage
-/// method, and `original` must be its unhooked function of this signature.
-unsafe fn dispatch(
-	server: Server<'_>,
-	stage: DamageStage,
-	original: TakeDamage,
-	callback: DamageFn,
-	victim: NonNull<sys::CBaseEntity>,
-	info: NonNull<sys::CTakeDamageInfo>,
-) -> HookAction<c_int> {
-	// SAFETY: The caller supplies live callback-scoped arguments. Only
-	// byte-copying reads the const damage object; all modifications are local.
-	let mut event = unsafe { DamageEvent::from_raw(server, victim, info) };
-	match callback(server, stage, &mut event) {
-		DamageAction::Continue => HookAction::Ignore,
-		DamageAction::Block => HookAction::Supersede(0),
-		DamageAction::Apply => {
-			// SAFETY: Original matches the target method's ABI. Player lifetime
-			// is callback-scoped, and the copy lives through the synchronous
-			// call. The Server contract guarantees only deferred removal.
-			let result = unsafe { original(victim.as_ptr(), event.info.as_ptr()) };
-			HookAction::Supersede(result)
-		}
+// SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
+// calls handlers only on that thread. Cell borrows are never held over calls.
+unsafe impl Sync for DamageRoute {}
+
+/// Where in TF2's damage processing a hook runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DamageStage {
+	/// `CTFPlayer::OnTakeDamage`, before TF2 applies damage rules. Changes to
+	/// amount, type and incoming critical classification flow through those
+	/// rules, and can affect the rest of the damage and death processing.
+	Incoming,
+	/// `CTFPlayer::OnTakeDamage_Alive`, after full and mini critical bonuses
+	/// were calculated, before health loss and resistance processing. Use
+	/// `DamageInfo::apply_critical_policy` here. Earlier visuals and assist
+	/// statistics, and the caller's later death processing, are not rewritten.
+	Alive,
+}
+
+impl DamageStage {
+	/// TF2's slots from SourceMod's
+	/// `gamedata/sdkhooks.games/engine.ep2v.txt`, the `tf` section.
+	const fn function(self) -> VirtualFunction<TakeDamage> {
+		let windows_slot = match self {
+			Self::Incoming => 64,
+			Self::Alive => 283,
+		};
+		VirtualFunction::new(windows_slot + if cfg!(target_os = "linux") { 1 } else { 0 })
 	}
+}
+
+#[derive(Clone, Copy)]
+struct RoutedDamage {
+	binding: ServerBinding,
+	callback: DamageFn,
+	original: TakeDamage,
+	hook: HookId,
+	stage: DamageStage,
+	vtable: usize,
 }
 
 impl MetamodApi<'_> {
@@ -231,6 +206,34 @@ impl MetamodApi<'_> {
 	}
 }
 
+/// # Safety
+/// The pointers must be the live arguments of the selected native damage
+/// method, and `original` must be its unhooked function of this signature.
+unsafe fn dispatch(
+	server: Server<'_>,
+	stage: DamageStage,
+	original: TakeDamage,
+	callback: DamageFn,
+	victim: NonNull<sys::CBaseEntity>,
+	info: NonNull<sys::CTakeDamageInfo>,
+) -> HookAction<c_int> {
+	// SAFETY: The caller supplies live callback-scoped arguments. Only
+	// byte-copying reads the const damage object; all modifications are local.
+	let mut event = unsafe { DamageEvent::from_raw(server, victim, info) };
+	match callback(server, stage, &mut event) {
+		DamageAction::Continue => HookAction::Ignore,
+		DamageAction::Block => HookAction::Supersede(0),
+
+		DamageAction::Apply => {
+			// SAFETY: Original matches the target method's ABI. Player lifetime
+			// is callback-scoped, and the copy lives through the synchronous
+			// call. The Server contract guarantees only deferred removal.
+			let result = unsafe { original(victim.as_ptr(), event.info.as_ptr()) };
+			HookAction::Supersede(result)
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -240,6 +243,41 @@ mod tests {
 	use std::mem::{MaybeUninit, offset_of, size_of};
 
 	thread_local! { static CALLS: Cell<usize> = const { Cell::new(0) }; }
+
+	#[test]
+	fn changed_damage_reaches_original_once_without_overwriting_source() {
+		let (action, calls) = probe(|_, _, event| {
+			event.info.set_amount(37.0);
+			DamageAction::Apply
+		});
+		assert_eq!(action, HookAction::Supersede(37));
+		assert_eq!(calls, 1);
+	}
+
+	#[test]
+	fn ignored_edits_and_blocking_do_not_call_original() {
+		let (action, calls) = probe(|_, _, event| {
+			event.info.set_amount(37.0);
+			DamageAction::Continue
+		});
+		assert_eq!(action, HookAction::Ignore);
+		assert_eq!(calls, 0);
+		assert_eq!(
+			probe(|_, _, _| DamageAction::Block),
+			(HookAction::Supersede(0), 0)
+		);
+	}
+
+	#[test]
+	fn incoming_signature_and_slot_match_generated_base_entity() {
+		let _: fn(&sys::CBaseEntity__bindgen_vtable) -> TakeDamage =
+			|vtable| vtable.CBaseEntity_OnTakeDamage;
+		assert_eq!(
+			DamageStage::Incoming.function().index(),
+			offset_of!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_OnTakeDamage)
+				/ size_of::<usize>()
+		);
+	}
 
 	unsafe extern "C" fn no_interfaces(_: *const c_char, _: *mut c_int) -> *mut c_void {
 		std::ptr::null_mut()
@@ -281,40 +319,5 @@ mod tests {
 			"a const source record must never be overwritten"
 		);
 		(action, CALLS.with(Cell::get))
-	}
-
-	#[test]
-	fn changed_damage_reaches_original_once_without_overwriting_source() {
-		let (action, calls) = probe(|_, _, event| {
-			event.info.set_amount(37.0);
-			DamageAction::Apply
-		});
-		assert_eq!(action, HookAction::Supersede(37));
-		assert_eq!(calls, 1);
-	}
-
-	#[test]
-	fn ignored_edits_and_blocking_do_not_call_original() {
-		let (action, calls) = probe(|_, _, event| {
-			event.info.set_amount(37.0);
-			DamageAction::Continue
-		});
-		assert_eq!(action, HookAction::Ignore);
-		assert_eq!(calls, 0);
-		assert_eq!(
-			probe(|_, _, _| DamageAction::Block),
-			(HookAction::Supersede(0), 0)
-		);
-	}
-
-	#[test]
-	fn incoming_signature_and_slot_match_generated_base_entity() {
-		let _: fn(&sys::CBaseEntity__bindgen_vtable) -> TakeDamage =
-			|vtable| vtable.CBaseEntity_OnTakeDamage;
-		assert_eq!(
-			DamageStage::Incoming.function().index(),
-			offset_of!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_OnTakeDamage)
-				/ size_of::<usize>()
-		);
 	}
 }

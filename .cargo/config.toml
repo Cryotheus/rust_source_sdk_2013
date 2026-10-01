@@ -1,2 +1,22 @@
 [alias]
-bind = ["build", "--package", "source_sdk_2013_sys", "--features", "generate_bindings"]
+bind = ["run", "--package", "source_sdk_2013_bindgen_runner", "--release", "--", "--manifest-dir", "./crates/sdk_sys/"]
+
+rscodefmt = [
+	"rscode",
+	"fmt",
+	"-p",
+	"metamod_source",
+	"-p",
+	"metamod_source_sys",
+	"-p",
+	"source_sdk_2013_bindgen",
+	"-p",
+	"source_sdk_2013_bindgen_runner",
+	"-p",
+	"source_sdk_2013_declmacros",
+	"-p",
+	"source_sdk_2013",
+	"-p",
+	"crys_bricks",
+	"--all-features",
+]

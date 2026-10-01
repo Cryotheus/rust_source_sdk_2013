@@ -6,13 +6,14 @@ resolver = "3"
 authors = ["Cryotheum"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Cryotheus/rust_source_sdk_2013"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 
 [workspace.dependencies]
 anyhow = "1.0.104"
 bindgen = "0.73.2"
 chrono = "0.4.45"
 crys_bricks = { version = "0.2.0", path = "crates/crys_bricks" }
+log = "0.4.34"
 prettyplease = "0.3.0"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"

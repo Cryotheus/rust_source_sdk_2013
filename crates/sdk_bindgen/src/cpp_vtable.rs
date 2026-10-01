@@ -233,12 +233,6 @@ pub(crate) enum CppVtableError {
 struct Cursor(CXCursor);
 
 impl Cursor {
-	unsafe fn collect_base(self) -> BaseRecord {
-		let base_type = unsafe { self.cursor_type() };
-		let is_virtual = unsafe { clang_isVirtualBase(self.0) != 0 };
-		unsafe { Self::collect_base_type(base_type, is_virtual) }
-	}
-
 	unsafe fn collect_base_type(base_type: Type, is_virtual: bool) -> BaseRecord {
 		let canonical_type = unsafe { base_type.canonical() };
 		let type_spelling = unsafe { base_type.spelling() };
@@ -285,6 +279,12 @@ impl Cursor {
 			is_virtual,
 			target,
 		}
+	}
+
+	unsafe fn collect_base(self) -> BaseRecord {
+		let base_type = unsafe { self.cursor_type() };
+		let is_virtual = unsafe { clang_isVirtualBase(self.0) != 0 };
+		unsafe { Self::collect_base_type(base_type, is_virtual) }
 	}
 
 	unsafe fn collect_record(
@@ -990,6 +990,7 @@ impl RecordIndex {
 						.chain(tables.secondary)
 						.map(|slot| slot.method),
 				),
+
 				Slots::Unknown(reason) => return Ok(Slots::Unknown(reason)),
 			}
 		}
@@ -1285,14 +1286,6 @@ enum Slots {
 	Unknown(String),
 }
 
-/// Secondary entries are tracked solely to resolve inherited override
-/// lineages. Generated probes describe the primary address point only.
-#[derive(Default)]
-struct VtableSet {
-	primary: Vec<VtableSlot>,
-	secondary: Vec<VtableSlot>,
-}
-
 struct SourceRootFilter {
 	root_components: Vec<String>,
 	cache: BTreeMap<PathBuf, bool>,
@@ -1585,6 +1578,14 @@ pub(crate) struct VtableProbe {
 	pub layout: VtableLayout,
 }
 
+/// Secondary entries are tracked solely to resolve inherited override
+/// lineages. Generated probes describe the primary address point only.
+#[derive(Default)]
+struct VtableSet {
+	primary: Vec<VtableSlot>,
+	secondary: Vec<VtableSlot>,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct VtableSlot {
 	pub kind: VtableSlotKind,
@@ -1861,21 +1862,6 @@ fn apply_record_methods(
 	Ok(None)
 }
 
-fn same_method_signature(left: &VirtualMethod, right: &VirtualMethod) -> bool {
-	left.kind == right.kind
-		&& (left.kind == VirtualMethodKind::Destructor
-			|| (left.name == right.name
-				&& left.is_const == right.is_const
-				&& left.is_volatile == right.is_volatile
-				&& left.ref_qualifier == right.ref_qualifier
-				&& left.is_variadic == right.is_variadic
-				&& left
-					.parameters
-					.iter()
-					.map(|p| p.canonical_type.as_str())
-					.eq(right.parameters.iter().map(|p| p.canonical_type.as_str()))))
-}
-
 extern "C" fn call_trait_query_visitor(
 	cursor: CXCursor,
 	_parent: CXCursor,
@@ -1950,6 +1936,7 @@ extern "C" fn collect_record_child_visitor(
 			CXCursor_TemplateTypeParameter
 			| CXCursor_NonTypeTemplateParameter
 			| CXCursor_TemplateTemplateParameter => children.template_parameters.push(cursor.spelling()),
+
 			CXCursor_CXXBaseSpecifier => {
 				children.has_members = true;
 				children.bases.push(cursor.collect_base());
@@ -1960,6 +1947,7 @@ extern "C" fn collect_record_child_visitor(
 					.virtual_methods
 					.push(method(VirtualMethodKind::Method)?);
 			}
+
 			CXCursor_CXXMethod
 				if children.collect_nonvirtual && clang_CXXMethod_isStatic(cursor.0) == 0 =>
 			{
@@ -1973,6 +1961,7 @@ extern "C" fn collect_record_child_visitor(
 					.virtual_methods
 					.push(method(VirtualMethodKind::Destructor)?);
 			}
+
 			CXCursor_Destructor if children.collect_nonvirtual => children
 				.nonvirtual_methods
 				.push(method(VirtualMethodKind::Destructor)?),
@@ -2694,6 +2683,21 @@ fn replace_unqualified_identifier(spelling: &str, name: &str, replacement: &str)
 	rendered
 }
 
+fn same_method_signature(left: &VirtualMethod, right: &VirtualMethod) -> bool {
+	left.kind == right.kind
+		&& (left.kind == VirtualMethodKind::Destructor
+			|| (left.name == right.name
+				&& left.is_const == right.is_const
+				&& left.is_volatile == right.is_volatile
+				&& left.ref_qualifier == right.ref_qualifier
+				&& left.is_variadic == right.is_variadic
+				&& left
+					.parameters
+					.iter()
+					.map(|p| p.canonical_type.as_str())
+					.eq(right.parameters.iter().map(|p| p.canonical_type.as_str()))))
+}
+
 fn sanitize_identifier_fragment(value: &str) -> String {
 	let mut sanitized = String::new();
 	for character in value.chars() {
@@ -3375,6 +3379,55 @@ mod tests {
 	}
 
 	#[test]
+	fn models_primary_address_point_of_multiple_bases_but_refuses_virtual_bases() {
+		let records = records(
+			r#"
+			struct Left { virtual void left() = 0; };
+			struct Right { virtual void right() = 0; };
+			struct Multiple : Left, Right {};
+			struct Virtual : virtual Left {};
+			struct PlainBase { int value; };
+			struct DataFirst : PlainBase, Left { virtual void own() = 0; };
+			"#,
+		);
+
+		for record in ["Virtual"] {
+			for abi in [CppAbi::Itanium, CppAbi::Msvc] {
+				assert!(
+					matches!(
+						records.vtable_model(record, abi).unwrap(),
+						VtableModel::Unsupported { .. }
+					),
+					"{record} {abi:?}"
+				);
+			}
+		}
+
+		for abi in [CppAbi::Itanium, CppAbi::Msvc] {
+			assert_eq!(slot_names(&records, "Multiple", abi), ["left()"]);
+		}
+
+		let virtual_base = records
+			.vtable_layout("Virtual", CppAbi::Itanium)
+			.unwrap_err();
+		assert!(
+			matches!(virtual_base, CppVtableError::Unsupported { ref reason, .. } if reason.contains("virtual base"))
+		);
+
+		// A single polymorphic base supplies the primary vtable in both ABIs,
+		// even after a non-polymorphic base.
+		let data_first = records.vtable_layout("DataFirst", CppAbi::Itanium).unwrap();
+		assert_eq!(
+			data_first
+				.slots
+				.iter()
+				.map(|slot| slot.method.qualified_name.as_str())
+				.collect::<Vec<_>>(),
+			["Left::left", "DataFirst::own"]
+		);
+	}
+
+	#[test]
 	fn msvc_x64_passes_non_trivial_classes_by_pointer_and_returns_every_class_after_this() {
 		let probe = lowered_probe(
 			CALL_LOWERING_FIXTURE,
@@ -3580,6 +3633,26 @@ mod tests {
 	}
 
 	#[test]
+	fn rendered_probe_does_not_pollute_global_type_lookup() {
+		let fixture = r#"
+			using int64 = long long;
+			namespace fixture {
+			using int64 = long;
+			struct Typed {
+				virtual int64 exchange(int64 value) = 0;
+			};
+			}
+			"#;
+		let index = records(fixture);
+		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
+		assert!(probe.source.contains("::fixture::int64"));
+		let _ = records(&format!(
+			"{fixture}\n{}\nstruct AfterProbe {{ int64 value; }};",
+			probe.source
+		));
+	}
+
+	#[test]
 	fn rendered_probe_keeps_user_type_spellings_valid_at_global_scope() {
 		let fixture = r#"
 			namespace fixture {
@@ -3604,66 +3677,6 @@ mod tests {
 				.starts_with("namespace __crys_vtable_fixture__Typed_scope {")
 		);
 		let _ = records(&format!("{fixture}\n{}", probe.source));
-	}
-
-	#[test]
-	fn rendered_probe_does_not_pollute_global_type_lookup() {
-		let fixture = r#"
-			using int64 = long long;
-			namespace fixture {
-			using int64 = long;
-			struct Typed {
-				virtual int64 exchange(int64 value) = 0;
-			};
-			}
-			"#;
-		let index = records(fixture);
-		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
-		assert!(probe.source.contains("::fixture::int64"));
-		let _ = records(&format!(
-			"{fixture}\n{}\nstruct AfterProbe {{ int64 value; }};",
-			probe.source
-		));
-	}
-
-	#[test]
-	fn scoped_aliases_resolve_relative_names_and_keep_probe_transform_stable() {
-		let fixture = r#"
-			using int64 = long long;
-			template <class T> struct Vector {};
-			namespace fixture {
-			using int64 = long;
-			namespace io { struct Stream {}; }
-			struct Field {};
-			struct Typed {
-				virtual void parse(io::Stream *, Vector<Field *> *) = 0;
-			};
-			}
-			"#;
-		let index = records(fixture);
-		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
-		let source = format!(
-			"{fixture}\n{}\nstruct AfterProbe {{ int64 value; }};",
-			probe.source
-		);
-		let _ = records(&source);
-		let bindings = bindgen::builder()
-			.header_contents("scoped_vtable_alias_fixture.hpp", &source)
-			.clang_args(["-x", "c++", "-std=c++17"])
-			.allowlist_type("__crys_vtable_fixture__Typed")
-			.generate()
-			.unwrap()
-			.to_string();
-		let mut syntax = syn::parse_file(&bindings).unwrap();
-		let targets = BTreeMap::from([("fixture__Typed".to_owned(), "fixture_Typed".to_owned())]);
-		let installed =
-			crate::transform::install_vtable_probes(&mut syntax, &targets, &[]).unwrap();
-		assert_eq!(installed["fixture__Typed"], ["fixture_Typed_parse"]);
-		assert!(
-			!quote::quote!(#syntax)
-				.to_string()
-				.contains("__crys_vtable_")
-		);
 	}
 
 	#[test]
@@ -3842,227 +3855,6 @@ mod tests {
 	}
 
 	#[test]
-	fn models_primary_address_point_of_multiple_bases_but_refuses_virtual_bases() {
-		let records = records(
-			r#"
-			struct Left { virtual void left() = 0; };
-			struct Right { virtual void right() = 0; };
-			struct Multiple : Left, Right {};
-			struct Virtual : virtual Left {};
-			struct PlainBase { int value; };
-			struct DataFirst : PlainBase, Left { virtual void own() = 0; };
-			"#,
-		);
-
-		for record in ["Virtual"] {
-			for abi in [CppAbi::Itanium, CppAbi::Msvc] {
-				assert!(
-					matches!(
-						records.vtable_model(record, abi).unwrap(),
-						VtableModel::Unsupported { .. }
-					),
-					"{record} {abi:?}"
-				);
-			}
-		}
-
-		for abi in [CppAbi::Itanium, CppAbi::Msvc] {
-			assert_eq!(slot_names(&records, "Multiple", abi), ["left()"]);
-		}
-
-		let virtual_base = records
-			.vtable_layout("Virtual", CppAbi::Itanium)
-			.unwrap_err();
-		assert!(
-			matches!(virtual_base, CppVtableError::Unsupported { ref reason, .. } if reason.contains("virtual base"))
-		);
-
-		// A single polymorphic base supplies the primary vtable in both ABIs,
-		// even after a non-polymorphic base.
-		let data_first = records.vtable_layout("DataFirst", CppAbi::Itanium).unwrap();
-		assert_eq!(
-			data_first
-				.slots
-				.iter()
-				.map(|slot| slot.method.qualified_name.as_str())
-				.collect::<Vec<_>>(),
-			["Left::left", "DataFirst::own"]
-		);
-	}
-
-	#[test]
-	fn secondary_overrides_and_implicit_destructors_follow_clang_abi_layouts() {
-		// Verified with clang -Xclang -fdump-vtable-layouts on both targets.
-		let records = records(
-			r#"
-		struct Left { virtual void left(); };
-		struct Right { virtual ~Right(); virtual void right(); };
-		struct Both : Left, Right { virtual void own(); };
-		struct Over : Left, Right { void right() override; virtual void own(); };
-		struct Last : Over { void right() override; };
-		struct Explicit : Left, Right { ~Explicit() override; virtual void own(); };
-		"#,
-		);
-		assert_eq!(
-			slot_names(&records, "Both", CppAbi::Msvc),
-			["left()", "own()"]
-		);
-		assert_eq!(
-			slot_names(&records, "Both", CppAbi::Itanium),
-			["left()", "own()", "~complete", "~deleting"]
-		);
-		assert_eq!(
-			slot_names(&records, "Over", CppAbi::Msvc),
-			["left()", "own()"]
-		);
-		assert_eq!(
-			slot_names(&records, "Over", CppAbi::Itanium),
-			["left()", "right()", "own()", "~complete", "~deleting"]
-		);
-		assert_eq!(
-			slot_names(&records, "Last", CppAbi::Msvc),
-			["left()", "own()"]
-		);
-		assert_eq!(
-			slot_names(&records, "Last", CppAbi::Itanium),
-			["left()", "right()", "own()", "~complete", "~deleting"]
-		);
-		assert_eq!(
-			slot_names(&records, "Explicit", CppAbi::Msvc),
-			["left()", "own()"]
-		);
-		assert_eq!(
-			slot_names(&records, "Explicit", CppAbi::Itanium),
-			["left()", "~complete", "~deleting", "own()"]
-		);
-	}
-
-	#[test]
-	fn specializes_dependent_primary_bases_and_reuses_concrete_virtual_signatures() {
-		let records = records(
-			r#"
-		struct Player { virtual ~Player(); virtual void criteria(int); virtual int response(); virtual bool can_speak(); };
-		struct Sink { virtual void sink(); };
-		template<class Base> struct Host : Base, Sink {
-			virtual void speak(float);
-			virtual void criteria(int);
-			virtual int response();
-			bool can_speak();
-		};
-		struct Multiplayer : Host<Player> { void criteria(int) override; bool can_speak() override; virtual void extra(); };
-		struct Attributes { virtual void attribute(); };
-		struct TfPlayer : Multiplayer, Attributes { void attribute() override; virtual void give(); };
-		"#,
-		);
-		assert_eq!(
-			slot_names(&records, "TfPlayer", CppAbi::Msvc),
-			[
-				"~scalar",
-				"criteria(int)",
-				"response()",
-				"can_speak()",
-				"speak(float)",
-				"extra()",
-				"give()"
-			]
-		);
-		assert_eq!(
-			slot_names(&records, "TfPlayer", CppAbi::Itanium),
-			[
-				"~complete",
-				"~deleting",
-				"criteria(int)",
-				"response()",
-				"can_speak()",
-				"speak(float)",
-				"extra()",
-				"attribute()",
-				"give()"
-			]
-		);
-		let layout = records.vtable_layout("TfPlayer", CppAbi::Itanium).unwrap();
-		assert_eq!(
-			layout.slots[2].method.qualified_name,
-			"Multiplayer::criteria"
-		);
-		assert!(
-			layout.slots[3]
-				.method
-				.qualified_name
-				.contains("Host<Player>::response")
-		);
-	}
-
-	#[test]
-	fn specialized_implicit_virtual_declarations_keep_their_original_order() {
-		let records = records(
-			r#"
-		struct Left { virtual void left(); };
-		struct Right { virtual ~Right(); virtual void right(); };
-		template<class Base> struct Host : Left, Base { ~Host(); void right(); virtual void own(); };
-		struct Concrete : Host<Right> {};
-		"#,
-		);
-		assert_eq!(
-			slot_names(&records, "Concrete", CppAbi::Msvc),
-			["left()", "own()"]
-		);
-		assert_eq!(
-			slot_names(&records, "Concrete", CppAbi::Itanium),
-			["left()", "~complete", "~deleting", "right()", "own()"]
-		);
-	}
-
-	#[test]
-	fn specialized_secondary_overrides_match_instantiated_clang_references() {
-		let index = records(
-			r#"
-			struct Left { virtual void left(); };
-			struct Right { virtual void right(); };
-			template <class Base> struct Host : Base { void right(); };
-			struct Combined : Left, Host<Right> { void right() override; virtual void own(); };
-			struct Last : Combined { void right() override; };
-			"#,
-		);
-		for record in ["Combined", "Last"] {
-			assert_eq!(
-				slot_names(&index, record, CppAbi::Msvc),
-				["left()", "own()"]
-			);
-			assert_eq!(
-				slot_names(&index, record, CppAbi::Itanium),
-				["left()", "right()", "own()"]
-			);
-		}
-	}
-
-	#[test]
-	fn template_override_matching_preserves_cv_and_ref_qualifiers() {
-		let index = records(
-			r#"
-			struct Base {
-				virtual void same(int);
-				virtual void qualified() volatile;
-				virtual void reference() &;
-			};
-			template <class Parent> struct Host : Parent {
-				void same(const int);
-				void qualified();
-				void reference() &&;
-			};
-			struct Concrete : Host<Base> {};
-			"#,
-		);
-		for abi in [CppAbi::Msvc, CppAbi::Itanium] {
-			let layout = index.vtable_layout("Concrete", abi).unwrap();
-			assert_eq!(layout.slots.len(), 3);
-			assert_eq!(layout.slots[0].method.qualified_name, "Host<Base>::same");
-			assert_eq!(layout.slots[1].method.qualified_name, "Base::qualified");
-			assert_eq!(layout.slots[2].method.qualified_name, "Base::reference");
-		}
-	}
-
-	#[test]
 	fn reports_template_dependent_vtables_as_unsupported() {
 		let records = records(
 			r#"
@@ -4165,6 +3957,93 @@ mod tests {
 			records.vtable_model("Holder", CppAbi::Itanium).unwrap(),
 			VtableModel::Unsupported { .. }
 		));
+	}
+
+	#[test]
+	fn scoped_aliases_resolve_relative_names_and_keep_probe_transform_stable() {
+		let fixture = r#"
+			using int64 = long long;
+			template <class T> struct Vector {};
+			namespace fixture {
+			using int64 = long;
+			namespace io { struct Stream {}; }
+			struct Field {};
+			struct Typed {
+				virtual void parse(io::Stream *, Vector<Field *> *) = 0;
+			};
+			}
+			"#;
+		let index = records(fixture);
+		let probe = probe(&index, "fixture::Typed", CppAbi::Itanium);
+		let source = format!(
+			"{fixture}\n{}\nstruct AfterProbe {{ int64 value; }};",
+			probe.source
+		);
+		let _ = records(&source);
+		let bindings = bindgen::builder()
+			.header_contents("scoped_vtable_alias_fixture.hpp", &source)
+			.clang_args(["-x", "c++", "-std=c++17"])
+			.allowlist_type("__crys_vtable_fixture__Typed")
+			.generate()
+			.unwrap()
+			.to_string();
+		let mut syntax = syn::parse_file(&bindings).unwrap();
+		let targets = BTreeMap::from([("fixture__Typed".to_owned(), "fixture_Typed".to_owned())]);
+		let installed =
+			crate::transform::install_vtable_probes(&mut syntax, &targets, &[]).unwrap();
+		assert_eq!(installed["fixture__Typed"], ["fixture_Typed_parse"]);
+		assert!(
+			!quote::quote!(#syntax)
+				.to_string()
+				.contains("__crys_vtable_")
+		);
+	}
+
+	#[test]
+	fn secondary_overrides_and_implicit_destructors_follow_clang_abi_layouts() {
+		// Verified with clang -Xclang -fdump-vtable-layouts on both targets.
+		let records = records(
+			r#"
+		struct Left { virtual void left(); };
+		struct Right { virtual ~Right(); virtual void right(); };
+		struct Both : Left, Right { virtual void own(); };
+		struct Over : Left, Right { void right() override; virtual void own(); };
+		struct Last : Over { void right() override; };
+		struct Explicit : Left, Right { ~Explicit() override; virtual void own(); };
+		"#,
+		);
+		assert_eq!(
+			slot_names(&records, "Both", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Both", CppAbi::Itanium),
+			["left()", "own()", "~complete", "~deleting"]
+		);
+		assert_eq!(
+			slot_names(&records, "Over", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Over", CppAbi::Itanium),
+			["left()", "right()", "own()", "~complete", "~deleting"]
+		);
+		assert_eq!(
+			slot_names(&records, "Last", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Last", CppAbi::Itanium),
+			["left()", "right()", "own()", "~complete", "~deleting"]
+		);
+		assert_eq!(
+			slot_names(&records, "Explicit", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Explicit", CppAbi::Itanium),
+			["left()", "~complete", "~deleting", "own()"]
+		);
 	}
 
 	/// The alias of the slot named `field`, from `using` to `;`.
@@ -4277,6 +4156,105 @@ mod tests {
 		);
 	}
 
+	#[test]
+	fn specialized_implicit_virtual_declarations_keep_their_original_order() {
+		let records = records(
+			r#"
+		struct Left { virtual void left(); };
+		struct Right { virtual ~Right(); virtual void right(); };
+		template<class Base> struct Host : Left, Base { ~Host(); void right(); virtual void own(); };
+		struct Concrete : Host<Right> {};
+		"#,
+		);
+		assert_eq!(
+			slot_names(&records, "Concrete", CppAbi::Msvc),
+			["left()", "own()"]
+		);
+		assert_eq!(
+			slot_names(&records, "Concrete", CppAbi::Itanium),
+			["left()", "~complete", "~deleting", "right()", "own()"]
+		);
+	}
+
+	#[test]
+	fn specialized_secondary_overrides_match_instantiated_clang_references() {
+		let index = records(
+			r#"
+			struct Left { virtual void left(); };
+			struct Right { virtual void right(); };
+			template <class Base> struct Host : Base { void right(); };
+			struct Combined : Left, Host<Right> { void right() override; virtual void own(); };
+			struct Last : Combined { void right() override; };
+			"#,
+		);
+		for record in ["Combined", "Last"] {
+			assert_eq!(
+				slot_names(&index, record, CppAbi::Msvc),
+				["left()", "own()"]
+			);
+			assert_eq!(
+				slot_names(&index, record, CppAbi::Itanium),
+				["left()", "right()", "own()"]
+			);
+		}
+	}
+
+	#[test]
+	fn specializes_dependent_primary_bases_and_reuses_concrete_virtual_signatures() {
+		let records = records(
+			r#"
+		struct Player { virtual ~Player(); virtual void criteria(int); virtual int response(); virtual bool can_speak(); };
+		struct Sink { virtual void sink(); };
+		template<class Base> struct Host : Base, Sink {
+			virtual void speak(float);
+			virtual void criteria(int);
+			virtual int response();
+			bool can_speak();
+		};
+		struct Multiplayer : Host<Player> { void criteria(int) override; bool can_speak() override; virtual void extra(); };
+		struct Attributes { virtual void attribute(); };
+		struct TfPlayer : Multiplayer, Attributes { void attribute() override; virtual void give(); };
+		"#,
+		);
+		assert_eq!(
+			slot_names(&records, "TfPlayer", CppAbi::Msvc),
+			[
+				"~scalar",
+				"criteria(int)",
+				"response()",
+				"can_speak()",
+				"speak(float)",
+				"extra()",
+				"give()"
+			]
+		);
+		assert_eq!(
+			slot_names(&records, "TfPlayer", CppAbi::Itanium),
+			[
+				"~complete",
+				"~deleting",
+				"criteria(int)",
+				"response()",
+				"can_speak()",
+				"speak(float)",
+				"extra()",
+				"attribute()",
+				"give()"
+			]
+		);
+		let layout = records.vtable_layout("TfPlayer", CppAbi::Itanium).unwrap();
+		assert_eq!(
+			layout.slots[2].method.qualified_name,
+			"Multiplayer::criteria"
+		);
+		assert!(
+			layout.slots[3]
+				.method
+				.qualified_name
+				.contains("Host<Player>::response")
+		);
+	}
+
 	fn target_arguments(target: &str) -> Vec<String> {
 		vec![
 			"-x".to_owned(),
@@ -4284,5 +4262,31 @@ mod tests {
 			"-std=c++17".to_owned(),
 			format!("--target={target}"),
 		]
+	}
+
+	#[test]
+	fn template_override_matching_preserves_cv_and_ref_qualifiers() {
+		let index = records(
+			r#"
+			struct Base {
+				virtual void same(int);
+				virtual void qualified() volatile;
+				virtual void reference() &;
+			};
+			template <class Parent> struct Host : Parent {
+				void same(const int);
+				void qualified();
+				void reference() &&;
+			};
+			struct Concrete : Host<Base> {};
+			"#,
+		);
+		for abi in [CppAbi::Msvc, CppAbi::Itanium] {
+			let layout = index.vtable_layout("Concrete", abi).unwrap();
+			assert_eq!(layout.slots.len(), 3);
+			assert_eq!(layout.slots[0].method.qualified_name, "Host<Base>::same");
+			assert_eq!(layout.slots[1].method.qualified_name, "Base::qualified");
+			assert_eq!(layout.slots[2].method.qualified_name, "Base::reference");
+		}
 	}
 }

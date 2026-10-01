@@ -115,19 +115,6 @@ impl ProvenanceCollector {
 		}
 	}
 
-	/// Treat vendored dependencies as external even when they live under the
-	/// source root. Configure this before passing clones to bindgen.
-	pub fn with_external_roots(
-		mut self,
-		roots: impl IntoIterator<Item = impl AsRef<Path>>,
-	) -> Self {
-		Arc::make_mut(&mut self.config).external_roots = roots
-			.into_iter()
-			.map(|path| normalize_path(path.as_ref()))
-			.collect();
-		self
-	}
-
 	fn classify(&self, source_location: Option<&SourceLocation>) -> SourceOrigin {
 		let Some(file_name) = source_location.and_then(|location| location.file_name.as_deref())
 		else {
@@ -183,6 +170,19 @@ impl ProvenanceCollector {
 
 	pub fn source_root(&self) -> &Path {
 		&self.config.source_root
+	}
+
+	/// Treat vendored dependencies as external even when they live under the
+	/// source root. Configure this before passing clones to bindgen.
+	pub fn with_external_roots(
+		mut self,
+		roots: impl IntoIterator<Item = impl AsRef<Path>>,
+	) -> Self {
+		Arc::make_mut(&mut self.config).external_roots = roots
+			.into_iter()
+			.map(|path| normalize_path(path.as_ref()))
+			.collect();
+		self
 	}
 }
 
@@ -794,33 +794,6 @@ mod tests {
 	use syn::parse_quote;
 
 	#[test]
-	fn vendored_dependencies_are_external_without_hiding_game_headers() {
-		let collector =
-			ProvenanceCollector::new("sdk", ["bridge.hpp"]).with_external_roots(["sdk/thirdparty"]);
-		assert!(
-			collector
-				.classify(Some(&location("sdk/thirdparty/protobuf/message.h")))
-				.is_external()
-		);
-		assert!(
-			collector
-				.classify(Some(&location("sdk/game/server/tf/tf_player.h")))
-				.is_source()
-		);
-		assert!(
-			collector
-				.classify(Some(&location("sdk/thirdparty_support/owned.h")))
-				.is_source()
-		);
-		assert!(
-			collector
-				.clone()
-				.classify(Some(&location("sdk/thirdparty/protobuf/message.h")))
-				.is_external()
-		);
-	}
-
-	#[test]
 	fn assigns_a_renamed_use_to_the_source_items_module() {
 		let collector = ProvenanceCollector::new("sdk", ["bridge.hpp"]);
 
@@ -1160,6 +1133,33 @@ mod tests {
 		assert_eq!(
 			index.module_for_id(DiscoveredItemId::new(3)),
 			Some(module("public/owner.h"))
+		);
+	}
+
+	#[test]
+	fn vendored_dependencies_are_external_without_hiding_game_headers() {
+		let collector =
+			ProvenanceCollector::new("sdk", ["bridge.hpp"]).with_external_roots(["sdk/thirdparty"]);
+		assert!(
+			collector
+				.classify(Some(&location("sdk/thirdparty/protobuf/message.h")))
+				.is_external()
+		);
+		assert!(
+			collector
+				.classify(Some(&location("sdk/game/server/tf/tf_player.h")))
+				.is_source()
+		);
+		assert!(
+			collector
+				.classify(Some(&location("sdk/thirdparty_support/owned.h")))
+				.is_source()
+		);
+		assert!(
+			collector
+				.clone()
+				.classify(Some(&location("sdk/thirdparty/protobuf/message.h")))
+				.is_external()
 		);
 	}
 }

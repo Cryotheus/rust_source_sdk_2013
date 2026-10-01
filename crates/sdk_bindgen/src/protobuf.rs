@@ -45,10 +45,32 @@ pub enum ProtobufError {
 	},
 }
 
-fn io_error(path: &Path, source: std::io::Error) -> ProtobufError {
-	ProtobufError::Io {
-		path: path.to_owned(),
-		source,
+#[derive(Debug)]
+struct Staging(PathBuf);
+
+impl Staging {
+	fn new(out_dir: &Path) -> Result<Self, ProtobufError> {
+		static NEXT: AtomicUsize = AtomicUsize::new(0);
+		loop {
+			let path = out_dir.join(format!(
+				".source-sdk-protoc-{}-{}",
+				std::process::id(),
+				NEXT.fetch_add(1, Ordering::Relaxed)
+			));
+			match fs::create_dir(&path) {
+				Ok(()) => return Ok(Self(path)),
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+				Err(error) => return Err(io_error(&path, error)),
+			}
+		}
+	}
+}
+
+impl Drop for Staging {
+	fn drop(&mut self) {
+		// This unique directory was exclusively created by Staging::new. It
+		// contains protoc's disposable .pb.cc/.pb.h output, never source files.
+		let _ = fs::remove_dir_all(&self.0);
 	}
 }
 
@@ -65,21 +87,11 @@ fn compiler_path(sdk_src: &Path) -> Result<PathBuf, ProtobufError> {
 	Ok(sdk_src.join(relative))
 }
 
-/// Cargo keeps generated headers in OUT_DIR; standalone callers need no Cargo
-/// environment and release their private output when generation finishes.
-pub(crate) fn prepare_for_build(sdk_src: &Path) -> Result<Prepared, ProtobufError> {
-	let out_dir = std::env::var_os("OUT_DIR");
-	prepare_with_output(sdk_src, out_dir.as_deref().map(Path::new))
-}
-
-fn prepare_with_output(sdk_src: &Path, out_dir: Option<&Path>) -> Result<Prepared, ProtobufError> {
-	if let Some(out_dir) = out_dir {
-		return prepare(sdk_src, out_dir);
+fn io_error(path: &Path, source: std::io::Error) -> ProtobufError {
+	ProtobufError::Io {
+		path: path.to_owned(),
+		source,
 	}
-	let temporary_root = Staging::new(&std::env::temp_dir())?;
-	let mut prepared = prepare(sdk_src, &temporary_root.0)?;
-	prepared._temporary_root = Some(temporary_root);
-	Ok(prepared)
 }
 
 pub(crate) fn prepare(sdk_src: &Path, out_dir: &Path) -> Result<Prepared, ProtobufError> {
@@ -136,6 +148,23 @@ pub(crate) fn prepare(sdk_src: &Path, out_dir: &Path) -> Result<Prepared, Protob
 	})
 }
 
+/// Cargo keeps generated headers in OUT_DIR; standalone callers need no Cargo
+/// environment and release their private output when generation finishes.
+pub(crate) fn prepare_for_build(sdk_src: &Path) -> Result<Prepared, ProtobufError> {
+	let out_dir = std::env::var_os("OUT_DIR");
+	prepare_with_output(sdk_src, out_dir.as_deref().map(Path::new))
+}
+
+fn prepare_with_output(sdk_src: &Path, out_dir: Option<&Path>) -> Result<Prepared, ProtobufError> {
+	if let Some(out_dir) = out_dir {
+		return prepare(sdk_src, out_dir);
+	}
+	let temporary_root = Staging::new(&std::env::temp_dir())?;
+	let mut prepared = prepare(sdk_src, &temporary_root.0)?;
+	prepared._temporary_root = Some(temporary_root);
+	Ok(prepared)
+}
+
 /// Preserve timestamps for generated headers tracked by Cargo's include callbacks.
 fn write_changed(path: &Path, contents: &[u8]) -> Result<(), ProtobufError> {
 	match fs::read(path) {
@@ -147,50 +176,9 @@ fn write_changed(path: &Path, contents: &[u8]) -> Result<(), ProtobufError> {
 	fs::write(path, contents).map_err(|error| io_error(path, error))
 }
 
-#[derive(Debug)]
-struct Staging(PathBuf);
-
-impl Staging {
-	fn new(out_dir: &Path) -> Result<Self, ProtobufError> {
-		static NEXT: AtomicUsize = AtomicUsize::new(0);
-		loop {
-			let path = out_dir.join(format!(
-				".source-sdk-protoc-{}-{}",
-				std::process::id(),
-				NEXT.fetch_add(1, Ordering::Relaxed)
-			));
-			match fs::create_dir(&path) {
-				Ok(()) => return Ok(Self(path)),
-				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-				Err(error) => return Err(io_error(&path, error)),
-			}
-		}
-	}
-}
-
-impl Drop for Staging {
-	fn drop(&mut self) {
-		// This unique directory was exclusively created by Staging::new. It
-		// contains protoc's disposable .pb.cc/.pb.h output, never source files.
-		let _ = fs::remove_dir_all(&self.0);
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn generated_headers_keep_timestamps_when_unchanged() {
-		let directory = Staging::new(&std::env::temp_dir()).unwrap();
-		let header = directory.0.join("sample.pb.h");
-		write_changed(&header, b"first").unwrap();
-		let original = fs::metadata(&header).unwrap().modified().unwrap();
-		write_changed(&header, b"first").unwrap();
-		assert_eq!(fs::metadata(&header).unwrap().modified().unwrap(), original);
-		write_changed(&header, b"second").unwrap();
-		assert_eq!(fs::read(header).unwrap(), b"second");
-	}
 
 	#[test]
 	#[ignore = "set SOURCE_SDK_2013 to an authorized SDK checkout with bundled protoc"]
@@ -212,6 +200,18 @@ mod tests {
 			1,
 			"disposable compiler outputs must be removed"
 		);
+	}
+
+	#[test]
+	fn generated_headers_keep_timestamps_when_unchanged() {
+		let directory = Staging::new(&std::env::temp_dir()).unwrap();
+		let header = directory.0.join("sample.pb.h");
+		write_changed(&header, b"first").unwrap();
+		let original = fs::metadata(&header).unwrap().modified().unwrap();
+		write_changed(&header, b"first").unwrap();
+		assert_eq!(fs::metadata(&header).unwrap().modified().unwrap(), original);
+		write_changed(&header, b"second").unwrap();
+		assert_eq!(fs::read(header).unwrap(), b"second");
 	}
 
 	#[test]

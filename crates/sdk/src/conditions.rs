@@ -18,15 +18,15 @@ pub struct Condition(i32);
 
 impl Condition {
 	pub const AIMING: Self = Self(sys::ETFCond_TF_COND_AIMING);
-	pub const ZOOMED: Self = Self(sys::ETFCond_TF_COND_ZOOMED);
-	pub const DISGUISED: Self = Self(sys::ETFCond_TF_COND_DISGUISED);
-	pub const STEALTHED: Self = Self(sys::ETFCond_TF_COND_STEALTHED);
-	pub const INVULNERABLE: Self = Self(sys::ETFCond_TF_COND_INVULNERABLE);
-	pub const CRITBOOSTED: Self = Self(sys::ETFCond_TF_COND_CRITBOOSTED);
-	pub const BURNING: Self = Self(sys::ETFCond_TF_COND_BURNING);
 	pub const BLEEDING: Self = Self(sys::ETFCond_TF_COND_BLEEDING);
-	pub const SPEED_BOOST: Self = Self(sys::ETFCond_TF_COND_SPEED_BOOST);
+	pub const BURNING: Self = Self(sys::ETFCond_TF_COND_BURNING);
+	pub const CRITBOOSTED: Self = Self(sys::ETFCond_TF_COND_CRITBOOSTED);
+	pub const DISGUISED: Self = Self(sys::ETFCond_TF_COND_DISGUISED);
+	pub const INVULNERABLE: Self = Self(sys::ETFCond_TF_COND_INVULNERABLE);
 	pub const MARKED_FOR_DEATH: Self = Self(sys::ETFCond_TF_COND_MARKEDFORDEATH);
+	pub const SPEED_BOOST: Self = Self(sys::ETFCond_TF_COND_SPEED_BOOST);
+	pub const STEALTHED: Self = Self(sys::ETFCond_TF_COND_STEALTHED);
+	pub const ZOOMED: Self = Self(sys::ETFCond_TF_COND_ZOOMED);
 
 	/// Rejects negative values and the `TF_COND_LAST` sentinel.
 	pub const fn from_raw(raw: sys::ETFCond) -> Option<Self> {
@@ -94,10 +94,6 @@ impl<'s> PlayerConditions<'s> {
 		Ok(Self { player })
 	}
 
-	pub const fn player(self) -> Entity<'s> {
-		self.player
-	}
-
 	/// Adds a condition without a provider, using TF2's normal duration rules.
 	/// Returns whether it is active afterwards. TF2 can refuse additions, for
 	/// example on dead players or outside the competitive match summary.
@@ -126,6 +122,28 @@ impl<'s> PlayerConditions<'s> {
 		self.in_cond(condition)
 	}
 
+	/// Checks both the object-backed condition list and all extended bitfields.
+	#[doc(alias = "InCond")]
+	pub fn in_cond(self, condition: Condition) -> Result<bool, ConditionError> {
+		// SAFETY: This is the native read-only query on a validated player and
+		// condition. The binding verifies FIELD_BOOLEAN before returning.
+		let result = unsafe {
+			binding::call(
+				self.player,
+				c"CTFPlayer",
+				c"InCond",
+				&mut [binding::int(condition.0)],
+				binding::BOOL,
+			)?
+		};
+		// SAFETY: The checked return type selects the bool union member.
+		Ok(unsafe { result.__bindgen_anon_1.m_bool })
+	}
+
+	pub const fn player(self) -> Entity<'s> {
+		self.player
+	}
+
 	/// Removes a condition. `ignore_duration` bypasses conditions' minimum
 	/// duration (notably crit boost). Returns whether it is absent afterwards.
 	#[doc(alias = "RemoveCond")]
@@ -146,24 +164,6 @@ impl<'s> PlayerConditions<'s> {
 			)?;
 		}
 		Ok(!self.in_cond(condition)?)
-	}
-
-	/// Checks both the object-backed condition list and all extended bitfields.
-	#[doc(alias = "InCond")]
-	pub fn in_cond(self, condition: Condition) -> Result<bool, ConditionError> {
-		// SAFETY: This is the native read-only query on a validated player and
-		// condition. The binding verifies FIELD_BOOLEAN before returning.
-		let result = unsafe {
-			binding::call(
-				self.player,
-				c"CTFPlayer",
-				c"InCond",
-				&mut [binding::int(condition.0)],
-				binding::BOOL,
-			)?
-		};
-		// SAFETY: The checked return type selects the bool union member.
-		Ok(unsafe { result.__bindgen_anon_1.m_bool })
 	}
 
 	/// Runs TF2's full `RemoveAllCond` cleanup, including its object list.
@@ -189,15 +189,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn identifiers_exclude_sentinels_and_include_extended_conditions() {
-		assert!(Condition::from_raw(-1).is_none());
-		assert!(Condition::from_raw(sys::ETFCond_TF_COND_LAST).is_none());
-		assert!(Condition::from_raw(i32::MAX).is_none());
-		assert_eq!(Condition::from_raw(0), Some(Condition::AIMING));
-		assert_eq!(Condition::from_raw(130).unwrap().to_raw(), 130);
-	}
-
-	#[test]
 	fn duration_cannot_pass_invalid_floats_to_the_engine() {
 		for invalid in [-1.0, f32::NEG_INFINITY, f32::INFINITY, f32::NAN] {
 			assert!(ConditionDuration::seconds(invalid).is_none());
@@ -205,5 +196,14 @@ mod tests {
 		assert_eq!(ConditionDuration::PERMANENT.as_raw(), -1.0);
 		assert_eq!(ConditionDuration::seconds(0.0).unwrap().as_raw(), 0.0);
 		assert_eq!(ConditionDuration::seconds(3.5).unwrap().as_raw(), 3.5);
+	}
+
+	#[test]
+	fn identifiers_exclude_sentinels_and_include_extended_conditions() {
+		assert!(Condition::from_raw(-1).is_none());
+		assert!(Condition::from_raw(sys::ETFCond_TF_COND_LAST).is_none());
+		assert!(Condition::from_raw(i32::MAX).is_none());
+		assert_eq!(Condition::from_raw(0), Some(Condition::AIMING));
+		assert_eq!(Condition::from_raw(130).unwrap().to_raw(), 130);
 	}
 }

@@ -12,63 +12,6 @@ use std::mem::{MaybeUninit, offset_of};
 use std::ops::{BitAnd, BitOr, BitOrAssign, Not};
 use std::ptr::NonNull;
 
-/// Source's damage bitmask. Unknown and game-specific bits are preserved.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DamageType(pub u32);
-
-impl DamageType {
-	pub const GENERIC: Self = Self(0);
-	pub const CRUSH: Self = Self(1 << 0);
-	pub const BULLET: Self = Self(1 << 1);
-	pub const SLASH: Self = Self(1 << 2);
-	pub const BURN: Self = Self(1 << 3);
-	pub const FALL: Self = Self(1 << 5);
-	pub const BLAST: Self = Self(1 << 6);
-	pub const CLUB: Self = Self(1 << 7);
-	pub const SHOCK: Self = Self(1 << 8);
-	pub const PREVENT_PHYSICS_FORCE: Self = Self(1 << 11);
-	pub const NEVER_GIB: Self = Self(1 << 12);
-	pub const ALWAYS_GIB: Self = Self(1 << 13);
-	pub const DROWN: Self = Self(1 << 14);
-	/// TF2's `DMG_CRITICAL` aliases `DMG_ACID`. Both full and mini critical
-	/// hits carry it after TF2 has computed their damage bonus.
-	pub const CRITICAL: Self = Self(1 << 20);
-	pub const DIRECT: Self = Self(1 << 28);
-	pub const BUCKSHOT: Self = Self(1 << 29);
-	/// TF2's `DMG_USE_HITLOCATIONS`.
-	pub const USE_HIT_LOCATIONS: Self = Self(1 << 25);
-	/// TF2's `DMG_USEDISTANCEMOD`.
-	pub const USE_DISTANCE_MOD: Self = Self(1 << 21);
-
-	pub const fn contains(self, other: Self) -> bool {
-		self.0 & other.0 == other.0
-	}
-}
-
-impl BitOr for DamageType {
-	type Output = Self;
-	fn bitor(self, rhs: Self) -> Self {
-		Self(self.0 | rhs.0)
-	}
-}
-impl BitOrAssign for DamageType {
-	fn bitor_assign(&mut self, rhs: Self) {
-		self.0 |= rhs.0;
-	}
-}
-impl BitAnd for DamageType {
-	type Output = Self;
-	fn bitand(self, rhs: Self) -> Self {
-		Self(self.0 & rhs.0)
-	}
-}
-impl Not for DamageType {
-	type Output = Self;
-	fn not(self) -> Self {
-		Self(!self.0)
-	}
-}
-
 /// The classification in `CTakeDamageInfo::ECritType`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
@@ -91,6 +34,7 @@ impl CriticalPolicy {
 		full: true,
 		mini: true,
 	};
+
 	pub const DISABLE_ALL: Self = Self {
 		full: false,
 		mini: false,
@@ -116,6 +60,73 @@ pub struct DamageInfo {
 	raw: MaybeUninit<sys::CTakeDamageInfo>,
 }
 
+/// Source's damage bitmask. Unknown and game-specific bits are preserved.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DamageType(pub u32);
+
+impl DamageType {
+	pub const ALWAYS_GIB: Self = Self(1 << 13);
+	pub const BLAST: Self = Self(1 << 6);
+	pub const BUCKSHOT: Self = Self(1 << 29);
+	pub const BULLET: Self = Self(1 << 1);
+	pub const BURN: Self = Self(1 << 3);
+	pub const CLUB: Self = Self(1 << 7);
+
+	/// TF2's `DMG_CRITICAL` aliases `DMG_ACID`. Both full and mini critical
+	/// hits carry it after TF2 has computed their damage bonus.
+	pub const CRITICAL: Self = Self(1 << 20);
+
+	pub const CRUSH: Self = Self(1 << 0);
+	pub const DIRECT: Self = Self(1 << 28);
+	pub const DROWN: Self = Self(1 << 14);
+	pub const FALL: Self = Self(1 << 5);
+	pub const GENERIC: Self = Self(0);
+	pub const NEVER_GIB: Self = Self(1 << 12);
+	pub const PREVENT_PHYSICS_FORCE: Self = Self(1 << 11);
+	pub const SHOCK: Self = Self(1 << 8);
+	pub const SLASH: Self = Self(1 << 2);
+
+	/// TF2's `DMG_USEDISTANCEMOD`.
+	pub const USE_DISTANCE_MOD: Self = Self(1 << 21);
+
+	/// TF2's `DMG_USE_HITLOCATIONS`.
+	pub const USE_HIT_LOCATIONS: Self = Self(1 << 25);
+
+	pub const fn contains(self, other: Self) -> bool {
+		self.0 & other.0 == other.0
+	}
+}
+
+impl BitAnd for DamageType {
+	type Output = Self;
+
+	fn bitand(self, rhs: Self) -> Self {
+		Self(self.0 & rhs.0)
+	}
+}
+
+impl BitOr for DamageType {
+	type Output = Self;
+
+	fn bitor(self, rhs: Self) -> Self {
+		Self(self.0 | rhs.0)
+	}
+}
+
+impl BitOrAssign for DamageType {
+	fn bitor_assign(&mut self, rhs: Self) {
+		self.0 |= rhs.0;
+	}
+}
+
+impl Not for DamageType {
+	type Output = Self;
+
+	fn not(self) -> Self {
+		Self(!self.0)
+	}
+}
+
 macro_rules! scalar {
 	($get:ident, $set:ident, $field:ident, $ty:ty) => {
 		scalar!($get, $set, $field, $ty, |_: $ty| true);
@@ -138,6 +149,34 @@ macro_rules! scalar {
 	};
 }
 
+/// A scoped victim plus an owned copy of its damage arguments.
+#[derive(Debug)]
+pub struct DamageEvent<'s> {
+	pub victim: Entity<'s>,
+	pub info: DamageInfo,
+}
+
+impl<'s> DamageEvent<'s> {
+	/// Adapts native damage-hook arguments to scoped Rust values.
+	///
+	/// # Safety
+	/// `victim` must be a live entity belonging to `server` and remain live
+	/// for `'s`. `info` must satisfy [`DamageInfo::copy_from_raw`]. The call
+	/// must obey the main-thread and reentrancy contract of [`Server::new`].
+	pub unsafe fn from_raw(
+		_server: Server<'s>,
+		victim: NonNull<sys::CBaseEntity>,
+		info: NonNull<sys::CTakeDamageInfo>,
+	) -> Self {
+		Self {
+			// SAFETY: The caller supplies the entity's callback lifetime.
+			victim: unsafe { Entity::from_raw(victim) },
+			// SAFETY: The caller vouches for the native damage arguments.
+			info: unsafe { DamageInfo::copy_from_raw(info) },
+		}
+	}
+}
+
 impl DamageInfo {
 	/// Conservative per-hit limit for values edited through this API. This is
 	/// an API limit, not a TF2 limit: one million still leaves more than 700
@@ -146,10 +185,6 @@ impl DamageInfo {
 	/// ordinary health subtraction overflow. Later game/attribute multipliers
 	/// are outside this record's control and must themselves remain valid.
 	pub const MAX_DAMAGE: f32 = 1_000_000.0;
-
-	fn valid_damage(value: f32) -> bool {
-		value.is_finite() && (0.0..=Self::MAX_DAMAGE).contains(&value)
-	}
 
 	/// Constructs a damage record with no attacker, weapon, force or position.
 	/// Set the relevant handles before submitting it to the game.
@@ -185,6 +220,10 @@ impl DamageInfo {
 		// overlap. A byte copy preserves uninitialized bytes as such.
 		unsafe { std::ptr::copy_nonoverlapping(raw.as_ptr(), result.raw.as_mut_ptr(), 1) };
 		result
+	}
+
+	fn valid_damage(value: f32) -> bool {
+		value.is_finite() && (0.0..=Self::MAX_DAMAGE).contains(&value)
 	}
 
 	/// Native read-only pointer, valid until this value is moved or dropped.
@@ -223,44 +262,6 @@ impl DamageInfo {
 		bool
 	);
 
-	pub fn scale_amount(&mut self, factor: f32) {
-		self.set_amount(self.amount() * factor);
-	}
-
-	pub fn damage_type(&self) -> DamageType {
-		// SAFETY: Constructor-initialized scalar in owned memory.
-		DamageType(unsafe { (&raw const (*self.as_ptr()).m_bitsDamageType).read() } as u32)
-	}
-
-	pub fn set_damage_type(&mut self, value: DamageType) {
-		// SAFETY: Scalar field in our allocated record; retain all 32 bits.
-		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_bitsDamageType).write(value.0 as i32) };
-	}
-
-	pub fn critical_hit(&self) -> Option<CriticalHit> {
-		// SAFETY: Constructor-initialized scalar in owned memory.
-		match unsafe { (&raw const (*self.as_ptr()).m_eCritType).read() } {
-			0 => Some(CriticalHit::None),
-			1 => Some(CriticalHit::Mini),
-			2 => Some(CriticalHit::Full),
-			_ => None,
-		}
-	}
-
-	/// Selects an incoming critical classification before TF2 calculates the
-	/// bonus. This does not multiply damage. Game conditions and attributes
-	/// can still promote or suppress the hit later; use a late damage hook to
-	/// enforce a policy on the computed hit.
-	pub fn set_incoming_critical(&mut self, critical: CriticalHit) {
-		self.write_critical(critical);
-		let ordinary = self.damage_type() & !DamageType::CRITICAL;
-		self.set_damage_type(if critical == CriticalHit::Full {
-			ordinary | DamageType::CRITICAL
-		} else {
-			ordinary
-		});
-	}
-
 	/// Removes a disallowed hit's recorded critical bonus after TF2's rules
 	/// have computed it. Returns whether the record changed. Full and mini
 	/// critical hits are independently controlled.
@@ -285,9 +286,23 @@ impl DamageInfo {
 		denied
 	}
 
-	fn write_critical(&mut self, critical: CriticalHit) {
-		// SAFETY: Scalar field in our owned record, with a valid native value.
-		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_eCritType).write(critical as _) };
+	pub fn attacker(&self) -> EntityHandle {
+		self.handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker))
+	}
+
+	pub fn critical_hit(&self) -> Option<CriticalHit> {
+		// SAFETY: Constructor-initialized scalar in owned memory.
+		match unsafe { (&raw const (*self.as_ptr()).m_eCritType).read() } {
+			0 => Some(CriticalHit::None),
+			1 => Some(CriticalHit::Mini),
+			2 => Some(CriticalHit::Full),
+			_ => None,
+		}
+	}
+
+	pub fn damage_type(&self) -> DamageType {
+		// SAFETY: Constructor-initialized scalar in owned memory.
+		DamageType(unsafe { (&raw const (*self.as_ptr()).m_bitsDamageType).read() } as u32)
 	}
 
 	fn handle(&self, offset: usize) -> EntityHandle {
@@ -296,6 +311,30 @@ impl DamageInfo {
 		EntityHandle::from_raw(unsafe {
 			self.as_ptr().cast::<u8>().add(offset).cast::<u32>().read()
 		})
+	}
+
+	pub fn inflictor(&self) -> EntityHandle {
+		self.handle(offset_of!(sys::CTakeDamageInfo, m_hInflictor))
+	}
+
+	pub fn scale_amount(&mut self, factor: f32) {
+		self.set_amount(self.amount() * factor);
+	}
+
+	pub fn set_attacker(&mut self, handle: EntityHandle) {
+		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker), handle);
+	}
+
+	fn set_bonus_provider(&mut self, handle: EntityHandle) {
+		self.set_handle(
+			offset_of!(sys::CTakeDamageInfo, m_hDamageBonusProvider),
+			handle,
+		);
+	}
+
+	pub fn set_damage_type(&mut self, value: DamageType) {
+		// SAFETY: Scalar field in our allocated record; retain all 32 bits.
+		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_bitsDamageType).write(value.0 as i32) };
 	}
 
 	fn set_handle(&mut self, offset: usize, handle: EntityHandle) {
@@ -316,29 +355,35 @@ impl DamageInfo {
 		};
 	}
 
-	pub fn attacker(&self) -> EntityHandle {
-		self.handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker))
+	/// Selects an incoming critical classification before TF2 calculates the
+	/// bonus. This does not multiply damage. Game conditions and attributes
+	/// can still promote or suppress the hit later; use a late damage hook to
+	/// enforce a policy on the computed hit.
+	pub fn set_incoming_critical(&mut self, critical: CriticalHit) {
+		self.write_critical(critical);
+		let ordinary = self.damage_type() & !DamageType::CRITICAL;
+		self.set_damage_type(if critical == CriticalHit::Full {
+			ordinary | DamageType::CRITICAL
+		} else {
+			ordinary
+		});
 	}
-	pub fn inflictor(&self) -> EntityHandle {
-		self.handle(offset_of!(sys::CTakeDamageInfo, m_hInflictor))
-	}
-	pub fn weapon(&self) -> EntityHandle {
-		self.handle(offset_of!(sys::CTakeDamageInfo, m_hWeapon))
-	}
-	pub fn set_attacker(&mut self, handle: EntityHandle) {
-		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker), handle);
-	}
+
 	pub fn set_inflictor(&mut self, handle: EntityHandle) {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hInflictor), handle);
 	}
+
 	pub fn set_weapon(&mut self, handle: EntityHandle) {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hWeapon), handle);
 	}
-	fn set_bonus_provider(&mut self, handle: EntityHandle) {
-		self.set_handle(
-			offset_of!(sys::CTakeDamageInfo, m_hDamageBonusProvider),
-			handle,
-		);
+
+	pub fn weapon(&self) -> EntityHandle {
+		self.handle(offset_of!(sys::CTakeDamageInfo, m_hWeapon))
+	}
+
+	fn write_critical(&mut self, critical: CriticalHit) {
+		// SAFETY: Scalar field in our owned record, with a valid native value.
+		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_eCritType).write(critical as _) };
 	}
 }
 
@@ -361,37 +406,63 @@ impl fmt::Debug for DamageInfo {
 	}
 }
 
-/// A scoped victim plus an owned copy of its damage arguments.
-#[derive(Debug)]
-pub struct DamageEvent<'s> {
-	pub victim: Entity<'s>,
-	pub info: DamageInfo,
-}
-
-impl<'s> DamageEvent<'s> {
-	/// Adapts native damage-hook arguments to scoped Rust values.
-	///
-	/// # Safety
-	/// `victim` must be a live entity belonging to `server` and remain live
-	/// for `'s`. `info` must satisfy [`DamageInfo::copy_from_raw`]. The call
-	/// must obey the main-thread and reentrancy contract of [`Server::new`].
-	pub unsafe fn from_raw(
-		_server: Server<'s>,
-		victim: NonNull<sys::CBaseEntity>,
-		info: NonNull<sys::CTakeDamageInfo>,
-	) -> Self {
-		Self {
-			// SAFETY: The caller supplies the entity's callback lifetime.
-			victim: unsafe { Entity::from_raw(victim) },
-			// SAFETY: The caller vouches for the native damage arguments.
-			info: unsafe { DamageInfo::copy_from_raw(info) },
-		}
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn all_editable_damage_scalars_are_bounded_except_the_base_damage_sentinel() {
+		let setters: [fn(&mut DamageInfo, f32); 4] = [
+			DamageInfo::set_amount,
+			DamageInfo::set_max_damage,
+			DamageInfo::set_base_damage,
+			DamageInfo::set_damage_bonus,
+		];
+		for setter in setters {
+			let mut damage = DamageInfo::new(10.0, DamageType::GENERIC);
+			for value in [
+				f32::NAN,
+				f32::INFINITY,
+				f32::NEG_INFINITY,
+				-1.0,
+				DamageInfo::MAX_DAMAGE + 1.0,
+				1.0e30,
+			] {
+				assert!(
+					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| setter(
+						&mut damage,
+						value
+					)))
+					.is_err()
+				);
+			}
+			setter(&mut damage, 0.0);
+			setter(&mut damage, DamageInfo::MAX_DAMAGE);
+		}
+		let mut damage = DamageInfo::new(1.0, DamageType::GENERIC);
+		damage.set_base_damage(f32::MAX);
+		assert_eq!(damage.base_damage(), f32::MAX);
+		for setter in [
+			DamageInfo::set_amount,
+			DamageInfo::set_max_damage,
+			DamageInfo::set_damage_bonus,
+		] {
+			assert!(
+				std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| setter(
+					&mut damage,
+					f32::MAX
+				)))
+				.is_err()
+			);
+		}
+		assert!(
+			std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+				|| damage.scale_amount(f32::MAX)
+			))
+			.is_err()
+		);
+		assert_eq!(damage.amount(), 1.0);
+	}
 
 	#[test]
 	fn copies_change_owned_data_and_preserve_unknown_bits_and_handles() {
@@ -404,6 +475,15 @@ mod tests {
 		assert_eq!(copy.damage_type().0, (1 << 31) | 2);
 		assert_eq!(original.weapon(), EntityHandle::INVALID);
 		assert_eq!(copy.weapon().serial_number(), 3);
+	}
+
+	#[test]
+	fn critical_policy_clamps_overlarge_recorded_bonus() {
+		let mut damage = DamageInfo::new(10.0, DamageType::CRITICAL);
+		damage.write_critical(CriticalHit::Full);
+		damage.set_damage_bonus(50.0);
+		assert!(damage.apply_critical_policy(CriticalPolicy::DISABLE_ALL));
+		assert_eq!(damage.amount(), 0.0);
 	}
 
 	#[test]
@@ -471,15 +551,6 @@ mod tests {
 	}
 
 	#[test]
-	fn critical_policy_clamps_overlarge_recorded_bonus() {
-		let mut damage = DamageInfo::new(10.0, DamageType::CRITICAL);
-		damage.write_critical(CriticalHit::Full);
-		damage.set_damage_bonus(50.0);
-		assert!(damage.apply_critical_policy(CriticalPolicy::DISABLE_ALL));
-		assert_eq!(damage.amount(), 0.0);
-	}
-
-	#[test]
 	fn invalid_edits_leave_the_prior_record_intact() {
 		let mut damage = DamageInfo::new(10.0, DamageType::GENERIC);
 		for value in [f32::NAN, f32::INFINITY, -1.0, i32::MAX as f32] {
@@ -496,59 +567,5 @@ mod tests {
 			.is_err()
 		);
 		assert_eq!(damage.attacker(), EntityHandle::INVALID);
-	}
-
-	#[test]
-	fn all_editable_damage_scalars_are_bounded_except_the_base_damage_sentinel() {
-		let setters: [fn(&mut DamageInfo, f32); 4] = [
-			DamageInfo::set_amount,
-			DamageInfo::set_max_damage,
-			DamageInfo::set_base_damage,
-			DamageInfo::set_damage_bonus,
-		];
-		for setter in setters {
-			let mut damage = DamageInfo::new(10.0, DamageType::GENERIC);
-			for value in [
-				f32::NAN,
-				f32::INFINITY,
-				f32::NEG_INFINITY,
-				-1.0,
-				DamageInfo::MAX_DAMAGE + 1.0,
-				1.0e30,
-			] {
-				assert!(
-					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| setter(
-						&mut damage,
-						value
-					)))
-					.is_err()
-				);
-			}
-			setter(&mut damage, 0.0);
-			setter(&mut damage, DamageInfo::MAX_DAMAGE);
-		}
-		let mut damage = DamageInfo::new(1.0, DamageType::GENERIC);
-		damage.set_base_damage(f32::MAX);
-		assert_eq!(damage.base_damage(), f32::MAX);
-		for setter in [
-			DamageInfo::set_amount,
-			DamageInfo::set_max_damage,
-			DamageInfo::set_damage_bonus,
-		] {
-			assert!(
-				std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| setter(
-					&mut damage,
-					f32::MAX
-				)))
-				.is_err()
-			);
-		}
-		assert!(
-			std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-				|| damage.scale_amount(f32::MAX)
-			))
-			.is_err()
-		);
-		assert_eq!(damage.amount(), 1.0);
 	}
 }

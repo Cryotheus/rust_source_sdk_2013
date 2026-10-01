@@ -1,13 +1,16 @@
 //! TF2 vote creation gates, through Metamod's managed virtual hooks.
 
 use crate::MetamodApi;
+
 use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
+
 use source_sdk_2013::voting::{
 	REQUEST_CALL_VOTE_SLOT, VoteDecision, VoteHookTargetError, VoteIssue, VoteRequest,
 	VoteStartHandler, vote_issue_vtables,
 };
+
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
 use std::ffi::{CStr, c_char, c_int};
@@ -37,76 +40,6 @@ static ROUTES: [VoteRoute; 11] = [
 	VoteRoute::new(VoteIssue::ClassLimits),
 	VoteRoute::new(VoteIssue::PauseGame),
 ];
-
-struct VoteRoute {
-	issue: VoteIssue,
-	state: Cell<Option<(HookId, ServerBinding, &'static dyn VoteStartHandler)>>,
-}
-
-impl VoteRoute {
-	const fn new(issue: VoteIssue) -> Self {
-		Self {
-			issue,
-			state: Cell::new(None),
-		}
-	}
-}
-
-// SAFETY: Metamod invokes handlers only on its main thread. Installation and
-// removal require MetamodApi, which is confined to that same thread.
-unsafe impl Sync for VoteRoute {}
-
-impl Handler<RequestCallVote> for VoteRoute {
-	fn call(&self, call: &HookCall<'_, RequestCallVote>) -> HookAction<bool> {
-		if call.superseded() == Some(true) {
-			return HookAction::Ignore;
-		}
-		let Some((_, binding, handler)) = self.state.get() else {
-			return HookAction::Ignore;
-		};
-		let (caller_entity_index, details, failure, time) = call.args();
-		if call.this().is_null() || details.is_null() || failure.is_null() || time.is_null() {
-			return HookAction::Ignore;
-		}
-		let scope = ();
-		// SAFETY: This is TF2's RequestCallVote call on the server's main
-		// thread; the installed binding belongs to that server. The detail
-		// string and both output references remain live through this callback.
-		let server = unsafe { binding.server(&scope) };
-		let details = unsafe { CStr::from_ptr(details) };
-		let request = VoteRequest {
-			issue: self.issue,
-			caller_entity_index,
-			details,
-		};
-		// SAFETY: The nonnull output references are writable scalars owned
-		// by the active CreateVote stack frame, for this callback's duration.
-		unsafe { dispatch(server, request, handler, failure, time) }
-	}
-}
-
-/// The output pointers must be writable for this callback, including after
-/// the user's handler returns. Neither may be retained by the handler.
-unsafe fn dispatch(
-	server: Server<'_>,
-	request: VoteRequest<'_>,
-	handler: &dyn VoteStartHandler,
-	failure: *mut sys::vote_create_failed_t,
-	time: *mut c_int,
-) -> HookAction<bool> {
-	match handler.vote_start(server, request) {
-		VoteDecision::Allow => HookAction::Ignore,
-		VoteDecision::Block => {
-			// SAFETY: The caller supplies live C++ scalar output references.
-			// A generic failure has no countdown in SendVoteCreationFailedMessage.
-			unsafe {
-				failure.write(sys::vote_create_failed_t_VOTE_FAILED_GENERIC);
-				time.write(-1);
-			}
-			HookAction::Supersede(false)
-		}
-	}
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum VoteHookError {
@@ -140,6 +73,53 @@ impl VoteHooks {
 		}
 	}
 }
+
+struct VoteRoute {
+	issue: VoteIssue,
+	state: Cell<Option<(HookId, ServerBinding, &'static dyn VoteStartHandler)>>,
+}
+
+impl VoteRoute {
+	const fn new(issue: VoteIssue) -> Self {
+		Self {
+			issue,
+			state: Cell::new(None),
+		}
+	}
+}
+
+impl Handler<RequestCallVote> for VoteRoute {
+	fn call(&self, call: &HookCall<'_, RequestCallVote>) -> HookAction<bool> {
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+		let Some((_, binding, handler)) = self.state.get() else {
+			return HookAction::Ignore;
+		};
+		let (caller_entity_index, details, failure, time) = call.args();
+		if call.this().is_null() || details.is_null() || failure.is_null() || time.is_null() {
+			return HookAction::Ignore;
+		}
+		let scope = ();
+		// SAFETY: This is TF2's RequestCallVote call on the server's main
+		// thread; the installed binding belongs to that server. The detail
+		// string and both output references remain live through this callback.
+		let server = unsafe { binding.server(&scope) };
+		let details = unsafe { CStr::from_ptr(details) };
+		let request = VoteRequest {
+			issue: self.issue,
+			caller_entity_index,
+			details,
+		};
+		// SAFETY: The nonnull output references are writable scalars owned
+		// by the active CreateVote stack frame, for this callback's duration.
+		unsafe { dispatch(server, request, handler, failure, time) }
+	}
+}
+
+// SAFETY: Metamod invokes handlers only on its main thread. Installation and
+// removal require MetamodApi, which is confined to that same thread.
+unsafe impl Sync for VoteRoute {}
 
 impl MetamodApi<'_> {
 	/// Consults `handler` before every built-in TF2 issue evaluates a vote
@@ -200,6 +180,7 @@ impl MetamodApi<'_> {
 					route.state.set(Some((hook, binding, handler)));
 					installed.hooks.push(hook);
 				}
+
 				Err(error) => {
 					installed.remove(self);
 					return Err(error.into());
@@ -210,17 +191,38 @@ impl MetamodApi<'_> {
 	}
 }
 
+/// The output pointers must be writable for this callback, including after
+/// the user's handler returns. Neither may be retained by the handler.
+unsafe fn dispatch(
+	server: Server<'_>,
+	request: VoteRequest<'_>,
+	handler: &dyn VoteStartHandler,
+	failure: *mut sys::vote_create_failed_t,
+	time: *mut c_int,
+) -> HookAction<bool> {
+	match handler.vote_start(server, request) {
+		VoteDecision::Allow => HookAction::Ignore,
+
+		VoteDecision::Block => {
+			// SAFETY: The caller supplies live C++ scalar output references.
+			// A generic failure has no countdown in SendVoteCreationFailedMessage.
+			unsafe {
+				failure.write(sys::vote_create_failed_t_VOTE_FAILED_GENERIC);
+				time.write(-1);
+			}
+			HookAction::Supersede(false)
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use source_sdk_2013::{Game, InterfaceFactory};
 	use std::ffi::c_void;
 
-	unsafe extern "C" fn factory(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		std::ptr::null_mut()
-	}
-
 	struct Policy;
+
 	impl VoteStartHandler for Policy {
 		fn vote_start(&self, _: Server<'_>, request: VoteRequest<'_>) -> VoteDecision {
 			assert_eq!(request.caller_entity_index, 99);
@@ -232,6 +234,20 @@ mod tests {
 				VoteDecision::Allow
 			}
 		}
+	}
+
+	#[test]
+	fn every_builtin_issue_has_exactly_one_gate() {
+		for issue in VoteIssue::ALL {
+			assert_eq!(
+				ROUTES.iter().filter(|route| route.issue == issue).count(),
+				1
+			);
+		}
+	}
+
+	unsafe extern "C" fn factory(_: *const c_char, _: *mut c_int) -> *mut c_void {
+		std::ptr::null_mut()
 	}
 
 	#[test]
@@ -267,16 +283,6 @@ mod tests {
 				expected
 			);
 			assert_eq!((failure, time), expected_outputs);
-		}
-	}
-
-	#[test]
-	fn every_builtin_issue_has_exactly_one_gate() {
-		for issue in VoteIssue::ALL {
-			assert_eq!(
-				ROUTES.iter().filter(|route| route.issue == issue).count(),
-				1
-			);
 		}
 	}
 }
