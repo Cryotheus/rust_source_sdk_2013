@@ -65,3 +65,5 @@ pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerB
 pub use sys;
 
 pub mod voting;
+
+pub mod weapons;
