@@ -496,8 +496,10 @@ fn module_paths_have_case_collision(left: &ModulePath, right: &ModulePath) -> bo
 		if left == right {
 			continue;
 		}
+
 		return left.eq_ignore_ascii_case(right);
 	}
+
 	false
 }
 
@@ -546,6 +548,7 @@ pub fn split_layout_assertions(file: &File) -> (File, File) {
 	bindings
 		.items
 		.sort_by_cached_key(ItemOrder::module_item_order);
+
 	assertions
 		.items
 		.sort_by_cached_key(ItemOrder::module_item_order);
@@ -574,6 +577,7 @@ fn type_namespace_item_names(file: &File) -> BTreeSet<String> {
 			Item::Union(item) => Some(&item.ident),
 			_ => None,
 		};
+
 		if let Some(ident) = ident {
 			names.insert(ident.to_string());
 		}

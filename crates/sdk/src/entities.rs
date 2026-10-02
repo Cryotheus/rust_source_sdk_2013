@@ -659,10 +659,13 @@ pub(crate) mod test_support {
 
 	/// Where mock entities store `m_iEFlags`, as their datamap declares.
 	pub(crate) const MOCK_EFLAGS_OFFSET: usize = 32;
+
 	/// Where mock entities store `m_iHammerID`, as their datamap declares.
 	const MOCK_HAMMER_ID_OFFSET: usize = 56;
+
 	/// Where mock entities store the handle `GetRefEHandle` points to.
 	const MOCK_HANDLE_OFFSET: usize = 40;
+
 	/// Where mock entities store `m_iName`, as their datamap declares.
 	pub(crate) const MOCK_NAME_OFFSET: usize = 48;
 

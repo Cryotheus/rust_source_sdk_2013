@@ -156,6 +156,7 @@ mod scan {
 
 	/// The gate's original `jnz rel8` opcode.
 	pub(super) const ORIGINAL: u8 = 0x75;
+
 	/// Offset of the patched opcode from the start of [`PATTERN`].
 	pub(super) const PATCH_OFFSET: usize = 28;
 
@@ -346,8 +347,10 @@ mod scan {
 
 		const BASE: usize = 0x180000000;
 		const CHEATS: usize = BASE + 0x2100;
+
 		/// The only data section, holding `CHEATS`, `DEMO`, and `TIMESCALE`.
 		const DATA: Range<usize> = BASE + 0x2000..BASE + 0x3000;
+
 		const DEMO: usize = BASE + 0x2200;
 		const TIMESCALE: usize = BASE + 0x2000;
 

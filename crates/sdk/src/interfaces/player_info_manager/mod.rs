@@ -207,6 +207,18 @@ mod tests {
 		static QUERIED: RefCell<Vec<*mut sys::edict_t>> = const { RefCell::new(Vec::new()) };
 	}
 
+	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
+		GLOBALS.get()
+	}
+
+	unsafe extern "C" fn player_info(
+		_: *mut sys::IPlayerInfoManager,
+		edict: *mut sys::edict_t,
+	) -> *mut sys::IPlayerInfo {
+		QUERIED.with_borrow_mut(|queried| queried.push(edict));
+		NonNull::dangling().as_ptr()
+	}
+
 	/// The game casts any edict's entity to a player, so only occupied player
 	/// slots may reach `GetPlayerInfo`.
 	#[test]
@@ -246,17 +258,5 @@ mod tests {
 		assert!(manager.player_info(edict(2)).is_some());
 		assert!(manager.player_info(edict(3)).is_none());
 		QUERIED.with_borrow(|queried| assert_eq!(*queried, [edict(2).as_ptr()]));
-	}
-
-	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
-		GLOBALS.get()
-	}
-
-	unsafe extern "C" fn player_info(
-		_: *mut sys::IPlayerInfoManager,
-		edict: *mut sys::edict_t,
-	) -> *mut sys::IPlayerInfo {
-		QUERIED.with_borrow_mut(|queried| queried.push(edict));
-		NonNull::dangling().as_ptr()
 	}
 }

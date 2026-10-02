@@ -235,35 +235,6 @@ impl<'s> PlayerWeapons<'s> {
 		unsafe { self.spawn_item(definition, None) }
 	}
 
-	/// Creates an economy item through native item generation, then equips it.
-	///
-	/// # Safety
-	/// The guarantees of `give_item`, or of `give_item_as` with a classname.
-	unsafe fn spawn_item(
-		self,
-		definition: ItemDefinitionIndex,
-		classname: Option<&CStr>,
-	) -> Result<Weapon<'s>, WeaponError> {
-		check_live(self.player)?;
-
-		let origin = self.player.position().ok_or(WeaponError::MissingOrigin)?;
-
-		// SAFETY: The caller vouches for the native creation path. The generator
-		// initializes CEconItemView before Spawn/Activate and returns a fresh
-		// callback-live entity; it must not be passed through DispatchSpawn again.
-		unsafe {
-			self.give_with(classname, || {
-				sdk_raw::weapons::spawn(
-					self.server.game_server_factory().as_raw(),
-					definition.get(),
-					origin.into(),
-					classname,
-				)
-				.map_err(WeaponError::CreationFailedNative)
-			})
-		}
-	}
-
 	/// As [`Self::give_item`], using an exact classname instead of the schema's
 	/// classname. For example, a generic shotgun definition can use
 	/// `tf_weapon_shotgun_soldier`. The definition's static attributes are retained.
@@ -448,6 +419,35 @@ impl<'s> PlayerWeapons<'s> {
 
 				Err(error)
 			}
+		}
+	}
+
+	/// Creates an economy item through native item generation, then equips it.
+	///
+	/// # Safety
+	/// The guarantees of `give_item`, or of `give_item_as` with a classname.
+	unsafe fn spawn_item(
+		self,
+		definition: ItemDefinitionIndex,
+		classname: Option<&CStr>,
+	) -> Result<Weapon<'s>, WeaponError> {
+		check_live(self.player)?;
+
+		let origin = self.player.position().ok_or(WeaponError::MissingOrigin)?;
+
+		// SAFETY: The caller vouches for the native creation path. The generator
+		// initializes CEconItemView before Spawn/Activate and returns a fresh
+		// callback-live entity; it must not be passed through DispatchSpawn again.
+		unsafe {
+			self.give_with(classname, || {
+				sdk_raw::weapons::spawn(
+					self.server.game_server_factory().as_raw(),
+					definition.get(),
+					origin.into(),
+					classname,
+				)
+				.map_err(WeaponError::CreationFailedNative)
+			})
 		}
 	}
 }

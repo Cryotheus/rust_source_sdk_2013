@@ -51,6 +51,7 @@ pub(crate) unsafe trait Interface<'s>: Sized {
 
 	/// The module whose factory exports the interface.
 	const MODULE: Module;
+
 	/// The exact version string the interface is requested by.
 	const VERSION: &'static CStr;
 
