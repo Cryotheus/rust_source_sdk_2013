@@ -19,23 +19,28 @@ use std::slice::from_raw_parts;
 pub use id::GameEventId;
 
 /// Name used to request [`sys::IGameEventManager2`] from an engine interface factory.
+#[doc(alias = "INTERFACEVERSION_GAMEEVENTSMANAGER2")]
 pub const GAME_EVENT_MANAGER_INTERFACE_VERSION: &CStr = GameEventManager::<'static>::VERSION;
 
-/// The manager refused to register a listener.
+/// The manager refused to register a listener, as
+/// [`GameEventManager::add_listener`] reports.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("could not listen for `{}`; no such game event is registered", .name.to_string_lossy())]
 pub struct AddListenerError {
 	name: CString,
 }
 
-/// The manager refused to create an event.
+/// The manager refused to create an event, as
+/// [`GameEventManager::create_event`] reports.
+///
+/// The manager creates no event that is unknown or has no registered listener.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("no game event named `{}` is registered", .name.to_string_lossy())]
 pub struct CreateEventError {
 	name: CString,
 }
 
-/// The manager refused to fire an event.
+/// The manager refused to fire an event, as [`OwnedGameEvent::fire`] reports.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("the game event manager did not fire `{}`", .name.to_string_lossy())]
 pub struct FireEventError {
@@ -73,7 +78,8 @@ impl<'e> GameEvent<'e> {
 		self.raw.as_ptr()
 	}
 
-	/// Searches the event data for a [value] with a matching [key].
+	/// Searches the event data for a [value] with a matching [key], or returns
+	/// `None` if no key matches.
 	///
 	/// [key]: GameEventDataKey
 	/// [value]: GameEventDataValue
@@ -85,6 +91,9 @@ impl<'e> GameEvent<'e> {
 		finder.state.break_value()
 	}
 
+	/// Returns the first [key] of the event data, or `None` if it has none.
+	///
+	/// [key]: GameEventDataKey
 	pub fn first_key(self) -> Option<GameEventDataKey> {
 		struct VisitFirstKey;
 
@@ -103,6 +112,11 @@ impl<'e> GameEvent<'e> {
 		self.visit(VisitFirstKey).break_value()
 	}
 
+	/// Returns the first [key]-[value] pair of the event data, or `None` if it
+	/// has none.
+	///
+	/// [key]: GameEventDataKey
+	/// [value]: GameEventDataValue
 	pub fn first_pair(self) -> Option<GameEventDataPair> {
 		struct VisitFirstPair;
 
@@ -121,6 +135,9 @@ impl<'e> GameEvent<'e> {
 		self.visit(VisitFirstPair).break_value()
 	}
 
+	/// Returns the first [value] of the event data, or `None` if it has none.
+	///
+	/// [value]: GameEventDataValue
 	pub fn first_value(self) -> Option<GameEventDataValue> {
 		struct VisitFirstValue;
 
@@ -194,16 +211,20 @@ impl<'e> GameEvent<'e> {
 		!unsafe { vcall!(self.as_ptr() => IGameEvent_IsEmpty(key.as_ptr())) }
 	}
 
+	/// Identifies the event by its [name](Self::name), or returns `None` for
+	/// an event [`GameEventId`] does not list.
 	pub fn id(self) -> Option<GameEventId> {
 		GameEventId::from_cstr(self.name())
 	}
 
+	/// Whether the event is never networked to clients.
 	#[doc(alias = "IsLocal")]
 	pub fn is_local(self) -> bool {
 		// SAFETY: As for `get_bool`.
 		unsafe { vcall!(self.as_ptr() => IGameEvent_IsLocal()) }
 	}
 
+	/// Whether the event is networked reliably.
 	#[doc(alias = "IsReliable")]
 	pub fn is_reliable(self) -> bool {
 		// SAFETY: As for `get_bool`.
@@ -211,6 +232,11 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Runs a [`GameEventVisitor`] which collects the event's [data keys] into a [`HashSet`].
+	///
+	/// # Panics
+	///
+	/// Panics if a key repeats. The panic cannot unwind into the engine, so it
+	/// aborts the process.
 	///
 	/// [data keys]: GameEventDataKey
 	pub fn keys_to_set(self) -> HashSet<GameEventDataKey> {
@@ -258,8 +284,12 @@ impl<'e> GameEvent<'e> {
 
 	/// The internal name of the [`GameEvent`].
 	///
-	/// This has the same affect as calling [`Self::id`] and [`GameEventId::name_cstr`] together,
-	/// but with less overhead.
+	/// This has the same effect as calling [`Self::id`] and [`GameEventId::name_cstr`] together,
+	/// but with less overhead, and also names events [`GameEventId`] does not list.
+	///
+	/// # Panics
+	///
+	/// Panics if the engine returns a null name.
 	#[doc(alias = "GetName")]
 	pub fn name(self) -> &'e CStr {
 		// SAFETY: As for `get_bool`. The name belongs to the event's descriptor,
@@ -270,6 +300,11 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Runs a [`GameEventVisitor`] which collects the event's data [key]-[value] pairs into a [`HashMap`].
+	///
+	/// # Panics
+	///
+	/// Panics if a key repeats. The panic cannot unwind into the engine, so it
+	/// aborts the process.
 	///
 	/// [key]: GameEventDataKey
 	/// [value]: GameEventDataValue
@@ -341,6 +376,10 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Runs a [`GameEventVisitor`] over the event's data key-value pairs.
+	///
+	/// Returns [`ControlFlow::Break`] with the value the visitor stopped with,
+	/// or [`ControlFlow::Continue`] with the visitor after it visited every pair.
+	#[doc(alias = "ForEventData")]
 	pub fn visit<V: GameEventVisitor>(self, visitor: V) -> ControlFlow<V::Break, V> {
 		let mut executor = VisitorExecutor::new(visitor);
 
@@ -349,6 +388,7 @@ impl<'e> GameEvent<'e> {
 		executor.state
 	}
 
+	/// Runs a visitor that never breaks, returning it after every pair.
 	#[inline(always)]
 	fn visit_nb<V: GameEventVisitor<Break = !>>(self, visitor: V) -> V {
 		let ControlFlow::Continue(visitor) = self.visit(visitor);
@@ -383,8 +423,8 @@ impl<'s> OwnedGameEvent<'s> {
 	/// Delivers the event to every listener, and to clients if `broadcast` is set.
 	///
 	/// Listeners run synchronously, so this may run arbitrary game and plugin
-	/// code, including this plugin's own listeners. The engine frees the event
-	/// either way.
+	/// code, including this plugin's own listeners. Fails if the manager reports
+	/// that it did not fire the event, which the engine frees either way.
 	#[doc(alias = "FireEvent")]
 	pub fn fire(self, broadcast: bool) -> Result<(), FireEventError> {
 		let this = ManuallyDrop::new(self);
@@ -398,31 +438,35 @@ impl<'s> OwnedGameEvent<'s> {
 		fired.then_some(()).ok_or(FireEventError { name })
 	}
 
+	/// Sets a boolean value for `key`.
 	#[doc(alias = "SetBool")]
 	pub fn set_bool(&mut self, key: &CStr, value: bool) {
 		// SAFETY: The event is live and owned by this plugin.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetBool(key.as_ptr(), value)) };
 	}
 
+	/// Sets a float value for `key`.
 	#[doc(alias = "SetFloat")]
 	pub fn set_float(&mut self, key: &CStr, value: f32) {
 		// SAFETY: As for `set_bool`.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetFloat(key.as_ptr(), value)) };
 	}
 
+	/// Sets an integer value for `key`.
 	#[doc(alias = "SetInt")]
 	pub fn set_int(&mut self, key: &CStr, value: c_int) {
 		// SAFETY: As for `set_bool`.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetInt(key.as_ptr(), value)) };
 	}
 
-	/// Stores a copy of `value`.
+	/// Sets a string value for `key`. The event stores a copy of `value`.
 	#[doc(alias = "SetString")]
 	pub fn set_string(&mut self, key: &CStr, value: &CStr) {
 		// SAFETY: As for `set_bool`. The event copies the string.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetString(key.as_ptr(), value.as_ptr())) };
 	}
 
+	/// Sets a 64-bit value for `key`.
 	#[doc(alias = "SetUint64")]
 	pub fn set_uint64(&mut self, key: &CStr, value: u64) {
 		// SAFETY: As for `set_bool`.
@@ -443,31 +487,49 @@ interface! {
 	pub struct GameEventManager(sys::IGameEventManager2) = Engine c"GAMEEVENTSMANAGER002";
 }
 
+/// The name of a field in a game event's data, copied from the engine.
+///
+/// The string conversions, including [`Deref`] and [`Display`], panic if the
+/// name is not UTF-8.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct GameEventDataKey(pub(super) CString);
 
 impl GameEventDataKey {
+	/// Copies a key name supplied by Source.
+	///
+	/// # Safety
+	///
+	/// `ptr` must point to a readable NUL-terminated string for the duration of
+	/// this call.
 	pub(super) unsafe fn from_ptr(ptr: *const c_char) -> Self {
+		// SAFETY: The caller upholds the contract.
 		Self(unsafe { CStr::from_ptr(ptr) }.to_owned())
 	}
 
+	/// Returns the name as a C string.
 	pub fn as_c_str(&self) -> &CStr {
 		&self.0
 	}
 
+	/// Returns the name as a string slice.
+	///
+	/// # Panics
+	///
+	/// Panics if the name is not UTF-8.
 	pub fn as_str(&self) -> &str {
-		let Ok(name) = self.0.to_str() else {
-			unreachable!()
-		};
-		name
+		self.0.to_str().expect("game event key should be UTF-8")
 	}
 
+	/// Converts the name into a [`String`].
+	///
+	/// # Panics
+	///
+	/// Panics if the name is not UTF-8.
 	pub fn into_string(self) -> String {
-		let Ok(string) = self.0.into_string() else {
-			unreachable!()
-		};
-		string
+		self.0
+			.into_string()
+			.expect("game event key should be UTF-8")
 	}
 }
 
@@ -495,15 +557,23 @@ impl Display for GameEventDataKey {
 pub struct GameEventDataLocal(pub(super) NonNull<c_void>);
 
 impl GameEventDataLocal {
-	/// Pointer is guaranteed non-null.
+	/// Returns the pointer, which is never null.
 	pub const fn as_ptr(self) -> *const c_void {
 		self.0.as_ptr()
 	}
 }
 
+/// A key and its value from a game event's data.
 #[derive(Debug, Clone)]
-pub struct GameEventDataPair(pub GameEventDataKey, pub GameEventDataValue);
+pub struct GameEventDataPair(
+	/// The field's name.
+	pub GameEventDataKey,
+	/// The field's value.
+	pub GameEventDataValue,
+);
 
+/// A value from a game event's data, copied from the engine and typed by the
+/// `IGameEventVisitor2` method that delivered it.
 #[derive(Debug, Clone)]
 pub enum GameEventDataValue {
 	/// See [`GameEventDataLocal`].
@@ -511,16 +581,22 @@ pub enum GameEventDataValue {
 	/// `GameEventDataLocal` is never a null-ptr, [`Self::Null`] is used instead.
 	Local(GameEventDataLocal),
 
+	/// A copied string, from `VisitString`.
 	String(CString),
 
+	/// A float, from `VisitFloat`.
 	Float(f32),
 
+	/// An integer, from `VisitInt`.
 	Int(c_int),
 
+	/// A 64-bit integer, from `VisitUint64`.
 	UInt64(u64),
 
+	/// A copied wide string without its NUL terminator, from `VisitWString`.
 	WString(Vec<WChar>),
 
+	/// A boolean, from `VisitBool`.
 	Bool(bool),
 
 	/// Source supplied a null pointer for a pointer-valued event field.
@@ -542,6 +618,7 @@ impl GameEventDataValue {
 			return Self::Null;
 		}
 
+		// SAFETY: The pointer is non-null, and the caller upholds the rest.
 		Self::String(unsafe { CStr::from_ptr(ptr) }.to_owned())
 	}
 
@@ -558,13 +635,22 @@ impl GameEventDataValue {
 		}
 
 		let mut len = 0;
+		// SAFETY: The caller guarantees a readable sequence up to and including
+		// its NUL, and the loop stops there.
 		while unsafe { *ptr.add(len) } != 0 {
 			len += 1;
 		}
 
+		// SAFETY: The `len` values before the NUL were just read, and the caller
+		// guarantees alignment and the size bound.
 		Self::WString(unsafe { from_raw_parts(ptr, len) }.to_vec())
 	}
 
+	/// Returns the value of a [`Bool`](Self::Bool).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant.
 	#[track_caller]
 	pub fn unwrap_bool(self) -> bool {
 		let Self::Bool(bool) = self else {
@@ -574,6 +660,11 @@ impl GameEventDataValue {
 		bool
 	}
 
+	/// Returns the value of a [`Float`](Self::Float).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant.
 	#[track_caller]
 	pub fn unwrap_float(self) -> f32 {
 		let Self::Float(float) = self else {
@@ -583,6 +674,11 @@ impl GameEventDataValue {
 		float
 	}
 
+	/// Returns the value of an [`Int`](Self::Int).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant.
 	#[track_caller]
 	pub fn unwrap_int(self) -> c_int {
 		let Self::Int(int) = self else {
@@ -592,6 +688,11 @@ impl GameEventDataValue {
 		int
 	}
 
+	/// Returns the pointer of a [`Local`](Self::Local).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant, including [`Null`](Self::Null).
 	#[track_caller]
 	pub fn unwrap_local(self) -> GameEventDataLocal {
 		let Self::Local(local) = self else {
@@ -601,6 +702,12 @@ impl GameEventDataValue {
 		local
 	}
 
+	/// Returns the pointer of a [`Local`](Self::Local), or `None` for
+	/// [`Null`](Self::Null).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant.
 	#[track_caller]
 	pub fn unwrap_optional_local(self) -> Option<GameEventDataLocal> {
 		match self {
@@ -610,6 +717,15 @@ impl GameEventDataValue {
 		}
 	}
 
+	/// Returns the [`UserId`] in an [`Int`](Self::Int), or `None` for a
+	/// sentinel meaning no player (see [`InvalidUserId::is_sentinel`]).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant, or an integer that is neither a
+	/// user ID nor a sentinel.
+	///
+	/// [`InvalidUserId::is_sentinel`]: crate::players::InvalidUserId::is_sentinel
 	#[track_caller]
 	pub fn unwrap_optional_user_id(self) -> Option<UserId> {
 		let Self::Int(int) = self else {
@@ -618,7 +734,7 @@ impl GameEventDataValue {
 
 		match UserId::from_raw(int) {
 			Ok(user_id) => Some(user_id),
-			Err(error) if error.is_sentinel() => None, //suppressed
+			Err(error) if error.is_sentinel() => None,
 
 			Err(error) => {
 				panic!("Game event value was an integer {int}, but not a valid user ID {error}")
@@ -626,6 +742,11 @@ impl GameEventDataValue {
 		}
 	}
 
+	/// Returns the value of a [`String`](Self::String).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant, including [`Null`](Self::Null).
 	#[track_caller]
 	pub fn unwrap_string(self) -> CString {
 		let Self::String(string) = self else {
@@ -635,6 +756,11 @@ impl GameEventDataValue {
 		string
 	}
 
+	/// Returns the value of a [`UInt64`](Self::UInt64).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant.
 	#[track_caller]
 	pub fn unwrap_uint(self) -> u64 {
 		let Self::UInt64(uint) = self else {
@@ -646,6 +772,11 @@ impl GameEventDataValue {
 
 	/// Unwraps the value as an [`Int`], assuming it is a valid [`UserId`].
 	/// If the integer can be zero, as to represent an `Option<UserId>`, use [`unwrap_optional_user_id`] instead.
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant, or an integer that is not a
+	/// user ID.
 	///
 	/// [`Int`]: Self::Int
 	/// [`unwrap_optional_user_id`]: Self::unwrap_optional_user_id
@@ -661,6 +792,11 @@ impl GameEventDataValue {
 		}
 	}
 
+	/// Returns the value of a [`WString`](Self::WString).
+	///
+	/// # Panics
+	///
+	/// Panics if the value is another variant, including [`Null`](Self::Null).
 	#[track_caller]
 	pub fn unwrap_wstring(self) -> Vec<WChar> {
 		let Self::WString(wstring) = self else {
@@ -677,6 +813,7 @@ pub trait GameEventHandler {
 	///
 	/// A panic cannot unwind into the engine and aborts the server, so catch
 	/// any the handler may raise.
+	#[doc(alias = "FireGameEvent")]
 	fn fire_game_event(&self, event: GameEvent<'_>);
 }
 
@@ -685,6 +822,7 @@ pub trait GameEventHandler {
 /// The manager keeps the address of a registered listener, so registering
 /// takes it pinned. The listener is `!Unpin` so it cannot move while pinned,
 /// and `!Send`/`!Sync` since the engine calls it on the server's main thread.
+#[doc(alias = "IGameEventListener2")]
 #[repr(C)]
 pub struct GameEventListener<H> {
 	vtable: &'static GameEventListenerVtable,
@@ -699,6 +837,8 @@ impl<H: GameEventHandler> GameEventListener<H> {
 		fire_game_event: Self::fire_game_event,
 	};
 
+	/// Wraps a handler. Pin the listener before registering it with
+	/// [`GameEventManager::add_listener`].
 	pub const fn new(handler: H) -> Self {
 		Self {
 			vtable: &Self::VTABLE,
@@ -708,6 +848,8 @@ impl<H: GameEventHandler> GameEventListener<H> {
 		}
 	}
 
+	/// The vtable's `FireGameEvent`, which passes non-null events to the
+	/// handler.
 	unsafe extern "C" fn fire_game_event(
 		this: *mut sys::IGameEventListener2,
 		event: *mut sys::IGameEvent,
@@ -726,11 +868,13 @@ impl<H: GameEventHandler> GameEventListener<H> {
 			.fire_game_event(unsafe { GameEvent::from_raw(event) });
 	}
 
+	/// Returns the address the manager registers and calls the listener by.
 	fn as_raw(self: Pin<&Self>) -> *mut sys::IGameEventListener2 {
 		// The engine only reads the vtable pointer, never writing to the listener.
 		ptr_from_pin(self).cast()
 	}
 
+	/// Returns the handler the listener passes events to.
 	pub const fn handler(&self) -> &H {
 		&self.handler
 	}
@@ -753,9 +897,17 @@ struct GameEventListenerVtable {
 }
 
 /// Types that can consume an iterator of key-pairs emitted by the Source SDK's Game Event key-value iterator.
+///
+/// [`GameEvent::visit`] runs a visitor through an `IGameEventVisitor2`.
+#[doc(alias = "IGameEventVisitor2")]
 pub trait GameEventVisitor {
+	/// The value the visitor stops with.
 	type Break;
 
+	/// Visits one key-value pair, returning [`ControlFlow::Break`] to stop.
+	///
+	/// The engine calls this through a C++ callback, so a panic cannot unwind
+	/// into the engine and aborts the process.
 	fn visit(
 		&mut self,
 		key: GameEventDataKey,
@@ -763,10 +915,11 @@ pub trait GameEventVisitor {
 	) -> ControlFlow<Self::Break>;
 }
 
+/// The `IGameEventVisitor2` vtable of a [`VisitKeyFinder`] or
+/// [`VisitorExecutor`], which takes their address as `this`.
 #[repr(C)]
 #[derive(Debug)]
-#[non_exhaustive]
-struct GameEventVistorVtable {
+struct GameEventVisitorVtable {
 	visit_local:
 		unsafe extern "C" fn(this: *mut c_void, name: *const c_char, value: *const c_void) -> bool,
 	visit_string:
@@ -780,16 +933,8 @@ struct GameEventVistorVtable {
 	visit_bool: unsafe extern "C" fn(this: *mut c_void, name: *const c_char, value: bool) -> bool,
 }
 
-impl GameEventVistorVtable {
-	/// Layout assertions.
-	const _ASSERT_LAYOUT: () = {
-		assert!(offset_of!(Self, visit_local) == 0);
-		assert!(size_of::<Self>() == size_of::<*const ()>() * 7);
-	};
-}
-
 impl<'s> GameEventManager<'s> {
-	/// Registers a listener for an event name.
+	/// Registers a listener for an event name, or fails if the manager refuses.
 	///
 	/// # Safety
 	///
@@ -815,6 +960,8 @@ impl<'s> GameEventManager<'s> {
 	}
 
 	/// Creates an event to fill in and fire.
+	///
+	/// Fails if the event is unknown or no listener is registered for it.
 	#[doc(alias = "CreateEvent")]
 	pub fn create_event(self, name: &CStr) -> Result<OwnedGameEvent<'s>, CreateEventError> {
 		// SAFETY: As for `add_listener`.
@@ -829,7 +976,8 @@ impl<'s> GameEventManager<'s> {
 			})
 	}
 
-	/// Creates a copy of an event to fill in and fire.
+	/// Creates a copy of an event to fill in and fire, or returns `None` if the
+	/// manager returns no copy.
 	#[doc(alias = "DuplicateEvent")]
 	pub fn duplicate_event(self, event: GameEvent<'_>) -> Option<OwnedGameEvent<'s>> {
 		// SAFETY: As for `add_listener`, and the event is live.
@@ -893,8 +1041,10 @@ impl<'s> GameEventManager<'s> {
 	/// description of the event, or the encoding exceeds 1024 bytes.
 	#[doc(alias = "SerializeEvent")]
 	pub fn serialize_event(self, event: GameEvent<'_>) -> Option<BitWriter> {
-		// `MAX_EVENT_BYTES`, the most the engine sends of an event.
-		let mut storage = [0u32; 1024 / 4];
+		/// The most the engine sends of an event.
+		const MAX_EVENT_BYTES: usize = 1024;
+
+		let mut storage = [0u32; MAX_EVENT_BYTES / size_of::<u32>()];
 		let mut buffer = RawBfWrite::empty(&mut storage);
 
 		// SAFETY: As for `add_listener`, and the event is live. The engine writes
@@ -915,13 +1065,16 @@ impl<'s> GameEventManager<'s> {
 	}
 }
 
+/// Returns the address of a pinned value as the `*mut` pointer C++ takes.
 fn ptr_from_pin<T>(pinned: Pin<&T>) -> *mut T {
 	(&raw const *pinned.get_ref()).cast_mut()
 }
 
+/// Defines a visitor's `VTABLE`, whose methods wrap each value in a
+/// [`GameEventDataValue`] and pass it to `Self::$Method`.
 macro_rules! visit_methods {
 	($Method:ident) => {
-		const VTABLE: GameEventVistorVtable = GameEventVistorVtable {
+		const VTABLE: GameEventVisitorVtable = GameEventVisitorVtable {
 			visit_local: Self::visit_local,
 			visit_string: Self::visit_string,
 			visit_float: Self::visit_float,
@@ -940,6 +1093,9 @@ macro_rules! visit_methods {
 				GameEventDataValue::Local(GameEventDataLocal(value))
 			});
 
+			// SAFETY: The engine calls this through `VTABLE` with the visitor
+			// passed to `ForEventData`, which nothing else uses during the call,
+			// and the key's NUL-terminated name.
 			unsafe { Self::$Method(this, name, value) }
 		}
 
@@ -948,6 +1104,8 @@ macro_rules! visit_methods {
 			name: *const c_char,
 			value: *const c_char,
 		) -> bool {
+			// SAFETY: As for `visit_local`, and the engine passes a null or
+			// NUL-terminated value.
 			unsafe { Self::$Method(this, name, GameEventDataValue::from_raw_string(value)) }
 		}
 
@@ -956,6 +1114,7 @@ macro_rules! visit_methods {
 			name: *const c_char,
 			value: c_float,
 		) -> bool {
+			// SAFETY: As for `visit_local`.
 			unsafe { Self::$Method(this, name, GameEventDataValue::Float(value)) }
 		}
 
@@ -964,6 +1123,7 @@ macro_rules! visit_methods {
 			name: *const c_char,
 			value: c_int,
 		) -> bool {
+			// SAFETY: As for `visit_local`.
 			unsafe { Self::$Method(this, name, GameEventDataValue::Int(value)) }
 		}
 
@@ -972,6 +1132,7 @@ macro_rules! visit_methods {
 			name: *const c_char,
 			value: u64,
 		) -> bool {
+			// SAFETY: As for `visit_local`.
 			unsafe { Self::$Method(this, name, GameEventDataValue::UInt64(value)) }
 		}
 
@@ -980,6 +1141,8 @@ macro_rules! visit_methods {
 			name: *const c_char,
 			value: *const WChar,
 		) -> bool {
+			// SAFETY: As for `visit_local`, and the engine passes a null or
+			// aligned, NUL-terminated value.
 			unsafe { Self::$Method(this, name, GameEventDataValue::from_raw_wstring(value)) }
 		}
 
@@ -988,6 +1151,7 @@ macro_rules! visit_methods {
 			name: *const c_char,
 			value: bool,
 		) -> bool {
+			// SAFETY: As for `visit_local`.
 			unsafe { Self::$Method(this, name, GameEventDataValue::Bool(value)) }
 		}
 	};
@@ -1044,11 +1208,70 @@ const _: () = {
 		size_of::<GameEventListenerVtable>()
 			== size_of::<sys::IGameEventListener2__bindgen_vtable>()
 	);
+
+	// So must the Rust visitors' vtable. `IGameEventVisitor2` declares no
+	// destructor, so its seven methods start the vtable under both ABIs.
+	assert!(offset_of!(GameEventVisitorVtable, visit_local) == 0);
+	assert!(size_of::<GameEventVisitorVtable>() == slot_size * 7);
+	assert!(
+		offset_of!(GameEventVisitorVtable, visit_local)
+			== offset_of!(
+				sys::IGameEventVisitor2__bindgen_vtable,
+				IGameEventVisitor2_VisitLocal
+			)
+	);
+	assert!(
+		offset_of!(GameEventVisitorVtable, visit_string)
+			== offset_of!(
+				sys::IGameEventVisitor2__bindgen_vtable,
+				IGameEventVisitor2_VisitString
+			)
+	);
+	assert!(
+		offset_of!(GameEventVisitorVtable, visit_float)
+			== offset_of!(
+				sys::IGameEventVisitor2__bindgen_vtable,
+				IGameEventVisitor2_VisitFloat
+			)
+	);
+	assert!(
+		offset_of!(GameEventVisitorVtable, visit_int)
+			== offset_of!(
+				sys::IGameEventVisitor2__bindgen_vtable,
+				IGameEventVisitor2_VisitInt
+			)
+	);
+	assert!(
+		offset_of!(GameEventVisitorVtable, visit_uint64)
+			== offset_of!(
+				sys::IGameEventVisitor2__bindgen_vtable,
+				IGameEventVisitor2_VisitUint64
+			)
+	);
+	assert!(
+		offset_of!(GameEventVisitorVtable, visit_wstring)
+			== offset_of!(
+				sys::IGameEventVisitor2__bindgen_vtable,
+				IGameEventVisitor2_VisitWString
+			)
+	);
+	assert!(
+		offset_of!(GameEventVisitorVtable, visit_bool)
+			== offset_of!(
+				sys::IGameEventVisitor2__bindgen_vtable,
+				IGameEventVisitor2_VisitBool
+			)
+	);
+	assert!(
+		size_of::<GameEventVisitorVtable>() == size_of::<sys::IGameEventVisitor2__bindgen_vtable>()
+	);
 };
 
+/// An `IGameEventVisitor2` that stops at the value of one key, for
+/// [`GameEvent::find`].
 #[repr(C)]
 struct VisitKeyFinder<'a> {
-	vtable: &'static GameEventVistorVtable,
+	vtable: &'static GameEventVisitorVtable,
 	state: ControlFlow<GameEventDataValue, &'a str>,
 }
 
@@ -1060,20 +1283,27 @@ impl<'a> VisitKeyFinder<'a> {
 		}
 	}
 
+	/// Stops the iteration with `value` if `name` is the key searched for.
+	///
+	/// # Safety
+	///
+	/// `this` must be null or point to a `Self` that nothing else uses during
+	/// the call, and a non-null `name` must point to a NUL-terminated string.
 	unsafe fn visit(this: *mut c_void, name: *const c_char, value: GameEventDataValue) -> bool {
 		assert!(!name.is_null());
 
+		// SAFETY: The caller guarantees `this` is null or an unaliased `Self`.
 		let finder = unsafe { this.cast::<Self>().as_mut() }.expect("Visitor object is null");
 
-		let Ok(name) = unsafe { CStr::from_ptr(name) }.to_str() else {
-			panic!("Invalid UTF-8 yielded IGameEvent KeyValues visitor {name:?}")
-		};
+		// Comparing bytes skips names that are not UTF-8 instead of panicking.
+		// SAFETY: `name` is non-null, and the caller upholds the rest.
+		let name = unsafe { CStr::from_ptr(name) }.to_bytes();
 
 		let ControlFlow::Continue(key) = finder.state else {
-			unreachable!()
+			unreachable!("the engine visited a pair after the finder stopped")
 		};
 
-		if key == name {
+		if key.as_bytes() == name {
 			finder.state = ControlFlow::Break(value);
 
 			false
@@ -1085,10 +1315,11 @@ impl<'a> VisitKeyFinder<'a> {
 	visit_methods!(visit);
 }
 
-/// Structure required C++ implementation.
+/// An `IGameEventVisitor2` that runs a [`GameEventVisitor`] until it breaks,
+/// for [`GameEvent::visit`].
 #[repr(C)]
 struct VisitorExecutor<V: GameEventVisitor> {
-	vtable: &'static GameEventVistorVtable,
+	vtable: &'static GameEventVisitorVtable,
 	state: ControlFlow<V::Break, V>,
 }
 
@@ -1100,15 +1331,22 @@ impl<V: GameEventVisitor> VisitorExecutor<V> {
 		}
 	}
 
+	/// Passes a pair to the visitor, and stops the iteration if it breaks.
+	///
+	/// # Safety
+	///
+	/// As for [`VisitKeyFinder::visit`].
 	unsafe fn visit(this: *mut c_void, name: *const c_char, value: GameEventDataValue) -> bool {
 		assert!(!name.is_null());
 
+		// SAFETY: The caller guarantees `this` is null or an unaliased `Self`.
 		let exec = unsafe { this.cast::<Self>().as_mut() }.expect("Visitor object is null");
 
 		let ControlFlow::Continue(visitor) = &mut exec.state else {
-			panic!();
+			unreachable!("the engine visited a pair after the visitor broke")
 		};
 
+		// SAFETY: `name` is non-null, and the caller upholds the rest.
 		if let ControlFlow::Break(output) =
 			visitor.visit(unsafe { GameEventDataKey::from_ptr(name) }, value)
 		{
