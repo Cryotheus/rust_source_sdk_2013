@@ -15,6 +15,9 @@ use crate::bitbuf::BitWriter;
 use crate::math::{QAngle, Vector};
 use std::ffi::CStr;
 
+/// Bits in each of a [`FixAngle`]'s angles.
+const ANGLE_BITS: u32 = 16;
+
 /// Bits in a decal's texture index (`MAX_DECAL_INDEX_BITS`).
 const DECAL_INDEX_BITS: u32 = 9;
 
@@ -29,6 +32,7 @@ pub const MAX_COMMAND_LEN: usize = 1023;
 pub const MAX_CONVAR_LEN: usize = 259;
 
 /// The largest payload of a user or entity message (`MAX_USER_MSG_DATA`).
+#[doc(alias = "MAX_USER_MSG_DATA")]
 pub const MAX_MESSAGE_DATA_BYTES: usize = 255;
 
 /// The longest console text a client accepts, less its terminator.
@@ -53,6 +57,7 @@ const SOUND_INDEX_BITS: u32 = 14;
 #[doc(alias = "SVC_BSPDecal")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BspDecal {
+	/// Where the decal is, in world coordinates.
 	pub position: Vector,
 
 	/// The decal's precache index, below 512.
@@ -150,6 +155,8 @@ impl NetMessage for EntityMessage<'_> {
 pub struct FixAngle {
 	/// Adds the angles to the client's own instead of replacing them.
 	pub relative: bool,
+
+	/// The angles in degrees, each sent as a fraction of a turn in 16 bits.
 	pub angles: QAngle,
 }
 
@@ -160,9 +167,9 @@ impl NetMessage for FixAngle {
 
 	fn write_body(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
 		out.write_bit(self.relative);
-		out.write_bit_angle(self.angles.pitch, 16);
-		out.write_bit_angle(self.angles.yaw, 16);
-		out.write_bit_angle(self.angles.roll, 16);
+		out.write_bit_angle(self.angles.pitch, ANGLE_BITS);
+		out.write_bit_angle(self.angles.yaw, ANGLE_BITS);
+		out.write_bit_angle(self.angles.roll, ANGLE_BITS);
 		Ok(())
 	}
 }
@@ -198,7 +205,10 @@ impl NetMessage for GameEvent<'_> {
 #[doc(alias = "SVC_GetCvarValue")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GetCvarValue<'a> {
+	/// A number the client returns with its answer, to match it to the query.
 	pub cookie: i32,
+
+	/// The variable's name, at most [`MAX_QUERY_NAME_LEN`] bytes long.
 	pub name: &'a CStr,
 }
 
@@ -239,6 +249,7 @@ impl NetMessage for Prefetch {
 #[doc(alias = "SVC_Print")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Print<'a> {
+	/// The text, at most [`MAX_PRINT_LEN`] bytes long.
 	pub text: &'a CStr,
 }
 
@@ -260,7 +271,10 @@ impl NetMessage for Print<'_> {
 /// disconnect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Raw<'a> {
+	/// The message's type.
 	pub id: MessageId,
+
+	/// The message's encoded fields, which follow its type.
 	pub body: &'a BitWriter,
 }
 
@@ -318,6 +332,7 @@ impl NetMessage for SetConVar<'_> {
 #[doc(alias = "SVC_SetPause")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetPause {
+	/// Shows the paused screen when true, and hides it when false.
 	pub paused: bool,
 }
 
@@ -365,6 +380,7 @@ impl NetMessage for SetView {
 #[doc(alias = "NET_StringCmd")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StringCmd<'a> {
+	/// The command and its arguments, at most [`MAX_COMMAND_LEN`] bytes long.
 	pub command: &'a CStr,
 }
 
@@ -392,6 +408,7 @@ impl NetMessage for StringCmd<'_> {
 #[doc(alias = "SVC_UserMessage")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UserMessage<'a> {
+	/// The index of the user message the game registered.
 	pub message_type: u8,
 
 	/// At most [`MAX_MESSAGE_DATA_BYTES`] bytes.

@@ -14,29 +14,41 @@ pub mod messages;
 
 use crate::bitbuf::{BitWriter, RawBfWrite};
 use crate::ffi::{NotThreadSafe, copy_cstr, vcall};
-use std::error::Error;
 use std::ffi::{CString, c_int};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 /// Bits in each message's type (`NETMSG_TYPE_BITS`).
+#[doc(alias = "NETMSG_TYPE_BITS")]
 pub const MESSAGE_TYPE_BITS: u32 = 6;
 
 /// Why a message could not be encoded.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EncodeError {
+	/// A string or payload is longer than the client accepts.
 	#[error("{field} is {len} bytes long, but at most {max} fit")]
 	TooLong {
+		/// The field's name, such as `text`.
 		field: &'static str,
+
+		/// The field's length in bytes, less any terminator.
 		len: usize,
+
+		/// The most bytes the field holds.
 		max: usize,
 	},
 
+	/// A number exceeds what its field holds.
 	#[error("{field} is {value}, which exceeds its maximum of {max}")]
 	OutOfRange {
+		/// The field's name, such as `entity`.
 		field: &'static str,
+
+		/// The number given.
 		value: u64,
+
+		/// The largest number the field holds.
 		max: u64,
 	},
 }
@@ -65,13 +77,16 @@ impl EncodeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Flow {
 	/// From the server to the client (`FLOW_OUTGOING`).
+	#[doc(alias = "FLOW_OUTGOING")]
 	Outgoing,
 
 	/// From the client to the server (`FLOW_INCOMING`).
+	#[doc(alias = "FLOW_INCOMING")]
 	Incoming,
 }
 
 impl Flow {
+	/// The engine's value for the direction, its `FLOW_*` constant.
 	const fn raw(self) -> c_int {
 		match self {
 			Self::Outgoing => 0,
@@ -89,39 +104,135 @@ impl Flow {
 pub struct MessageId(u8);
 
 impl MessageId {
+	/// A decal on the world or a brush entity, as [`messages::BspDecal`]
+	/// places.
+	#[doc(alias = "svc_BSPDecal")]
 	pub const BSP_DECAL: Self = Self(21);
+
+	/// The server's classes, sent while connecting.
+	#[doc(alias = "svc_ClassInfo")]
 	pub const CLASS_INFO: Self = Self(10);
+
+	/// A command with key values.
+	#[doc(alias = "svc_CmdKeyValues")]
 	pub const CMD_KEY_VALUES: Self = Self(32);
+
+	/// Creates a string table on the client.
+	#[doc(alias = "svc_CreateStringTable")]
 	pub const CREATE_STRING_TABLE: Self = Self(12);
+
+	/// Aims the client's crosshair, for auto-aim.
+	#[doc(alias = "svc_CrosshairAngle")]
 	pub const CROSSHAIR_ANGLE: Self = Self(20);
+
+	/// Ends the connection.
+	#[doc(alias = "net_Disconnect")]
 	pub const DISCONNECT: Self = Self(1);
+
+	/// A message for one entity's client-side class, as
+	/// [`messages::EntityMessage`] sends.
+	#[doc(alias = "svc_EntityMessage")]
 	pub const ENTITY_MESSAGE: Self = Self(24);
+
+	/// Requests or denies a file.
+	#[doc(alias = "net_File")]
 	pub const FILE: Self = Self(2);
+
+	/// Sets the client's view angles, as [`messages::FixAngle`] does.
+	#[doc(alias = "svc_FixAngle")]
 	pub const FIX_ANGLE: Self = Self(19);
+
+	/// A game event, as [`messages::GameEvent`] sends.
+	#[doc(alias = "svc_GameEvent")]
 	pub const GAME_EVENT: Self = Self(25);
+
+	/// The game events and their fields.
+	#[doc(alias = "svc_GameEventList")]
 	pub const GAME_EVENT_LIST: Self = Self(30);
+
+	/// Asks for a console variable's value, as [`messages::GetCvarValue`]
+	/// does.
+	#[doc(alias = "svc_GetCvarValue")]
 	pub const GET_CVAR_VALUE: Self = Self(31);
+
+	/// Shows a plugin's menu.
+	#[doc(alias = "svc_Menu")]
 	pub const MENU: Self = Self(29);
+
+	/// Does nothing.
+	#[doc(alias = "net_NOP")]
 	pub const NOP: Self = Self(0);
+
+	/// Entities' states, for a snapshot.
+	#[doc(alias = "svc_PacketEntities")]
 	pub const PACKET_ENTITIES: Self = Self(26);
+
+	/// Loads a sound ahead of its first use, as [`messages::Prefetch`] does.
+	#[doc(alias = "svc_Prefetch")]
 	pub const PREFETCH: Self = Self(28);
+
+	/// Prints console text, as [`messages::Print`] does.
+	#[doc(alias = "svc_Print")]
 	pub const PRINT: Self = Self(7);
+
+	/// A server class's send table, sent while connecting.
+	#[doc(alias = "svc_SendTable")]
 	pub const SEND_TABLE: Self = Self(9);
+
+	/// The server's and map's details, sent while connecting.
+	#[doc(alias = "svc_ServerInfo")]
 	pub const SERVER_INFO: Self = Self(8);
+
+	/// Sets console variables, as [`messages::SetConVar`] does.
+	#[doc(alias = "net_SetConVar")]
 	pub const SET_CONVAR: Self = Self(5);
+
+	/// Shows or hides the paused screen, as [`messages::SetPause`] does.
+	#[doc(alias = "svc_SetPause")]
 	pub const SET_PAUSE: Self = Self(11);
+
+	/// Renders the view from an entity, as [`messages::SetView`] does.
+	#[doc(alias = "svc_SetView")]
 	pub const SET_VIEW: Self = Self(18);
+
+	/// A step through the sign-on sequence.
+	#[doc(alias = "net_SignonState")]
 	pub const SIGNON_STATE: Self = Self(6);
+
+	/// Plays sounds on the client.
+	#[doc(alias = "svc_Sounds")]
 	pub const SOUNDS: Self = Self(17);
+
+	/// Runs a command, as [`messages::StringCmd`] does.
+	#[doc(alias = "net_StringCmd")]
 	pub const STRING_CMD: Self = Self(4);
+
+	/// Temporary entities, such as effects.
+	#[doc(alias = "svc_TempEntities")]
 	pub const TEMP_ENTITIES: Self = Self(27);
+
+	/// The sender's tick and frame times.
+	#[doc(alias = "net_Tick")]
 	pub const TICK: Self = Self(3);
+
+	/// Changes a string table's entries.
+	#[doc(alias = "svc_UpdateStringTable")]
 	pub const UPDATE_STRING_TABLE: Self = Self(13);
+
+	/// A user message, as [`messages::UserMessage`] sends.
+	#[doc(alias = "svc_UserMessage")]
 	pub const USER_MESSAGE: Self = Self(23);
+
+	/// Encoded voice for the client to play.
+	#[doc(alias = "svc_VoiceData")]
 	pub const VOICE_DATA: Self = Self(15);
+
+	/// The voice codec and its quality.
+	#[doc(alias = "svc_VoiceInit")]
 	pub const VOICE_INIT: Self = Self(14);
 
-	/// A type, which must fit in [`MESSAGE_TYPE_BITS`] bits.
+	/// A type from its number, or `None` if the number does not fit in
+	/// [`MESSAGE_TYPE_BITS`] bits.
 	pub const fn new(id: u8) -> Option<Self> {
 		match id < 1 << MESSAGE_TYPE_BITS {
 			true => Some(Self(id)),
@@ -129,11 +240,13 @@ impl MessageId {
 		}
 	}
 
+	/// The type's number, below 64.
 	pub const fn get(self) -> u8 {
 		self.0
 	}
 
-	/// The engine's name for the type, such as `svc_Print`.
+	/// The engine's name for the type, such as `svc_Print`, or `None` for a
+	/// number this crate has no name for, such as the unused 16 and 22.
 	pub const fn name(self) -> Option<&'static str> {
 		Some(match self.0 {
 			0 => "net_NOP",
@@ -195,6 +308,8 @@ pub struct NetChannel<'s> {
 }
 
 impl<'s> NetChannel<'s> {
+	/// Wraps a client's channel.
+	///
 	/// # Safety
 	///
 	/// `raw` must be a client's channel, which stays allocated for `'s`.
@@ -206,7 +321,8 @@ impl<'s> NetChannel<'s> {
 		}
 	}
 
-	/// The client's address, such as `203.0.113.7:27005`.
+	/// The client's address, such as `203.0.113.7:27005`, or `None` if the
+	/// engine returns none.
 	#[doc(alias = "GetAddress")]
 	pub fn address(self) -> Option<CString> {
 		// SAFETY: As for `name`.
@@ -217,6 +333,7 @@ impl<'s> NetChannel<'s> {
 		self.raw.as_ptr().cast_const()
 	}
 
+	/// The engine's channel, for calls this crate does not wrap.
 	pub const fn as_ptr(self) -> *mut sys::INetChannel {
 		self.raw.as_ptr()
 	}
@@ -312,7 +429,8 @@ impl<'s> NetChannel<'s> {
 		unsafe { vcall!(self.as_const() => INetChannel_GetLatency(flow.raw())) }
 	}
 
-	/// The channel's name, which is the client's name.
+	/// The channel's name, which is the client's name, or `None` if the
+	/// engine returns none.
 	#[doc(alias = "GetName")]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: The channel is live for `'s`, and the string is copied at once.
@@ -455,41 +573,19 @@ pub enum Reliability {
 }
 
 /// Why a message could not be sent.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SendError {
 	/// The message could not be encoded.
-	Encode(EncodeError),
+	#[error(transparent)]
+	Encode(#[from] EncodeError),
 
-	/// The channel's reliable stream has no room for the message. The engine
-	/// frees room as the client acknowledges what was sent.
-	TooLarge { bits: usize },
-}
-
-impl Display for SendError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		match self {
-			Self::Encode(error) => Display::fmt(error, f),
-
-			Self::TooLarge { bits } => {
-				write!(f, "the channel has no room for a message of {bits} bits")
-			}
-		}
-	}
-}
-
-impl Error for SendError {
-	fn source(&self) -> Option<&(dyn Error + 'static)> {
-		match self {
-			Self::Encode(error) => Some(error),
-			Self::TooLarge { .. } => None,
-		}
-	}
-}
-
-impl From<EncodeError> for SendError {
-	fn from(error: EncodeError) -> Self {
-		Self::Encode(error)
-	}
+	/// The stream the message was sent in has no room left for it. Both
+	/// streams empty when the channel next sends the client a packet.
+	#[error("the channel has no room for a message of {bits} bits")]
+	TooLarge {
+		/// The size of the encoded messages in bits, their types included.
+		bits: usize,
+	},
 }
 
 /// A channel's packet sequence numbers, as `GetSequenceData` reports them.
@@ -509,11 +605,11 @@ pub struct SequenceData {
 pub(crate) mod test_support {
 	use super::*;
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
-	use std::cell::RefCell;
+	use std::cell::{Cell, RefCell};
 
 	thread_local! {
 		static SENT: RefCell<Vec<(BitWriter, bool)>> = const { RefCell::new(Vec::new()) };
-		static ACCEPTS: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+		static ACCEPTS: Cell<bool> = const { Cell::new(true) };
 	}
 
 	/// A channel whose `SendData` records what it is given.
@@ -522,6 +618,8 @@ pub(crate) mod test_support {
 	}
 
 	impl MockChannel {
+		/// A channel that accepts what it is sent, forgetting what earlier
+		/// mocks on this thread recorded.
 		pub(crate) fn new() -> Self {
 			let vtable = unsafe {
 				mock_vtable::<sys::INetChannel__bindgen_vtable>(
@@ -543,6 +641,7 @@ pub(crate) mod test_support {
 			Self { channel }
 		}
 
+		/// A handle to the mock, as the engine would return it.
 		pub(crate) fn channel(&self) -> NetChannel<'_> {
 			unsafe { NetChannel::from_raw(NonNull::new(self.channel).unwrap()) }
 		}
@@ -552,6 +651,8 @@ pub(crate) mod test_support {
 			ACCEPTS.set(false);
 		}
 
+		/// Takes the data `SendData` was given so far, in order, each with
+		/// whether it was reliable.
 		pub(crate) fn take_sent(&self) -> Vec<(BitWriter, bool)> {
 			SENT.take()
 		}
@@ -593,6 +694,21 @@ mod tests {
 			mock.channel().send(&raw),
 			Err(SendError::TooLarge { bits: 7 })
 		);
+	}
+
+	#[test]
+	fn encode_errors_are_reported_once() {
+		let error = SendError::from(EncodeError::OutOfRange {
+			field: "entity",
+			value: 2048,
+			max: 2047,
+		});
+
+		assert_eq!(
+			error.to_string(),
+			"entity is 2048, which exceeds its maximum of 2047"
+		);
+		assert!(std::error::Error::source(&error).is_none());
 	}
 
 	#[test]

@@ -28,39 +28,55 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 const SLOT: usize = size_of::<*const ()>();
 
 /// The client message handler methods, one per kind of message.
+#[doc(alias = "IClientMessageHandler")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IncomingKind {
 	/// `net_Tick`: the client's last received tick and frame times.
+	#[doc(alias = "ProcessTick")]
 	Tick,
 	/// `net_StringCmd`: a console command for the server.
+	#[doc(alias = "ProcessStringCmd")]
 	StringCmd,
 	/// `net_SetConVar`: changed user settings.
+	#[doc(alias = "ProcessSetConVar")]
 	SetConVar,
 	/// `net_SignonState`: progress through connecting.
+	#[doc(alias = "ProcessSignonState")]
 	SignonState,
 	/// `clc_ClientInfo`: the client's identity and custom files.
+	#[doc(alias = "ProcessClientInfo")]
 	ClientInfo,
 	/// `clc_Move`: user commands.
+	#[doc(alias = "ProcessMove")]
 	Move,
 	/// `clc_VoiceData`: encoded voice.
+	#[doc(alias = "ProcessVoiceData")]
 	VoiceData,
 	/// `clc_BaselineAck`: acknowledgement of an entity baseline.
+	#[doc(alias = "ProcessBaselineAck")]
 	BaselineAck,
 	/// `clc_ListenEvents`: the game events the client wants.
+	#[doc(alias = "ProcessListenEvents")]
 	ListenEvents,
 	/// `clc_RespondCvarValue`: the answer to a console variable query.
+	#[doc(alias = "ProcessRespondCvarValue")]
 	RespondCvarValue,
 	/// `clc_FileCRCCheck`: a file's hash, for `sv_pure`.
+	#[doc(alias = "ProcessFileCRCCheck")]
 	FileCrcCheck,
 	/// `clc_FileMD5Check`: a file's MD5 hash.
+	#[doc(alias = "ProcessFileMD5Check")]
 	FileMd5Check,
 	/// `clc_SaveReplay`: a request to save a replay.
+	#[doc(alias = "ProcessSaveReplay")]
 	SaveReplay,
 	/// `clc_CmdKeyValues`: a command with key values, such as TF2's Mann vs.
 	/// Machine upgrades.
+	#[doc(alias = "ProcessCmdKeyValues")]
 	CmdKeyValues,
 }
 
+/// The vtable slot of an `IClientMessageHandler` method, for the target's ABI.
 macro_rules! handler_slot {
 	($method:ident) => {
 		(offset_of!(sys::IClientMessageHandler__bindgen_vtable, $method) / SLOT) as c_int
@@ -69,6 +85,10 @@ macro_rules! handler_slot {
 
 /// Bytes of a name or value in `net_SetConVar`'s `cvar_t` (`MAX_OSPATH`).
 const CONVAR_TEXT: usize = 260;
+
+/// The largest size of `CNetMessage` [`message_base`] accepts. A larger one
+/// is taken as a layout this module does not know.
+const LARGEST_MESSAGE_BASE: usize = 256;
 
 /// The most variables a `net_SetConVar` holds, which is its count's range.
 const MAX_CONVARS: usize = 255;
@@ -100,93 +120,205 @@ pub struct HookTarget {
 /// Why clients' messages cannot be hooked.
 #[derive(Debug, thiserror::Error)]
 pub enum HookTargetError {
+	/// [`Server::valve_engine`] failed.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 
+	/// The engine returned no game server.
 	#[error("the engine has no game server")]
 	NoServer,
 
+	/// The server has no client in its first slot. The engine creates its
+	/// client objects as players first connect.
 	#[error("the server has no client objects yet")]
 	NotReady,
 
+	/// The client's run-time type information does not confirm the class and
+	/// base layout the hooks expect.
 	#[error("the engine's clients are not laid out as expected")]
 	UnexpectedLayout,
 }
 
-/// A message's fields.
+/// A message's fields, as [`IncomingMessage::decode`] copies them.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Incoming {
+	/// The client's last received tick and frame times (`NET_Tick`).
+	#[doc(alias = "NET_Tick")]
 	Tick {
+		/// The last server tick the client received.
 		tick: c_int,
+
+		/// The client's frame time, in seconds.
 		host_frame_time: f32,
+
+		/// The standard deviation of the client's frame time, in seconds.
 		host_frame_time_std_deviation: f32,
 	},
+
+	/// A console command for the server (`NET_StringCmd`).
+	#[doc(alias = "NET_StringCmd")]
 	StringCmd {
+		/// The command and its arguments.
 		command: CString,
 	},
+
+	/// Changed user settings (`NET_SetConVar`).
+	#[doc(alias = "NET_SetConVar")]
 	SetConVar {
+		/// Names and values; at most 255.
 		convars: Vec<(CString, CString)>,
 	},
+
+	/// Progress through connecting (`NET_SignonState`).
+	#[doc(alias = "NET_SignonState")]
 	SignonState {
+		/// The sign-on state the client reached, a `SIGNONSTATE_*` value.
 		state: c_int,
+
+		/// The server's spawn count the state refers to.
 		spawn_count: c_int,
 	},
+
+	/// The client's identity and custom files (`CLC_ClientInfo`).
+	#[doc(alias = "CLC_ClientInfo")]
 	ClientInfo {
+		/// A CRC of the client's send tables.
 		send_table_crc: u32,
+
+		/// The server's spawn count the information is for.
 		server_count: c_int,
+
+		/// Whether the client is SourceTV.
 		is_hltv: bool,
+
+		/// Whether the client is a replay client.
 		is_replay: bool,
+
+		/// The client's Steam friends ID.
 		friends_id: u32,
+
+		/// The client's Steam friends name.
 		friends_name: CString,
+
+		/// CRCs of the client's custom files, such as its spray.
 		custom_files: [u32; 4],
 	},
+
+	/// User commands (`CLC_Move`).
+	#[doc(alias = "CLC_Move")]
 	Move {
+		/// Commands sent before, repeated in case their packets were lost.
 		backup_commands: c_int,
+
+		/// Commands the client has not sent before.
 		new_commands: c_int,
+
 		/// The encoded user commands.
 		data: BitWriter,
 	},
+
+	/// Encoded voice (`CLC_VoiceData`).
+	#[doc(alias = "CLC_VoiceData")]
 	VoiceData {
 		/// The encoded voice.
 		data: BitWriter,
 	},
+
+	/// Acknowledgement of an entity baseline (`CLC_BaselineAck`).
+	#[doc(alias = "CLC_BaselineAck")]
 	BaselineAck {
+		/// The tick of the baseline the client acknowledges.
 		tick: c_int,
+
+		/// Which of the client's baselines it acknowledges.
 		baseline: c_int,
 	},
+
+	/// The game events the client wants (`CLC_ListenEvents`).
+	#[doc(alias = "CLC_ListenEvents")]
 	ListenEvents {
 		/// A bit per game event ID.
 		events: [u32; 16],
 	},
+
+	/// The answer to a console variable query (`CLC_RespondCvarValue`).
+	#[doc(alias = "CLC_RespondCvarValue")]
 	RespondCvarValue {
+		/// The cookie of the query answered.
 		cookie: c_int,
-		/// `EQueryCvarValueStatus`: 0 when the value was found.
+
+		/// `EQueryCvarValueStatus`: 0 when the value was found, 1 when no
+		/// variable has the name, 2 when a command has it instead, and 3 when
+		/// the variable does not allow queries.
 		status: c_int,
+
+		/// The variable's name.
 		name: CString,
+
+		/// The variable's value.
 		value: CString,
 	},
+
+	/// A file's hash, for `sv_pure` (`CLC_FileCRCCheck`).
+	#[doc(alias = "CLC_FileCRCCheck")]
 	FileCrcCheck {
+		/// The search path ID the file was found under, such as `GAME`.
 		path_id: CString,
+
+		/// The file's path.
 		file_name: CString,
+
+		/// The file's MD5 hash.
 		md5: [u8; 16],
+
+		/// The CRC the client reports with the hash.
 		crc: u32,
+
+		/// The kind of hash in `md5`, as the client reports it.
 		hash_type: c_int,
+
+		/// The file's size, in bytes.
 		length: c_int,
+
+		/// The number of the pack file holding the file.
 		pack_file_number: c_int,
+
+		/// The ID of the pack file holding the file.
 		pack_file_id: c_int,
+
+		/// The file fraction the client reports with the hash.
 		fraction: c_int,
 	},
+
+	/// A file's MD5 hash (`CLC_FileMD5Check`).
+	#[doc(alias = "CLC_FileMD5Check")]
 	FileMd5Check {
+		/// The search path ID the file was found under, such as `GAME`.
 		path_id: CString,
+
+		/// The file's path.
 		file_name: CString,
+
+		/// The file's MD5 hash.
 		md5: [u8; 16],
 	},
+
+	/// A request to save a replay (`CLC_SaveReplay`).
+	#[doc(alias = "CLC_SaveReplay")]
 	SaveReplay {
+		/// The byte of the replay's data to start sending from.
 		start_send_byte: c_int,
+
+		/// The name to save the replay under.
 		file_name: CString,
+
+		/// How long to keep recording after the player's death, in seconds.
 		post_death_record_time: f32,
 	},
-	/// The key values are not decoded.
+
+	/// A command with key values (`CLC_CmdKeyValues`). The key values are not
+	/// decoded.
+	#[doc(alias = "CLC_CmdKeyValues")]
 	CmdKeyValues,
 }
 
@@ -198,6 +330,7 @@ pub trait IncomingHandler: 'static {
 }
 
 /// A message a client sent, before the engine processed it.
+#[doc(alias = "INetMessage")]
 #[derive(Debug, Clone, Copy)]
 pub struct IncomingMessage<'s> {
 	kind: IncomingKind,
@@ -233,7 +366,8 @@ impl<'s> IncomingMessage<'s> {
 		unsafe { decode(self.kind, self.raw.cast::<u8>().as_ptr().add(base)) }
 	}
 
-	/// The engine's own description of the message and its fields.
+	/// The engine's own description of the message and its fields, or `None`
+	/// if the engine returns none.
 	#[doc(alias = "ToString")]
 	pub fn describe(self) -> Option<CString> {
 		// SAFETY: As for `id`. The engine formats into a buffer it reuses, so
@@ -262,18 +396,20 @@ impl<'s> IncomingMessage<'s> {
 		unsafe { vcall!(self.as_const() => INetMessage_IsReliable()) }
 	}
 
+	/// The handler method the engine passed the message to.
 	pub const fn kind(self) -> IncomingKind {
 		self.kind
 	}
 
-	/// The engine's name for the message, such as `clc_VoiceData`.
+	/// The engine's name for the message, such as `clc_VoiceData`, or `None`
+	/// if the engine returns none.
 	#[doc(alias = "GetName")]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: As for `id`, and the name is copied at once.
 		unsafe { copy_cstr(vcall!(self.as_const() => INetMessage_GetName())) }
 	}
 
-	/// The size of the engine's message object.
+	/// The size of the engine's message object, in bytes (`GetSize`).
 	fn object_size(self) -> usize {
 		// SAFETY: As for `id`.
 		unsafe { vcall!(self.as_const() => INetMessage_GetSize()) }
@@ -329,6 +465,7 @@ impl IncomingKind {
 		handler_slot!(IClientMessageHandler_ProcessCmdKeyValues),
 	];
 
+	/// The kind at `index` in [`Self::ALL`], or `None` past its end.
 	fn from_index(index: c_int) -> Option<Self> {
 		Self::ALL.get(usize::try_from(index).ok()?).copied()
 	}
@@ -420,6 +557,9 @@ unsafe fn convars(base: *const u8) -> Option<Vec<(CString, CString)>> {
 	)
 }
 
+/// Copies the fields of a message of `kind`, or returns `None` if they are
+/// inconsistent.
+///
 /// # Safety
 ///
 /// `base` must be where the fields of a live message of `kind` start.
@@ -538,6 +678,9 @@ pub fn hook_target(server: Server<'_>) -> Result<HookTarget, HookTargetError> {
 	// SAFETY: The complete object is a `CGameClient`, whose bases confirmed
 	// above place the handler right after the client.
 	let handler = unsafe { client.byte_add(SLOT) };
+
+	// SAFETY: As above, `handler` is the client's `IClientMessageHandler`
+	// base, a polymorphic subobject of the same live `CGameClient`.
 	let handler_offset = unsafe { rtti::subobject_offset(handler, "CGameClient") };
 
 	if handler_offset != Some(2 * SLOT as isize) {
@@ -557,7 +700,8 @@ fn message_base(message: IncomingMessage<'_>) -> Option<usize> {
 	let size = message.object_size();
 	let base = size.checked_sub(message.kind.own_size())?;
 
-	if !(SMALLEST_MESSAGE_BASE..=256).contains(&base) || !base.is_multiple_of(SLOT) {
+	if !(SMALLEST_MESSAGE_BASE..=LARGEST_MESSAGE_BASE).contains(&base) || !base.is_multiple_of(SLOT)
+	{
 		return None;
 	}
 
