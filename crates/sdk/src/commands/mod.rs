@@ -128,10 +128,13 @@ pub struct CommandContext<'d> {
 }
 
 impl<'d> CommandContext<'d> {
+	/// The arguments, copied from the engine before the handler runs, so
+	/// commands run in the meantime cannot change them.
 	pub const fn args(&self) -> CommandArgs<'d> {
 		self.args
 	}
 
+	/// Where the invocation came from.
 	pub const fn invoker(&self) -> Invoker<'d> {
 		self.invoker
 	}
@@ -146,7 +149,9 @@ impl<'d> CommandContext<'d> {
 	/// Prints a line to whoever ran the command: the server console, which
 	/// rcon also receives, or the client's console.
 	///
-	/// NUL characters, which C strings cannot hold, are dropped.
+	/// NUL characters, which C strings cannot hold, are dropped. Only a reply
+	/// to a client can fail, if the engine does not export `IVEngineServer` at
+	/// the version the bindings expect.
 	pub fn reply(&self, message: impl Display) -> Result<(), InterfaceError> {
 		let line = line_from(message);
 
@@ -162,6 +167,7 @@ impl<'d> CommandContext<'d> {
 		Ok(())
 	}
 
+	/// The server, scoped to this invocation.
 	pub const fn server(&self) -> Server<'d> {
 		self.server
 	}
@@ -206,12 +212,17 @@ pub enum CommandError {
 	#[error("{0}")]
 	Denied(Cow<'static, str>),
 
+	/// An argument is missing or cannot be read as requested, as
+	/// [`CommandArgs::get_str`] and [`CommandArgs::parse`] report.
 	#[error(transparent)]
 	Argument(#[from] ArgError),
 
+	/// A module, the engine or the game server, does not export an interface
+	/// the handler needs at the version the bindings expect.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 
+	/// Any other error, shown by its message.
 	#[error(transparent)]
 	Other(Box<dyn std::error::Error>),
 
@@ -227,14 +238,18 @@ pub enum CommandError {
 }
 
 impl CommandError {
+	/// A [`Denied`](Self::Denied) error, which shows `reason`.
 	pub fn denied(reason: impl Into<Cow<'static, str>>) -> Self {
 		Self::Denied(reason.into())
 	}
 
+	/// Boxes any error as [`Other`](Self::Other), for use with
+	/// [`Result::map_err`].
 	pub fn other(error: impl std::error::Error + 'static) -> Self {
 		Self::Other(Box::new(error))
 	}
 
+	/// A [`Usage`](Self::Usage) error, which shows `usage` after `usage: `.
 	pub fn usage(usage: impl Into<Cow<'static, str>>) -> Self {
 		Self::Usage(usage.into())
 	}
@@ -252,31 +267,41 @@ pub struct CommandFlags(c_int);
 impl CommandFlags {
 	/// `FCVAR_CHEAT`: runnable only while `sv_cheats` is set. The engine checks
 	/// this for server-side invokers, and [`route_client_command`] for clients.
+	#[doc(alias = "FCVAR_CHEAT")]
 	pub const CHEAT: Self = Self(1 << 14);
 
 	/// `FCVAR_DONTRECORD`: left out of demo recordings.
+	#[doc(alias = "FCVAR_DONTRECORD")]
 	pub const DONT_RECORD: Self = Self(1 << 17);
 
 	/// `FCVAR_GAMEDLL`, which commands never report.
 	pub(crate) const GAME_DLL: c_int = 1 << 2;
 
 	/// `FCVAR_HIDDEN`: left out of `find`, `cvarlist`, and completion.
+	#[doc(alias = "FCVAR_HIDDEN")]
 	pub const HIDDEN: Self = Self(1 << 4);
 
+	/// `FCVAR_NONE`: no flags, the default.
+	#[doc(alias = "FCVAR_NONE")]
 	pub const NONE: Self = Self(0);
 
 	/// `FCVAR_NOTIFY`: changes to a variable are announced to players and
 	/// written to the server log.
+	#[doc(alias = "FCVAR_NOTIFY")]
 	pub const NOTIFY: Self = Self(1 << 8);
 
+	/// The flags as the engine stores them in `ConCommandBase::m_nFlags`.
 	pub const fn bits(self) -> c_int {
 		self.0
 	}
 
+	/// Whether every flag set in `other` is also set in `self`.
 	pub const fn contains(self, other: Self) -> bool {
 		self.0 & other.0 == other.0
 	}
 
+	/// The flags set in either `self` or `other`, as `|` gives, in `const`
+	/// contexts too.
 	pub const fn union(self, other: Self) -> Self {
 		Self(self.0 | other.0)
 	}
@@ -300,6 +325,8 @@ impl std::ops::BitOr for CommandFlags {
 /// invoker as a failure. It is never an unload, so a client cannot unload the
 /// plugin by making a handler panic.
 pub trait CommandHandler: 'static {
+	/// Runs one invocation. An error is shown to the invoker, except
+	/// [`CommandError::Unhandled`], which passes the invocation on.
 	fn dispatch(&self, command: &CommandContext<'_>) -> CommandResult;
 }
 

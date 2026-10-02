@@ -92,6 +92,7 @@ const INTERFACE_OFFSET: usize = offset_of!(sys::ConVar, _base_1);
 /// `FCVAR_NEVER_AS_STRING` from `public/tier1/iconvar.h`.
 const NEVER_AS_STRING: c_int = 1 << 12;
 
+/// The size of one vtable slot, a pointer.
 const SLOT: usize = size_of::<*const ()>();
 
 static VTABLES: VtablePage = VtablePage(UnsafeCell::new(Vtables {
@@ -171,6 +172,7 @@ static VTABLES: VtablePage = VtablePage(UnsafeCell::new(Vtables {
 ///
 /// A variable is `Sync`: everything the engine or Rust writes after
 /// construction is only touched on the server's main thread.
+#[doc(alias = "ConVar")]
 #[repr(C)]
 pub struct ConsoleVariable {
 	/// The engine-visible `ConVar`. C++ writes its list link, registered flag,
@@ -264,6 +266,7 @@ impl ConsoleVariable {
 	}
 
 	/// The value as a boolean: whether its integer is not 0.
+	#[doc(alias = "GetBool")]
 	pub fn bool(&self, server: Server<'_>) -> bool {
 		self.int(server) != 0
 	}
@@ -283,7 +286,7 @@ impl ConsoleVariable {
 	/// the previous one, as tier1's `ConVar::ChangeStringValue` does.
 	fn change_string(&self, callbacks: Option<Cvar<'_>>, value: CString, old_float: f32) {
 		let raw = self.raw.get();
-		let length = value.as_bytes_with_nul().len();
+		let length = c_int::try_from(value.as_bytes_with_nul().len()).unwrap_or(c_int::MAX);
 
 		// SAFETY: Fields are accessed through the cell without forming
 		// references, on the main thread.
@@ -299,7 +302,7 @@ impl ConsoleVariable {
 		// SAFETY: As above.
 		unsafe {
 			(&raw mut (*raw).m_pszString).write(value.as_ptr().cast_mut());
-			(&raw mut (*raw).m_StringLength).write(length as c_int);
+			(&raw mut (*raw).m_StringLength).write(length);
 		}
 
 		let previous = self.string.replace(Some(value));
@@ -367,16 +370,20 @@ impl ConsoleVariable {
 	}
 
 	/// The value the variable reverts to.
+	#[doc(alias = "GetDefault")]
 	pub const fn default_value(&self) -> &'static CStr {
 		self.default
 	}
 
+	/// Sets the flags the engine sees once the variable is registered, none by
+	/// default.
 	pub const fn flags(mut self, flags: CommandFlags) -> Self {
 		self.flags = flags;
 		self
 	}
 
 	/// The value as a float.
+	#[doc(alias = "GetFloat")]
 	pub fn float(&self, _server: Server<'_>) -> f32 {
 		self.current_float()
 	}
@@ -389,6 +396,7 @@ impl ConsoleVariable {
 
 	/// The value as an integer, which follows the float unless it was set from
 	/// an integer.
+	#[doc(alias = "GetInt")]
 	pub fn int(&self, _server: Server<'_>) -> c_int {
 		self.current_int()
 	}
@@ -406,6 +414,7 @@ impl ConsoleVariable {
 	}
 
 	/// The name the variable is registered under.
+	#[doc(alias = "GetName")]
 	pub const fn name(&self) -> &'static CStr {
 		self.name
 	}
@@ -494,6 +503,7 @@ impl ConsoleVariable {
 	/// Sets the value from a float, which the string then shows with six
 	/// decimals, as the console does for `SetValue(float)`. Nothing happens if
 	/// the float value is unchanged.
+	#[doc(alias = "SetValue")]
 	pub fn set_float(&self, server: Server<'_>, value: f32) {
 		self.set_float_value(self.change_callbacks(Some(server)), value, false);
 	}
@@ -512,6 +522,7 @@ impl ConsoleVariable {
 
 	/// Sets the value from an integer, as the console does for
 	/// `SetValue(int)`. Nothing happens if the integer value is unchanged.
+	#[doc(alias = "SetValue")]
 	pub fn set_int(&self, server: Server<'_>, value: c_int) {
 		self.set_int_value(self.change_callbacks(Some(server)), value);
 	}
@@ -534,6 +545,7 @@ impl ConsoleVariable {
 
 	/// Sets the value from a string, as the console does. The float is parsed
 	/// as C's `atof` parses decimal numbers, and the integer follows it.
+	#[doc(alias = "SetValue")]
 	pub fn set_string(&self, server: Server<'_>, value: &CStr) {
 		self.set_string_value(self.change_callbacks(Some(server)), Some(value));
 	}
@@ -575,6 +587,7 @@ impl ConsoleVariable {
 	}
 
 	/// The value as a string.
+	#[doc(alias = "GetString")]
 	pub fn string(&self, _server: Server<'_>) -> CString {
 		// SAFETY: The string is never null, and is only replaced on the main
 		// thread. It is copied immediately.
@@ -744,9 +757,8 @@ unsafe extern "C" fn change_string_value(
 unsafe extern "C" fn clamp_value(this: *mut sys::ConVar, value: *mut f32) -> bool {
 	// SAFETY: See above. The engine passes a float by reference.
 	unsafe {
-		from_engine(this, |variable, _| match value.as_mut() {
-			Some(value) => variable.clamp(value),
-			None => false,
+		from_engine(this, |variable, _| {
+			value.as_mut().is_some_and(|value| variable.clamp(value))
 		})
 	}
 	.unwrap_or(false)
@@ -779,18 +791,22 @@ unsafe extern "C" fn create_vtbl(
 
 /// Formats a float as `%f` does in tier1's 32-byte buffers.
 fn format_float(value: f32) -> CString {
+	/// The size of tier1's buffers, whose last byte holds the terminator.
+	const BUFFER_LENGTH: usize = 32;
+
 	let mut text = match value {
 		value if value.is_nan() && value.is_sign_negative() => "-nan".to_owned(),
 		value if value.is_nan() => "nan".to_owned(),
 		value => format!("{:.6}", f64::from(value)),
 	};
 
-	text.truncate(31);
+	text.truncate(BUFFER_LENGTH - 1);
 
 	// SAFETY: A formatted number contains no NUL.
 	unsafe { CString::from_vec_unchecked(text.into_bytes()) }
 }
 
+/// Formats an integer as `%d` does.
 fn format_int(value: c_int) -> CString {
 	// SAFETY: A formatted number contains no NUL.
 	unsafe { CString::from_vec_unchecked(value.to_string().into_bytes()) }
@@ -917,6 +933,10 @@ pub(super) const fn parse_float(text: &[u8]) -> f64 {
 	/// nearest `f32`.
 	const MAX_DIGITS: u64 = 1_000_000_000_000_000_000;
 
+	/// Past this power of ten in either direction, every non-zero mantissa
+	/// overflows to infinity or underflows to 0.
+	const MAX_EXPONENT: i64 = 400;
+
 	let mut index = skip_space(text);
 	let negative = index < text.len() && text[index] == b'-';
 
@@ -957,6 +977,12 @@ pub(super) const fn parse_float(text: &[u8]) -> f64 {
 		return 0.0;
 	}
 
+	// Every digit is 0, so the value is too, whatever the exponent. Scaling it
+	// would give NaN once the scale overflows to infinity.
+	if mantissa == 0 {
+		return if negative { -0.0 } else { 0.0 };
+	}
+
 	// An exponent counts only if a digit follows its marker and sign.
 	if index < text.len() && (text[index] == b'e' || text[index] == b'E') {
 		let mut cursor = index + 1;
@@ -978,15 +1004,14 @@ pub(super) const fn parse_float(text: &[u8]) -> f64 {
 		}
 
 		if exponent_digits {
-			exponent += if exponent_negative { -written } else { written };
+			exponent = exponent.saturating_add(if exponent_negative { -written } else { written });
 		}
 	}
 
-	// Past these, every mantissa overflows to infinity or underflows to 0.
-	let exponent = if exponent > 400 {
-		400
-	} else if exponent < -400 {
-		-400
+	let exponent = if exponent > MAX_EXPONENT {
+		MAX_EXPONENT
+	} else if exponent < -MAX_EXPONENT {
+		-MAX_EXPONENT
 	} else {
 		exponent
 	};
@@ -1040,11 +1065,13 @@ pub(super) const fn parse_int(text: &[u8]) -> c_int {
 	}
 }
 
+/// The address of the primary table in [`VTABLES`].
 fn primary_vtable() -> *const PrimaryVtable {
 	// SAFETY: Only the address is taken; nothing is read.
 	unsafe { &raw const (*VTABLES.0.get()).primary }
 }
 
+/// The address of the `IConVar` table in [`VTABLES`].
 fn secondary_vtable() -> *const sys::IConVar__bindgen_vtable {
 	// SAFETY: Only the address is taken; nothing is read.
 	unsafe { &raw const (*VTABLES.0.get()).secondary }

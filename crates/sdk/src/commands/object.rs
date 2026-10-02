@@ -17,6 +17,8 @@ use std::mem::{MaybeUninit, offset_of, size_of};
 use std::pin::Pin;
 use std::ptr::{self, NonNull};
 
+/// Runs the handler of the command a type-erased header starts: a
+/// [`dispatch_erased`] for the command's handler type.
 type DispatchFn = unsafe fn(NonNull<CommandHeader>, &CommandContext<'_>) -> CommandResult;
 
 const _: () = {
@@ -224,6 +226,7 @@ struct ConCommandVtable {
 /// A command is `Sync` when its handler is: everything the engine or Rust
 /// writes after construction is only touched on the server's main thread,
 /// either by the engine or through a [`Server`], which only exists there.
+#[doc(alias = "ConCommand")]
 #[repr(C)]
 pub struct ConsoleCommand<H> {
 	header: CommandHeader,
@@ -275,11 +278,14 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 		}
 	}
 
+	/// Sets who may run the command, [`CommandAccess::Server`] by default.
 	pub const fn access(mut self, access: CommandAccess) -> Self {
 		self.header.access = access;
 		self
 	}
 
+	/// Sets the flags the engine sees once the command is registered, none by
+	/// default.
 	pub const fn flags(mut self, flags: CommandFlags) -> Self {
 		self.header.flags = flags;
 		self
@@ -373,11 +379,13 @@ impl<H> ConsoleCommand<H> {
 		NonNull::from(self).cast()
 	}
 
+	/// The handler that runs each invocation.
 	pub const fn handler(&self) -> &H {
 		&self.handler
 	}
 
 	/// The name the command is registered under.
+	#[doc(alias = "GetName")]
 	pub const fn name(&self) -> &'static CStr {
 		self.header.name
 	}
@@ -652,6 +660,8 @@ pub(super) unsafe fn unregister_base(
 	Ok(())
 }
 
+/// The address of the table in [`VTABLE`], which every prepared command points
+/// at.
 fn vtable() -> *const ConCommandVtable {
 	VTABLE.0.get()
 }

@@ -26,11 +26,14 @@ pub enum ClientRoute {
 }
 
 impl ClientRoute {
+	/// Whether the command was [handled](Self::Handled), so the call must not
+	/// reach the game.
 	pub const fn is_handled(self) -> bool {
 		matches!(self, Self::Handled)
 	}
 }
 
+/// Whether `sv_cheats` is set. Without the variable, cheats are not allowed.
 fn cheats_allowed(cvar: Cvar<'_>) -> bool {
 	cvar.find_var(c"sv_cheats")
 		.is_some_and(|cheats| cheats.int() != 0)
@@ -97,6 +100,8 @@ pub(super) fn drop_payload(payload: Box<dyn Any + Send>) {
 	}
 }
 
+/// The message a panic was given, or a placeholder if its payload is not a
+/// string.
 fn panic_message(payload: &(dyn Any + Send)) -> &str {
 	payload
 		.downcast_ref::<&str>()
@@ -105,10 +110,14 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
 		.unwrap_or("a non-string payload")
 }
 
+/// Prints a line to the server console, whoever ran the command.
 fn print_to_console(server: Server<'_>, message: std::fmt::Arguments<'_>) {
 	server.console_print(&line_from(message));
 }
 
+/// Runs a client's command for [`route_client_command`], inside its panic
+/// guard.
+///
 /// # Safety
 ///
 /// As for [`route_client_command`].
@@ -165,9 +174,10 @@ unsafe fn route(
 		return ClientRoute::Handled;
 	}
 
-	match run(header, &context) {
-		true => ClientRoute::NotRouted,
-		false => ClientRoute::Handled,
+	if run(header, &context) {
+		ClientRoute::NotRouted
+	} else {
+		ClientRoute::Handled
 	}
 }
 

@@ -1377,6 +1377,13 @@ fn values_parse_as_c_does() {
 	assert_eq!(parse_float(b"."), 0.0);
 	assert_eq!(parse_float(b""), 0.0);
 	assert_eq!(parse_float(b"1e999"), f64::INFINITY);
+	assert_eq!(parse_float(b"0.01e-99999999999999999999"), 0.0);
+	assert_eq!(
+		parse_float(b"100000000000000000000e99999999999999999999"),
+		f64::INFINITY
+	);
+	assert_eq!(parse_float(b"0e309"), 0.0);
+	assert!(parse_float(b"-0e400").is_sign_negative());
 	assert_eq!(
 		parse_float(b"123456789012345678901234") as f32,
 		1.234_567_9e23

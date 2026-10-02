@@ -16,16 +16,30 @@ const MAX_LENGTH: usize = 512;
 /// Positions count the command name as 0, as the console shows them.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ArgError {
+	/// The invocation has no argument at the requested position.
 	#[error("missing argument {position}")]
-	Missing { position: usize },
+	Missing {
+		/// The requested argument's position.
+		position: usize,
+	},
 
+	/// The argument is not valid UTF-8.
 	#[error("argument {position} is not valid UTF-8")]
-	NotUtf8 { position: usize },
+	NotUtf8 {
+		/// The argument's position.
+		position: usize,
+	},
 
+	/// The argument does not parse as the requested type.
 	#[error("argument {position} (`{value}`) is not a valid {expected}")]
 	Invalid {
+		/// The argument's position.
 		position: usize,
+
+		/// The argument's text, as tokenized, without quotes.
 		value: String,
+
+		/// The requested type's name, as [`std::any::type_name`] gives it.
 		expected: &'static str,
 	},
 }
@@ -34,6 +48,7 @@ pub enum ArgError {
 ///
 /// Argument 0, the command name, is [`Self::name`]; [`Self::get`] counts the
 /// arguments after it from 0.
+#[doc(alias = "CCommand")]
 #[derive(Clone, Copy)]
 pub struct CommandArgs<'d> {
 	line: &'d CommandLine,
@@ -50,15 +65,16 @@ impl<'d> CommandArgs<'d> {
 		self.line.line()
 	}
 
-	/// The argument at `index` after the name.
+	/// The argument at `index` after the name, or `None` past the last.
 	#[doc(alias = "Arg")]
 	pub fn get(self, index: usize) -> Option<&'d CStr> {
 		self.line.arg(index.checked_add(1)?)
 	}
 
-	/// The argument at `index` after the name, as UTF-8.
+	/// The argument at `index` after the name, as UTF-8. Fails if it is
+	/// missing or not UTF-8.
 	pub fn get_str(self, index: usize) -> Result<&'d str, ArgError> {
-		let position = index + 1;
+		let position = index.saturating_add(1);
 
 		self.get(index)
 			.ok_or(ArgError::Missing { position })?
@@ -66,6 +82,7 @@ impl<'d> CommandArgs<'d> {
 			.map_err(|_| ArgError::NotUtf8 { position })
 	}
 
+	/// Whether no arguments follow the name.
 	pub fn is_empty(self) -> bool {
 		self.len() == 0
 	}
@@ -86,7 +103,8 @@ impl<'d> CommandArgs<'d> {
 		self.line.arg(0).unwrap_or_default()
 	}
 
-	/// Parses the argument at `index` after the name.
+	/// Parses the argument at `index` after the name. Fails as
+	/// [`Self::get_str`] does, or if [`FromStr`] rejects the argument.
 	pub fn parse<T: FromStr>(self, index: usize) -> Result<T, ArgError> {
 		let value = self.get_str(index)?;
 
@@ -262,6 +280,8 @@ impl CommandLine {
 		command
 	}
 
+	/// The argument at `index`, counting the name as 0, or `None` past the
+	/// last.
 	fn arg(&self, index: usize) -> Option<&CStr> {
 		if index >= self.argc {
 			return None;
@@ -346,6 +366,18 @@ mod tests {
 		assert_eq!(args.command_line(), c"sb_give scout \"1 2\" 3");
 		assert_eq!(args.parse::<u8>(2), Ok(3));
 		assert_eq!(args.parse::<u8>(3), Err(ArgError::Missing { position: 4 }));
+		assert_eq!(
+			args.get_str(usize::MAX),
+			Err(ArgError::Missing {
+				position: usize::MAX
+			})
+		);
+		assert_eq!(
+			args.parse::<i32>(usize::MAX),
+			Err(ArgError::Missing {
+				position: usize::MAX
+			})
+		);
 		assert_eq!(
 			args.parse::<u8>(0).unwrap_err().to_string(),
 			"argument 1 (`scout`) is not a valid u8"

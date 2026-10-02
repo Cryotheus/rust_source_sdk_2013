@@ -29,7 +29,10 @@ const MAX_NAME_LENGTH: usize = 63;
 /// What already uses a name in the engine's registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommandBaseKind {
+	/// A console command (`ConCommand`).
 	Command,
+
+	/// A console variable (`ConVar`).
 	Variable,
 }
 
@@ -45,14 +48,23 @@ impl Display for CommandBaseKind {
 /// A command name [`validate_name`] rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidCommandName {
+	/// The name has no bytes.
 	#[error("the name is empty")]
 	Empty,
 
+	/// The name is longer than 63 bytes.
 	#[error("the name is longer than {MAX_NAME_LENGTH} bytes")]
 	TooLong,
 
+	/// A byte is not an ASCII letter, digit, or `_`. Only the first is reported.
 	#[error("byte {index} ({byte:#04x}) is not an ASCII letter, digit, or `_`")]
-	InvalidByte { index: usize, byte: u8 },
+	InvalidByte {
+		/// Where the byte is in the name.
+		index: usize,
+
+		/// The byte itself.
+		byte: u8,
+	},
 
 	/// The engine runs commands with this name for clients as though the
 	/// server ran them, so their invoker could not be told apart.
@@ -83,15 +95,18 @@ impl RegisterCommandError {
 		self.base
 	}
 
+	/// Why it could not be registered.
 	pub const fn kind(&self) -> &RegisterCommandErrorKind {
 		&self.kind
 	}
 
+	/// The name of the command or variable.
 	pub const fn name(&self) -> &'static CStr {
 		self.name
 	}
 }
 
+/// Why a command or variable could not be registered.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RegisterCommandErrorKind {
 	/// The engine lists it already. Registering it again would cut the
@@ -99,6 +114,8 @@ pub enum RegisterCommandErrorKind {
 	#[error("it is already registered")]
 	AlreadyRegistered,
 
+	/// The engine lists another command or variable, of the given kind, under
+	/// the name, ignoring case.
 	#[error("the name is already used by a console {0}")]
 	NameTaken(CommandBaseKind),
 
@@ -107,6 +124,7 @@ pub enum RegisterCommandErrorKind {
 	#[error("the engine did not list it")]
 	NotLinked,
 
+	/// The engine does not export `ICvar` at the version the bindings expect.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 }
@@ -134,17 +152,21 @@ impl UnregisterCommandError {
 		self.base
 	}
 
+	/// Why it could not be unregistered.
 	pub const fn kind(&self) -> &UnregisterCommandErrorKind {
 		&self.kind
 	}
 
+	/// The name of the command or variable.
 	pub const fn name(&self) -> &'static CStr {
 		self.name
 	}
 }
 
+/// Why a command or variable could not be unregistered.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UnregisterCommandErrorKind {
+	/// The engine does not mark it registered, so there is nothing to unlink.
 	#[error("it is not registered")]
 	NotRegistered,
 
@@ -152,6 +174,7 @@ pub enum UnregisterCommandErrorKind {
 	#[error("the engine still lists it")]
 	StillLinked,
 
+	/// The engine does not export `ICvar` at the version the bindings expect.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 }

@@ -13,16 +13,22 @@ use std::ptr::NonNull;
 /// as Metamod:Source. Neither may keep the pointer except as the engine or
 /// that host does.
 pub unsafe trait CommandRegistrar {
+	/// Links `command` into the engine's registry.
+	///
 	/// # Safety
 	///
 	/// `command` is a pinned, `'static` [`ConsoleCommand`](super::ConsoleCommand)
 	/// or [`ConsoleVariable`](super::ConsoleVariable) ready to be linked, and
 	/// this runs on the server's main thread.
+	#[doc(alias = "RegisterConCommand")]
 	unsafe fn link(&self, command: NonNull<sys::ConCommandBase>);
 
+	/// Unlinks `command` from the engine's registry.
+	///
 	/// # Safety
 	///
 	/// As for [`Self::link`].
+	#[doc(alias = "UnregisterConCommand")]
 	unsafe fn unlink(&self, command: NonNull<sys::ConCommandBase>);
 }
 
