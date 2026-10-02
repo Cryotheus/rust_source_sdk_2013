@@ -132,7 +132,7 @@ impl<'s> ConVar<'s> {
 	/// replicated value.
 	///
 	/// The flag is cleared while the variable's change callbacks run, since
-	/// the engine's checks it then.
+	/// the engine's callback checks it then.
 	pub fn set_string_quietly(self, value: &CStr) {
 		let notify = CommandFlags::NOTIFY.bits();
 
@@ -210,6 +210,8 @@ impl<'s> Cvar<'s> {
 	}
 
 	/// Finds a console variable by name. Commands are not variables.
+	///
+	/// Returns `None` if no variable is registered under the name.
 	#[doc(alias = "FindVar")]
 	pub fn find_var(self, name: &CStr) -> Option<ConVar<'s>> {
 		// SAFETY: `Server::new` guarantees the interface is live.

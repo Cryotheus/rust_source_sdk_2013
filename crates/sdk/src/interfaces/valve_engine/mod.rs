@@ -51,6 +51,7 @@ const _: () = {
 
 impl<'s> ValveEngine<'s> {
 	/// The engine's change-tracking record for an edict.
+	#[doc(alias = "GetChangeAccessor")]
 	pub(crate) fn change_accessor(
 		self,
 		edict: Edict<'_>,
@@ -76,7 +77,7 @@ impl<'s> ValveEngine<'s> {
 	/// variables marked `FCVAR_USERINFO`, such as `name` or `cl_interp`.
 	///
 	/// The engine reports an unknown setting, or an edict that no connected
-	/// client owns, as empty.
+	/// client owns, as empty. Returns `None` if the engine returns null.
 	#[doc(alias = "GetClientConVarValue")]
 	pub fn client_convar_value(self, client: Edict<'_>, name: &CStr) -> Option<CString> {
 		// SAFETY: As for `change_level`. The engine checks the index, and the
@@ -193,6 +194,10 @@ impl<'s> ValveEngine<'s> {
 
 	/// The network ID of the client owning an edict, such as a rendered Steam
 	/// ID or `BOT`.
+	///
+	/// Returns `None` for an edict that no client owns, which covers the edict
+	/// of every entity that is not a player. The edict of an empty player slot
+	/// can still report an ID, such as `STEAM_ID_PENDING`.
 	#[doc(alias = "GetPlayerNetworkIDString")]
 	pub fn player_network_id(self, edict: Edict<'_>) -> Option<CString> {
 		// SAFETY: As for `user_id_of_edict`. The engine renders the ID into a
@@ -224,6 +229,7 @@ impl<'s> ValveEngine<'s> {
 	}
 
 	/// The engine's per-frame record of changed network variables.
+	#[doc(alias = "GetSharedEdictChangeInfo")]
 	pub(crate) fn shared_edict_change_info(self) -> Option<NonNull<sys::CSharedEdictChangeInfo>> {
 		// SAFETY: As for `change_level`.
 		NonNull::new(unsafe { vcall!(self.as_ptr() => IVEngineServer_GetSharedEdictChangeInfo()) })
@@ -254,6 +260,9 @@ mod tests {
 	use std::cell::Cell;
 	use std::ptr::null_mut;
 
+	/// The game directory the mock engine reports.
+	const GAME_DIR: &CStr = c"C:/srcds/tf";
+
 	thread_local! {
 		static RECEIVED_THIS: Cell<*mut sys::IVEngineServer> = const { Cell::new(null_mut()) };
 		static RECEIVED_COMMAND: Cell<*const c_char> = const { Cell::new(ptr::null()) };
@@ -282,7 +291,7 @@ mod tests {
 
 		assert_eq!(RECEIVED_THIS.get(), interface_pointer);
 		assert_eq!(RECEIVED_COMMAND.get(), command.as_ptr());
-		assert_eq!(engine.game_dir().as_c_str(), c"C:/srcds/tf");
+		assert_eq!(engine.game_dir().as_c_str(), GAME_DIR);
 	}
 
 	unsafe extern "C" fn record_server_command(
@@ -298,8 +307,10 @@ mod tests {
 		buffer: *mut c_char,
 		length: c_int,
 	) {
+		let length_with_nul = GAME_DIR.to_bytes_with_nul().len();
+
 		assert_eq!(length, MAX_PATH as c_int);
-		unsafe { ptr::copy_nonoverlapping(c"C:/srcds/tf".as_ptr(), buffer, 12) };
+		unsafe { ptr::copy_nonoverlapping(GAME_DIR.as_ptr(), buffer, length_with_nul) };
 	}
 
 	mod edict_lookup {

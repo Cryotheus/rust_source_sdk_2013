@@ -35,6 +35,7 @@ impl<'s> GameClient<'s> {
 		self.raw.as_ptr().cast_const()
 	}
 
+	/// Returns the native pointer for low-level interop.
 	pub const fn as_ptr(self) -> *mut sys::IClient {
 		self.raw.as_ptr()
 	}
@@ -112,7 +113,7 @@ impl<'s> GameClient<'s> {
 		unsafe { vcall!(self.as_const() => IClient_IsSpawned()) }
 	}
 
-	/// The player's name.
+	/// The player's name, or `None` if the engine returns null.
 	#[doc(alias = "GetClientName")]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: As for `slot`, and the name is copied at once.
@@ -130,7 +131,8 @@ impl<'s> GameClient<'s> {
 		Some(unsafe { NetChannel::from_raw(channel) })
 	}
 
-	/// The player's network ID, such as a rendered Steam ID or `BOT`.
+	/// The player's network ID, such as a rendered Steam ID or `BOT`, or `None`
+	/// if the engine returns null.
 	#[doc(alias = "GetNetworkIDString")]
 	pub fn network_id(self) -> Option<CString> {
 		// SAFETY: As for `name`.
@@ -174,6 +176,8 @@ impl<'s> GameClient<'s> {
 
 	/// The value the client reported for one of its user settings, the
 	/// console variables marked `FCVAR_USERINFO`. Unknown settings are empty.
+	///
+	/// Returns `None` if the engine returns null.
 	#[doc(alias = "GetUserSetting")]
 	pub fn user_setting(self, name: &CStr) -> Option<CString> {
 		// SAFETY: As for `name`.
@@ -199,11 +203,15 @@ impl<'s> GameServer<'s> {
 		self.raw.as_ptr().cast_const()
 	}
 
+	/// Returns the native pointer for low-level interop.
 	pub const fn as_ptr(self) -> *mut sys::IServer {
 		self.raw.as_ptr()
 	}
 
 	/// The client in a player slot, from 0, whether anyone uses it or not.
+	///
+	/// Returns `None` if `slot` is negative or not below
+	/// [`Self::client_count`], or if the engine returns null.
 	#[doc(alias = "GetClient")]
 	pub fn client(self, slot: c_int) -> Option<GameClient<'s>> {
 		if !(0..self.client_count()).contains(&slot) {
@@ -231,14 +239,14 @@ impl<'s> GameServer<'s> {
 		(0..self.client_count()).filter_map(move |slot| self.client(slot))
 	}
 
-	/// Connected clients, including fake ones.
+	/// The number of connected clients, including fake ones.
 	#[doc(alias = "GetNumClients")]
 	pub fn connected_clients(self) -> c_int {
 		// SAFETY: As for `client`.
 		unsafe { vcall!(self.as_const() => IServer_GetNumClients()) }
 	}
 
-	/// Fake clients, such as bots.
+	/// The number of fake clients, such as bots.
 	#[doc(alias = "GetNumFakeClients")]
 	pub fn fake_clients(self) -> c_int {
 		// SAFETY: As for `client`.
@@ -252,6 +260,7 @@ impl<'s> GameServer<'s> {
 		unsafe { vcall!(self.as_const() => IServer_IsActive()) }
 	}
 
+	/// Whether the server is a dedicated server rather than a listen server.
 	#[doc(alias = "IsDedicated")]
 	pub fn is_dedicated(self) -> bool {
 		// SAFETY: As for `client`.
@@ -265,13 +274,14 @@ impl<'s> GameServer<'s> {
 		unsafe { vcall!(self.as_const() => IServer_IsLoading()) }
 	}
 
+	/// Whether the server is paused.
 	#[doc(alias = "IsPaused")]
 	pub fn is_paused(self) -> bool {
 		// SAFETY: As for `client`.
 		unsafe { vcall!(self.as_const() => IServer_IsPaused()) }
 	}
 
-	/// The name of the current map.
+	/// The name of the current map, or `None` if the engine returns null.
 	#[doc(alias = "GetMapName")]
 	pub fn map_name(self) -> Option<CString> {
 		// SAFETY: As for `name`.
@@ -285,21 +295,22 @@ impl<'s> GameServer<'s> {
 		unsafe { vcall!(self.as_const() => IServer_GetMaxClients()) }
 	}
 
-	/// The server's name, as `hostname` sets it.
+	/// The server's name, as `hostname` sets it, or `None` if the engine
+	/// returns null.
 	#[doc(alias = "GetName")]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: As for `client`, and the name is copied at once.
 		unsafe { copy_cstr(vcall!(self.as_const() => IServer_GetName())) }
 	}
 
-	/// SourceTV and replay proxies.
+	/// The number of SourceTV and replay proxies.
 	#[doc(alias = "GetNumProxies")]
 	pub fn proxies(self) -> c_int {
 		// SAFETY: As for `client`.
 		unsafe { vcall!(self.as_const() => IServer_GetNumProxies()) }
 	}
 
-	/// Levels the server has loaded since it started.
+	/// The number of levels the server has loaded since it started.
 	#[doc(alias = "GetSpawnCount")]
 	pub fn spawn_count(self) -> c_int {
 		// SAFETY: As for `client`.
@@ -329,7 +340,7 @@ impl<'s> GameServer<'s> {
 }
 
 impl<'s> ValveEngine<'s> {
-	/// The engine's game server.
+	/// The engine's game server, or `None` if the engine returns null.
 	#[doc(alias = "GetIServer")]
 	pub fn game_server(self) -> Option<GameServer<'s>> {
 		// SAFETY: `Server::new` guarantees the interface is live.
