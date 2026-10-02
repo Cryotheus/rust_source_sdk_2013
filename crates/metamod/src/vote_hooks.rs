@@ -6,11 +6,9 @@ use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
-use source_sdk_2013::voting::vote_issue_vtables;
-
 use source_sdk_2013::voting::{
 	REQUEST_CALL_VOTE_SLOT, VoteDecision, VoteHookTargetError, VoteIssue, VoteRequest,
-	VoteStartHandler,
+	VoteStartHandler, vote_issue_vtables,
 };
 
 use source_sdk_2013::{Server, ServerBinding, sys};
@@ -219,6 +217,7 @@ unsafe fn dispatch(
 
 #[cfg(test)]
 mod tests {
+	use super::*;
 	use source_sdk_2013::{Game, InterfaceFactory};
 	use std::ffi::c_void;
 
