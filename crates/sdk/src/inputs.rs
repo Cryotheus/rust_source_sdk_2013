@@ -53,13 +53,25 @@ pub(crate) struct CheckedInput<'s> {
 	/// The name the input is declared with, which VScript's `Input<Name>`
 	/// hooks are looked up by, case-sensitively.
 	name: &'s CStr,
+
+	/// The type the input declares, which decides whether a string value is
+	/// pooled and whether a null entity is sent as no value.
 	declared: InputType,
+
+	/// Whether the input is one of [`CODE_OR_SPAWN_INPUTS`], or one of
+	/// [`NPC_MAKER_SPAWN_INPUTS`] sent to an NPC maker.
 	frees_entities: bool,
+
+	/// Whether the input is one of [`KILL_INPUTS`].
 	kills: bool,
+
+	/// Whether the target is a player or a soundscape. The world is recognized
+	/// by its index instead.
 	target_is_protected: bool,
 }
 
 impl<'s> CheckedInput<'s> {
+	/// The name to send the input by: the one it is declared with.
 	pub(crate) const fn name(self) -> &'s CStr {
 		self.name
 	}
@@ -68,21 +80,33 @@ impl<'s> CheckedInput<'s> {
 /// An input was not sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum InputError {
-	/// Input names are ASCII, and compared ignoring case.
+	/// The input name is empty or not ASCII. Input names are ASCII, and
+	/// compared ignoring case.
 	#[error("the input name is empty or not ASCII")]
 	InvalidName,
 
+	/// The target is marked for deletion, as
+	/// [`Entity::is_marked_for_deletion`] reports.
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
 
+	/// An [`InputValue::Float`] or [`InputValue::Vector`] has a NaN or infinite
+	/// component.
 	#[error("the value contains a non-finite component")]
 	NonFinite,
 
+	/// Neither the target's class nor any of its bases declares an input with
+	/// the name, ignoring ASCII case. Key values are not inputs.
 	#[error("the entity has no such input")]
 	UnknownInput,
 
+	/// The input declares a type the value does not have and is not converted
+	/// to, as [`InputValue`] describes.
 	#[error("the input takes {expected}, which the value cannot be converted to")]
-	TypeMismatch { expected: InputType },
+	TypeMismatch {
+		/// The type the input declares.
+		expected: InputType,
+	},
 
 	/// The input runs code the caller chooses or spawns entities, either of
 	/// which can free entities immediately. See
@@ -116,16 +140,40 @@ pub enum InputError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InputType {
 	/// The input ignores its value.
+	#[doc(alias = "FIELD_VOID")]
 	Void,
+
+	/// A boolean, which integers, floats, and strings convert to.
+	#[doc(alias = "FIELD_BOOLEAN")]
 	Bool,
+
+	/// An integer, which floats and strings convert to.
+	#[doc(alias = "FIELD_INTEGER")]
 	Int,
+
+	/// A float, which integers and strings convert to.
+	#[doc(alias = "FIELD_FLOAT")]
 	Float,
+
+	/// A string, which entities convert to as their name. [`InputValue::Void`]
+	/// arrives as an empty string.
+	#[doc(alias = "FIELD_STRING")]
 	String,
+
+	/// A vector, which strings convert to.
+	#[doc(alias = "FIELD_VECTOR")]
 	Vector,
+
+	/// A color, which strings convert to.
+	#[doc(alias = "FIELD_COLOR32")]
 	Color,
+
+	/// An entity handle, which strings convert to by a name search.
+	#[doc(alias = "FIELD_EHANDLE")]
 	Entity,
 
 	/// The handler reads the value as it arrives (`FIELD_INPUT`).
+	#[doc(alias = "FIELD_INPUT")]
 	Any,
 
 	/// A type no [`InputValue`] converts to, by its `fieldtype_t`.
@@ -213,6 +261,7 @@ pub enum InputValue<'a> {
 	/// `Bool` converts to no other type.
 	Bool(bool),
 
+	/// An integer, which converts to floats and booleans.
 	Int(c_int),
 
 	/// Checked to be finite. A string the game parses as a float is not.
@@ -235,6 +284,7 @@ pub enum InputValue<'a> {
 	/// Checked to be finite. A string the game parses as a vector is not.
 	Vector(Vector),
 
+	/// `Color` converts to no other type.
 	Color(Color32),
 
 	/// An entity, or `None` for a null handle. Inputs that take a string
@@ -243,6 +293,7 @@ pub enum InputValue<'a> {
 }
 
 impl InputValue<'_> {
+	/// The `fieldtype_t` the `variant_t` holding this value records.
 	const fn field_type(self) -> sys::fieldtype_t {
 		match self {
 			Self::Void => sys::_fieldtypes_FIELD_VOID,
@@ -256,6 +307,7 @@ impl InputValue<'_> {
 		}
 	}
 
+	/// Whether every float component is finite. Values without floats are.
 	fn is_finite(self) -> bool {
 		match self {
 			Self::Float(value) => value.is_finite(),

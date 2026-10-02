@@ -6,26 +6,59 @@
 
 use crate::entities::Entity;
 use crate::ffi::borrow_cstr;
-use std::ffi::CStr;
+use std::ffi::{CStr, c_int, c_uint};
 use std::mem::{offset_of, size_of, transmute, zeroed};
 
+/// The script type of a `bool` (`FIELD_BOOLEAN`).
 pub(crate) const BOOL: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_BOOLEAN as _;
+
+/// The script type of an `f32` (`FIELD_FLOAT`).
 pub(crate) const FLOAT: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_FLOAT as _;
+
+/// The script type of a script object handle (`FIELD_HSCRIPT`).
 pub(crate) const HANDLE: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_HSCRIPT as _;
+
+/// The script type of a 32-bit integer (`FIELD_INTEGER`).
 pub(crate) const INT: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_INTEGER as _;
+
+/// How many descriptors of an entity's base chain [`call`] searches for the
+/// declaring class.
+const MAX_CLASS_DEPTH: usize = 64;
+
+/// The most bindings [`call`] expects in one class descriptor. A larger count
+/// is taken as a signature mismatch.
+const MAX_FUNCTION_BINDINGS: c_int = 4096;
+
+/// `SF_MEMBER_FUNC` from `public/vscript/ivscript.h`: the binding wraps a
+/// member function, whose object [`call`] passes as the adapter's context.
+const SF_MEMBER_FUNC: c_uint = 0x01;
+
+/// The script type of a C string (`FIELD_CSTRING`).
 pub(crate) const STRING: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_CSTRING as _;
+
+/// The script type of no value (`FIELD_VOID`), for methods returning nothing.
 pub(crate) const VOID: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_VOID as _;
 
+/// Why [`call`] did not return a native method's result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum BindingError {
+	/// The entity's descriptor chain has no class with the class name, that
+	/// class has no binding with the method name, or the binding has no
+	/// adapter.
 	#[error("the entity does not expose the requested native method")]
 	Unavailable,
+	/// The class's binding list looks malformed, or the binding's parameter or
+	/// return types, its flags, or the returned variant differ from what the
+	/// caller expects. When only the returned variant differs, the method has
+	/// already run.
 	#[error("the native method's runtime signature does not match the SDK")]
 	SignatureMismatch,
+	/// The binding's adapter returned false.
 	#[error("the native method rejected its arguments")]
 	Rejected,
 }
 
+/// A `bool` argument.
 pub(crate) fn boolean(value: bool) -> sys::ScriptVariant_t {
 	let mut result = variant(BOOL);
 	result.__bindgen_anon_1.m_bool = value;
@@ -34,14 +67,21 @@ pub(crate) fn boolean(value: bool) -> sys::ScriptVariant_t {
 
 /// Finds and invokes a native member on a named declaring class.
 ///
+/// Searches the entity's script class descriptor and its bases for the class
+/// named `class`, then calls that class's binding named `name` through the
+/// binding's adapter. The binding must declare the types of `arguments` and
+/// return `result_type`; a [`VOID`] call returns an empty variant.
+///
 /// # Safety
 ///
 /// The selected method must accept this live entity and argument values.
 /// Pointer arguments must remain valid for the call and any lifetime the
 /// method retains them for. The method and any callbacks it reaches must
-/// uphold `Server::new`'s entity-deletion and callback-scope requirements.
+/// uphold [`Server::new`]'s entity-deletion and callback-scope requirements.
 /// Return values must be non-owning scalar variants (void, bool, int, float,
 /// or HSCRIPT); allocated variants need the game's allocator to free them.
+///
+/// [`Server::new`]: crate::Server::new
 pub(crate) unsafe fn call(
 	entity: Entity<'_>,
 	class: &CStr,
@@ -68,7 +108,7 @@ pub(crate) unsafe fn call(
 	};
 	// SAFETY: The game owns and initializes these class descriptors.
 	let mut descriptor = unsafe { get_desc(entity.as_ptr()) };
-	for _ in 0..64 {
+	for _ in 0..MAX_CLASS_DEPTH {
 		if descriptor.is_null() {
 			break;
 		}
@@ -82,7 +122,7 @@ pub(crate) unsafe fn call(
 					(*descriptor).m_FunctionBindings.m_Size,
 				)
 			};
-			if !(0..=4096).contains(&count) || (count != 0 && bindings.is_null()) {
+			if !(0..=MAX_FUNCTION_BINDINGS).contains(&count) || (count != 0 && bindings.is_null()) {
 				return Err(BindingError::SignatureMismatch);
 			}
 			for index in 0..count as usize {
@@ -105,7 +145,7 @@ pub(crate) unsafe fn call(
 				if parameter_count < 0
 					|| parameter_count as usize != arguments.len()
 					|| returns != result_type
-					|| flags != 1
+					|| flags != SF_MEMBER_FUNC
 					|| (!arguments.is_empty() && parameters.is_null())
 				{
 					return Err(BindingError::SignatureMismatch);
@@ -126,12 +166,13 @@ pub(crate) unsafe fn call(
 				};
 				// SAFETY: The validated adapter handles the native member pointer
 				// representation. The caller vouches for argument values/effects.
+				// `parameter_count` was checked to equal `arguments.len()`.
 				if !unsafe {
 					adapter(
 						function,
 						entity.as_ptr().cast(),
 						arguments.as_mut_ptr(),
-						arguments.len() as i32,
+						parameter_count,
 						result_ptr,
 					)
 				} {
@@ -150,31 +191,37 @@ pub(crate) unsafe fn call(
 	Err(BindingError::Unavailable)
 }
 
+/// An `f32` argument.
 pub(crate) fn float(value: f32) -> sys::ScriptVariant_t {
 	let mut result = variant(FLOAT);
 	result.__bindgen_anon_1.m_float = value;
 	result
 }
 
+/// A script object handle argument, which may be null.
 pub(crate) fn handle(value: sys::HSCRIPT) -> sys::ScriptVariant_t {
 	let mut result = variant(HANDLE);
 	result.__bindgen_anon_1.m_hScript = value;
 	result
 }
 
+/// A 32-bit integer argument.
 pub(crate) fn int(value: i32) -> sys::ScriptVariant_t {
 	let mut result = variant(INT);
 	result.__bindgen_anon_1.m_int = value;
 	result
 }
 
-/// The caller of `call` keeps this string alive until the native call ends.
+/// A borrowed C string argument. The caller of [`call`] keeps the string
+/// alive until the native call ends, and for as long as the method retains it.
 pub(crate) fn string(value: &CStr) -> sys::ScriptVariant_t {
 	let mut result = variant(STRING);
 	result.__bindgen_anon_1.m_pszString = value.as_ptr();
 	result
 }
 
+/// An empty, non-owning variant of type `kind`, whose union member the caller
+/// sets.
 fn variant(kind: sys::ScriptDataType_t) -> sys::ScriptVariant_t {
 	// SAFETY: Null union storage, FIELD_VOID, and zero flags form an empty
 	// non-owning variant. All helpers initialize the selected union member.
@@ -187,6 +234,7 @@ fn variant(kind: sys::ScriptDataType_t) -> sys::ScriptVariant_t {
 mod tests {
 	use super::*;
 	use std::cell::Cell;
+	use std::marker::PhantomData;
 	use std::ptr::{NonNull, null_mut};
 
 	#[repr(C)]
@@ -226,12 +274,16 @@ mod tests {
 		bindings[0].m_desc.m_pszScriptName = c"SetValue".as_ptr();
 		bindings[0].m_desc.m_ReturnType = FLOAT;
 		bindings[0].m_desc.m_Parameters = vector(&mut parameters);
-		bindings[0].m_flags = 1;
+		bindings[0].m_flags = SF_MEMBER_FUNC;
 		bindings[0].m_pfnBinding = Some(adapter);
 		bindings[0].m_pFunction.val_0 = 0x1234;
 		let mut base: sys::ScriptClassDesc_t = unsafe { zeroed() };
 		base.m_pszClassname = c"Base".as_ptr();
 		base.m_FunctionBindings = vector(&mut bindings);
+		// The binding and the object are changed below only through the
+		// pointers `call` reads them by, since writing through the locals would
+		// invalidate those pointers.
+		let binding = base.m_FunctionBindings.m_Memory.m_pMemory;
 		let mut derived: sys::ScriptClassDesc_t = unsafe { zeroed() };
 		derived.m_pszClassname = c"Derived".as_ptr();
 		derived.m_pBaseDesc = &raw mut base;
@@ -242,11 +294,12 @@ mod tests {
 			description: &raw mut derived,
 			calls: Cell::new(0),
 		};
-		let entity = unsafe { Entity::from_raw(NonNull::from(&mut object).cast()) };
+		let object = NonNull::from(&mut object);
+		let entity = unsafe { Entity::from_raw(object.cast()) };
 		let value =
 			unsafe { call(entity, c"Base", c"SetValue", &mut [float(3.0)], FLOAT) }.unwrap();
 		assert_eq!(unsafe { value.__bindgen_anon_1.m_float }, 6.0);
-		assert_eq!(object.calls.get(), 1);
+		assert_eq!(unsafe { object.as_ref() }.calls.get(), 1);
 		assert_eq!(
 			unsafe { call(entity, c"Base", c"SetValue", &mut [int(3)], FLOAT) }.err(),
 			Some(BindingError::SignatureMismatch)
@@ -259,34 +312,39 @@ mod tests {
 			unsafe { call(entity, c"Other", c"SetValue", &mut [float(3.0)], FLOAT) }.err(),
 			Some(BindingError::Unavailable)
 		);
-		assert_eq!(object.calls.get(), 1);
-		bindings[0].m_desc.m_ReturnType = VOID;
+		assert_eq!(unsafe { object.as_ref() }.calls.get(), 1);
+		unsafe { (*binding).m_desc.m_ReturnType = VOID };
 		unsafe { call(entity, c"Base", c"SetValue", &mut [float(3.0)], VOID) }.unwrap();
-		assert_eq!(object.calls.get(), 2);
-		unsafe { (&raw mut bindings[0].m_flags).write(0) };
+		assert_eq!(unsafe { object.as_ref() }.calls.get(), 2);
+		unsafe { (*binding).m_flags = 0 };
 		assert_eq!(
 			unsafe { call(entity, c"Base", c"SetValue", &mut [float(3.0)], VOID) }.err(),
 			Some(BindingError::SignatureMismatch)
 		);
-		unsafe { (&raw mut object.description).write(null_mut()) };
+		unsafe { (*object.as_ptr()).description = null_mut() };
 		assert_eq!(
 			unsafe { call(entity, c"Base", c"SetValue", &mut [float(3.0)], VOID) }.err(),
 			Some(BindingError::Unavailable)
 		);
 	}
 
+	/// A vector over `values`. Both element pointers come from one
+	/// `as_mut_ptr` call, since a second call would invalidate the first.
 	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
+		let len = c_int::try_from(values.len()).unwrap();
+		let elements = values.as_mut_ptr();
+
 		sys::CUtlVector {
-			_phantom_0: Default::default(),
-			_phantom_1: Default::default(),
+			_phantom_0: PhantomData,
+			_phantom_1: PhantomData,
 			m_Memory: sys::CUtlMemory {
-				_phantom_0: Default::default(),
-				m_pMemory: values.as_mut_ptr(),
-				m_nAllocationCount: values.len() as i32,
+				_phantom_0: PhantomData,
+				m_pMemory: elements,
+				m_nAllocationCount: len,
 				m_nGrowSize: 0,
 			},
-			m_Size: values.len() as i32,
-			m_pElements: values.as_mut_ptr(),
+			m_Size: len,
+			m_pElements: elements,
 		}
 	}
 }
