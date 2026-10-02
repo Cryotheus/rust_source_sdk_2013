@@ -66,4 +66,6 @@ pub mod voting;
 pub mod weapons;
 
 pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
+
+/// The raw Source SDK bindings this crate wraps.
 pub use sys;

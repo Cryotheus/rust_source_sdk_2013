@@ -9,7 +9,7 @@ use crate::interfaces::{
 };
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
-use std::fmt::{self, Debug, Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
@@ -46,11 +46,16 @@ impl Game {
 /// `Raw` must be the C++ class that [`Self::MODULE`] exports under
 /// [`Self::VERSION`], and `bind` may only wrap the pointer it is given.
 pub(crate) unsafe trait Interface<'s>: Sized {
+	/// The C++ class of the exported object, such as `sys::IVEngineServer`.
 	type Raw;
 
+	/// The module whose factory exports the interface.
 	const MODULE: Module;
+	/// The exact version string the interface is requested by.
 	const VERSION: &'static CStr;
 
+	/// Wraps the object the factory returned in its handle.
+	///
 	/// # Safety
 	///
 	/// `raw` must be the live object exported under [`Self::VERSION`], alive
@@ -70,10 +75,12 @@ pub struct InterfaceError {
 }
 
 impl InterfaceError {
+	/// The module that was asked for the interface.
 	pub const fn module(&self) -> Module {
 		self.module
 	}
 
+	/// The version string the interface was requested by.
 	pub fn version(&self) -> &CStr {
 		&self.version
 	}
@@ -83,11 +90,13 @@ impl InterfaceError {
 ///
 /// Holding a factory grants nothing on its own; [`Server::new`] is where the
 /// caller vouches that it belongs to the running server.
+#[doc(alias = "CreateInterface")]
 #[doc(alias = "CreateInterfaceFn")]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct InterfaceFactory(RawInterfaceFactory);
 
 impl InterfaceFactory {
+	/// Wraps a module's `CreateInterface` function.
 	pub const fn new(factory: RawInterfaceFactory) -> Self {
 		Self(factory)
 	}
@@ -100,14 +109,9 @@ impl InterfaceFactory {
 		}
 	}
 
+	/// Returns the wrapped `CreateInterface` function.
 	pub const fn as_raw(self) -> RawInterfaceFactory {
 		self.0
-	}
-}
-
-impl Debug for InterfaceFactory {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		write!(f, "InterfaceFactory({:p})", self.0)
 	}
 }
 
@@ -136,7 +140,9 @@ impl Display for Module {
 /// engine's and game server's interface factories, the only objects in Source
 /// from which every interface is reachable, and resolves an interface each
 /// time an accessor is called. Interfaces are process-wide singletons, so each
-/// accessor returns the same object; resolving is a short string search.
+/// accessor returns the same object; resolving is a short string search. An
+/// accessor returns an [`InterfaceError`] if the module does not export its
+/// interface at the version these bindings were generated for.
 ///
 /// The lifetime `'s` is the scope [`Server::new`] vouches for. Handles derived
 /// from a `Server` carry it, so none can outlive the callback that created it.
@@ -216,6 +222,7 @@ impl<'s> Server<'s> {
 		self.interface()
 	}
 
+	/// The engine module's interface factory, as passed to [`Server::new`].
 	pub const fn engine_factory(&self) -> InterfaceFactory {
 		self.engine
 	}
@@ -234,7 +241,8 @@ impl<'s> Server<'s> {
 	///
 	/// The pointer is valid for `'s` if `version` names an interface that the
 	/// module implements as a singleton, which almost all are. Dereferencing
-	/// it requires `T` to match that interface.
+	/// it requires `T` to match that interface. Returns an [`InterfaceError`]
+	/// if the module does not export `version`.
 	pub fn find_interface<T>(
 		&self,
 		module: Module,
@@ -248,7 +256,7 @@ impl<'s> Server<'s> {
 		let mut return_code = 0;
 
 		// SAFETY: `new` guarantees the factory is the module's `CreateInterface`.
-		let interface = unsafe { factory.as_raw()(version.as_ptr(), &mut return_code) };
+		let interface = unsafe { factory.as_raw()(version.as_ptr(), &raw mut return_code) };
 
 		NonNull::new(interface.cast()).ok_or_else(|| InterfaceError {
 			module,
@@ -266,10 +274,13 @@ impl<'s> Server<'s> {
 		self.interface()
 	}
 
+	/// The game server module's interface factory, as passed to
+	/// [`Server::new`].
 	pub const fn game_server_factory(&self) -> InterfaceFactory {
 		self.game_server
 	}
 
+	/// Looks up the interface `I` wraps and binds its handle to `'s`.
 	fn interface<I: Interface<'s>>(&self) -> Result<I, InterfaceError> {
 		let raw = self.find_interface::<I::Raw>(I::MODULE, I::VERSION)?;
 
@@ -390,7 +401,7 @@ pub(crate) mod test_support {
 	use std::cell::RefCell;
 
 	thread_local! {
-		static INTERFACES: RefCell<Vec<(Module, CString, usize)>> = const { RefCell::new(Vec::new()) };
+		static INTERFACES: RefCell<Vec<(Module, CString, *mut c_void)>> = const { RefCell::new(Vec::new()) };
 	}
 
 	unsafe extern "C" fn engine_factory(
@@ -403,10 +414,11 @@ pub(crate) mod test_support {
 	/// Makes the mock factories of [`mock_server`] export an interface.
 	pub(crate) fn export<T>(module: Module, version: &CStr, interface: *mut T) {
 		INTERFACES.with_borrow_mut(|interfaces| {
-			interfaces.push((module, version.to_owned(), interface as usize))
+			interfaces.push((module, version.to_owned(), interface.cast()));
 		});
 	}
 
+	/// The interface [`export`] registered for `module` under `name`, or null.
 	fn find(module: Module, name: *const c_char) -> *mut c_void {
 		// SAFETY: Factories are called with NUL-terminated names.
 		let name = unsafe { CStr::from_ptr(name) };
@@ -415,9 +427,7 @@ pub(crate) mod test_support {
 			interfaces
 				.iter()
 				.find(|(owner, version, _)| *owner == module && version.as_c_str() == name)
-				.map_or(std::ptr::null_mut(), |&(_, _, address)| {
-					address as *mut c_void
-				})
+				.map_or(std::ptr::null_mut(), |&(_, _, interface)| interface)
 		})
 	}
 

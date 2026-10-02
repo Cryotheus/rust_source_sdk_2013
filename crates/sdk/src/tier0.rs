@@ -13,6 +13,8 @@ thread_local! {
 	pub(crate) static TEST_MSG: std::cell::Cell<Option<MsgFn>> = const { std::cell::Cell::new(None) };
 }
 
+/// Looks up `Msg` in the tier0 library the process has already loaded.
+/// Returns `None` if tier0 is not loaded or does not export it, and under Miri.
 fn find_msg() -> Option<MsgFn> {
 	// Miri cannot call the platform's loader.
 	if cfg!(miri) {
@@ -46,6 +48,31 @@ pub(crate) fn print(message: &CStr) -> bool {
 	true
 }
 
+/// Symbol lookup in tier0 through the Windows loader.
+#[cfg(windows)]
+mod platform {
+	use std::ffi::{CStr, c_char, c_void};
+	use std::ptr::NonNull;
+
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetModuleHandleA(name: *const c_char) -> *mut c_void;
+		fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
+	}
+
+	/// The address of `name` in the loaded `tier0.dll`, or `None` if it is not
+	/// loaded or does not export it.
+	pub(super) fn find_symbol(name: &CStr) -> Option<*mut c_void> {
+		// SAFETY: A module handle stays valid while the module is loaded, and
+		// the engine never unloads tier0.
+		let module = NonNull::new(unsafe { GetModuleHandleA(c"tier0.dll".as_ptr()) })?;
+
+		// SAFETY: As above.
+		NonNull::new(unsafe { GetProcAddress(module.as_ptr(), name.as_ptr()) }).map(NonNull::as_ptr)
+	}
+}
+
+/// Symbol lookup in tier0 through the dynamic loader.
 #[cfg(target_os = "linux")]
 mod platform {
 	use std::ffi::{CStr, c_char, c_int, c_void};
@@ -54,7 +81,9 @@ mod platform {
 	/// The names tier0 has in 64-bit and older dedicated servers.
 	const NAMES: [&CStr; 2] = [c"libtier0.so", c"libtier0_srv.so"];
 
+	/// `dlopen`'s flag to only find a library that is already loaded.
 	const RTLD_NOLOAD: c_int = 4;
+	/// `dlopen`'s flag to resolve every symbol before returning.
 	const RTLD_NOW: c_int = 2;
 
 	#[link(name = "dl")]
@@ -64,6 +93,8 @@ mod platform {
 		fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
 	}
 
+	/// The address of `name` in the first loaded library of `NAMES` that
+	/// exports it, or `None` if there is none.
 	pub(super) fn find_symbol(name: &CStr) -> Option<*mut c_void> {
 		NAMES.into_iter().find_map(|library| {
 			// SAFETY: `RTLD_NOLOAD` only finds a library that is already loaded.
@@ -78,26 +109,5 @@ mod platform {
 
 			NonNull::new(symbol).map(NonNull::as_ptr)
 		})
-	}
-}
-
-#[cfg(windows)]
-mod platform {
-	use std::ffi::{CStr, c_char, c_void};
-	use std::ptr::NonNull;
-
-	#[link(name = "kernel32")]
-	unsafe extern "system" {
-		fn GetModuleHandleA(name: *const c_char) -> *mut c_void;
-		fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
-	}
-
-	pub(super) fn find_symbol(name: &CStr) -> Option<*mut c_void> {
-		// SAFETY: A module handle stays valid while the module is loaded, and
-		// the engine never unloads tier0.
-		let module = NonNull::new(unsafe { GetModuleHandleA(c"tier0.dll".as_ptr()) })?;
-
-		// SAFETY: As above.
-		NonNull::new(unsafe { GetProcAddress(module.as_ptr(), name.as_ptr()) }).map(NonNull::as_ptr)
 	}
 }

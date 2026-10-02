@@ -4,6 +4,11 @@
 
 use std::ffi::{CStr, c_char, c_void};
 
+/// Where a `_TypeDescriptor`'s decorated name starts: after its vtable pointer
+/// and the undecorated name the runtime caches.
+#[cfg(target_os = "windows")]
+const TYPE_DESCRIPTOR_NAME_OFFSET: usize = 2 * size_of::<*const c_void>();
+
 /// MSVC's `_RTTICompleteObjectLocator` for 64-bit images, whose references
 /// are relative to the image's base.
 #[cfg(target_os = "windows")]
@@ -14,8 +19,14 @@ pub(crate) struct CompleteObjectLocator {
 	pub(crate) signature: u32,
 	/// The subobject's offset in its complete object.
 	pub(crate) offset: u32,
+	/// `cdOffset`, the constructor displacement offset, which this module
+	/// does not read.
 	pub(crate) constructor_displacement: u32,
+	/// The image offset of the complete object's `_TypeDescriptor`, which
+	/// holds its decorated class name.
 	pub(crate) type_descriptor: u32,
+	/// The image offset of the complete object's
+	/// `_RTTIClassHierarchyDescriptor`.
 	pub(crate) class_descriptor: u32,
 	/// The locator's own offset in the image.
 	pub(crate) this: u32,
@@ -76,17 +87,16 @@ unsafe fn dynamic_type<'a>(object: *const c_void) -> Option<(isize, &'a CStr)> {
 		return None;
 	}
 
-	let image = (locator as usize).checked_sub(located.this as usize)?;
+	let image = locator.addr().checked_sub(located.this as usize)?;
 
-	// `_TypeDescriptor` stores two pointers, then the decorated name.
 	let name = image
 		.checked_add(located.type_descriptor as usize)?
-		.checked_add(16)?;
+		.checked_add(TYPE_DESCRIPTOR_NAME_OFFSET)?;
 
 	// SAFETY: As above, and the name is a string in the image, which stays
 	// loaded as long as its objects exist.
 	Some((located.offset as isize, unsafe {
-		CStr::from_ptr(name as *const c_char)
+		CStr::from_ptr(locator.cast::<c_char>().with_addr(name))
 	}))
 }
 
