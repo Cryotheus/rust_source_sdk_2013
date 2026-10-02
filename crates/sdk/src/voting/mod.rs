@@ -98,7 +98,7 @@ pub enum VoteEvent {
 		/// The accepted option (`vote_option`).
 		choice: VoteChoice,
 
-		/// 0 for a global vote, or the allowed team's number.
+		/// 0 for a global vote, or the allowed team's number (`team`).
 		team: c_int,
 	},
 }
@@ -118,10 +118,14 @@ impl VoteEvent {
 	}
 }
 
-/// A vote event's missing or invalid field, by key.
+/// A vote event field that is missing or invalid, named by its event key
+/// (`"option"` for any `optionN`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("TF2 vote event has a missing or invalid `{0}` field")]
-pub struct VoteEventError(pub &'static str);
+pub struct VoteEventError(
+	/// The field's key.
+	pub &'static str,
+);
 
 /// Why the built-in vote gates cannot all be hooked safely.
 #[derive(Debug, thiserror::Error)]
@@ -144,6 +148,7 @@ pub enum VoteHookTargetError {
 }
 
 /// TF2's concrete built-in vote issues.
+#[doc(alias = "CBaseIssue")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VoteIssue {
 	/// Restart the current map.
@@ -154,7 +159,7 @@ pub enum VoteIssue {
 	#[doc(alias = "CKickIssue")]
 	Kick,
 
-	/// Change to another map now.
+	/// Change the map immediately.
 	#[doc(alias = "CChangeLevelIssue")]
 	ChangeLevel,
 
@@ -178,11 +183,11 @@ pub enum VoteIssue {
 	#[doc(alias = "CEnableTemporaryHalloweenIssue")]
 	Eternaween,
 
-	/// Toggle automatic team balancing.
+	/// Enable or disable automatic team balancing.
 	#[doc(alias = "CTeamAutoBalanceIssue")]
 	TeamAutoBalance,
 
-	/// Toggle class limits.
+	/// Enable or disable class limits.
 	#[doc(alias = "CClassLimitsIssue")]
 	ClassLimits,
 
@@ -207,7 +212,7 @@ impl VoteIssue {
 		Self::PauseGame,
 	];
 
-	/// The issue's C++ class name, as its RTTI records it.
+	/// The issue's undecorated C++ class name, used to find its RTTI.
 	fn class(self) -> &'static str {
 		match self {
 			Self::RestartGame => "CRestartGameIssue",
@@ -268,7 +273,8 @@ pub struct VoteRequest<'a> {
 	/// Entity index; TF2 uses the special value 99 for server requests.
 	pub caller_entity_index: c_int,
 
-	/// The issue's details string, such as a map name for map votes.
+	/// The issue's details string, possibly empty: for example a map name for
+	/// map votes, or a kick's target user ID and reason.
 	pub details: &'a CStr,
 }
 
@@ -345,8 +351,8 @@ pub fn vote_issue_vtables(
 		return Err(VoteHookTargetError::WrongGame);
 	}
 
-	// SAFETY: Server's callback scope keeps its game factory and module loaded
-	// while the module's readable sections are inspected.
+	// SAFETY: The game server factory lies inside the game module, which the
+	// Server's callback scope keeps loaded while its sections are inspected.
 	let virtuals = unsafe { VotingOvft::load(server.game_server_factory().as_raw() as usize) }?;
 
 	VoteIssue::ALL

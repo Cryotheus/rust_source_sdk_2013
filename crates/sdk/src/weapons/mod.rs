@@ -28,7 +28,6 @@ impl IntoWeaponSlot for c_int {
 /// An item definition in TF2's economy schema. A valid index need not exist in
 /// the running server's schema, and can describe a cosmetic instead of a weapon.
 #[doc(alias = "item_definition_index_t")]
-#[doc(alias = "m_iItemDefinitionIndex")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ItemDefinitionIndex(u16);
 
@@ -147,8 +146,8 @@ impl<'s> PlayerWeapons<'s> {
 		Ok(())
 	}
 
-	/// The first weapon in this player's inventory whose native slot matches,
-	/// or `None` when the slot is empty.
+	/// A weapon in this player's inventory whose native slot matches, or
+	/// `None` when none does.
 	#[doc(alias = "Weapon_GetSlot")]
 	pub fn get_slot(self, slot: impl IntoWeaponSlot) -> Result<Option<Weapon<'s>>, WeaponError> {
 		check_live(self.player)?;
@@ -221,7 +220,8 @@ impl<'s> PlayerWeapons<'s> {
 	///
 	/// Definitions whose schema uses a generic classname such as
 	/// `tf_weapon_shotgun` need [`Self::give_item_as`] with a concrete classname.
-	/// Missing definitions return `CreationFailed`; cosmetics return `NotWeapon`.
+	/// Native generation failures, such as a missing definition, return
+	/// `CreationFailedNative`; cosmetics return `NotWeapon`.
 	///
 	/// # Safety
 	/// The definition's constructor, spawn, activation and equipment callbacks
@@ -463,7 +463,8 @@ pub struct Weapon<'s> {
 impl<'s> Weapon<'s> {
 	/// Wraps a TF2 weapon entity. Returns [`WeaponError::NotWeapon`] unless the
 	/// server runs TF2 and `entity`'s datamaps include `CTFWeaponBase`, and
-	/// [`WeaponError::UnsupportedLayout`] if its `m_hOwner` field is not found.
+	/// [`WeaponError::UnsupportedLayout`] if `CBaseCombatWeapon`'s datamap lacks
+	/// a usable `m_hOwner` EHANDLE.
 	pub fn new(server: Server<'s>, entity: Entity<'s>) -> Result<Self, WeaponError> {
 		if server.game() != Game::TeamFortress2 || !has_class(entity, c"CTFWeaponBase") {
 			return Err(WeaponError::NotWeapon);
@@ -538,16 +539,19 @@ impl<'s> Weapon<'s> {
 /// Why a weapon or inventory operation failed.
 #[derive(Debug, thiserror::Error)]
 pub enum WeaponError {
-	/// The game created no weapon, or one of another classname than requested.
+	/// `GiveNamedItem` returned no entity (for example, because the player
+	/// already has that weapon type), or a classname override produced an
+	/// entity of another classname.
 	#[error("the game could not create the weapon (including an existing weapon of the same type)")]
 	CreationFailed,
 
-	/// Native item generation failed before creating an entity.
+	/// Native item generation, used by `give_item` and its variants, failed.
 	#[error(transparent)]
 	CreationFailedNative(#[from] WeaponCreationFailed),
 
-	/// The weapon's combat owner is another entity.
-	#[error("the weapon belongs to another player")]
+	/// The weapon's combat owner is not this player: another entity owns it,
+	/// or [`PlayerWeapons::detach`] was given an unowned weapon.
+	#[error("the weapon is not owned by this player")]
 	DifferentOwner,
 
 	/// A required engine interface is unavailable.
@@ -566,11 +570,14 @@ pub enum WeaponError {
 	#[error("weapon operations require a TF2 player")]
 	NotTfPlayer,
 
-	/// The entity is not a TF2 weapon, such as a cosmetic item.
+	/// The entity is not a TF2 weapon (for example, it is a cosmetic), or the
+	/// server does not run TF2.
 	#[error("the entity is not a TF2 combat weapon")]
 	NotWeapon,
 
-	/// Native detach or equip left the inventory unchanged.
+	/// The game did not complete a detach or equip: `RemovePlayerItem` refused
+	/// the weapon, or it did not end up in its slot with this player as its
+	/// combat owner. A refused equip may still have set the weapon's owner.
 	#[error("the game refused to detach or equip the weapon")]
 	Rejected,
 
@@ -582,9 +589,9 @@ pub enum WeaponError {
 	#[error("the weapon's datamap does not describe its combat owner handle")]
 	UnsupportedLayout,
 
-	/// A replacement's native slot is not the requested slot, or a slot
-	/// number is out of the range inventory tracking supports.
-	#[error("the new weapon's native slot differs from the requested replacement slot")]
+	/// A replacement's native slot is not the requested slot, or a new
+	/// weapon's slot number is outside 0..=255, the range creation tracks.
+	#[error("the weapon's native slot is not the requested slot, or is outside 0..=255")]
 	WrongSlot,
 }
 
@@ -608,7 +615,8 @@ pub enum WeaponSlot {
 	/// Slot 4, such as the Engineer's destruction PDA.
 	Pda2 = 4,
 
-	/// Slot 5, used while placing an Engineer building.
+	/// Slot 5, such as the Engineer's builder (`tf_weapon_builder`), held
+	/// while placing a building.
 	Building = 5,
 }
 
@@ -1071,6 +1079,25 @@ mod tests {
 			old.flags, 1,
 			"successful economy replacement removes the old weapon"
 		);
+
+		// Native slots outside 0..=255 still equip, but creation cannot snapshot
+		// their occupancy, so it refuses such a new weapon and removes it.
+		unsafe {
+			(&raw mut old.flags).write(0);
+			(&raw mut old.slot).write(300);
+		}
+		inventory.equip(weapon).unwrap();
+		assert_eq!(
+			inventory.get_slot(300).unwrap().unwrap().entity().as_ptr(),
+			old_ptr
+		);
+		inventory.detach(weapon).unwrap();
+		let untracked = NonNull::new(old_ptr).unwrap();
+		assert!(matches!(
+			unsafe { inventory.give_with(None, || Ok(untracked)) },
+			Err(WeaponError::WrongSlot)
+		));
+		assert_eq!(old.flags, 1, "an untracked-slot weapon is removed");
 		TOOLS.set(null_mut());
 		GIVE_RESULT.set(null_mut());
 		NETWORKABLE.set(null_mut());
