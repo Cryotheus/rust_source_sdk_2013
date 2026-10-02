@@ -10,6 +10,7 @@ use std::ptr::NonNull;
 interface! {
 	/// Exposes player state and the engine's globals (`IPlayerInfoManager`).
 	#[doc(alias = "IPlayerInfoManager")]
+	#[doc(alias = "CPlayerInfoManager")]
 	pub struct PlayerInfoManager(sys::IPlayerInfoManager) = GameServer c"PlayerInfoManager002";
 }
 
@@ -42,13 +43,22 @@ impl<'s> PlayerInfoManager<'s> {
 
 	/// The state of the player occupying an edict, or `None` if the edict
 	/// holds no player.
+	///
+	/// Only the player slots, from 1 up to [`GlobalVars::max_clients`], hold
+	/// players, so `None` is returned for any other edict.
 	#[doc(alias = "GetPlayerInfo")]
 	pub fn player_info(self, edict: Edict<'_>) -> Option<PlayerInfo<'s>> {
-		if edict.is_free() {
+		let max_clients = self.global_vars().map_or(0, GlobalVars::max_clients);
+
+		// The game casts the edict's entity to `CBasePlayer` unchecked, so only
+		// occupied player slots are passed, as the game's `UTIL_PlayerByIndex`
+		// checks before the same cast.
+		if edict.is_free() || !(1..=max_clients).contains(&edict.index()) {
 			return None;
 		}
 
-		// SAFETY: As for `global_vars`, and the edict is occupied.
+		// SAFETY: As for `global_vars`, and the edict is an occupied player
+		// slot, whose entity, if any, is a player.
 		let info = NonNull::new(unsafe {
 			vcall!(self.as_ptr() => IPlayerInfoManager_GetPlayerInfo(edict.as_ptr()))
 		})?;
@@ -61,6 +71,7 @@ impl<'s> PlayerInfoManager<'s> {
 	}
 }
 
+/// Declares an accessor that reads one field of the engine's globals.
 macro_rules! global_var {
 	($(#[$meta:meta])* $name:ident: $Type:ty = $($field:ident).+) => {
 		$(#[$meta])*
@@ -77,6 +88,7 @@ macro_rules! global_var {
 ///
 /// The game embeds this in the player entity, so it lives as long as the player.
 #[doc(alias = "IPlayerInfo")]
+#[doc(alias = "CPlayerInfo")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlayerInfo<'s> {
 	raw: NonNull<sys::IPlayerInfo>,
@@ -90,6 +102,8 @@ impl<'s> PlayerInfo<'s> {
 		self.raw.as_ptr()
 	}
 
+	/// Whether the player is dead, which the game decides by its life state
+	/// being `LIFE_DEAD`, so a dying player is not dead yet.
 	#[doc(alias = "IsDead")]
 	pub fn is_dead(self) -> bool {
 		// SAFETY: As for `name`.
@@ -125,6 +139,10 @@ impl<'s> PlayerInfo<'s> {
 		unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetTeamIndex()) }
 	}
 
+	/// The user ID of the player's client, or `None` if no connected client
+	/// owns the player, as for [`ValveEngine::user_id_of_edict`].
+	///
+	/// [`ValveEngine::user_id_of_edict`]: crate::interfaces::ValveEngine::user_id_of_edict
 	#[doc(alias = "GetUserID")]
 	pub fn user_id(self) -> Option<UserId> {
 		// SAFETY: As for `name`.
@@ -145,17 +163,20 @@ impl<'s> GlobalVars<'s> {
 	}
 
 	global_var! {
-		/// Game time elapsed in the current frame.
+		/// Game time elapsed in the current frame, in seconds.
+		#[doc(alias = "frametime")]
 		frame_time: f32 = _base.frametime
 	}
 
 	global_var! {
 		/// The number of player slots.
+		#[doc(alias = "maxClients")]
 		max_clients: c_int = _base.maxClients
 	}
 
 	global_var! {
 		/// Simulation ticks since the level started.
+		#[doc(alias = "tickcount")]
 		tick_count: c_int = _base.tickcount
 	}
 
@@ -169,5 +190,73 @@ impl<'s> GlobalVars<'s> {
 	pub fn map_name(self) -> Option<CString> {
 		// SAFETY: As for `global_var!`. The name is copied immediately.
 		unsafe { copy_cstr((&raw const (*self.raw.as_ptr()).mapname.pszValue).read()) }
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::edicts::test_support::mock_edict;
+	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use std::cell::{Cell, RefCell};
+	use std::mem::MaybeUninit;
+	use std::ptr::null_mut;
+
+	thread_local! {
+		static GLOBALS: Cell<*mut sys::CGlobalVars> = const { Cell::new(null_mut()) };
+		static QUERIED: RefCell<Vec<*mut sys::edict_t>> = const { RefCell::new(Vec::new()) };
+	}
+
+	/// The game casts any edict's entity to a player, so only occupied player
+	/// slots may reach `GetPlayerInfo`.
+	#[test]
+	fn player_info_asks_only_for_occupied_player_slots() {
+		let mut globals = MaybeUninit::<sys::CGlobalVars>::zeroed();
+
+		unsafe { (&raw mut (*globals.as_mut_ptr())._base.maxClients).write(2) };
+		GLOBALS.set(globals.as_mut_ptr());
+
+		let vtable = unsafe {
+			mock_vtable::<sys::IPlayerInfoManager__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).IPlayerInfoManager_GetGlobalVars).write(global_vars);
+					(&raw mut (*vtable).IPlayerInfoManager_GetPlayerInfo).write(player_info);
+				},
+			)
+		};
+
+		let mut interface = sys::IPlayerInfoManager {
+			vtable_: &raw const *vtable,
+		};
+		let manager =
+			unsafe { PlayerInfoManager::from_raw(NonNull::new(&raw mut interface).unwrap()) };
+
+		let mut table = [
+			mock_edict(0, false),
+			mock_edict(1, true),
+			mock_edict(2, false),
+			mock_edict(3, false),
+		];
+		let base = table.as_mut_ptr();
+		let edict = |slot: usize| unsafe { Edict::from_raw(NonNull::new(base.add(slot)).unwrap()) };
+
+		assert!(manager.player_info(edict(0)).is_none());
+		assert!(manager.player_info(edict(1)).is_none());
+		assert!(manager.player_info(edict(2)).is_some());
+		assert!(manager.player_info(edict(3)).is_none());
+		QUERIED.with_borrow(|queried| assert_eq!(*queried, [edict(2).as_ptr()]));
+	}
+
+	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
+		GLOBALS.get()
+	}
+
+	unsafe extern "C" fn player_info(
+		_: *mut sys::IPlayerInfoManager,
+		edict: *mut sys::edict_t,
+	) -> *mut sys::IPlayerInfo {
+		QUERIED.with_borrow_mut(|queried| queried.push(edict));
+		NonNull::dangling().as_ptr()
 	}
 }

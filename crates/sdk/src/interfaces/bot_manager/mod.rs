@@ -8,6 +8,7 @@ use std::ptr::NonNull;
 interface! {
 	/// Creates and controls bots (`IBotManager`).
 	#[doc(alias = "IBotManager")]
+	#[doc(alias = "CPluginBotManager")]
 	pub struct BotManager(sys::IBotManager) = GameServer c"BotManager001";
 }
 

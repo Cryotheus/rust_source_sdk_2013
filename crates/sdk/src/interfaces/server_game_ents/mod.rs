@@ -8,11 +8,13 @@ use std::ptr::NonNull;
 interface! {
 	/// The game's conversions between entities and edicts (`IServerGameEnts`).
 	#[doc(alias = "IServerGameEnts")]
+	#[doc(alias = "CServerGameEnts")]
 	pub struct ServerGameEnts(sys::IServerGameEnts) = GameServer c"ServerGameEnts001";
 }
 
 impl<'s> ServerGameEnts<'s> {
-	/// The edict of a networked entity.
+	/// The edict of a networked entity, or `None` for an entity without one,
+	/// such as a server-only entity.
 	#[doc(alias = "BaseEntityToEdict")]
 	pub fn edict_of_entity(self, entity: Entity<'_>) -> Option<Edict<'s>> {
 		// SAFETY: `Server::new` guarantees the interface is live, and the entity is live.
@@ -23,7 +25,8 @@ impl<'s> ServerGameEnts<'s> {
 		NonNull::new(edict).map(|edict| unsafe { Edict::from_raw(edict) })
 	}
 
-	/// The entity occupying an edict.
+	/// The entity occupying an edict, or `None` if the edict is free or holds
+	/// no entity.
 	#[doc(alias = "EdictToBaseEntity")]
 	pub fn entity_of_edict(self, edict: Edict<'_>) -> Option<Entity<'s>> {
 		if edict.is_free() {

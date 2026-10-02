@@ -10,7 +10,9 @@ interface! {
 }
 
 impl<'s> ModelInfo<'s> {
-	/// The precache index of a model, such as `models/player/scout.mdl`.
+	/// The precache index of a model, such as `models/player/scout.mdl`, or
+	/// `None` if the model is not precached. Dynamic models, whose indices are
+	/// negative, also give `None`.
 	#[doc(alias = "GetModelIndex")]
 	pub fn model_index(self, name: &CStr) -> Option<c_int> {
 		// SAFETY: `Server::new` guarantees the interface is live.
@@ -19,7 +21,8 @@ impl<'s> ModelInfo<'s> {
 		(index >= 0).then_some(index)
 	}
 
-	/// The name of the model at a precache index.
+	/// The name of the model at a precache index, or `None` if no model has
+	/// that index.
 	#[doc(alias = "GetModelName")]
 	pub fn model_name(self, index: c_int) -> Option<CString> {
 		// SAFETY: As for `model_index`.

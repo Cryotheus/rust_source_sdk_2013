@@ -25,6 +25,8 @@ macro_rules! interface {
 			/// The version string this interface is requested by.
 			pub const VERSION: &'static ::core::ffi::CStr = $version;
 
+			/// Wraps the interface pointer an interface factory returned.
+			///
 			/// # Safety
 			///
 			/// `raw` must be the live object exported under

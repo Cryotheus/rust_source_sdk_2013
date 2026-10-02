@@ -10,6 +10,7 @@ interface! {
 }
 
 impl<'s> EngineSound<'s> {
+	/// Whether a sound is in the precache table.
 	#[doc(alias = "IsSoundPrecached")]
 	pub fn is_sound_precached(self, sample: &CStr) -> bool {
 		// SAFETY: As for `precache_sound`.

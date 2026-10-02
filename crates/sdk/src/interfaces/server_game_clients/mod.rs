@@ -7,6 +7,7 @@ use std::mem::{offset_of, size_of};
 interface! {
 	/// The game's handling of connected clients (`IServerGameClients`).
 	#[doc(alias = "IServerGameClients")]
+	#[doc(alias = "CServerGameClients")]
 	pub struct ServerGameClients(sys::IServerGameClients) = GameServer c"ServerGameClients005";
 }
 
@@ -28,7 +29,10 @@ pub const CLIENT_COMMAND_VTABLE_SLOT: usize = 5;
 /// The player counts a game supports, from [`ServerGameClients::player_limits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlayerLimits {
+	/// The fewest player slots `maxplayers` may set.
 	pub minimum: c_int,
+
+	/// The most player slots `maxplayers` may set.
 	pub maximum: c_int,
 
 	/// The player count used when `maxplayers` is not given.
@@ -36,6 +40,7 @@ pub struct PlayerLimits {
 }
 
 impl<'s> ServerGameClients<'s> {
+	/// The player counts the game supports for `maxplayers`.
 	#[doc(alias = "GetPlayerLimits")]
 	pub fn player_limits(self) -> PlayerLimits {
 		let (mut minimum, mut maximum, mut default) = (0, 0, 0);

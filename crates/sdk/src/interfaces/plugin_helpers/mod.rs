@@ -14,6 +14,9 @@ interface! {
 }
 
 /// Identifies a pending client console variable query.
+///
+/// [`PluginHelpers::start_query_cvar_value`] returns it, and the engine passes
+/// it back to the plugin's `OnQueryCvarValueFinished` callback with the answer.
 #[doc(alias = "QueryCvarCookie_t")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct QueryCvarCookie(pub c_int);
@@ -36,7 +39,9 @@ impl<'s> PluginHelpers<'s> {
 	/// Asks a client for the value of one of its console variables.
 	///
 	/// The answer arrives through the plugin's `OnQueryCvarValueFinished`
-	/// callback, carrying the returned cookie.
+	/// callback, carrying the returned cookie. Returns `None` if the engine
+	/// refuses the query with `InvalidQueryCvarCookie`, as it does for an
+	/// invalid entity.
 	#[doc(alias = "StartQueryCvarValue")]
 	pub fn start_query_cvar_value(self, client: Edict<'_>, name: &CStr) -> Option<QueryCvarCookie> {
 		// SAFETY: As for `client_command`.
