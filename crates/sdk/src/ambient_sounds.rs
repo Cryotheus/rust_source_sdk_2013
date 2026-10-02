@@ -41,10 +41,12 @@ impl<'s> AmbientSound<'s> {
 		})
 	}
 
+	/// The `ambient_generic` entity itself.
 	pub const fn entity(self) -> Entity<'s> {
 		self.entity
 	}
 
+	/// Points to the field `offset` bytes into the entity.
 	fn field<T>(self, offset: usize) -> *mut T {
 		// SAFETY: `Layout::of` found the offset in the entity's own datamap
 		// chain, or next to fields it found there, so it lies within the live
@@ -53,6 +55,7 @@ impl<'s> AmbientSound<'s> {
 	}
 
 	/// Whether its sound loops, unless the map set "Is NOT Looped".
+	#[doc(alias = "m_fLooping")]
 	pub fn is_looping(self) -> bool {
 		// SAFETY: As for `is_playing`.
 		unsafe { self.field::<u8>(self.layout.looping()).read() != 0 }
@@ -62,6 +65,7 @@ impl<'s> AmbientSound<'s> {
 	/// from the level's start unless the map starts it silent, and while the
 	/// map has it play. The game never marks a sound that does not loop as
 	/// playing. A muted ambient sound can be playing without being heard.
+	#[doc(alias = "m_fActive")]
 	pub fn is_playing(self) -> bool {
 		// SAFETY: The field lies within the live entity, and is read without
 		// forming a reference, as the game writes it too. The game only stores
@@ -77,6 +81,7 @@ impl<'s> AmbientSound<'s> {
 	/// with a source through that source, so a sound played from any other
 	/// source keeps playing until the level ends unless it is stopped while
 	/// that source is set.
+	#[doc(alias = "m_hSoundSource")]
 	pub fn set_source(self, source: Option<Entity<'_>>) {
 		let handle = source.map_or(EntityHandle::INVALID, Entity::handle);
 
@@ -92,7 +97,9 @@ impl<'s> AmbientSound<'s> {
 	}
 
 	/// The sound it plays, as the map named it: a sound file, or an entry of
-	/// the game's sound scripts, such as `Ambient.MachineHum`.
+	/// the game's sound scripts, such as `Ambient.MachineHum`. Returns `None`
+	/// if the name is null.
+	#[doc(alias = "m_iszSound")]
 	pub fn sound(self) -> Option<CString> {
 		// SAFETY: As for `is_playing`. The name is a pooled string or null, and
 		// is copied at once.
@@ -114,6 +121,7 @@ impl<'s> AmbientSound<'s> {
 	///
 	/// The handle may refer to an entity removed since. Whether an ambient
 	/// sound came from the map is told by [`Entity::hammer_id`] instead.
+	#[doc(alias = "m_hSoundSource")]
 	pub fn source(self) -> Option<EntityHandle> {
 		// SAFETY: As for `is_playing`.
 		let handle =
@@ -126,8 +134,13 @@ impl<'s> AmbientSound<'s> {
 /// Where `CAmbientGeneric` keeps the fields its datamap leaves out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Layout {
+	/// The offset of the playing flag, `m_fActive`.
 	playing: usize,
+
+	/// The offset of the source's name, `m_sSourceEntName`.
 	source_name: usize,
+
+	/// The offset of the sound's name, `m_iszSound`.
 	sound: usize,
 }
 
@@ -165,10 +178,14 @@ impl Layout {
 		})
 	}
 
+	/// The offset of the looping flag, `m_fLooping`, right after the playing
+	/// flag.
 	const fn looping(self) -> usize {
 		self.playing + 1
 	}
 
+	/// The offset of the source's handle, `m_hSoundSource`, right after the
+	/// source's name.
 	const fn source(self) -> usize {
 		self.source_name + size_of::<sys::string_t>()
 	}
@@ -186,7 +203,39 @@ mod tests {
 
 	const PLAYING: usize = 200;
 	const SOUND: usize = SOURCE_NAME + 16;
+
+	/// After the two flags at `PLAYING`, the `MAX_PATH` characters of the file
+	/// name, then padding to the next string.
 	const SOURCE_NAME: usize = 464;
+
+	/// Where a fixture's datamap puts `CAmbientGeneric`'s fields.
+	#[derive(Debug, Clone, Copy)]
+	struct Offsets {
+		playing: usize,
+		looping: usize,
+		source_name: usize,
+		sound: usize,
+	}
+
+	impl Offsets {
+		/// The layout `game/server/sound.cpp` declares, from `PLAYING`.
+		const EXPECTED: Self = Self {
+			playing: PLAYING,
+			looping: PLAYING + 1,
+			source_name: SOURCE_NAME,
+			sound: SOUND,
+		};
+
+		/// Moves every field `bytes` further into the entity.
+		const fn shifted(self, bytes: usize) -> Self {
+			Self {
+				playing: self.playing + bytes,
+				looping: self.looping + bytes,
+				source_name: self.source_name + bytes,
+				sound: self.sound + bytes,
+			}
+		}
+	}
 
 	fn ambient_field(
 		name: &'static CStr,
@@ -197,14 +246,14 @@ mod tests {
 
 		field.fieldType = field_type;
 		field.fieldName = name.as_ptr();
-		field.fieldOffset[0] = offset as c_int;
+		field.fieldOffset[0] = c_int::try_from(offset).unwrap();
 		field
 	}
 
 	#[test]
 	fn fields_outside_the_datamap_are_read_and_written_in_place() {
 		let mut mock = MockEntity::new(1);
-		serve_ambient_map(SOUND);
+		serve_ambient_map(Offsets::EXPECTED);
 
 		let base = mock.as_ptr();
 
@@ -243,14 +292,14 @@ mod tests {
 
 		let mut other = MockEntity::new(0x0004_0022);
 
-		serve_ambient_map(SOUND);
+		serve_ambient_map(Offsets::EXPECTED);
 		sound.set_source(Some(other.entity()));
 
 		assert_eq!(sound.source(), Some(EntityHandle::from_raw(0x0004_0022)));
 	}
 
-	/// Serves `CAmbientGeneric`'s datamap, with the sound's name at `sound`.
-	fn serve_ambient_map(sound: usize) {
+	/// Serves `CAmbientGeneric`'s datamap, with its fields at `offsets`.
+	fn serve_ambient_map(offsets: Offsets) {
 		let base = data_map(
 			c"CBaseEntity",
 			base_entity_fields().to_vec(),
@@ -259,15 +308,27 @@ mod tests {
 		let ambient = data_map(
 			c"CAmbientGeneric",
 			vec![
-				ambient_field(c"m_iszSound", sys::_fieldtypes_FIELD_SOUNDNAME, sound),
+				ambient_field(
+					c"m_iszSound",
+					sys::_fieldtypes_FIELD_SOUNDNAME,
+					offsets.sound,
+				),
 				ambient_field(c"m_radius", sys::_fieldtypes_FIELD_FLOAT, PLAYING - 120),
 				ambient_field(
 					c"m_sSourceEntName",
 					sys::_fieldtypes_FIELD_STRING,
-					SOURCE_NAME,
+					offsets.source_name,
 				),
-				ambient_field(c"m_fActive", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING),
-				ambient_field(c"m_fLooping", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING + 1),
+				ambient_field(
+					c"m_fActive",
+					sys::_fieldtypes_FIELD_BOOLEAN,
+					offsets.playing,
+				),
+				ambient_field(
+					c"m_fLooping",
+					sys::_fieldtypes_FIELD_BOOLEAN,
+					offsets.looping,
+				),
 			],
 			base,
 		);
@@ -276,22 +337,43 @@ mod tests {
 	}
 
 	#[test]
-	fn the_file_name_pins_the_source_name() {
-		// The flags, then 260 characters, then padding to the next string.
-		assert_eq!(
-			(PLAYING + 2 + MAX_PATH).next_multiple_of(align_of::<sys::string_t>()),
-			SOURCE_NAME
-		);
-	}
-
-	#[test]
 	fn unexpected_layouts_and_other_classes_are_refused() {
 		let mut mock = MockEntity::new(1);
 
 		assert!(AmbientSound::new(mock.entity()).is_none());
 
-		serve_ambient_map(SOUND + 8);
+		// Moved as a whole, the layout still fits, so each layout below is
+		// refused for its one difference.
+		serve_ambient_map(Offsets::EXPECTED.shifted(8));
 
-		assert!(AmbientSound::new(mock.entity()).is_none());
+		assert!(AmbientSound::new(mock.entity()).is_some());
+
+		let expected = Offsets::EXPECTED;
+		let layouts = [
+			// Something between the playing and looping flags.
+			Offsets {
+				looping: PLAYING + 2,
+				..expected
+			},
+			// Other than `MAX_PATH` characters before the source's name.
+			Offsets {
+				source_name: SOURCE_NAME + 8,
+				sound: SOUND + 8,
+				..expected
+			},
+			// Something between the source's index and the sound's name.
+			Offsets {
+				sound: SOUND + 8,
+				..expected
+			},
+			// Further into the entity than any of its fields could be.
+			expected.shifted(1 << 16),
+		];
+
+		for offsets in layouts {
+			serve_ambient_map(offsets);
+
+			assert!(AmbientSound::new(mock.entity()).is_none(), "{offsets:?}");
+		}
 	}
 }
