@@ -10,24 +10,36 @@ use crate::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
 use std::ffi::CStr;
 
+/// `AddCustomAttribute`'s default duration. TF2 never expires a player
+/// attribute added with a non-positive duration; items ignore durations.
+const PERMANENT_DURATION: f32 = -1.0;
+
 /// An attribute operation could not be performed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum AttributeError {
+	/// The server is not running Team Fortress 2.
 	#[error("attributes require Team Fortress 2")]
 	UnsupportedGame,
 
+	/// The entity's data maps include neither `CTFPlayer` nor `CEconEntity`.
 	#[error("the entity is neither a TF2 player nor an economy item")]
 	UnsupportedEntity,
 
+	/// The entity is pending deletion, so it is not modified or queried.
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
 
+	/// A value was not finite, a duration was not finite and positive, or an
+	/// item was given a duration.
 	#[error("attribute values must be finite and player durations must be positive")]
 	InvalidValue,
 
+	/// The entity's script class descriptors lack the native method, or its
+	/// signature differs from the SDK's.
 	#[error("the game does not expose the expected native attribute method")]
 	UnsupportedMethod,
 
+	/// The native method's binding adapter reported failure.
 	#[error("the native attribute method rejected the call")]
 	Rejected,
 }
@@ -49,6 +61,11 @@ impl From<BindingError> for AttributeError {
 /// (`CSchemaAttributeType_Default`), used by ordinary gameplay attributes.
 /// This is distinct from an explicit schema `attribute_type` of `"float"`.
 /// Explicit float, string, blob, and 64-bit schema types are unsupported.
+///
+/// Methods fail with [`AttributeError::MarkedForDeletion`] for an entity
+/// pending deletion, [`AttributeError::UnsupportedMethod`] when the game
+/// lacks the expected native method, and [`AttributeError::Rejected`] when
+/// the method's binding reports failure.
 #[derive(Debug, Clone, Copy)]
 pub struct Attributes<'s> {
 	entity: Entity<'s>,
@@ -56,6 +73,10 @@ pub struct Attributes<'s> {
 }
 
 impl<'s> Attributes<'s> {
+	/// Wraps a TF2 player or economy item, identified by `CTFPlayer` or
+	/// `CEconEntity` in `entity`'s data map chain. Fails with
+	/// [`AttributeError::UnsupportedGame`] outside TF2, or
+	/// [`AttributeError::UnsupportedEntity`] for any other entity.
 	pub fn new(server: &Server<'s>, entity: Entity<'s>) -> Result<Self, AttributeError> {
 		if server.game() != Game::TeamFortress2 {
 			return Err(AttributeError::UnsupportedGame);
@@ -84,6 +105,7 @@ impl<'s> Attributes<'s> {
 		Err(AttributeError::UnsupportedEntity)
 	}
 
+	/// Refuses entities marked for deletion.
 	fn check_live(self) -> Result<(), AttributeError> {
 		if self.entity.is_marked_for_deletion() {
 			Err(AttributeError::MarkedForDeletion)
@@ -92,6 +114,7 @@ impl<'s> Attributes<'s> {
 		}
 	}
 
+	/// The script class that declares this entity's attribute methods.
 	fn class(self) -> &'static CStr {
 		if self.player {
 			c"CTFPlayer"
@@ -100,6 +123,7 @@ impl<'s> Attributes<'s> {
 		}
 	}
 
+	/// The player or item these attributes belong to.
 	pub const fn entity(self) -> Entity<'s> {
 		self.entity
 	}
@@ -111,6 +135,8 @@ impl<'s> Attributes<'s> {
 	/// An unknown name, absent attribute, unsupported schema type (including
 	/// explicit `"float"`), or stored NaN returns `None`. The getter uses NaN
 	/// as its missing-value sentinel and cannot distinguish these cases.
+	#[doc(alias = "GetAttribute")]
+	#[doc(alias = "GetCustomAttribute")]
 	pub fn get(self, name: &CStr) -> Result<Option<f32>, AttributeError> {
 		self.check_live()?;
 
@@ -122,7 +148,7 @@ impl<'s> Attributes<'s> {
 
 		// SAFETY: These two native getters only iterate the respective attribute
 		// lists. Strings remain alive for the synchronous lookup. A NaN fallback
-		// distinguishes absence from all values accepted by `set`.
+		// distinguishes absence from all values accepted by `set_for_unchecked`.
 		let result = unsafe {
 			binding::call(
 				self.entity,
@@ -140,7 +166,10 @@ impl<'s> Attributes<'s> {
 
 	/// Removes a runtime override and refreshes the manager's caches. An item
 	/// can still expose a static item-definition value afterwards. On players,
-	/// this removes attributes registered by `set`/`AddCustomAttribute`.
+	/// this removes attributes registered by [`Self::set_unchecked`],
+	/// [`Self::set_for_unchecked`] or `AddCustomAttribute`.
+	#[doc(alias = "RemoveAttribute")]
+	#[doc(alias = "RemoveCustomAttribute")]
 	pub fn remove(self, name: &CStr) -> Result<(), AttributeError> {
 		self.check_live()?;
 
@@ -165,11 +194,15 @@ impl<'s> Attributes<'s> {
 		Ok(())
 	}
 
-	/// As `set`, with a player-only expiry. Item attributes reject a duration.
+	/// As [`Self::set_unchecked`], with a player-only expiry in seconds. Fails
+	/// with [`AttributeError::InvalidValue`] for a non-finite value, a duration
+	/// that is not finite and positive, or any duration on an item.
 	///
 	/// # Safety
 	/// The full contract of [`Self::set_unchecked`] applies, including its default schema
 	/// type requirement and attribute-specific valid value domain.
+	#[doc(alias = "AddAttribute")]
+	#[doc(alias = "AddCustomAttribute")]
 	pub unsafe fn set_for_unchecked(
 		self,
 		name: &CStr,
@@ -201,7 +234,7 @@ impl<'s> Attributes<'s> {
 				&mut [
 					binding::string(name),
 					binding::float(value),
-					binding::float(duration.unwrap_or(-1.0)),
+					binding::float(duration.unwrap_or(PERMANENT_DURATION)),
 				],
 				binding::VOID,
 			)
@@ -230,6 +263,8 @@ impl<'s> Attributes<'s> {
 	/// `value` must also be valid for that attribute's gameplay domain; merely
 	/// being finite does not prevent an extreme multiplier overflowing later
 	/// native damage, health, or movement calculations.
+	#[doc(alias = "AddAttribute")]
+	#[doc(alias = "AddCustomAttribute")]
 	pub unsafe fn set_unchecked(self, name: &CStr, value: f32) -> Result<bool, AttributeError> {
 		// SAFETY: The caller vouches for the schema attribute's runtime type.
 		unsafe { self.set_for_unchecked(name, value, None) }

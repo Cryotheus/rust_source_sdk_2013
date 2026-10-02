@@ -13,22 +13,54 @@ use crate::{Game, Server};
 /// All identifiers, including less common conditions, are available through
 /// [`crate::sys`] as `ETFCond_TF_COND_*` constants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[doc(alias = "ETFCond")]
 #[repr(transparent)]
 pub struct Condition(i32);
 
 impl Condition {
+	/// A Sniper aiming or a Heavy using the minigun.
+	#[doc(alias = "TF_COND_AIMING")]
 	pub const AIMING: Self = Self(sys::ETFCond_TF_COND_AIMING);
+
+	/// Bleeding.
+	#[doc(alias = "TF_COND_BLEEDING")]
 	pub const BLEEDING: Self = Self(sys::ETFCond_TF_COND_BLEEDING);
+
+	/// On fire.
+	#[doc(alias = "TF_COND_BURNING")]
 	pub const BURNING: Self = Self(sys::ETFCond_TF_COND_BURNING);
+
+	/// The critical boost reserved for the Kritzkrieg and revenge crits.
+	#[doc(alias = "TF_COND_CRITBOOSTED")]
 	pub const CRITBOOSTED: Self = Self(sys::ETFCond_TF_COND_CRITBOOSTED);
+
+	/// Wearing a Spy's disguise.
+	#[doc(alias = "TF_COND_DISGUISED")]
 	pub const DISGUISED: Self = Self(sys::ETFCond_TF_COND_DISGUISED);
+
+	/// Invulnerability, as from a Medic's ÜberCharge.
+	#[doc(alias = "TF_COND_INVULNERABLE")]
 	pub const INVULNERABLE: Self = Self(sys::ETFCond_TF_COND_INVULNERABLE);
+
+	/// Marked for death: TF2 promotes non-critical damage to the player to a
+	/// mini critical hit.
+	#[doc(alias = "TF_COND_MARKEDFORDEATH")]
 	pub const MARKED_FOR_DEATH: Self = Self(sys::ETFCond_TF_COND_MARKEDFORDEATH);
+
+	/// A movement speed boost.
+	#[doc(alias = "TF_COND_SPEED_BOOST")]
 	pub const SPEED_BOOST: Self = Self(sys::ETFCond_TF_COND_SPEED_BOOST);
+
+	/// A cloaked Spy.
+	#[doc(alias = "TF_COND_STEALTHED")]
 	pub const STEALTHED: Self = Self(sys::ETFCond_TF_COND_STEALTHED);
+
+	/// Zoomed in through a scope.
+	#[doc(alias = "TF_COND_ZOOMED")]
 	pub const ZOOMED: Self = Self(sys::ETFCond_TF_COND_ZOOMED);
 
-	/// Rejects negative values and the `TF_COND_LAST` sentinel.
+	/// Validates a raw identifier. Returns `None` for negative values and
+	/// values at or above the `TF_COND_LAST` sentinel.
 	pub const fn from_raw(raw: sys::ETFCond) -> Option<Self> {
 		if raw >= 0 && raw < sys::ETFCond_TF_COND_LAST {
 			Some(Self(raw))
@@ -37,6 +69,7 @@ impl Condition {
 		}
 	}
 
+	/// The raw `ETFCond` value.
 	pub const fn to_raw(self) -> sys::ETFCond {
 		self.0
 	}
@@ -47,6 +80,8 @@ impl Condition {
 pub struct ConditionDuration(f32);
 
 impl ConditionDuration {
+	/// No expiry: TF2's `PERMANENT_CONDITION`, passed as -1 seconds.
+	#[doc(alias = "PERMANENT_CONDITION")]
 	pub const PERMANENT: Self = Self(-1.0);
 
 	/// A finite, nonnegative number of seconds. Zero expires on a subsequent
@@ -55,6 +90,7 @@ impl ConditionDuration {
 		(seconds.is_finite() && seconds >= 0.0).then_some(Self(seconds))
 	}
 
+	/// The duration passed to TF2: seconds, or -1 for [`Self::PERMANENT`].
 	pub const fn as_raw(self) -> f32 {
 		self.0
 	}
@@ -63,10 +99,17 @@ impl ConditionDuration {
 /// A condition operation is unavailable for this game, entity, or binary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ConditionError {
+	/// The server is not running TF2, or the entity's class name is not
+	/// `player`.
 	#[error("conditions require a TF2 player")]
 	NotTfPlayer,
+
+	/// The player's script class descriptors lack the native method, or its
+	/// signature differs from the SDK's.
 	#[error("the game does not expose the expected native condition method")]
 	UnsupportedMethod,
+
+	/// The native method's binding adapter reported failure.
 	#[error("the native condition method rejected its arguments")]
 	Rejected,
 }
@@ -74,19 +117,26 @@ pub enum ConditionError {
 impl From<BindingError> for ConditionError {
 	fn from(error: BindingError) -> Self {
 		match error {
+			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
 			BindingError::Rejected => Self::Rejected,
-			_ => Self::UnsupportedMethod,
 		}
 	}
 }
 
 /// One player's conditions within the current engine callback.
+///
+/// Methods fail with [`ConditionError::UnsupportedMethod`] when the game
+/// lacks the expected native method, and [`ConditionError::Rejected`] when
+/// the method's binding reports failure.
 #[derive(Debug, Clone, Copy)]
 pub struct PlayerConditions<'s> {
 	player: Entity<'s>,
 }
 
 impl<'s> PlayerConditions<'s> {
+	/// Wraps `player` for condition calls. Fails with
+	/// [`ConditionError::NotTfPlayer`] unless the server runs TF2 and
+	/// `player`'s class name is `player`.
 	pub fn new(server: Server<'s>, player: Entity<'s>) -> Result<Self, ConditionError> {
 		if server.game() != Game::TeamFortress2 || player.class_name() != c"player" {
 			return Err(ConditionError::NotTfPlayer);
@@ -98,6 +148,7 @@ impl<'s> PlayerConditions<'s> {
 	/// Returns whether it is active afterwards. TF2 can refuse additions, for
 	/// example on dead players or outside the competitive match summary.
 	#[doc(alias = "AddCond")]
+	#[doc(alias = "AddCondEx")]
 	pub fn add(
 		self,
 		condition: Condition,
@@ -140,6 +191,7 @@ impl<'s> PlayerConditions<'s> {
 		Ok(unsafe { result.__bindgen_anon_1.m_bool })
 	}
 
+	/// The player whose conditions these are.
 	pub const fn player(self) -> Entity<'s> {
 		self.player
 	}
@@ -147,6 +199,7 @@ impl<'s> PlayerConditions<'s> {
 	/// Removes a condition. `ignore_duration` bypasses conditions' minimum
 	/// duration (notably crit boost). Returns whether it is absent afterwards.
 	#[doc(alias = "RemoveCond")]
+	#[doc(alias = "RemoveCondEx")]
 	pub fn remove(
 		self,
 		condition: Condition,
