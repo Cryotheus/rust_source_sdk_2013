@@ -4,7 +4,7 @@
 //! [`PlayerWeapons::give_item`] selects an economy item definition, such as the
 //! Iron Bomber. Native item generation initializes item definitions, schema
 //! attributes, and models before spawning. Attributes can also be changed
-//! through the [`attributes`](crate::attributes) module.
+//! through the [`attributes`](crate::tf2::attributes) module.
 
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::{Game, InterfaceError, Server};

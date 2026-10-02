@@ -12,8 +12,8 @@ use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
-use source_sdk_2013::damage::DamageEvent;
 use source_sdk_2013::entities::Entity;
+use source_sdk_2013::tf2::damage::DamageEvent;
 use source_sdk_2013::{Game, Server, ServerBinding, sys};
 use std::cell::Cell;
 use std::ffi::c_int;
@@ -238,7 +238,7 @@ unsafe fn dispatch(
 mod tests {
 	use super::*;
 	use source_sdk_2013::InterfaceFactory;
-	use source_sdk_2013::damage::{DamageInfo, DamageType};
+	use source_sdk_2013::tf2::damage::{DamageInfo, DamageType};
 	use std::ffi::{c_char, c_void};
 	use std::mem::{MaybeUninit, offset_of, size_of};
 

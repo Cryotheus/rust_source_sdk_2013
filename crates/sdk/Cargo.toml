@@ -12,6 +12,10 @@ description = "Higher-level bindings for the Source SDK."
 categories = ["api-bindings"]
 keywords = ["gamedev", "source-engine", "valve"]
 
+[features]
+## Team Fortress 2's game-specific wrappers, in the `tf2` module.
+tf2 = []
+
 [dependencies]
 glam = { version = "0.33.10", features = [] }
 source_sdk_2013_declmacros = { path = "../sdk_declmacros", version = "0.1.0-alpha.4" }

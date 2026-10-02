@@ -6,7 +6,7 @@ use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
-use source_sdk_2013::voting::{
+use source_sdk_2013::tf2::voting::{
 	REQUEST_CALL_VOTE_SLOT, VoteDecision, VoteHookTargetError, VoteIssue, VoteRequest,
 	VoteStartHandler, vote_issue_vtables,
 };
@@ -138,7 +138,7 @@ impl MetamodApi<'_> {
 	/// run the probe from a later server callback after installation completes.
 	///
 	/// Observe actual starts and accepted ballots through
-	/// [`source_sdk_2013::voting::VoteEvent`] and a game-event listener.
+	/// [`source_sdk_2013::tf2::voting::VoteEvent`] and a game-event listener.
 	pub fn hook_vote_starts(
 		self,
 		server: Server<'_>,

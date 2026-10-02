@@ -1,3 +1,6 @@
+//! TF2's game events, identified by [`GameEventId`].
+
+use crate::interfaces::game_event::GameEvent;
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 
@@ -66,8 +69,8 @@ macro_rules! game_events {
 			/// [`GameEventManager::add_listener`] and
 			/// [`GameEventManager::create_event`] take it.
 			///
-			/// [`GameEventManager::add_listener`]: super::GameEventManager::add_listener
-			/// [`GameEventManager::create_event`]: super::GameEventManager::create_event
+			/// [`GameEventManager::add_listener`]: crate::interfaces::game_event::GameEventManager::add_listener
+			/// [`GameEventManager::create_event`]: crate::interfaces::game_event::GameEventManager::create_event
 			pub const fn name_cstr(&self) -> &'static CStr {
 				match self {
 					$(Self::$Variant => const {
@@ -89,7 +92,7 @@ game_events! {
 	/// an event. Searching the documentation for an event name, such as
 	/// `player_death`, finds its variant.
 	///
-	/// [`GameEvent::id`]: super::GameEvent::id
+	/// [`GameEvent::id`]: GameEvent::id
 	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 	pub GameEventId {
 		AchievementEarned = "achievement_earned",
@@ -497,11 +500,19 @@ game_events! {
 	}
 }
 
+impl GameEvent<'_> {
+	/// Identifies the event by its [name](Self::name), or returns `None` for
+	/// an event [`GameEventId`] does not list.
+	pub fn id(self) -> Option<GameEventId> {
+		GameEventId::from_cstr(self.name())
+	}
+}
+
 impl GameEventId {
 	/// Looks up the event named `cstr`, such as [`GameEvent::name`] returns,
 	/// or returns `None` for a name without an ID.
 	///
-	/// [`GameEvent::name`]: super::GameEvent::name
+	/// [`GameEvent::name`]: GameEvent::name
 	pub const fn from_cstr(cstr: &CStr) -> Option<Self> {
 		Self::from_bstr(cstr.to_bytes())
 	}

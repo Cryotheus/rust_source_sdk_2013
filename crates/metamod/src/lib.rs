@@ -8,13 +8,14 @@ mod plugin;
 #[cfg(feature = "sdk")]
 mod commands;
 
-#[cfg(feature = "sdk")]
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod damage_hooks;
 
 #[cfg(feature = "sdk")]
 mod server_hooks;
 
-#[cfg(feature = "sdk")]
+#[cfg(feature = "tf2")]
 mod vote_hooks;
 
 pub use api::{
@@ -41,5 +42,6 @@ pub use server_hooks::{GameFrameFn, LevelEvents, NetMessageHookError};
 
 pub use sys;
 
-#[cfg(feature = "sdk")]
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub use vote_hooks::{VoteHookError, VoteHooks};

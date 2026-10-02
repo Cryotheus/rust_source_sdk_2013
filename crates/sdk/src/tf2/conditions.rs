@@ -6,7 +6,7 @@
 //! game runs its normal add/remove notifications, durations and cleanup.
 
 use crate::entities::Entity;
-use crate::script_binding::{self as binding, BindingError};
+use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
 
 /// A valid `ETFCond` identifier from TF2's `tf_shareddefs.h`.

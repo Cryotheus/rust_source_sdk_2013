@@ -1,7 +1,5 @@
 //! `IGameEventManager2` and the game events it creates, fires, and delivers.
 
-mod id;
-
 use crate::abi::{CppDestructors, WChar};
 use crate::bitbuf::{BitWriter, RawBfWrite};
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
@@ -15,8 +13,6 @@ use std::ops::{ControlFlow, Deref};
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::slice::from_raw_parts;
-
-pub use id::GameEventId;
 
 /// Name used to request [`sys::IGameEventManager2`] from an engine interface factory.
 #[doc(alias = "INTERFACEVERSION_GAMEEVENTSMANAGER2")]
@@ -211,12 +207,6 @@ impl<'e> GameEvent<'e> {
 		!unsafe { vcall!(self.as_ptr() => IGameEvent_IsEmpty(key.as_ptr())) }
 	}
 
-	/// Identifies the event by its [name](Self::name), or returns `None` for
-	/// an event [`GameEventId`] does not list.
-	pub fn id(self) -> Option<GameEventId> {
-		GameEventId::from_cstr(self.name())
-	}
-
 	/// Whether the event is never networked to clients.
 	#[doc(alias = "IsLocal")]
 	pub fn is_local(self) -> bool {
@@ -284,8 +274,9 @@ impl<'e> GameEvent<'e> {
 
 	/// The internal name of the [`GameEvent`].
 	///
-	/// This has the same effect as calling [`Self::id`] and [`GameEventId::name_cstr`] together,
-	/// but with less overhead, and also names events [`GameEventId`] does not list.
+	/// With the `tf2` feature, this has the same effect as calling `id` and
+	/// `GameEventId::name_cstr` together, but with less overhead, and also names
+	/// events `GameEventId` does not list.
 	///
 	/// # Panics
 	///

@@ -65,7 +65,7 @@ impl Error for InvalidUserId {}
 ///
 /// The engine assigns each client a user ID when it connects. Game events
 /// identify players by it, such as through the `userid` and `attacker` keys of
-/// [`player_death`].
+/// `player_death`.
 ///
 /// A user ID is never 0. Game events use 0 for "no player", such as for the
 /// `attacker` of a player killed by the world, and the engine can report 0 for
@@ -76,8 +76,6 @@ impl Error for InvalidUserId {}
 ///
 /// [`ValveEngine::edict_of_user_id`]: crate::interfaces::valve_engine::ValveEngine::edict_of_user_id
 /// [`ValveEngine::user_id_of_edict`]: crate::interfaces::valve_engine::ValveEngine::user_id_of_edict
-///
-/// [`player_death`]: crate::interfaces::game_event::GameEventId::PlayerDeath
 #[doc(alias = "userid")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]

@@ -40,33 +40,30 @@
 
 pub mod abi;
 pub mod ambient_sounds;
-pub mod attributes;
 pub mod bitbuf;
 pub mod commands;
-pub mod conditions;
-pub mod damage;
 pub mod datatables;
 pub mod edicts;
 pub mod entities;
 mod ffi;
-pub mod host_timescale;
 pub mod inputs;
 pub mod interfaces;
 pub mod math;
 pub mod net;
 pub mod players;
 mod rtti;
-mod script_binding;
 pub mod server;
 pub mod sigscan;
 pub mod soundscapes;
 mod tier0;
 pub mod user_messages;
-pub mod voting;
-pub mod weapons;
 
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod tf2;
+
+pub use sdk_raw as raw;
 pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
 
 /// The raw Source SDK bindings this crate wraps.
 pub use sys;
-pub use sdk_raw as raw;

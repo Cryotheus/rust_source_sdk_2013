@@ -1,0 +1,17 @@
+//! Team Fortress 2: the parts of its game and engine that other Source SDK 2013
+//! games do not share.
+//!
+//! Everything here assumes a server running TF2, whose game DLL is built with
+//! `TF_DLL` ([`Game::TeamFortress2`](crate::Game::TeamFortress2)). Most
+//! wrappers check the [`Game`](crate::Game) and the entity classes they are
+//! given, and return an error for anything else.
+
+pub mod attributes;
+pub mod conditions;
+pub mod damage;
+pub mod game_events;
+pub mod host_timescale;
+mod script_binding;
+pub mod user_messages;
+pub mod voting;
+pub mod weapons;

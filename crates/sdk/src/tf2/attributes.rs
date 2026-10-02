@@ -6,7 +6,7 @@
 //! type, not attributes declaring the separate `"float"` type or other types.
 
 use crate::entities::{Entity, data_map_class};
-use crate::script_binding::{self as binding, BindingError};
+use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
 use std::ffi::CStr;
 

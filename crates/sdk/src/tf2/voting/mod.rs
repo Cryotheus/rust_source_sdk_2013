@@ -19,7 +19,7 @@
 mod vtables;
 
 use crate::interfaces::game_event::GameEvent;
-use crate::voting::vtables::VotingOvft;
+use crate::tf2::voting::vtables::VotingOvft;
 use crate::{Game, Server};
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::marker::PhantomData;
