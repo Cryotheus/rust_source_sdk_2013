@@ -13,20 +13,26 @@ use std::num::NonZero;
 /// index exceeds this limit.
 pub const ABSOLUTE_PLAYER_LIMIT: c_int = 255;
 
+/// The largest `int` that is a [`UserId`], which stores user IDs in 16 bits.
 const RAW_USER_ID_MAX: c_int = u16::MAX as c_int;
 
-/// An `int` which is not a [`UserId`].
+/// An `int` which is not a [`UserId`], from [`UserId::from_raw`].
 ///
-/// `-1` is used as a sentinel value by the engine to indicate an unassigned
+/// The engine and game events use -1 and 0 where no player applies, which
+/// [`is_sentinel`](Self::is_sentinel) recognizes. Every other such value is
+/// negative or too large for 16 bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct InvalidUserId(c_int);
 
 impl InvalidUserId {
-	/// Returns `true` if the underlying value represents any of the non-player states such as "no player" or "world" staes.
+	/// Whether the value is one the engine or game events use where no player
+	/// applies: -1, which the engine returns for an edict no client owns, or 0,
+	/// which game events use for "no player", such as for the world as an
+	/// attacker, and the engine can report for a client slot nobody occupies.
 	///
-	/// If `false` is returned, the value is seen as having originating from somewhere other than the engine,
-	/// and may be worthy of a panic.
+	/// Any other value did not come from the engine as a user ID, so it may be
+	/// worth a panic.
 	pub const fn is_sentinel(&self) -> bool {
 		matches!(self.0, -1 | 0)
 	}
@@ -34,8 +40,6 @@ impl InvalidUserId {
 
 impl Display for InvalidUserId {
 	fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-		const C_INT_MIN: c_int = c_int::MIN;
-
 		match self.0 {
 			// Represents the user id of a player entity, even if they haven't been created yet
 			1..=RAW_USER_ID_MAX => unreachable!(),
@@ -44,7 +48,7 @@ impl Display for InvalidUserId {
 			-1 => write!(f, "No edict assigned"),
 
 			// All other negative values and zero are considered impossible representations.
-			value @ (C_INT_MIN..-1 | 0) => {
+			value @ (c_int::MIN..-1 | 0) => {
 				hint::cold_path();
 				write!(f, "Invalid UserId representation: {value}")
 			}
@@ -89,6 +93,11 @@ impl UserId {
 	}
 
 	/// Converts the `int` representation used by the engine and game events.
+	///
+	/// # Errors
+	///
+	/// If `raw` is not between 1 and `u16::MAX`, as for the -1 and 0 the
+	/// engine and game events use where no player applies.
 	pub const fn from_raw(raw: c_int) -> Result<Self, InvalidUserId> {
 		match raw {
 			1..=RAW_USER_ID_MAX => Ok(Self(NonZero::new(raw as u16).unwrap())),
@@ -96,6 +105,7 @@ impl UserId {
 		}
 	}
 
+	/// The user ID as a `u16`, which is never 0.
 	pub const fn get(self) -> u16 {
 		self.0.get()
 	}

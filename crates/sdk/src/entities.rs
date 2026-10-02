@@ -17,6 +17,10 @@ use std::num::NonZero;
 use std::ptr::{self, NonNull};
 use std::sync::OnceLock;
 
+/// An exclusive bound on the offsets of `CBaseEntity`'s own fields, past which
+/// an offset its datamap gives is not trusted.
+const BASE_ENTITY_FIELD_OFFSET_LIMIT: usize = 8192;
+
 /// `EFL_KILLME` from `game/shared/shareddefs.h`.
 const EFL_KILLME: c_int = 1 << 0;
 
@@ -115,6 +119,8 @@ pub struct Entity<'s> {
 }
 
 impl<'s> Entity<'s> {
+	/// Wraps a pointer to an entity.
+	///
 	/// # Safety
 	///
 	/// `raw` must point to an entity in the entity list that stays allocated
@@ -183,7 +189,8 @@ impl<'s> Entity<'s> {
 		self.raw.as_ptr()
 	}
 
-	/// The entity's class name, such as `tf_player`.
+	/// The entity's class name, such as `tf_player`, or an empty string if
+	/// Source reports none.
 	#[doc(alias = "GetClassname")]
 	pub fn class_name(self) -> &'s CStr {
 		let Some(networkable) = self.networkable() else {
@@ -239,9 +246,9 @@ impl<'s> Entity<'s> {
 		})?;
 
 		let offset = usize::try_from(field.fieldOffset[0]).ok()?;
+		let is_aligned = offset.is_multiple_of(size.min(align_of::<*const ()>()));
 
-		(offset < 8192 && offset.is_multiple_of(size.min(align_of::<*const ()>())))
-			.then_some(offset)
+		(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && is_aligned).then_some(offset)
 	}
 
 	/// The ID Hammer gave the entity in the map's source file
@@ -283,13 +290,19 @@ impl<'s> Entity<'s> {
 	}
 
 	/// The entity's slot in the entity list, which is its edict index if it is
-	/// networked.
+	/// networked, or `None` if its handle is invalid.
 	#[doc(alias = "entindex")]
 	pub fn index(self) -> Option<usize> {
 		self.handle().index()
 	}
 
 	/// Whether Source has marked this entity for deferred deletion.
+	///
+	/// # Panics
+	///
+	/// If the entity's datamaps do not include `CBaseEntity`'s, or it does not
+	/// declare `m_iEFlags` as an `int` at an aligned, plausible offset.
+	#[doc(alias = "EFL_KILLME")]
 	#[doc(alias = "IsMarkedForDeletion")]
 	pub fn is_marked_for_deletion(self) -> bool {
 		static EFLAGS_OFFSET: OnceLock<usize> = OnceLock::new();
@@ -345,6 +358,7 @@ impl<'s> Entity<'s> {
 		Some(unsafe { self.as_ptr().byte_add(offset).cast() })
 	}
 
+	/// The entity's `IServerNetworkable`, or `None` if Source reports none.
 	fn networkable(self) -> Option<NonNull<sys::IServerNetworkable>> {
 		// SAFETY: As for `handle`.
 		NonNull::new(unsafe { vcall!(self.unknown() => IServerUnknown_GetNetworkable()) })
@@ -353,7 +367,9 @@ impl<'s> Entity<'s> {
 	/// Reads the absolute origin without key-value conversion.
 	///
 	/// Source's collision property returns its owner's `GetAbsOrigin()` here.
+	/// Returns `None` if the entity has no collideable or it reports no origin.
 	#[doc(alias = "GetAbsOrigin")]
+	#[doc(alias = "GetCollisionOrigin")]
 	pub fn position(self) -> Option<Vector> {
 		// SAFETY: As for `handle`.
 		let collideable =
@@ -368,7 +384,8 @@ impl<'s> Entity<'s> {
 		Some(unsafe { origin.as_ptr().read() }.into())
 	}
 
-	/// The class describing how the entity is networked.
+	/// The class describing how the entity is networked, or `None` if Source
+	/// reports none.
 	#[doc(alias = "GetServerClass")]
 	pub fn server_class(self) -> Option<ServerClass<'s>> {
 		let networkable = self.networkable()?;
@@ -453,10 +470,12 @@ impl<'s> Entity<'s> {
 		Ok(())
 	}
 
+	/// The entity as its `IServerUnknown` base, which it starts with.
 	fn unknown(self) -> *mut sys::IServerUnknown {
 		self.raw.as_ptr().cast()
 	}
 
+	/// Reads entry `slot` of the entity's primary vtable.
 	fn vtable_slot(self, slot: usize) -> *const () {
 		// SAFETY: `CBaseEntity` has `IServerEntity` as its primary, zero-offset
 		// base, so the entity starts with its primary vtable pointer.
@@ -483,14 +502,17 @@ pub struct EntityHandle(u32);
 
 impl EntityHandle {
 	/// `INVALID_EHANDLE_INDEX`, which refers to no entity.
+	#[doc(alias = "INVALID_EHANDLE_INDEX")]
 	pub const INVALID: Self = Self(u32::MAX);
 
 	/// `NUM_SERIAL_NUM_SHIFT_BITS`.
 	const SERIAL_NUMBER_SHIFT: u32 = 16;
 
 	/// `NUM_ENT_ENTRIES`, the number of slots in the entity list.
+	#[doc(alias = "NUM_ENT_ENTRIES")]
 	pub const SLOTS: usize = 1 << 13;
 
+	/// Wraps a handle's raw value, the `m_Index` a `CBaseHandle` stores.
 	pub const fn from_raw(raw: u32) -> Self {
 		Self(raw)
 	}
@@ -505,15 +527,22 @@ impl EntityHandle {
 		}
 	}
 
+	/// Whether the handle is not [`INVALID`](Self::INVALID). A valid handle
+	/// can still refer to an entity that has since been removed.
+	#[doc(alias = "IsValid")]
 	pub const fn is_valid(self) -> bool {
 		self.0 != Self::INVALID.0
 	}
 
+	/// The serial number the entity's slot had when the entity was created,
+	/// which tells it apart from later entities in the same slot.
 	#[doc(alias = "GetSerialNumber")]
 	pub const fn serial_number(self) -> u32 {
 		self.0 >> Self::SERIAL_NUMBER_SHIFT
 	}
 
+	/// The handle's raw value, the `m_Index` a `CBaseHandle` stores.
+	#[doc(alias = "ToInt")]
 	pub const fn to_raw(self) -> u32 {
 		self.0
 	}
@@ -551,6 +580,7 @@ impl HammerId {
 		}
 	}
 
+	/// The ID as the game stores it, which is never 0.
 	pub const fn get(self) -> c_int {
 		self.0.get()
 	}
@@ -573,9 +603,11 @@ pub struct ProtectedEntity;
 /// An entity cannot be teleported as requested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum TeleportError {
+	/// A component of the origin, angles, or velocity is infinite or NaN.
 	#[error("the destination contains a non-finite component")]
 	NonFinite,
 
+	/// The entity is [marked for deletion](Entity::is_marked_for_deletion).
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
 }
@@ -625,9 +657,13 @@ pub(crate) mod test_support {
 	use std::mem::offset_of;
 	use std::ptr::null_mut;
 
+	/// Where mock entities store `m_iEFlags`, as their datamap declares.
 	pub(crate) const MOCK_EFLAGS_OFFSET: usize = 32;
+	/// Where mock entities store `m_iHammerID`, as their datamap declares.
 	const MOCK_HAMMER_ID_OFFSET: usize = 56;
+	/// Where mock entities store the handle `GetRefEHandle` points to.
 	const MOCK_HANDLE_OFFSET: usize = 40;
+	/// Where mock entities store `m_iName`, as their datamap declares.
 	pub(crate) const MOCK_NAME_OFFSET: usize = 48;
 
 	/// An input a mock entity's `AcceptInput` received.
@@ -668,6 +704,9 @@ pub(crate) mod test_support {
 	}
 
 	impl MockEntity {
+		/// Builds an entity whose handle is `handle`, and resets the datamap,
+		/// origin, teleport count, server class, and edict that mock entities on
+		/// this thread report.
 		pub(crate) fn new(handle: u32) -> Self {
 			let slot_count = sys::CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT
 				.max(sys::CBASEENTITY_DATAMAP_VTABLE_SLOT)
@@ -753,14 +792,17 @@ pub(crate) mod test_support {
 			Self { storage }
 		}
 
+		/// The entity's address, as the game would pass it.
 		pub(crate) fn as_ptr(&mut self) -> *mut sys::CBaseEntity {
 			self.storage.cast()
 		}
 
+		/// A handle to the entity, bound to this borrow of the mock.
 		pub(crate) fn entity(&mut self) -> Entity<'_> {
 			unsafe { Entity::from_raw(NonNull::new(self.as_ptr()).unwrap()) }
 		}
 
+		/// Reads the entity's `m_iName`.
 		pub(crate) fn name(&mut self) -> sys::string_t {
 			unsafe {
 				self.as_ptr()
@@ -770,6 +812,7 @@ pub(crate) mod test_support {
 			}
 		}
 
+		/// Writes the entity's `m_iEFlags`.
 		pub(crate) fn set_eflags(&mut self, flags: c_int) {
 			unsafe {
 				self.as_ptr()
@@ -779,6 +822,7 @@ pub(crate) mod test_support {
 			};
 		}
 
+		/// Writes the entity's `m_iHammerID`.
 		pub(crate) fn set_hammer_id(&mut self, id: c_int) {
 			unsafe {
 				self.as_ptr()
@@ -788,6 +832,7 @@ pub(crate) mod test_support {
 			};
 		}
 
+		/// Writes the entity's `m_iName`.
 		pub(crate) fn set_name(&mut self, name: sys::string_t) {
 			unsafe {
 				self.as_ptr()
@@ -959,6 +1004,8 @@ pub(crate) mod test_support {
 		TELEPORTS.set(TELEPORTS.get() + 1);
 	}
 
+	/// How many times mock entities on this thread were teleported since the
+	/// last [`MockEntity::new`].
 	pub(crate) fn teleports() -> usize {
 		TELEPORTS.get()
 	}

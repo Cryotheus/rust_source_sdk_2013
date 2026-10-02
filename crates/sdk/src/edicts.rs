@@ -49,6 +49,8 @@ pub struct Edict<'s> {
 }
 
 impl<'s> Edict<'s> {
+	/// Wraps a pointer to a slot of the edict table.
+	///
 	/// # Safety
 	///
 	/// `pointer` must identify an element of the engine's edict table, which
@@ -83,6 +85,7 @@ impl<'s> Edict<'s> {
 	}
 
 	/// The entity occupying the slot, if any.
+	#[doc(alias = "GetBaseEntity")]
 	#[doc(alias = "GetUnknown")]
 	pub fn entity(self) -> Option<Entity<'s>> {
 		if self.is_free() {
@@ -104,6 +107,7 @@ impl<'s> Edict<'s> {
 	/// of its networked variables.
 	///
 	/// This is `CBaseEdict::StateChanged()`.
+	#[doc(alias = "StateChanged")]
 	pub fn full_state_changed(self, engine: ValveEngine<'_>) {
 		self.mark_fully_changed(engine.change_accessor(self).map(NonNull::as_ptr));
 	}
@@ -111,6 +115,7 @@ impl<'s> Edict<'s> {
 	/// The slot's position in the edict table, which is also its entity's index.
 	#[doc(alias = "ENTINDEX")]
 	#[doc(alias = "IndexOfEdict")]
+	#[doc(alias = "m_EdictIndex")]
 	pub fn index(self) -> c_int {
 		// SAFETY: The table outlives `'s`. The engine caches every slot's index
 		// in the slot itself, which is what the game's `ENTINDEX` reads. Fields
@@ -122,11 +127,15 @@ impl<'s> Edict<'s> {
 	}
 
 	/// Whether the engine has freed the slot for reuse.
+	#[doc(alias = "FL_EDICT_FREE")]
 	#[doc(alias = "IsFree")]
 	pub fn is_free(self) -> bool {
 		self.state_flags() & FL_EDICT_FREE != 0
 	}
 
+	/// Flags the entity as changed as a whole and, given the edict's change
+	/// accessor, invalidates the change info it claims for this frame, as
+	/// `CBaseEdict::StateChanged()` does.
 	fn mark_fully_changed(self, accessor: Option<*mut sys::IChangeInfoAccessor>) {
 		self.set_state_flags(self.state_flags() | FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED);
 
@@ -136,6 +145,7 @@ impl<'s> Edict<'s> {
 		}
 	}
 
+	/// Overwrites the slot's `m_fStateFlags`.
 	fn set_state_flags(self, flags: c_int) {
 		// SAFETY: As for `index`. The game writes these flags the same way.
 		unsafe { (&raw mut (*self.as_ptr())._base.m_fStateFlags).write(flags) };
@@ -221,6 +231,7 @@ impl<'s> Edict<'s> {
 		}
 	}
 
+	/// Reads the slot's `m_fStateFlags`, a set of `FL_EDICT_*` flags.
 	fn state_flags(self) -> c_int {
 		// SAFETY: As for `index`.
 		unsafe { (&raw const (*self.as_ptr())._base.m_fStateFlags).read() }
