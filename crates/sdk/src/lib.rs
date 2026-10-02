@@ -69,3 +69,4 @@ pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerB
 
 /// The raw Source SDK bindings this crate wraps.
 pub use sys;
+pub use sdk_raw as raw;
