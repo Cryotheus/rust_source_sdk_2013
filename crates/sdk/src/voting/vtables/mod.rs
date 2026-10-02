@@ -5,9 +5,9 @@ use sdk_raw::util;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
-pub(super) struct Image(util::Image);
+pub(super) struct VotingOvft(util::Image);
 
-impl Image {
+impl VotingOvft {
 	/// # Safety
 	/// The factory's module must remain loaded throughout the snapshot.
 	pub(super) unsafe fn load(factory: usize) -> Result<Self, VoteHookTargetError> {

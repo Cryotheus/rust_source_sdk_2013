@@ -11,9 +11,7 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
-use super::WeaponError;
-use crate::Server;
-use std::ffi::{CStr, c_char, c_void};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr::NonNull;
 
 struct Targets {
@@ -24,17 +22,20 @@ struct Targets {
 	definition: usize,
 }
 
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("Failed to create weapon")]
+pub struct WeaponCreationFailed(());
+
 /// The caller supplies the same spawn/callback lifetime guarantees as `give`.
-pub(super) unsafe fn spawn(
-	server: Server<'_>,
+pub unsafe fn spawn(
+	factory: unsafe extern "C" fn(name: *const c_char, return_code: *mut c_int) -> *mut c_void,
 	definition: u16,
 	origin: sys::Vector,
 	classname: Option<&CStr>,
-) -> Result<NonNull<sys::CBaseEntity>, WeaponError> {
+) -> Result<NonNull<sys::CBaseEntity>, WeaponCreationFailed> {
 	// SAFETY: Server guarantees its game factory and module stay loaded for
 	// this callback, including loader metadata inspected during resolution.
-	let targets = unsafe { platform::resolve(server.game_server_factory().as_raw() as usize) }
-		.ok_or(WeaponError::NativeUnavailable)?;
+	let targets = unsafe { platform::resolve(factory as usize) }.expect("Failed to find ");
 
 	type Schema = unsafe extern "C" fn() -> *mut c_void;
 	type Definition = unsafe extern "C" fn(*mut c_void, i32) -> *mut c_void;
@@ -57,9 +58,7 @@ pub(super) unsafe fn spawn(
 	let generate: Spawn = unsafe { std::mem::transmute(targets.spawn) };
 	let schema = unsafe { get_schema() };
 
-	if schema.is_null() {
-		return Err(WeaponError::NativeUnavailable);
-	}
+	assert!(!schema.is_null(), "");
 
 	// Windows' validated SpawnItem callsite adds eight bytes to ItemSystem's
 	// result; Linux resolves GetItemSchema itself, whose adjustment is zero.
@@ -70,7 +69,7 @@ pub(super) unsafe fn spawn(
 	// Unknown indices return the default item, which could otherwise create
 	// an unrelated entity. Schema loading excludes all negative indices.
 	if item.is_null() || item == fallback {
-		return Err(WeaponError::CreationFailed);
+		return Err(WeaponCreationFailed(()));
 	}
 
 	let angles = sys::QAngle {
@@ -95,5 +94,5 @@ pub(super) unsafe fn spawn(
 		)
 	};
 
-	NonNull::new(entity).ok_or(WeaponError::CreationFailed)
+	NonNull::new(entity).ok_or(WeaponCreationFailed(()))
 }

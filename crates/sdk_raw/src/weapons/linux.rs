@@ -1,5 +1,5 @@
 use super::Targets;
-use sdk_raw::util::{elf::LoadedElf, relative};
+use crate::util::{elf::LoadedElf, relative};
 
 /// The caller keeps the factory's game module loaded for all resolution and
 /// subsequent native calls, under the callback-scoped Server contract.
@@ -37,7 +37,7 @@ pub(super) unsafe fn resolve(factory: usize) -> Option<Targets> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sdk_raw::util::elf::Elf;
+	use crate::util::elf::Elf;
 
 	#[test]
 	#[ignore = "set TF2_SERVER_IMAGE to an authorized unstripped retail server_srv.so for binary validation"]

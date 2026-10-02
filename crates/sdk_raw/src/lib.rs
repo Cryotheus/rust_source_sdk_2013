@@ -10,3 +10,4 @@
 compile_error!("source_sdk_2013_raw requires Windows x64 MSVC or Linux x64 GNU");
 
 pub mod util;
+pub mod weapons;

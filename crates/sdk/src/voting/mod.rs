@@ -19,6 +19,7 @@
 mod vtables;
 
 use crate::interfaces::game_event::GameEvent;
+use crate::voting::vtables::VotingOvft;
 use crate::{Game, Server};
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::marker::PhantomData;
@@ -50,6 +51,7 @@ impl VoteChoice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoteDecision {
 	Allow,
+
 	/// Refuse the vote with TF2's generic vote-creation failure response.
 	Block,
 }
@@ -95,10 +97,13 @@ pub struct VoteEventError(pub &'static str);
 pub enum VoteHookTargetError {
 	#[error("built-in voting hooks require Team Fortress 2")]
 	WrongGame,
+
 	#[error("the game module could not be inspected: {0}")]
 	Image(#[from] std::io::Error),
+
 	#[error("the game module has an unsupported executable image")]
 	InvalidImage,
+
 	#[error("no unique primary vtable found for TF2 vote issue {0:?}")]
 	UnsupportedIssue(VoteIssue),
 }
@@ -252,13 +257,13 @@ pub fn vote_issue_vtables(
 	if server.game() != Game::TeamFortress2 {
 		return Err(VoteHookTargetError::WrongGame);
 	}
-	// SAFETY: Server's callback scope keeps its game factory and module loaded
-	// while the generic image utility copies the module's readable sections.
-	let image = unsafe { vtables::Image::load(server.game_server_factory().as_raw() as usize) }?;
+
+	let virtuals = unsafe { VotingOvft::load(server.game_server_factory().as_raw() as usize) }?;
+
 	VoteIssue::ALL
 		.into_iter()
 		.map(|issue| {
-			let pointer = image
+			let pointer = virtuals
 				.find(issue.class(), REQUEST_CALL_VOTE_SLOT)
 				.ok_or(VoteHookTargetError::UnsupportedIssue(issue))?;
 			Ok(VoteIssueVtable {
