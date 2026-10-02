@@ -15,6 +15,10 @@ use std::ptr::NonNull;
 /// The classification in `CTakeDamageInfo::ECritType`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 #[doc(alias = "ECritType")]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ECritType` is `c_int` on Windows but `c_uint` on Linux"
+)]
 #[repr(i32)]
 pub enum CriticalHit {
 	/// Not a critical hit.
