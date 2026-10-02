@@ -14,15 +14,24 @@ use std::ffi::CStr;
 const FADE_FRACTION_BITS: u32 = 9;
 
 /// Fades the screen to or from a color (`Fade`), as `env_fade` does.
+#[doc(alias = "ScreenFade_t")]
+#[doc(alias = "UTIL_ScreenFade")]
+#[doc(alias = "env_fade")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fade {
 	/// Seconds the fade takes, up to about 128.
 	pub duration: f32,
 
 	/// Seconds the color is held once reached, up to about 128.
+	#[doc(alias = "holdTime")]
 	pub hold: f32,
 
+	/// How the fade behaves.
+	#[doc(alias = "fadeFlags")]
 	pub flags: FadeFlags,
+
+	/// The color faded to or from, whose alpha is the fade's greatest
+	/// opacity.
 	pub color: Color32,
 }
 
@@ -51,20 +60,26 @@ pub struct FadeFlags(pub u16);
 
 impl FadeFlags {
 	/// From the color to clear.
+	#[doc(alias = "FFADE_IN")]
 	pub const IN: Self = Self(0x1);
 
 	/// Multiplies the screen by the color instead of blending it.
+	#[doc(alias = "FFADE_MODULATE")]
 	pub const MODULATE: Self = Self(0x4);
 
 	/// From clear to the color.
+	#[doc(alias = "FFADE_OUT")]
 	pub const OUT: Self = Self(0x2);
 
 	/// Replaces every other fade.
+	#[doc(alias = "FFADE_PURGE")]
 	pub const PURGE: Self = Self(0x10);
 
 	/// Holds the color until another fade replaces it.
+	#[doc(alias = "FFADE_STAYOUT")]
 	pub const STAY_OUT: Self = Self(0x8);
 
+	/// The flags set in either.
 	pub const fn union(self, other: Self) -> Self {
 		Self(self.0 | other.0)
 	}
@@ -75,6 +90,8 @@ impl FadeFlags {
 pub struct ForcePlayerViewAngles {
 	/// The player's index.
 	pub player: u8,
+
+	/// The angles the player's view turns to.
 	pub angles: QAngle,
 }
 
@@ -95,6 +112,7 @@ impl UserMessage for ForcePlayerViewAngles {
 /// A hint in the HUD's hint box (`HintText`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HintText<'a> {
+	/// The text shown in the hint box.
 	pub text: &'a CStr,
 }
 
@@ -111,8 +129,12 @@ impl UserMessage for HintText<'_> {
 
 /// TF2's notification with an icon (`HudNotifyCustom`), as
 /// `CTFGameRules::SendHudNotification` sends it.
+#[doc(alias = "HudNotifyCustom")]
+#[doc(alias = "SendHudNotification")]
+#[doc(alias = "game_text_tf")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HudNotification<'a> {
+	/// The text shown with the icon.
 	pub text: &'a CStr,
 
 	/// The icon's name, such as `ico_notify_flag_moving`.
@@ -138,27 +160,49 @@ impl UserMessage for HudNotification<'_> {
 /// Text on the HUD (`HudMsg`), as `game_text` shows it.
 #[doc(alias = "HudMsg")]
 #[doc(alias = "game_text")]
+#[doc(alias = "hudtextparms_t")]
+#[doc(alias = "UTIL_HudMessage")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HudText<'a> {
 	/// Replaces the text shown in the same channel, from 0 to 5.
 	pub channel: u8,
 
-	/// The position as a fraction of the screen, or -1 to center.
+	/// The horizontal position as a fraction of the screen's width, from the
+	/// left, or from the right if negative; -1 centers the text.
 	pub x: f32,
+
+	/// The vertical position as a fraction of the screen's height, from the
+	/// top, or from the bottom if negative; -1 centers the text.
 	pub y: f32,
 
+	/// The text's color.
 	pub color: Color32,
+
 	/// The color of the scan-out and flicker effects.
 	pub effect_color: Color32,
+
+	/// How the text appears.
 	pub effect: HudTextEffect,
 
-	/// Seconds.
+	/// Seconds the text takes to fade in, or, for the scan-out effect, between
+	/// characters.
+	#[doc(alias = "fadeinTime")]
 	pub fade_in: f32,
+
+	/// Seconds the text takes to fade out.
+	#[doc(alias = "fadeoutTime")]
 	pub fade_out: f32,
+
+	/// Seconds the text stays once shown, before it fades out.
+	#[doc(alias = "holdTime")]
 	pub hold: f32,
-	/// Seconds per character for the scan-out effect.
+
+	/// Seconds each character takes to change from the effect color to the
+	/// text's, for the scan-out effect.
+	#[doc(alias = "fxTime")]
 	pub effect_time: f32,
 
+	/// The text shown.
 	pub text: &'a CStr,
 }
 
@@ -204,8 +248,11 @@ pub enum HudTextEffect {
 
 /// A hint about a key binding (`KeyHintText`), as `env_hudhint` shows it.
 /// Empty text hides it.
+#[doc(alias = "env_hudhint")]
+#[doc(alias = "UTIL_HudHintText")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyHintText<'a> {
+	/// The hint's text, or empty to hide the hint.
 	pub text: &'a CStr,
 }
 
@@ -227,6 +274,7 @@ impl UserMessage for KeyHintText<'_> {
 ///
 /// The message is a localization token, such as `TF_Chat_All`, whose
 /// arguments are usually the speaker's name and the text.
+#[doc(alias = "UTIL_SayText2Filter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SayText2<'a> {
 	/// The speaking player's index, whose team colors the name, or 0 for the
@@ -236,7 +284,11 @@ pub struct SayText2<'a> {
 	/// Whether it plays the chat sound and shows in the chat history.
 	pub chat: bool,
 
+	/// The format, as a localization token or plain text.
 	pub message: &'a CStr,
+
+	/// The strings substituted for the format's `%s1`…`%s4`, empty when
+	/// unused.
 	pub arguments: [&'a CStr; 4],
 }
 
@@ -259,8 +311,12 @@ impl UserMessage for SayText2<'_> {
 }
 
 /// Shakes the screen (`Shake`), as `env_shake` does.
+#[doc(alias = "ScreenShake_t")]
+#[doc(alias = "UTIL_ScreenShake")]
+#[doc(alias = "env_shake")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shake {
+	/// What the message does to the client's shakes.
 	pub command: ShakeCommand,
 
 	/// Up to 16.
@@ -269,7 +325,7 @@ pub struct Shake {
 	/// Up to 255.
 	pub frequency: f32,
 
-	/// Seconds.
+	/// Seconds the shake lasts.
 	pub duration: f32,
 }
 
@@ -288,18 +344,27 @@ impl UserMessage for Shake {
 }
 
 /// What a [`Shake`] does (`ShakeCommand_t`).
+#[doc(alias = "ShakeCommand_t")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ShakeCommand {
+	/// Starts a shake, alongside any in progress.
+	#[doc(alias = "SHAKE_START")]
 	Start = 0,
+	/// Stops every shake in progress.
+	#[doc(alias = "SHAKE_STOP")]
 	Stop = 1,
 	/// Changes the amplitude of a shake in progress.
+	#[doc(alias = "SHAKE_AMPLITUDE")]
 	Amplitude = 2,
 	/// Changes the frequency of a shake in progress.
+	#[doc(alias = "SHAKE_FREQUENCY")]
 	Frequency = 3,
 	/// Only rumbles controllers.
+	#[doc(alias = "SHAKE_START_RUMBLEONLY")]
 	StartRumbleOnly = 4,
 	/// Shakes without rumbling controllers.
+	#[doc(alias = "SHAKE_START_NORUMBLE")]
 	StartNoRumble = 5,
 }
 
@@ -308,9 +373,16 @@ pub enum ShakeCommand {
 #[repr(u8)]
 pub enum TextDestination {
 	/// The top-left notification area.
+	#[doc(alias = "HUD_PRINTNOTIFY")]
 	Notify = 1,
+	/// The console.
+	#[doc(alias = "HUD_PRINTCONSOLE")]
 	Console = 2,
+	/// The chat.
+	#[doc(alias = "HUD_PRINTTALK")]
 	Chat = 3,
+	/// The center of the screen.
+	#[doc(alias = "HUD_PRINTCENTER")]
 	Center = 4,
 }
 
@@ -319,10 +391,18 @@ pub enum TextDestination {
 ///
 /// A message starting with `#` is a localization token, such as
 /// `#TF_Arena_NoRespawning`.
+#[doc(alias = "ClientPrint")]
+#[doc(alias = "UTIL_ClientPrintFilter")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextMsg<'a> {
+	/// Where the message prints.
 	pub destination: TextDestination,
+
+	/// The text, or a localization token.
 	pub message: &'a CStr,
+
+	/// The strings substituted for the message's `%s1`…`%s4`, empty when
+	/// unused.
 	pub arguments: [&'a CStr; 4],
 }
 
@@ -345,11 +425,16 @@ impl UserMessage for TextMsg<'_> {
 
 /// Shows or hides a VGUI panel (`VGUIMenu`), such as the MOTD (`info`), with
 /// string key values for it.
+#[doc(alias = "VGUIMenu")]
+#[doc(alias = "ShowViewPortPanel")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VguiMenu<'a> {
 	/// The panel's name, such as `info` or `team`.
 	pub name: &'a CStr,
+
+	/// Whether the panel is shown rather than hidden.
 	pub show: bool,
+
 	/// At most 255, and about 192 bytes in all, as clients' buffers allow.
 	pub keys: &'a [(&'a CStr, &'a CStr)],
 }

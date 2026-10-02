@@ -19,7 +19,7 @@ use crate::ffi::vcall;
 use crate::net::EncodeError;
 use crate::net::messages::MAX_MESSAGE_DATA_BYTES;
 use crate::server::{InterfaceError, Server};
-use std::ffi::{CStr, c_int};
+use std::ffi::{CStr, CString, c_int};
 use std::mem::offset_of;
 use std::ptr::NonNull;
 
@@ -48,7 +48,10 @@ const _: () = {
 /// Its size is still checked against the size the game registered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RawUserMessage<'a> {
+	/// The name the game registered the message under.
 	pub name: &'a CStr,
+
+	/// The payload, sent as written.
 	pub data: &'a BitWriter,
 }
 
@@ -81,6 +84,7 @@ impl<'a> RecipientFilter<'a> {
 		recipient_index: Self::recipient_index,
 	};
 
+	/// A filter that lends `recipients` to the engine for as long as it lives.
 	fn new(recipients: &'a Recipients) -> Self {
 		Self {
 			vtable: &Self::VTABLE,
@@ -124,12 +128,16 @@ impl<'a> RecipientFilter<'a> {
 		unsafe { (*this.cast::<RecipientFilter<'b>>()).recipients }
 	}
 
+	/// The filter as the `IRecipientFilter` the engine takes, valid while it
+	/// lives.
 	fn as_raw(&self) -> *mut sys::IRecipientFilter {
 		// The engine only reads through the pointer.
 		(&raw const *self).cast_mut().cast()
 	}
 }
 
+/// `IRecipientFilter`'s vtable, whose slots the assertions at the top of the
+/// module check against the bindings' for the target's ABI.
 #[repr(C)]
 struct RecipientFilterVtable {
 	destructor: CppDestructors,
@@ -144,6 +152,7 @@ struct RecipientFilterVtable {
 ///
 /// The engine skips indices no client in the game owns, and fake clients.
 #[doc(alias = "IRecipientFilter")]
+#[doc(alias = "CRecipientFilter")]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Recipients {
 	players: Vec<c_int>,
@@ -159,7 +168,11 @@ impl Recipients {
 		}
 	}
 
-	/// Every player slot in use.
+	/// Every player slot in use: each up to the client limit whose edict has
+	/// an entity.
+	///
+	/// Fails if the engine or the player info manager is missing.
+	#[doc(alias = "AddAllPlayers")]
 	pub fn all_players(server: Server<'_>) -> Result<Self, InterfaceError> {
 		let engine = server.valve_engine()?;
 		let max_clients = server
@@ -181,6 +194,7 @@ impl Recipients {
 	}
 
 	/// One client.
+	#[doc(alias = "CSingleUserRecipientFilter")]
 	pub fn player(client: Edict<'_>) -> Self {
 		let mut recipients = Self::new();
 
@@ -189,6 +203,7 @@ impl Recipients {
 	}
 
 	/// Adds a client, once.
+	#[doc(alias = "AddRecipient")]
 	pub fn add(&mut self, client: Edict<'_>) {
 		let index = client.index();
 
@@ -197,16 +212,20 @@ impl Recipients {
 		}
 	}
 
+	/// Whether no client was added.
 	pub fn is_empty(&self) -> bool {
 		self.players.is_empty()
 	}
 
+	/// The number of clients added, each counted once.
+	#[doc(alias = "GetRecipientCount")]
 	pub fn len(&self) -> usize {
 		self.players.len()
 	}
 
 	/// Sends the message in each client's reliable stream, in order with the
 	/// other reliable messages, instead of dropping it when the packet is full.
+	#[doc(alias = "MakeReliable")]
 	pub fn reliable(mut self) -> Self {
 		self.reliable = true;
 		self
@@ -219,34 +238,51 @@ pub trait UserMessage {
 	fn name(&self) -> &CStr;
 
 	/// Writes the payload, as the game's own sender does.
+	///
+	/// An error stops [`send`] before the engine begins the message.
 	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError>;
 }
 
 /// Why a user message could not be sent.
 #[derive(Debug, thiserror::Error)]
 pub enum UserMessageError {
+	/// An interface needed to send the message is missing.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 
+	/// The message could not write its payload, or the payload is longer than
+	/// [`MAX_MESSAGE_DATA_BYTES`].
 	#[error(transparent)]
 	Encode(#[from] EncodeError),
 
+	/// The game registered no message by this name, or registered it with a
+	/// type above 255, which no net message can carry.
 	#[error("the game registered no user message named {0:?}")]
-	Unknown(std::ffi::CString),
+	Unknown(CString),
 
+	/// The payload's size differs from the fixed size the game registered.
 	#[error("the game registered {name:?} with {expected} bytes, but the payload has {bytes}")]
 	WrongSize {
-		name: std::ffi::CString,
+		/// The message's name.
+		name: CString,
+
+		/// The size the game registered, in bytes.
 		expected: usize,
+
+		/// The payload's size, in bytes.
 		bytes: usize,
 	},
 
+	/// The engine gave no buffer to write the payload into.
 	#[error("the engine did not start the message")]
 	NotStarted,
 
+	/// The payload did not fit in the engine's buffer, so the message was
+	/// dropped rather than sent.
 	#[error("the payload did not fit in the engine's buffer")]
 	Overflow,
 
+	/// The entity has no edict or server class, so no client knows it.
 	#[error("the entity is not networked, so no client knows it")]
 	NotNetworked,
 }
@@ -297,16 +333,18 @@ pub fn send(
 
 	message.write(&mut data)?;
 
+	let bytes = data.byte_len();
+
 	match registered.size {
-		Some(expected) if data.byte_len() != expected => {
+		Some(expected) if bytes != expected => {
 			return Err(UserMessageError::WrongSize {
 				name: name.to_owned(),
 				expected,
-				bytes: data.byte_len(),
+				bytes,
 			});
 		}
 
-		_ => EncodeError::check_len("user message data", data.byte_len(), MAX_MESSAGE_DATA_BYTES)?,
+		_ => EncodeError::check_len("user message data", bytes, MAX_MESSAGE_DATA_BYTES)?,
 	}
 
 	// User message types fit in a byte, as the net message carrying them
@@ -372,6 +410,8 @@ mod tests {
 		let filter = RecipientFilter::new(&recipients);
 		let raw = filter.as_raw();
 
+		// SAFETY: `raw` is the live filter, called through the bindings' vtable
+		// as the engine calls it.
 		unsafe {
 			let vtable = (*raw).vtable_;
 
