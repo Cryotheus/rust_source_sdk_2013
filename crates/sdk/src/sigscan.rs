@@ -41,15 +41,6 @@ mod tests {
 	use super::find_all;
 
 	#[test]
-	fn a_partial_match_does_not_hide_a_later_match() {
-		let pattern = [Some(0x48), Some(0x8b), Some(0x0d)];
-		assert_eq!(
-			find_all(&[0x48, 0x48, 0x8b, 0x0d], &pattern).collect::<Vec<_>>(),
-			[1]
-		);
-	}
-
-	#[test]
 	fn empty_or_short_inputs_have_no_matches() {
 		assert!(find_all(&[], &[]).next().is_none());
 		assert!(find_all(&[0x48], &[]).next().is_none());
@@ -80,6 +71,7 @@ mod tests {
 			find_all(b"AAA", &[Some(b'A'), Some(b'A')]).collect::<Vec<_>>(),
 			[0, 1]
 		);
+		// A partial match must not hide a later match that starts inside it.
 		assert_eq!(
 			find_all(b"AAAB", &[Some(b'A'), Some(b'A'), Some(b'B')]).collect::<Vec<_>>(),
 			[1]

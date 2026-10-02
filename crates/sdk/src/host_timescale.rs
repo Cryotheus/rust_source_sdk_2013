@@ -14,6 +14,7 @@ use std::rc::Rc;
 /// instruction sequences are refused. `Drop` attempts restoration, but callers
 /// should call [`Self::restore`] to observe and handle errors before unloading.
 /// On Linux this is a no-op guard.
+#[doc(alias = "Host_AccumulateTime")]
 #[must_use = "keep the patch guard until the plugin restores normal time scaling"]
 pub struct HostTimescalePatch {
 	#[cfg(target_os = "windows")]
@@ -77,6 +78,8 @@ impl HostTimescalePatch {
 	}
 
 	/// Whether this guard has an outstanding installed Windows patch.
+	///
+	/// This is always `false` on Linux.
 	pub fn is_active(&self) -> bool {
 		#[cfg(target_os = "windows")]
 		return self.patch.active;
@@ -108,24 +111,38 @@ impl HostTimescalePatch {
 /// Why the engine's time-scale workaround could not be installed or restored.
 #[derive(Debug, thiserror::Error)]
 pub enum PatchError {
+	/// The engine has no console variable with this name, so the gate's
+	/// references to it cannot be verified.
 	#[error("the engine does not register `{0}`")]
 	MissingVariable(&'static str),
 
+	/// `engine.dll`'s headers or mapped pages are not the committed, readable
+	/// 64-bit PE image the scan expects.
 	#[error("engine.dll has an unsupported or inaccessible PE image")]
 	InvalidImage,
 
+	/// `host_timescale` or `sv_cheats` is not in `engine.dll`'s data sections,
+	/// or no candidate passed every signature and reference check, as with
+	/// another engine build or an already patched gate.
 	#[error("engine.dll does not contain the verified TF2 time-scale gate")]
 	UnsupportedEngine,
 
+	/// More than one candidate passed every check, so none is patched.
 	#[error("engine.dll contains more than one verified TF2 time-scale gate")]
 	AmbiguousGate,
 
+	/// The gate's instructions no longer match what the guard verified or
+	/// wrote. They are left unchanged.
 	#[error("another component changed the time-scale gate's instruction")]
 	InstructionChanged,
 
+	/// A Windows API call failed. The OS error is both in the message and the
+	/// error's [`source`](std::error::Error::source).
 	#[error("{operation} failed: {source}")]
 	Windows {
+		/// The failed Windows function and what it was applied to.
 		operation: &'static str,
+		/// The error Windows reported for the call.
 		#[source]
 		source: std::io::Error,
 	},
@@ -137,13 +154,29 @@ mod scan {
 	use crate::sigscan;
 	use std::ops::Range;
 
+	/// The gate's original `jnz rel8` opcode.
 	pub(super) const ORIGINAL: u8 = 0x75;
+	/// Offset of the patched opcode from the start of [`PATTERN`].
 	pub(super) const PATCH_OFFSET: usize = 28;
 
 	// Host_AccumulateTime, TF2 Windows x64. Relocation-dependent displacements
 	// are masked, then checked semantically below. The patch changes the jnz
 	// into jmp with its existing +0x1c destination (the final movss).
-	const PATTERN: [Option<u8>; 63] = [
+	//
+	//  +0  mov rcx, [rip+timescale]   ; host_timescale's m_pParent
+	//  +7  comiss xmm6, [rcx+0x54]    ; m_fValue
+	// +11  jae reject
+	// +17  mov rax, [rip+cheats]      ; sv_cheats's m_pParent
+	// +24  cmp dword [rax+0x58], 0    ; m_nValue
+	// +28  jnz +58 (rel8 0x1c)        ; PATCH_OFFSET
+	// +30  mov rcx, [rip+demo]
+	// +37  mov rax, [rcx]
+	// +40  call [rax+0x30]
+	// +43  test al, al
+	// +45  jz reject
+	// +51  mov rcx, [rip+timescale]
+	// +58  movss xmm6, [rcx+0x54]
+	const PATTERN: [Option<u8>; PATTERN_LEN] = [
 		Some(0x48),
 		Some(0x8b),
 		Some(0x0d),
@@ -209,14 +242,32 @@ mod scan {
 		Some(0x54),
 	];
 
+	/// Length of [`PATTERN`], which is also the block a patch keeps verifying.
+	pub(super) const PATTERN_LEN: usize = 63;
+
+	/// Offset of the continuation both rejection branches must target, from
+	/// the start of [`PATTERN`].
+	const REJECT_OFFSET: usize = 198;
+
+	/// The `jmp rel8` opcode that replaces [`ORIGINAL`].
 	pub(super) const REPLACEMENT: u8 = 0xeb;
 
 	/// An owned snapshot, so scanning never borrows mutable engine memory.
 	pub(super) struct CodeSection {
+		/// The section's offset from the image base.
 		pub offset: usize,
+		/// A copy of the section's bytes.
 		pub bytes: Vec<u8>,
 	}
 
+	/// Finds the image offset of the single gate opcode to patch.
+	///
+	/// `base` is the image's address and `data` the absolute address ranges of
+	/// its readable non-executable sections. A signature match must read from
+	/// `timescale_parent` and `cheats_parent`, the addresses of the variables'
+	/// `m_pParent` fields, and load a pointer from within `data`. Both rejection
+	/// branches must target [`REJECT_OFFSET`] within the match's section. Fails
+	/// unless exactly one match passes every check.
 	pub(super) fn find_gate(
 		base: usize,
 		code: &[CodeSection],
@@ -234,7 +285,7 @@ mod scan {
 				let Some(address) = base.checked_add(offset) else {
 					continue;
 				};
-				let Some(reject) = address.checked_add(198) else {
+				let Some(reject) = address.checked_add(REJECT_OFFSET) else {
 					continue;
 				};
 				let Some(section_start) = base.checked_add(section.offset) else {
@@ -272,6 +323,11 @@ mod scan {
 		found.ok_or(PatchError::UnsupportedEngine)
 	}
 
+	/// Resolves the RIP-relative target of the instruction ending at
+	/// `instruction_end`, whose `i32` displacement starts at `displacement`.
+	///
+	/// Both offsets are relative to `bytes`, which starts at `address`. Returns
+	/// `None` if the displacement is out of bounds or the target overflows.
 	fn relative_target(
 		address: usize,
 		instruction_end: usize,
@@ -290,6 +346,8 @@ mod scan {
 
 		const BASE: usize = 0x180000000;
 		const CHEATS: usize = BASE + 0x2100;
+		/// The only data section, holding `CHEATS`, `DEMO`, and `TIMESCALE`.
+		const DATA: Range<usize> = BASE + 0x2000..BASE + 0x3000;
 		const DEMO: usize = BASE + 0x2200;
 		const TIMESCALE: usize = BASE + 0x2000;
 
@@ -319,13 +377,7 @@ mod scan {
 		}
 
 		fn find(code: &[CodeSection]) -> Result<usize, PatchError> {
-			find_gate(
-				BASE,
-				code,
-				&[BASE + 0x2000..BASE + 0x3000],
-				TIMESCALE,
-				CHEATS,
-			)
+			find_gate(BASE, code, &[DATA], TIMESCALE, CHEATS)
 		}
 
 		fn put_relative(bytes: &mut [u8], at: usize, end: usize, target: usize, address: usize) {
@@ -375,6 +427,7 @@ mod scan {
 			put_relative(&mut bytes, 20, 24, CHEATS, address);
 			put_relative(&mut bytes, 54, 58, TIMESCALE, address);
 			put_relative(&mut bytes, 33, 37, DEMO, address);
+			// Literal, so the fixture pins REJECT_OFFSET independently.
 			put_relative(&mut bytes, 13, 17, address + 198, address);
 			put_relative(&mut bytes, 47, 51, address + 198, address);
 			CodeSection { offset, bytes }
@@ -392,7 +445,7 @@ mod scan {
 		#[test]
 		fn truncated_or_already_patched_code_is_refused() {
 			let mut code = section(0x100);
-			code.bytes.truncate(63);
+			code.bytes.truncate(PATTERN_LEN);
 			assert!(matches!(find(&[code]), Err(PatchError::UnsupportedEngine)));
 			let mut code = section(0x100);
 			code.bytes[PATCH_OFFSET] = REPLACEMENT;
@@ -415,12 +468,25 @@ mod windows {
 	const _: () = assert!(offset_of!(sys::ConVar, m_nValue) == 0x58);
 	const _: () = assert!(offset_of!(sys::ConVar, m_pParent) == 56);
 	const _: () = assert!(size_of::<MemoryInformation>() == 48);
+	const IMAGE_FILE_MACHINE_AMD64: u16 = 0x8664;
+	const IMAGE_NT_OPTIONAL_HDR64_MAGIC: u16 = 0x20b;
 	const IMAGE_SCN_MEM_EXECUTE: u32 = 0x20000000;
 	const IMAGE_SCN_MEM_READ: u32 = 0x40000000;
+	const IMAGE_SIZEOF_SECTION_HEADER: usize = 40;
 	const MEM_COMMIT: u32 = 0x1000;
 	const MEM_IMAGE: u32 = 0x1000000;
 	const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+	const PAGE_GUARD: u32 = 0x100;
+	const PAGE_NOACCESS: u32 = 0x01;
 
+	/// The protections the scan accepts as readable: `PAGE_READONLY`,
+	/// `PAGE_READWRITE`, `PAGE_WRITECOPY`, and their `PAGE_EXECUTE_*`
+	/// counterparts (plain `PAGE_EXECUTE` is excluded).
+	const READABLE_PROTECTIONS: u32 = 0xee;
+
+	/// Windows x64 `MEMORY_BASIC_INFORMATION`, as filled by `VirtualQuery`.
+	///
+	/// `protection` is its `Protect` member and `kind` its `Type` member.
 	#[repr(C)]
 	struct MemoryInformation {
 		base: *mut c_void,
@@ -433,10 +499,15 @@ mod windows {
 		kind: u32,
 	}
 
+	/// A loader reference to `engine.dll`, which keeps its image mapped until
+	/// this is dropped.
 	struct Module(NonNull<c_void>);
 
 	impl Module {
+		/// Acquires a reference to the already loaded `engine.dll`, without
+		/// loading it.
 		fn engine() -> Result<Self, PatchError> {
+			// `engine.dll`, as NUL-terminated UTF-16.
 			const NAME: [u16; 11] = [101, 110, 103, 105, 110, 101, 46, 100, 108, 108, 0];
 			let mut module = ptr::null_mut();
 			// SAFETY: Both pointers are valid; flags zero acquires a loader
@@ -453,6 +524,8 @@ mod windows {
 			self.0.as_ptr() as usize
 		}
 
+		/// Copies `len` bytes at `offset` from the image base, once [`Self::readable`]
+		/// accepts them.
 		fn copy(&self, offset: usize, len: usize) -> Result<Vec<u8>, PatchError> {
 			self.readable(offset, len)?;
 			let mut bytes = vec![0; len];
@@ -470,6 +543,10 @@ mod windows {
 		}
 
 		/// Checks every page before copying memory out of the mapped image.
+		///
+		/// Each page in `len` bytes at `offset` from the image base must be
+		/// committed memory of this image whose protection permits reads
+		/// without faulting.
 		fn readable(&self, offset: usize, len: usize) -> Result<(), PatchError> {
 			let mut address = self
 				.base()
@@ -495,8 +572,8 @@ mod windows {
 				if information.allocation_base != self.0.as_ptr()
 					|| information.state != MEM_COMMIT
 					|| information.kind != MEM_IMAGE
-					|| information.protection & 0x101 != 0
-					|| information.protection & 0xee == 0
+					|| information.protection & (PAGE_GUARD | PAGE_NOACCESS) != 0
+					|| information.protection & READABLE_PROTECTIONS == 0
 				{
 					return Err(PatchError::InvalidImage);
 				}
@@ -511,6 +588,8 @@ mod windows {
 			Ok(())
 		}
 
+		/// Parses the PE headers into copies of the readable executable sections
+		/// and the absolute address ranges of the readable non-executable ones.
 		fn sections(&self) -> Result<(Vec<scan::CodeSection>, Vec<Range<usize>>), PatchError> {
 			let dos = self.copy(0, 64)?;
 			if dos[..2] != *b"MZ" {
@@ -523,7 +602,7 @@ mod windows {
 			}
 			let coff = self.copy(pe, 24)?;
 			if coff[..4] != *b"PE\0\0"
-				|| u16::from_le_bytes(coff[4..6].try_into().unwrap()) != 0x8664
+				|| u16::from_le_bytes(coff[4..6].try_into().unwrap()) != IMAGE_FILE_MACHINE_AMD64
 			{
 				return Err(PatchError::InvalidImage);
 			}
@@ -533,18 +612,20 @@ mod windows {
 				return Err(PatchError::InvalidImage);
 			}
 			let optional = self.copy(pe + 24, optional_size)?;
-			if u16::from_le_bytes(optional[..2].try_into().unwrap()) != 0x20b {
+			if u16::from_le_bytes(optional[..2].try_into().unwrap())
+				!= IMAGE_NT_OPTIONAL_HDR64_MAGIC
+			{
 				return Err(PatchError::InvalidImage);
 			}
 			let image_size = u32::from_le_bytes(optional[56..60].try_into().unwrap()) as usize;
 			let table = pe + 24 + optional_size;
-			if !(table + count * 40..=0x40000000).contains(&image_size) {
+			if !(table + count * IMAGE_SIZEOF_SECTION_HEADER..=0x40000000).contains(&image_size) {
 				return Err(PatchError::InvalidImage);
 			}
-			let sections = self.copy(table, count * 40)?;
+			let sections = self.copy(table, count * IMAGE_SIZEOF_SECTION_HEADER)?;
 			let mut code = Vec::new();
 			let mut data = Vec::new();
-			for section in sections.chunks_exact(40) {
+			for section in sections.as_chunks::<IMAGE_SIZEOF_SECTION_HEADER>().0 {
 				let size = u32::from_le_bytes(section[8..12].try_into().unwrap()) as usize;
 				let offset = u32::from_le_bytes(section[12..16].try_into().unwrap()) as usize;
 				let flags = u32::from_le_bytes(section[36..40].try_into().unwrap());
@@ -576,16 +657,25 @@ mod windows {
 		}
 	}
 
+	/// The located gate and any cleanup its last write left pending.
 	pub(super) struct Patch {
+		/// Keeps `engine.dll`, and so `location`, mapped.
 		_module: Module,
+		/// The gate opcode, at [`scan::PATCH_OFFSET`] within the verified block.
 		location: NonNull<u8>,
-		original_block: [u8; 63],
+		/// The verified block as located, holding [`scan::ORIGINAL`] at the gate.
+		original_block: [u8; scan::PATTERN_LEN],
+		/// Whether [`scan::REPLACEMENT`] was written and not yet restored.
 		pub active: bool,
+		/// Whether the last write still needs an instruction cache flush.
 		cache_dirty: bool,
+		/// The page protection to put back after a write, while that is pending.
 		protection: Option<u32>,
 	}
 
 	impl Patch {
+		/// Implements [`HostTimescalePatch::locate`](super::HostTimescalePatch::locate)
+		/// under the same contract.
 		pub(super) unsafe fn locate(cvar: Cvar<'_>) -> Result<Self, PatchError> {
 			let timescale = cvar
 				.find_var(c"host_timescale")
@@ -614,7 +704,7 @@ mod windows {
 			let location = NonNull::new((module.base() + offset) as *mut u8)
 				.ok_or(PatchError::InvalidImage)?;
 			let original_block = module
-				.copy(offset - scan::PATCH_OFFSET, 63)?
+				.copy(offset - scan::PATCH_OFFSET, scan::PATTERN_LEN)?
 				.try_into()
 				.map_err(|_| PatchError::InvalidImage)?;
 			Ok(Self {
@@ -627,6 +717,8 @@ mod windows {
 			})
 		}
 
+		/// Implements [`HostTimescalePatch::enable`](super::HostTimescalePatch::enable)
+		/// under the same contract.
 		pub(super) unsafe fn enable(&mut self) -> Result<(), PatchError> {
 			// SAFETY: locate validated all 63 bytes and keeps the module loaded;
 			// the caller excludes concurrent execution and modification.
@@ -647,6 +739,10 @@ mod windows {
 			}
 		}
 
+		/// Attempts the pending instruction cache flush and protection restore.
+		///
+		/// A step that fails stays pending for the next call. The flush's error
+		/// takes precedence when both fail.
 		fn finish_write(&mut self) -> Result<(), PatchError> {
 			let cache_error = if self.cache_dirty {
 				// SAFETY: The process pseudo-handle and the held image byte are
@@ -686,6 +782,8 @@ mod windows {
 			}
 		}
 
+		/// Whether the live block equals the verified one with `opcode` at the
+		/// gate. The caller must exclude concurrent modification of the block.
 		unsafe fn matches_block(&self, opcode: u8) -> bool {
 			self.original_block
 				.iter()
@@ -708,6 +806,12 @@ mod windows {
 				})
 		}
 
+		/// Writes `value` over the gate opcode, records `active`, and finishes
+		/// the write.
+		///
+		/// Writes nothing and returns [`PatchError::InstructionChanged`] unless
+		/// the opcode is `expected`. The caller must exclude execution and
+		/// concurrent modification of the gate.
 		unsafe fn replace(
 			&mut self,
 			expected: u8,
@@ -741,6 +845,8 @@ mod windows {
 			self.finish_write()
 		}
 
+		/// Implements [`HostTimescalePatch::restore`](super::HostTimescalePatch::restore)
+		/// under the same contract.
 		pub(super) unsafe fn restore(&mut self) -> Result<(), PatchError> {
 			if self.active {
 				// SAFETY: The held module keeps the checked instruction live.
@@ -792,10 +898,25 @@ mod windows {
 		) -> usize;
 	}
 
+	/// Wraps the calling thread's last Windows error for `operation`.
 	fn os_error(operation: &'static str) -> PatchError {
 		PatchError::Windows {
 			operation,
 			source: std::io::Error::last_os_error(),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::PatchError;
+
+	#[test]
+	fn windows_errors_display_their_os_reason() {
+		let error = PatchError::Windows {
+			operation: "VirtualProtect",
+			source: std::io::Error::other("reason"),
+		};
+		assert_eq!(error.to_string(), "VirtualProtect failed: reason");
 	}
 }
