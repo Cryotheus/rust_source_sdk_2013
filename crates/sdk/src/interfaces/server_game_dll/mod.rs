@@ -36,7 +36,8 @@ use std::ffi::{CStr, CString, VaList, c_char, c_int};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
-/// `MAX_PATH` from `public/tier0/platform.h`, which sizes map name buffers.
+/// `MAX_PATH` from `public/tier0/platform.h`, which sizes map name and match
+/// name buffers.
 const MAX_PATH: usize = 260;
 
 /// The most user messages [`ServerGameDll::user_messages`] asks for, far more
@@ -67,27 +68,40 @@ interface! {
 
 /// How far preparing a level has come, from
 /// [`ServerGameDll::async_prepare_level_resources`].
+#[doc(alias = "ePrepareLevelResourcesResult")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum LevelPreparation {
+	/// The game has prepared the level's resources, resolved to this map name
+	/// and file.
+	#[doc(alias = "ePrepareLevelResources_Prepared")]
 	Prepared(LevelResources),
 
 	/// The game is still preparing resources, `progress` of the way from 0 to 1.
+	#[doc(alias = "ePrepareLevelResources_InProgress")]
 	InProgress {
+		/// The map name and file as the game left them in this call.
 		resources: LevelResources,
+
+		/// The fraction of the work done, from 0 to 1, or 0 if the game did not
+		/// report it.
 		progress: f32,
 	},
 }
 
 /// What the game would do with a map name, from [`ServerGameDll::can_provide_level`].
+#[doc(alias = "eCanProvideLevelResult")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LevelProvision {
 	/// The game does not know the map, so the engine would load it from `maps/`.
+	#[doc(alias = "eCanProvideLevel_CannotProvide")]
 	CannotProvide,
 
 	/// The game can provide the map, under this canonical name.
+	#[doc(alias = "eCanProvideLevel_CanProvide")]
 	CanProvide(CString),
 
 	/// The game may be able to provide the map, which only preparing it tells.
+	#[doc(alias = "eCanProvideLevel_Possibly")]
 	Possibly,
 }
 
@@ -102,6 +116,8 @@ pub struct LevelResources {
 }
 
 impl LevelResources {
+	/// Copies the map name and file the game wrote into the buffers from
+	/// [`level_buffers`].
 	fn from_buffers(map_name: &[c_char], map_file: &[c_char]) -> Self {
 		Self {
 			map_name: cstring_from_buffer(map_name),
@@ -114,6 +130,8 @@ impl LevelResources {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("the game refuses map changes right now{}", .reason.as_deref().map(|reason| format!(": {reason}")).unwrap_or_default())]
 pub struct MapChangeRefused {
+	/// The reason the game gave, converted lossily to UTF-8, or `None` if it
+	/// gave none.
 	pub reason: Option<String>,
 }
 
@@ -153,7 +171,8 @@ impl<'s> ServerGcLobby<'s> {
 		unsafe { vcall!(self.as_ptr() => IServerGCLobby_MatchAllowsNameChanges()) }
 	}
 
-	/// The name the game coordinator gave a player in the lobby's match.
+	/// The name the game coordinator gave the player with a 64-bit Steam ID in
+	/// the lobby's match, or `None` if the game reports none.
 	#[doc(alias = "GetPlayerGCMatchName")]
 	pub fn player_gc_match_name(self, steam_id: u64) -> Option<CString> {
 		let steam_id = steam_id_of(steam_id);
@@ -197,23 +216,41 @@ pub struct UserMessage {
 	/// The message type, which `IVEngineServer::UserMessageBegin` takes.
 	pub index: usize,
 
+	/// The name the game registered the message under, such as `SayText2`.
 	pub name: CString,
 
 	/// The message's size in bytes, or `None` if it varies.
 	pub size: Option<usize>,
 }
 
-/// A workshop map the game knows, from [`ServerGameDll::workshop_map`].
+/// A workshop map the game knows, from [`ServerGameDll::workshop_map`]. The
+/// engine reads these mainly to list maps.
+#[doc(alias = "WorkshopMapDesc_t")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WorkshopMap {
+	/// The map's name, as the game reports it.
+	#[doc(alias = "szMapName")]
 	pub name: CString,
+
+	/// The map's original name, as the game reports it.
+	#[doc(alias = "szOriginalMapName")]
 	pub original_name: CString,
+
+	/// The map's timestamp, as the game reports it.
+	#[doc(alias = "uTimestamp")]
 	pub timestamp: u32,
+
+	/// Whether the game reports the map as downloaded.
+	#[doc(alias = "bDownloaded")]
 	pub downloaded: bool,
 }
 
 impl<'s> ServerGameDll<'s> {
 	/// Starts or polls preparing a level's resources without blocking.
+	///
+	/// The game starts from `map` and the file `maps/<map>.bsp`, as for
+	/// [`Self::prepare_level_resources`]. Fails if either does not fit in the
+	/// game's buffers.
 	#[doc(alias = "AsyncPrepareLevelResources")]
 	pub fn async_prepare_level_resources(
 		self,
@@ -242,7 +279,8 @@ impl<'s> ServerGameDll<'s> {
 	}
 
 	/// What the game would do with a map name if asked to prepare it, without
-	/// blocking.
+	/// blocking. Fails if the name, or the file `maps/<map>.bsp`, does not fit
+	/// in the game's buffers, as for [`Self::prepare_level_resources`].
 	#[doc(alias = "CanProvideLevel")]
 	pub fn can_provide_level(self, map: &CStr) -> Result<LevelProvision, MapNameTooLong> {
 		let (mut map_name, _) = level_buffers(map)?;
@@ -265,7 +303,11 @@ impl<'s> ServerGameDll<'s> {
 		})
 	}
 
-	/// Resolves a networked variable of an entity's class by name.
+	/// Resolves a networked variable of an entity's class by name, as
+	/// [`Self::net_prop`] does.
+	///
+	/// Fails with [`NetPropError::NotNetworked`] for an entity without a
+	/// server class.
 	pub fn entity_net_prop(
 		self,
 		entity: Entity<'s>,
@@ -280,7 +322,8 @@ impl<'s> ServerGameDll<'s> {
 		self.net_prop(class, name)
 	}
 
-	/// A description of the game, such as `Team Fortress`.
+	/// A description of the game, such as `Team Fortress`, or empty if the game
+	/// returns none.
 	#[doc(alias = "GetGameDescription")]
 	pub fn game_description(self) -> CString {
 		// SAFETY: As for `tick_interval`. Game rules may build the description,
@@ -343,6 +386,9 @@ impl<'s> ServerGameDll<'s> {
 	/// The first variable with the name is found, searching the class's table
 	/// and the tables nested within it depth first, which includes those of
 	/// base classes and embedded structures such as `m_Local`.
+	///
+	/// Fails if the class has no send table, the game provides no standard
+	/// send proxies, or the variable is missing or cannot be addressed.
 	pub fn net_prop(
 		self,
 		class: ServerClass<'s>,
@@ -361,6 +407,9 @@ impl<'s> ServerGameDll<'s> {
 
 	/// Resolves a map name, and has the game prepare its resources, such as
 	/// downloading a workshop map. This may block for a long time.
+	///
+	/// The game starts from `map` and the file `maps/<map>.bsp`, and may
+	/// replace either. Fails if either does not fit in the game's buffers.
 	#[doc(alias = "PrepareLevelResources")]
 	pub fn prepare_level_resources(self, map: &CStr) -> Result<LevelResources, MapNameTooLong> {
 		let (mut map_name, mut map_file) = level_buffers(map)?;
@@ -386,21 +435,25 @@ impl<'s> ServerGameDll<'s> {
 		cstring_from_buffer(&comment)
 	}
 
-	/// The game data string sent to the master server.
+	/// The game data string sent to the master server, or `None` if the game
+	/// returns none.
 	#[doc(alias = "GetServerBrowserGameData")]
 	pub fn server_browser_game_data(self) -> Option<CString> {
 		// SAFETY: As for `game_description`.
 		unsafe { copy_cstr(vcall!(self.as_ptr() => IServerGameDLL_GetServerBrowserGameData())) }
 	}
 
-	/// What the server browser's map column shows instead of the map name.
+	/// What the server browser's map column shows instead of the map name, or
+	/// `None` if it shows the map name.
 	#[doc(alias = "GetServerBrowserMapOverride")]
 	pub fn server_browser_map_override(self) -> Option<CString> {
 		// SAFETY: As for `game_description`.
 		unsafe { copy_cstr(vcall!(self.as_ptr() => IServerGameDLL_GetServerBrowserMapOverride())) }
 	}
 
-	/// Finds a networked entity class by name, such as `CTFPlayer`.
+	/// Finds a networked entity class by name, such as `CTFPlayer`, or `None`
+	/// if the game has none with the name.
+	#[doc(alias = "GetAllServerClasses")]
 	pub fn server_class(self, name: &CStr) -> Option<ServerClass<'s>> {
 		self.server_classes().find(|class| class.name() == name)
 	}
@@ -422,7 +475,8 @@ impl<'s> ServerGameDll<'s> {
 		unsafe { vcall!(self.as_ptr() => IServerGameDLL_ShouldHideServer()) }
 	}
 
-	/// The game DLL's standard send proxies.
+	/// The game DLL's standard send proxies, or `None` if the game returns
+	/// none.
 	#[doc(alias = "GetStandardSendProxies")]
 	pub fn standard_send_proxies(self) -> Option<StandardSendProxies<'s>> {
 		// SAFETY: As for `tick_interval`.
@@ -457,7 +511,8 @@ impl<'s> ServerGameDll<'s> {
 		unsafe { vcall!(self.as_ptr() => IServerGameDLL_GetTickInterval()) }
 	}
 
-	/// The user message the game registered at an index.
+	/// The user message the game registered at an index, or `None` if there is
+	/// none.
 	#[doc(alias = "GetUserMessageInfo")]
 	pub fn user_message(self, index: usize) -> Option<UserMessage> {
 		let message_type = c_int::try_from(index).ok()?;
@@ -476,12 +531,15 @@ impl<'s> ServerGameDll<'s> {
 		})
 	}
 
-	/// Every user message the game registered.
+	/// Every user message the game registered, in index order, up to the first
+	/// index without one.
+	#[doc(alias = "GetUserMessageInfo")]
 	pub fn user_messages(self) -> impl Iterator<Item = UserMessage> + use<'s> {
 		(0..MAX_USER_MESSAGES).map_while(move |index| self.user_message(index))
 	}
 
-	/// The workshop map the game knows at an index.
+	/// The workshop map the game knows at an index, or `None` if the index is
+	/// invalid.
 	#[doc(alias = "GetWorkshopMap")]
 	pub fn workshop_map(self, index: u32) -> Option<WorkshopMap> {
 		// SAFETY: The description is plain data, for which zeroes are valid.
@@ -500,20 +558,25 @@ impl<'s> ServerGameDll<'s> {
 		})
 	}
 
-	/// Every workshop map the game knows.
+	/// Every workshop map the game knows, in index order, up to the first
+	/// invalid index.
+	#[doc(alias = "GetWorkshopMap")]
 	pub fn workshop_maps(self) -> impl Iterator<Item = WorkshopMap> + use<'s> {
 		(0..MAX_WORKSHOP_MAPS).map_while(move |index| self.workshop_map(index))
 	}
 }
 
-/// Fills the map name and file buffers the game resolves levels in.
+/// Fills the map name and file buffers the game resolves levels in, with `map`
+/// and `maps/<map>.bsp`.
 fn level_buffers(map: &CStr) -> Result<([c_char; MAX_PATH], [c_char; MAX_PATH]), MapNameTooLong> {
 	let too_long = || MapNameTooLong {
 		name: map.to_string_lossy().into_owned(),
 	};
 
-	let file =
-		CString::new(format!("maps/{}.bsp", map.to_string_lossy())).map_err(|_| too_long())?;
+	// Built from the bytes, so a name that is not UTF-8 is kept as it is. A
+	// `CStr` holds no interior NUL, so `CString::new` cannot fail.
+	let file = [b"maps/".as_slice(), map.to_bytes(), b".bsp"].concat();
+	let file = CString::new(file).map_err(|_| too_long())?;
 
 	Ok((
 		buffer_from_cstr(map).ok_or_else(too_long)?,
@@ -521,6 +584,7 @@ fn level_buffers(map: &CStr) -> Result<([c_char; MAX_PATH], [c_char; MAX_PATH]),
 	))
 }
 
+/// Wraps a 64-bit Steam ID in the `CSteamID` the lobby interface takes.
 fn steam_id_of(steam_id: u64) -> sys::CSteamID {
 	sys::CSteamID {
 		m_steamid: sys::CSteamID_SteamID_t {
@@ -546,6 +610,7 @@ unsafe extern "C" {
 		arguments: VaList<'_>,
 	) -> c_int;
 
+	/// The C library's `vsnprintf`.
 	#[cfg(not(target_os = "windows"))]
 	fn vsnprintf(
 		buffer: *mut c_char,
@@ -631,6 +696,21 @@ mod tests {
 
 		unsafe { ptr::copy_nonoverlapping(c"workshop/cp_example.ugc123".as_ptr(), name, 27) };
 		sys::IServerGameDLL_eCanProvideLevelResult_eCanProvideLevel_CanProvide
+	}
+
+	#[test]
+	fn level_buffers_keep_the_map_name_bytes() {
+		let (name, file) = level_buffers(c"cp_\xff").unwrap();
+
+		assert_eq!(cstring_from_buffer(&name).as_c_str(), c"cp_\xff");
+		assert_eq!(cstring_from_buffer(&file).as_c_str(), c"maps/cp_\xff.bsp");
+
+		// `maps/` and `.bsp` leave room for 250 bytes of name in the file.
+		let longest = CString::new("x".repeat(MAX_PATH - 10)).unwrap();
+		let too_long = CString::new("x".repeat(MAX_PATH - 9)).unwrap();
+
+		assert!(level_buffers(&longest).is_ok());
+		assert!(level_buffers(&too_long).is_err());
 	}
 
 	unsafe extern "C" fn manual_map_change(

@@ -53,10 +53,16 @@ impl<'s> Iterator for Entities<'s> {
 	}
 }
 
+/// How far an [`Entities`] iterator has come through the entity list.
 #[derive(Debug, Clone, Copy)]
 enum IterState {
+	/// Nothing has been yielded; the next call starts with `FirstEntity`.
 	First,
+
+	/// The entity yielded last, which `NextEntity` continues from.
 	After(NonNull<sys::CBaseEntity>),
+
+	/// The game returned null, so the iterator is exhausted.
 	Done,
 }
 
@@ -76,6 +82,9 @@ impl<'s> ServerTools<'s> {
 	/// The version string this interface is requested by.
 	pub const VERSION: &'static CStr = c"VSERVERTOOLS003";
 
+	/// Wraps the interface of a game DLL built for `game`, which selects
+	/// game-specific vtable slots such as `Teleport`'s.
+	///
 	/// # Safety
 	///
 	/// `raw` must be the live `VSERVERTOOLS003` object, alive for `'s`, of a
@@ -262,7 +271,9 @@ impl<'s> ServerTools<'s> {
 		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity.cast()) })
 	}
 
-	/// Looks up a networked entity by edict index.
+	/// Looks up a networked entity by edict index. Returns `None` for a
+	/// negative index, one of at least [`MAX_EDICTS`](crate::edicts::MAX_EDICTS),
+	/// or one that holds no entity.
 	///
 	/// Server-only entities have no edict index; find them with
 	/// [`Self::entities`] or [`Self::entity_by_handle`].
@@ -280,8 +291,9 @@ impl<'s> ServerTools<'s> {
 		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
 	}
 
-	/// Finds the next entity after `after` whose class name matches
-	/// `class_name`, which may end in a `*` wildcard.
+	/// Finds the next entity after `after`, or from the start of the entity
+	/// list if it is `None`, whose class name matches `class_name`, which may
+	/// end in a `*` wildcard. Returns `None` if no later entity matches.
 	#[doc(alias = "FindEntityByClassname")]
 	pub fn find_by_class_name(
 		self,
@@ -300,7 +312,8 @@ impl<'s> ServerTools<'s> {
 	}
 
 	/// Finds the first entity in the entity list whose Hammer ID is `id`,
-	/// including server-only entities and those pending deletion.
+	/// including server-only entities and those pending deletion, or `None` if
+	/// no entity has it.
 	///
 	/// Entities a `point_template` spawns share their template entity's ID. To
 	/// find every entity with an ID, filter [`Self::entities`] by
@@ -317,6 +330,8 @@ impl<'s> ServerTools<'s> {
 	}
 
 	/// Reads one of an entity's key values, as formatted by its datamap.
+	/// Returns `None` if the game finds no key with the name, or cannot format
+	/// the key's type.
 	///
 	/// Keys of string fields, such as `damagefilter` and `model`, are read from
 	/// the field, since `GetKeyValue` copies the bytes of the string's pointer
@@ -353,6 +368,9 @@ impl<'s> ServerTools<'s> {
 	/// key, which the game pools, reads the pooled name back, and restores the
 	/// world's name, as SourceMod does. The name is not networked, and nothing
 	/// else observes the change.
+	///
+	/// Returns `None` if the world is missing or marked for deletion, its name
+	/// field is not found, or the game did not pool the string as given.
 	fn pool_string(self, string: &CStr) -> Option<sys::string_t> {
 		let world = self
 			.entity_by_index(0)
@@ -409,6 +427,11 @@ impl<'s> ServerTools<'s> {
 		Ok(())
 	}
 
+	/// Converts `value` for a checked input, pooling a string the input may
+	/// keep, and sends it through `AcceptInput`. Fails with
+	/// [`InputError::NotPooled`] if such a string could not be pooled, or
+	/// [`InputError::Rejected`] if `AcceptInput` returns false.
+	///
 	/// # Safety
 	///
 	/// As for [`Entity::accept_input`], apart from the string, which this
@@ -452,6 +475,9 @@ impl<'s> ServerTools<'s> {
 	/// Moves an entity through Source's `Teleport` method, which also updates
 	/// its physics state and may move child entities. Each argument left as
 	/// `None` is unchanged.
+	///
+	/// Fails without moving the entity if a given component is not finite, or
+	/// the entity is marked for deletion.
 	#[doc(alias = "Teleport")]
 	pub fn teleport(
 		self,
