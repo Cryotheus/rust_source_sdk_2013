@@ -1,9 +1,10 @@
 //! TF2 weapon creation, inventory slots, equipment, and replacement.
 //!
-//! `give` creates a stock weapon by classname; `give_item` selects an economy
-//! item definition, such as the Iron Bomber. Native item generation initializes
-//! item definitions, schema attributes, and models before spawning. Attributes
-//! can also be changed through the `attributes` module.
+//! [`PlayerWeapons::give`] creates a stock weapon by classname;
+//! [`PlayerWeapons::give_item`] selects an economy item definition, such as the
+//! Iron Bomber. Native item generation initializes item definitions, schema
+//! attributes, and models before spawning. Attributes can also be changed
+//! through the [`attributes`](crate::attributes) module.
 
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::{Game, InterfaceError, Server};
@@ -11,7 +12,10 @@ use sdk_raw::weapons::WeaponCreationFailed;
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
 
+/// A native weapon slot: a [`WeaponSlot`], or a raw slot number for the less
+/// common slots it does not name.
 pub trait IntoWeaponSlot {
+	/// The raw slot number, as compared with each weapon's native `GetSlot`.
 	fn into_weapon_slot(self) -> c_int;
 }
 
@@ -23,6 +27,8 @@ impl IntoWeaponSlot for c_int {
 
 /// An item definition in TF2's economy schema. A valid index need not exist in
 /// the running server's schema, and can describe a cosmetic instead of a weapon.
+#[doc(alias = "item_definition_index_t")]
+#[doc(alias = "m_iItemDefinitionIndex")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ItemDefinitionIndex(u16);
 
@@ -36,6 +42,7 @@ impl ItemDefinitionIndex {
 		}
 	}
 
+	/// The raw schema index, never the invalid sentinel.
 	pub const fn get(self) -> u16 {
 		self.0
 	}
@@ -49,6 +56,8 @@ pub struct PlayerWeapons<'s> {
 }
 
 impl<'s> PlayerWeapons<'s> {
+	/// Wraps a player's inventory, or returns [`WeaponError::NotTfPlayer`]
+	/// unless the server runs TF2 and `player`'s datamaps include `CTFPlayer`.
 	pub fn new(server: Server<'s>, player: Entity<'s>) -> Result<Self, WeaponError> {
 		if server.game() != Game::TeamFortress2 || !has_class(player, c"CTFPlayer") {
 			return Err(WeaponError::NotTfPlayer);
@@ -93,7 +102,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// owned and present in this player's inventory is left alone. A matching
 	/// owner without inventory membership is reconciled through native equip.
 	/// It never steals another player's weapon.
-	#[doc(alias = "Equip")]
+	#[doc(alias = "Weapon_Equip")]
 	pub fn equip(self, weapon: Weapon<'s>) -> Result<(), WeaponError> {
 		check_live(self.player)?;
 		check_live(weapon.entity)?;
@@ -104,7 +113,7 @@ impl<'s> PlayerWeapons<'s> {
 			return Err(WeaponError::DifferentOwner);
 		}
 
-		let slot = weapon.slot()?;
+		let slot = weapon.slot_raw()?;
 
 		if let Some(existing) = self.get_slot(slot)? {
 			return if existing.entity != weapon.entity {
@@ -138,7 +147,9 @@ impl<'s> PlayerWeapons<'s> {
 		Ok(())
 	}
 
-	#[doc(alias = "GetSlot")]
+	/// The first weapon in this player's inventory whose native slot matches,
+	/// or `None` when the slot is empty.
+	#[doc(alias = "Weapon_GetSlot")]
 	pub fn get_slot(self, slot: impl IntoWeaponSlot) -> Result<Option<Weapon<'s>>, WeaponError> {
 		check_live(self.player)?;
 
@@ -215,15 +226,20 @@ impl<'s> PlayerWeapons<'s> {
 	/// # Safety
 	/// The definition's constructor, spawn, activation and equipment callbacks
 	/// must uphold `Server::new`'s no-immediate-deletion contract.
+	#[doc(alias = "SpawnItem")]
 	pub unsafe fn give_item(
 		self,
 		definition: ItemDefinitionIndex,
 	) -> Result<Weapon<'s>, WeaponError> {
 		// SAFETY: The caller supplies the native creation guarantees.
-		unsafe { self._give_item(definition, None) }
+		unsafe { self.spawn_item(definition, None) }
 	}
 
-	unsafe fn _give_item(
+	/// Creates an economy item through native item generation, then equips it.
+	///
+	/// # Safety
+	/// The guarantees of `give_item`, or of `give_item_as` with a classname.
+	unsafe fn spawn_item(
 		self,
 		definition: ItemDefinitionIndex,
 		classname: Option<&CStr>,
@@ -255,13 +271,14 @@ impl<'s> PlayerWeapons<'s> {
 	/// # Safety
 	/// The guarantees of `give_item` apply, and the classname must be a weapon
 	/// implementation compatible with the chosen item definition.
+	#[doc(alias = "SpawnItem")]
 	pub unsafe fn give_item_as(
 		self,
 		definition: ItemDefinitionIndex,
 		classname: &CStr,
 	) -> Result<Weapon<'s>, WeaponError> {
 		// SAFETY: The caller supplies the native creation/class guarantees.
-		unsafe { self._give_item(definition, Some(classname)) }
+		unsafe { self.spawn_item(definition, Some(classname)) }
 	}
 
 	/// `create` must return a newly created entity, live through this callback.
@@ -277,8 +294,8 @@ impl<'s> PlayerWeapons<'s> {
 		// slot iteration order cannot hide a collision after native pickup.
 		let mut occupied = [false; 256];
 
-		for (index, occupied) in occupied.iter_mut().enumerate() {
-			*occupied = self.get_slot(WeaponSlot(index as u8))?.is_some();
+		for slot in 0..=u8::MAX {
+			occupied[usize::from(slot)] = self.get_slot(c_int::from(slot))?.is_some();
 		}
 
 		let raw = create()?;
@@ -291,7 +308,7 @@ impl<'s> PlayerWeapons<'s> {
 		if expected_classname.is_some_and(|expected| entity.class_name() != expected) {
 			// SpawnItem falls back to the schema classname when an override has
 			// no factory. Enforce *_as semantics before the fallback can be equipped.
-			tools.remove(entity).ok();
+			let _ = tools.remove(entity);
 
 			return Err(WeaponError::CreationFailed);
 		}
@@ -305,8 +322,10 @@ impl<'s> PlayerWeapons<'s> {
 			}
 		};
 
-		let equipped = weapon.slot().and_then(|slot| {
-			if occupied[usize::from(slot.0)] {
+		let equipped = weapon.slot_raw().and_then(|slot| {
+			let slot = u8::try_from(slot).map_err(|_| WeaponError::WrongSlot)?;
+
+			if occupied[usize::from(slot)] {
 				Err(WeaponError::SlotOccupied)
 			} else {
 				self.equip(weapon)
@@ -332,6 +351,7 @@ impl<'s> PlayerWeapons<'s> {
 		Ok(weapon)
 	}
 
+	/// The player whose inventory this is.
 	pub const fn player(self) -> Entity<'s> {
 		self.player
 	}
@@ -433,6 +453,7 @@ impl<'s> PlayerWeapons<'s> {
 }
 
 /// A callback-scoped TF2 weapon. Keep its entity handle across callbacks.
+#[doc(alias = "CTFWeaponBase")]
 #[derive(Debug, Clone, Copy)]
 pub struct Weapon<'s> {
 	entity: Entity<'s>,
@@ -440,6 +461,9 @@ pub struct Weapon<'s> {
 }
 
 impl<'s> Weapon<'s> {
+	/// Wraps a TF2 weapon entity. Returns [`WeaponError::NotWeapon`] unless the
+	/// server runs TF2 and `entity`'s datamaps include `CTFWeaponBase`, and
+	/// [`WeaponError::UnsupportedLayout`] if its `m_hOwner` field is not found.
 	pub fn new(server: Server<'s>, entity: Entity<'s>) -> Result<Self, WeaponError> {
 		if server.game() != Game::TeamFortress2 || !has_class(entity, c"CTFWeaponBase") {
 			return Err(WeaponError::NotWeapon);
@@ -458,6 +482,7 @@ impl<'s> Weapon<'s> {
 		})
 	}
 
+	/// The weapon's entity.
 	pub const fn entity(self) -> Entity<'s> {
 		self.entity
 	}
@@ -465,6 +490,7 @@ impl<'s> Weapon<'s> {
 	/// Its combat owner's handle (`m_hOwner`), or None for a detached weapon.
 	/// The separate base-entity `m_hOwnerEntity` can remain set after detaching
 	/// and is not the authority for membership in a player's weapon inventory.
+	#[doc(alias = "m_hOwner")]
 	pub fn owner(self) -> Result<Option<EntityHandle>, WeaponError> {
 		check_live(self.entity)?;
 
@@ -484,13 +510,15 @@ impl<'s> Weapon<'s> {
 		Ok(handle.is_valid().then_some(handle))
 	}
 
-	/// The native weapon slot, which can depend on its item definition.
-	pub fn slot(self) -> Result<WeaponSlot, WeaponError> {
-		self.slot_raw()
-			.and_then(|slot| WeaponSlot::from_raw(slot).ok_or(WeaponError::WrongSlot))
+	/// The native weapon slot, which can depend on its item definition, or
+	/// `None` for a slot outside [`WeaponSlot`] (see [`Self::slot_raw`]).
+	#[doc(alias = "GetSlot")]
+	pub fn slot(self) -> Result<Option<WeaponSlot>, WeaponError> {
+		self.slot_raw().map(WeaponSlot::from_raw)
 	}
 
-	/// The native weapon slot, which can depend on its item definition.
+	/// The native weapon slot number, including those [`WeaponSlot`] does not name.
+	#[doc(alias = "GetSlot")]
 	pub fn slot_raw(self) -> Result<c_int, WeaponError> {
 		check_live(self.entity)?;
 
@@ -507,78 +535,116 @@ impl<'s> Weapon<'s> {
 	}
 }
 
+/// Why a weapon or inventory operation failed.
 #[derive(Debug, thiserror::Error)]
 pub enum WeaponError {
-	#[error("The game could not create the weapon (including an existing weapon of the same type)")]
+	/// The game created no weapon, or one of another classname than requested.
+	#[error("the game could not create the weapon (including an existing weapon of the same type)")]
 	CreationFailed,
 
-	#[error("{0}")]
-	CreationFailedNative(#[source] WeaponCreationFailed),
+	/// Native item generation failed before creating an entity.
+	#[error(transparent)]
+	CreationFailedNative(#[from] WeaponCreationFailed),
 
-	#[error("The weapon belongs to another player")]
+	/// The weapon's combat owner is another entity.
+	#[error("the weapon belongs to another player")]
 	DifferentOwner,
 
+	/// A required engine interface is unavailable.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 
-	#[error("A weapon classname must start with tf_weapon_ and a subtype must be nonnegative")]
-	InvalidRequest,
-
-	#[error("The entity is marked for deletion")]
+	/// The player or weapon is already marked for deletion.
+	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
 
-	#[error("The player's absolute position could not be read")]
+	/// The player's position, needed to spawn an economy item, is unavailable.
+	#[error("the player's absolute position could not be read")]
 	MissingOrigin,
 
-	#[error("Weapon operations require a TF2 player")]
+	/// The entity is not a TF2 player, or the server does not run TF2.
+	#[error("weapon operations require a TF2 player")]
 	NotTfPlayer,
 
-	#[error("The entity is not a TF2 combat weapon")]
+	/// The entity is not a TF2 weapon, such as a cosmetic item.
+	#[error("the entity is not a TF2 combat weapon")]
 	NotWeapon,
 
-	#[error("The game refused to detach or equip the weapon")]
+	/// Native detach or equip left the inventory unchanged.
+	#[error("the game refused to detach or equip the weapon")]
 	Rejected,
 
-	#[error("The weapon slot is already occupied; use replace to exchange its weapon")]
+	/// The weapon's native slot already holds another weapon.
+	#[error("the weapon slot is already occupied; use replace to exchange its weapon")]
 	SlotOccupied,
 
-	#[error("The weapon's datamap does not describe its combat owner handle")]
+	/// The weapon's datamap lacks a usable `m_hOwner` field.
+	#[error("the weapon's datamap does not describe its combat owner handle")]
 	UnsupportedLayout,
 
-	#[error("The new weapon's native slot differs from the requested replacement slot")]
+	/// A replacement's native slot is not the requested slot, or a slot
+	/// number is out of the range inventory tracking supports.
+	#[error("the new weapon's native slot differs from the requested replacement slot")]
 	WrongSlot,
 }
 
-impl From<WeaponCreationFailed> for WeaponError {
-	fn from(_value: WeaponCreationFailed) -> Self {
-		Self::CreationFailed
-	}
+/// One of the six common native weapon slots, which are not item-schema
+/// loadout positions. Weapons can report other slot numbers; use
+/// [`Weapon::slot_raw`] and raw `c_int` slots for those.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum WeaponSlot {
+	/// Slot 0.
+	Primary = 0,
+
+	/// Slot 1.
+	Secondary = 1,
+
+	/// Slot 2.
+	Melee = 2,
+
+	/// Slot 3, such as the Engineer's construction PDA.
+	Pda = 3,
+
+	/// Slot 4, such as the Engineer's destruction PDA.
+	Pda2 = 4,
+
+	/// Slot 5, used while placing an Engineer building.
+	Building = 5,
 }
 
-/// A weapon inventory slot (not an item-schema loadout position).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WeaponSlot(pub u8);
-
 impl WeaponSlot {
-	pub const BUILDING: Self = Self(5);
-	pub const MELEE: Self = Self(2);
-	pub const PDA: Self = Self(3);
-	pub const PDA2: Self = Self(4);
-	pub const PRIMARY: Self = Self(0);
-	pub const SECONDARY: Self = Self(1);
+	/// Every named slot, in native order.
+	pub const ALL: [Self; 6] = [
+		Self::Primary,
+		Self::Secondary,
+		Self::Melee,
+		Self::Pda,
+		Self::Pda2,
+		Self::Building,
+	];
 
-	pub fn from_raw(raw: c_int) -> Option<Self> {
-		u8::try_from(raw).ok().map(Self)
+	/// The named slot with this native number, or `None` for any other number.
+	pub const fn from_raw(raw: c_int) -> Option<Self> {
+		match raw {
+			0 => Some(Self::Primary),
+			1 => Some(Self::Secondary),
+			2 => Some(Self::Melee),
+			3 => Some(Self::Pda),
+			4 => Some(Self::Pda2),
+			5 => Some(Self::Building),
+			_ => None,
+		}
+	}
 
-		// match raw {
-		//
-		// }
+	/// The native slot number.
+	pub const fn to_raw(self) -> c_int {
+		self as c_int
 	}
 }
 
 impl IntoWeaponSlot for WeaponSlot {
 	fn into_weapon_slot(self) -> c_int {
-		self.0 as c_int
+		self.to_raw()
 	}
 }
 
@@ -798,18 +864,18 @@ mod tests {
 		let server = unsafe { Server::new(factory, factory, Game::TeamFortress2, &scope) };
 		let entity = unsafe { Entity::from_raw(NonNull::from(&mut player).cast()) };
 		let inventory = PlayerWeapons::new(server, entity).unwrap();
-		let weapon = inventory.get_slot(WeaponSlot::MELEE).unwrap().unwrap();
+		let weapon = inventory.get_slot(WeaponSlot::Melee).unwrap().unwrap();
 		inventory.detach(weapon).unwrap();
 		assert_eq!(weapon.owner().unwrap(), None);
 		assert_eq!(
 			old.owner_entity, 1,
 			"native detach leaves the unrelated base owner intact"
 		);
-		assert!(inventory.get_slot(WeaponSlot::MELEE).unwrap().is_none());
+		assert!(inventory.get_slot(WeaponSlot::Melee).unwrap().is_none());
 		inventory.equip(weapon).unwrap();
 		assert_eq!(
 			inventory
-				.get_slot(WeaponSlot::MELEE)
+				.get_slot(WeaponSlot::Melee)
 				.unwrap()
 				.unwrap()
 				.entity
@@ -819,12 +885,12 @@ mod tests {
 		assert_eq!(player.equip_calls, 1);
 		// Native creation failure must restore the previously detached weapon.
 		assert!(matches!(
-			unsafe { inventory.replace(WeaponSlot::MELEE, c"tf_weapon_missing", 0) },
+			unsafe { inventory.replace(WeaponSlot::Melee, c"tf_weapon_missing", 0) },
 			Err(WeaponError::CreationFailed)
 		));
 		assert_eq!(
 			inventory
-				.get_slot(WeaponSlot::MELEE)
+				.get_slot(WeaponSlot::Melee)
 				.unwrap()
 				.unwrap()
 				.entity
@@ -839,7 +905,7 @@ mod tests {
 		inventory.equip(weapon).unwrap();
 		assert_eq!(
 			inventory
-				.get_slot(WeaponSlot::MELEE)
+				.get_slot(WeaponSlot::Melee)
 				.unwrap()
 				.unwrap()
 				.entity
@@ -857,7 +923,7 @@ mod tests {
 		));
 		assert_eq!(
 			inventory
-				.get_slot(WeaponSlot::MELEE)
+				.get_slot(WeaponSlot::Melee)
 				.unwrap()
 				.unwrap()
 				.entity
@@ -880,7 +946,7 @@ mod tests {
 			unsafe { inventory.give(c"tf_weapon_bottle", 0) },
 			Err(WeaponError::Rejected)
 		));
-		assert!(inventory.get_slot(WeaponSlot::MELEE).unwrap().is_none());
+		assert!(inventory.get_slot(WeaponSlot::Melee).unwrap().is_none());
 		assert_eq!(
 			fresh.flags, 1,
 			"failed native detach must not leak the new entity"
@@ -904,7 +970,7 @@ mod tests {
 		assert_eq!(old.flags, 0);
 
 		assert!(matches!(
-			inventory.replace_with(WeaponSlot::MELEE, || Err(WeaponError::CreationFailed)),
+			inventory.replace_with(WeaponSlot::Melee, || Err(WeaponError::CreationFailed)),
 			Err(WeaponError::CreationFailed)
 		));
 		assert_eq!(
@@ -917,7 +983,7 @@ mod tests {
 			(&raw mut fresh.slot).write(0);
 		}
 		assert!(matches!(
-			inventory.replace_with(WeaponSlot::MELEE, || unsafe {
+			inventory.replace_with(WeaponSlot::Melee, || unsafe {
 				inventory.give_with(None, || Ok(fresh_ptr))
 			}),
 			Err(WeaponError::WrongSlot)
@@ -932,7 +998,7 @@ mod tests {
 		unsafe {
 			(&raw mut fresh.flags).write(0);
 		}
-		let rejected_detach = inventory.replace_with(WeaponSlot::MELEE, || {
+		let rejected_detach = inventory.replace_with(WeaponSlot::Melee, || {
 			let replacement = unsafe { inventory.give_with(None, || Ok(fresh_ptr)) }?;
 			REJECT_DETACH.set(true);
 			Ok(replacement)
@@ -945,7 +1011,7 @@ mod tests {
 		);
 		assert_eq!(
 			inventory
-				.get_slot(WeaponSlot::MELEE)
+				.get_slot(WeaponSlot::Melee)
 				.unwrap()
 				.unwrap()
 				.entity()
@@ -961,7 +1027,7 @@ mod tests {
 			(&raw mut fresh.map).write(data_map(c"CEconWearable", vec![], base));
 		}
 		assert!(matches!(
-			inventory.replace_with(WeaponSlot::MELEE, || unsafe {
+			inventory.replace_with(WeaponSlot::Melee, || unsafe {
 				inventory.give_with(None, || Ok(fresh_ptr))
 			}),
 			Err(WeaponError::NotWeapon)
@@ -979,7 +1045,7 @@ mod tests {
 			(&raw mut fresh.slot).write(2);
 		}
 		assert!(matches!(
-			inventory.replace_with(WeaponSlot::MELEE, || unsafe {
+			inventory.replace_with(WeaponSlot::Melee, || unsafe {
 				inventory.give_with(Some(c"tf_weapon_sdk_missing"), || Ok(fresh_ptr))
 			}),
 			Err(WeaponError::CreationFailed)
@@ -993,7 +1059,7 @@ mod tests {
 			(&raw mut fresh.flags).write(0);
 		}
 		let replacement = inventory
-			.replace_with(WeaponSlot::MELEE, || unsafe {
+			.replace_with(WeaponSlot::Melee, || unsafe {
 				inventory.give_with(Some(c"tf_weapon_bottle"), || Ok(fresh_ptr))
 			})
 			.unwrap();
@@ -1095,10 +1161,10 @@ mod tests {
 		let server = unsafe { Server::new(factory, factory, Game::TeamFortress2, &scope) };
 		let entity = unsafe { Entity::from_raw(NonNull::from(&mut player).cast()) };
 		let inventory = PlayerWeapons::new(server, entity).unwrap();
-		let found = inventory.get_slot(WeaponSlot::MELEE).unwrap().unwrap();
+		let found = inventory.get_slot(WeaponSlot::Melee).unwrap().unwrap();
 		assert_eq!(found.entity.as_ptr(), raw_weapon);
-		assert_eq!(found.slot().unwrap(), WeaponSlot::MELEE);
-		assert!(inventory.get_slot(WeaponSlot::PRIMARY).unwrap().is_none());
+		assert_eq!(found.slot().unwrap(), Some(WeaponSlot::Melee));
+		assert!(inventory.get_slot(WeaponSlot::Primary).unwrap().is_none());
 		assert!(matches!(
 			PlayerWeapons::new(server, found.entity()),
 			Err(WeaponError::NotTfPlayer)
@@ -1107,9 +1173,15 @@ mod tests {
 			Weapon::new(server, entity),
 			Err(WeaponError::NotWeapon)
 		));
+		// Slots outside the named six stay reachable through raw numbers.
+		unsafe { (&raw mut weapon.slot).write(7) };
+		let uncommon = inventory.get_slot(7).unwrap().unwrap();
+		assert_eq!(uncommon.slot_raw().unwrap(), 7);
+		assert_eq!(uncommon.slot().unwrap(), None);
+		assert!(inventory.get_slot(WeaponSlot::Melee).unwrap().is_none());
 		unsafe { (&raw mut player.flags).write(1) };
 		assert!(matches!(
-			inventory.get_slot(WeaponSlot::MELEE),
+			inventory.get_slot(WeaponSlot::Melee),
 			Err(WeaponError::MarkedForDeletion)
 		));
 	}
@@ -1138,5 +1210,17 @@ mod tests {
 
 	unsafe extern "C" fn weapon_slot(entity: *const sys::CTFWeaponBase) -> i32 {
 		unsafe { (*entity.cast::<FakeEntity>()).slot }
+	}
+
+	#[test]
+	fn weapon_slots_round_trip_through_native_numbers() {
+		for (raw, slot) in (0..).zip(WeaponSlot::ALL) {
+			assert_eq!(slot.to_raw(), raw);
+			assert_eq!(WeaponSlot::from_raw(raw), Some(slot));
+		}
+
+		for raw in [-1, 6, 256] {
+			assert_eq!(WeaponSlot::from_raw(raw), None);
+		}
 	}
 }
