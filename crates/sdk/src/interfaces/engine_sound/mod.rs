@@ -474,9 +474,10 @@ impl<'s> EngineSound<'s> {
 	///
 	/// The engine is given no vector to append the sound's actual origins to
 	/// (`pUtlVecOrigins`). Null is the header's default, but every caller in
-	/// the game passes a vector. TF2's 64-bit Windows server accepted null for
-	/// emissions to fake clients, which it does not send; emissions a real
-	/// client receives are not yet confirmed.
+	/// the game passes a vector. TF2's 64-bit Windows server has been observed
+	/// to accept null, both for emissions to fake clients, which it does not
+	/// send, and for one a real client played at its source, the client's own
+	/// player. Linux servers have not been tested.
 	///
 	/// [`NetworkStringTables::is_sound_precached`]: crate::interfaces::NetworkStringTables::is_sound_precached
 	#[doc(alias = "EmitSound")]
@@ -549,8 +550,10 @@ impl<'s> EngineSound<'s> {
 	/// What the engine answers when asked whether a sound is in the precache
 	/// table.
 	///
-	/// TF2's 64-bit engine answers `true` for samples it has not precached, so
-	/// use [`NetworkStringTables::is_sound_precached`] instead.
+	/// TF2's 64-bit Windows server has been observed to answer `true` for a
+	/// sample it has not precached, which it then refuses to play, so use
+	/// [`NetworkStringTables::is_sound_precached`] instead. Linux servers have
+	/// not been tested.
 	///
 	/// [`NetworkStringTables::is_sound_precached`]: crate::interfaces::NetworkStringTables::is_sound_precached
 	#[doc(alias = "IsSoundPrecached")]
@@ -573,8 +576,9 @@ impl<'s> EngineSound<'s> {
 	/// file's header, or `None` if the engine reports no positive, finite
 	/// length.
 	///
-	/// The header notes that MP3 files are not supported, which a live server
-	/// has not yet confirmed or refuted for the current engine.
+	/// The header notes that MP3 files are not supported, and TF2's 64-bit
+	/// Windows server has been observed to report no length for a precached
+	/// MP3, `vo/scout_thanks01.mp3`.
 	#[doc(alias = "GetSoundDuration")]
 	pub fn sound_duration(self, sample: &CStr) -> Option<f32> {
 		// SAFETY: As for `precache_sound`. The engine only reads the sample

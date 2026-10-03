@@ -53,11 +53,13 @@
 //!
 //! # Unverified
 //!
-//! On a 64-bit Windows server, [`Speaker::play_scene`] on a bot has returned
-//! the line's length, and 0 for a scene that does not exist. Whether clients
-//! hear the line, and see the speaker's face move and the line's caption,
-//! needs a client and has not been tested, nor has either way of playing a
-//! scene on Linux, whose vtables are laid out differently.
+//! On TF2's 64-bit Windows server, [`Speaker::play_scene`] and
+//! [`Speaker::play_scene_scripted`] have been observed to play a bot's line
+//! alike: a client hears it and sees the bot's face move. A client also hears
+//! a line its own player speaks. [`Speaker::play_scene`] returns the line's
+//! length, and 0 for a scene that does not exist. Whether clients show the
+//! line's caption has not been tested, nor has either way of playing a scene
+//! on Linux, whose vtables are laid out differently.
 
 use crate::entities::{Entity, data_fields, data_map_class};
 use crate::ffi::borrow_cstr;
@@ -273,9 +275,11 @@ impl<'s> Speaker<'s> {
 	/// itself. The entity is networked, for clients to animate the speaker, if
 	/// the scene has flex, expression, gesture or sequence events
 	/// (`CSceneEntity::ShouldNetwork`), and the game sends the line's caption to
-	/// the players who hear it with captions turned on. What clients actually
-	/// show and play has not been tested; see the
-	/// [module documentation](crate::tf2::voice#unverified).
+	/// the players who hear it with captions turned on. On TF2's 64-bit Windows
+	/// server, a client has been observed to hear the line and see the
+	/// speaker's face move; the
+	/// [module documentation](crate::tf2::voice#unverified) lists what has not
+	/// been tested.
 	///
 	/// Unlike the voice menu, this is not rate-limited, shows no voice
 	/// subtitle, plays no gesture of its own, and does not mark the player as
@@ -348,8 +352,9 @@ impl<'s> Speaker<'s> {
 	/// (`bMultiplayer` false): the server runs the speaker's face animation
 	/// instead of clients, and networks the scene entity for its flex and
 	/// expression events only, not for its gestures
-	/// (`CSceneEntity::ShouldNetwork`). Whether players see or hear any
-	/// difference from [`play_scene`] has not been tested.
+	/// (`CSceneEntity::ShouldNetwork`). On TF2's 64-bit Windows server, a
+	/// client has been observed to hear and see a bot's line played this way
+	/// as it does one from [`play_scene`], face movement included.
 	///
 	/// As with [`play_scene`], the scene's path stays in the level's `Scenes`
 	/// string table, and creating the scene entity runs entity-creation and

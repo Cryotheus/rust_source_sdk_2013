@@ -27,10 +27,11 @@
 //!
 //! # Unverified
 //!
-//! A live server has not yet confirmed that a client hears a broadcast. The
-//! client's handler is in the SDK (`game/client/clientmode_shared.cpp`), but
-//! whether a client loads on demand a sample the server never precached has
-//! not been tested.
+//! On TF2's 64-bit Windows server, a client has been observed to play a
+//! broadcast sound script entry, `Game.YourTeamWon`, as its handler in the
+//! SDK does (`game/client/clientmode_shared.cpp`): from its own view, not
+//! positioned in the world. Whether a client loads on demand a sample the
+//! server never precached has not been tested, nor have Linux servers.
 
 use crate::entities::Entity;
 use crate::interfaces::engine_sound::SoundFlags;
