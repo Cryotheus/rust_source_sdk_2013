@@ -23,4 +23,8 @@ pub mod voting;
 pub mod weapons;
 pub mod wearables;
 
+#[cfg(feature = "tf2_loadout")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2_loadout")))]
+pub mod loadout;
+
 pub use class::PlayerClass;

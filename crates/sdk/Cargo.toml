@@ -15,6 +15,9 @@ keywords = ["gamedev", "source-engine", "valve"]
 [features]
 ## Team Fortress 2's game-specific wrappers, in the `tf2` module.
 tf2 = []
+## Gives plugin-chosen wearables and weapon attributes again whenever TF2
+## rebuilds a player's loadout, in the `tf2::loadout` module.
+tf2_loadout = ["tf2"]
 
 [dependencies]
 glam = { version = "0.33.10", features = [] }
