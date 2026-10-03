@@ -9,6 +9,7 @@
 //! returns a client's channel. Typed messages are in [`messages`]; any other
 //! message can be sent as a [`messages::Raw`].
 
+pub mod cheats;
 pub mod incoming;
 pub mod messages;
 

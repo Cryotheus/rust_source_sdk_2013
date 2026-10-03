@@ -823,6 +823,120 @@ unsafe fn string<const N: usize>(base: *const u8, offset: usize) -> CString {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+	use super::*;
+	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use std::ffi::CStr;
+
+	/// The size of `CNetMessage` in mock messages. Every mock that decodes
+	/// shares it, since the first message decoded fixes [`MESSAGE_BASE`] for
+	/// the process.
+	const BASE: usize = SMALLEST_MESSAGE_BASE;
+
+	unsafe extern "C" fn get_size(this: *const sys::INetMessage) -> usize {
+		// SAFETY: Every mock message is at least `BASE` bytes, and keeps its
+		// reported size in `CNetMessage`'s fields, after its vtable.
+		unsafe { this.cast::<u8>().add(SLOT).cast::<usize>().read() }
+	}
+
+	/// A message of `kind` from `client`, as [`route_incoming`] passes one.
+	///
+	/// # Safety
+	///
+	/// `raw` must answer every virtual call the test makes, and stay alive
+	/// for `'s`, as this module's mocks do.
+	pub(crate) const unsafe fn message<'s>(
+		kind: IncomingKind,
+		raw: NonNull<sys::INetMessage>,
+		client: GameClient<'s>,
+	) -> IncomingMessage<'s> {
+		IncomingMessage {
+			kind,
+			raw,
+			client,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// A leaked, zeroed message object of `size` bytes, which reports that
+	/// size and answers no other virtual call.
+	fn mock_message(size: usize) -> NonNull<u8> {
+		assert!(size >= BASE);
+
+		// SAFETY: The vtable holds only function pointers, `unexpected_call`
+		// aborts whichever slot reaches it, and the patch only writes a slot
+		// of the vtable being built.
+		let vtable = Box::leak(unsafe {
+			mock_vtable::<sys::INetMessage__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).INetMessage_GetSize).write(get_size);
+				},
+			)
+		});
+		let object = Box::leak(vec![0_u64; size.div_ceil(8)].into_boxed_slice());
+		let this = object.as_mut_ptr().cast::<u8>();
+
+		// SAFETY: The object is at least `BASE` bytes and aligned for
+		// pointers, so the vtable pointer and the size fit before its fields.
+		unsafe {
+			this.cast::<sys::INetMessage>()
+				.write(sys::INetMessage { vtable_: vtable });
+			this.add(SLOT).cast::<usize>().write(size);
+		}
+
+		NonNull::new(this).unwrap()
+	}
+
+	/// A `clc_RespondCvarValue` laid out as [`IncomingMessage::decode`]
+	/// expects, answering the query carrying `cookie`.
+	pub(crate) fn respond_cvar_value(
+		cookie: c_int,
+		status: c_int,
+		name: &CStr,
+		value: &CStr,
+	) -> NonNull<sys::INetMessage> {
+		let message = mock_message(BASE + IncomingKind::RespondCvarValue.own_size());
+		let (name, value) = (name.to_bytes_with_nul(), value.to_bytes_with_nul());
+
+		assert!(name.len() <= 256 && value.len() <= 256);
+
+		// SAFETY: The object holds the kind's fields past `BASE`, at the
+		// offsets `decode` and `confirms_base` read, and both strings fit
+		// their 256-byte buffers.
+		unsafe {
+			let fields = message.as_ptr().add(BASE);
+
+			fields.add(8).cast::<c_int>().write_unaligned(cookie);
+			fields
+				.add(16)
+				.cast::<*const u8>()
+				.write_unaligned(fields.add(36));
+			fields
+				.add(24)
+				.cast::<*const u8>()
+				.write_unaligned(fields.add(292));
+			fields.add(32).cast::<c_int>().write_unaligned(status);
+			fields
+				.add(36)
+				.copy_from_nonoverlapping(name.as_ptr(), name.len());
+			fields
+				.add(292)
+				.copy_from_nonoverlapping(value.as_ptr(), value.len());
+		}
+
+		message.cast()
+	}
+
+	/// A message whose reported size is too small for any kind's fields, as
+	/// an engine laid out otherwise might report, which nothing can decode.
+	pub(crate) fn unreadable() -> NonNull<sys::INetMessage> {
+		mock_message(BASE).cast()
+	}
+}
+
+#[cfg(test)]
 mod tests {
 	use super::*;
 

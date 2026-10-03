@@ -6,6 +6,7 @@
 //! wrappers check the [`Game`](crate::Game) and the entity classes they are
 //! given, and return an error for anything else.
 
+pub mod achievements;
 pub mod attributes;
 pub mod conditions;
 pub mod damage;
