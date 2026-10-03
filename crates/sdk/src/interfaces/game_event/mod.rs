@@ -7,7 +7,7 @@ use sdk_raw::abi::WChar;
 use sdk_raw::bitbuf::BfWrite;
 
 use sdk_raw::interfaces::game_event::{
-	MAX_EVENT_BYTES, OnFireGameEvent, RawEventValue, RawGameEventListener, for_event_data,
+	EventValue, GameEventListenerObject, MAX_EVENT_BYTES, OnFireGameEvent, for_event_data,
 };
 
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
@@ -618,25 +618,25 @@ pub enum GameEventDataValue {
 impl GameEventDataValue {
 	/// Copies a value an `IGameEventVisitor2` method delivered, with
 	/// [`Null`](Self::Null) for a null pointer.
-	fn from_raw(value: RawEventValue<'_>) -> Self {
+	fn from_raw(value: EventValue<'_>) -> Self {
 		match value {
-			RawEventValue::Local(local) => {
+			EventValue::Local(local) => {
 				local.map_or(Self::Null, |local| Self::Local(GameEventDataLocal(local)))
 			}
 
-			RawEventValue::String(string) => {
+			EventValue::String(string) => {
 				string.map_or(Self::Null, |string| Self::String(string.to_owned()))
 			}
 
-			RawEventValue::Float(float) => Self::Float(float),
-			RawEventValue::Int(int) => Self::Int(int),
-			RawEventValue::UInt64(uint) => Self::UInt64(uint),
+			EventValue::Float(float) => Self::Float(float),
+			EventValue::Int(int) => Self::Int(int),
+			EventValue::UInt64(uint) => Self::UInt64(uint),
 
-			RawEventValue::WString(wide) => {
+			EventValue::WString(wide) => {
 				wide.map_or(Self::Null, |wide| Self::WString(wide.to_vec()))
 			}
 
-			RawEventValue::Bool(bool) => Self::Bool(bool),
+			EventValue::Bool(bool) => Self::Bool(bool),
 		}
 	}
 
@@ -818,7 +818,7 @@ pub trait GameEventHandler {
 /// and `!Send`/`!Sync` since the engine calls it on the server's main thread.
 #[doc(alias = "IGameEventListener2")]
 pub struct GameEventListener<H> {
-	raw: RawGameEventListener<HandlerAdapter<H>>,
+	raw: GameEventListenerObject<HandlerAdapter<H>>,
 	_pinned: PhantomPinned,
 	_not_thread_safe: NotThreadSafe,
 }
@@ -828,7 +828,7 @@ impl<H: GameEventHandler> GameEventListener<H> {
 	/// [`GameEventManager::add_listener`].
 	pub const fn new(handler: H) -> Self {
 		Self {
-			raw: RawGameEventListener::new(HandlerAdapter(handler)),
+			raw: GameEventListenerObject::new(HandlerAdapter(handler)),
 			_pinned: PhantomPinned,
 			_not_thread_safe: PhantomData,
 		}
@@ -1003,7 +1003,7 @@ impl<'s> GameEventManager<'s> {
 		let serialized = unsafe {
 			vcall!(self.as_ptr() => IGameEventManager2_SerializeEvent(
 				event.as_ptr(),
-				buffer.as_sys(),
+				buffer.as_raw(),
 			))
 		};
 

@@ -13,7 +13,9 @@ use std::ffi::c_int;
 
 /// The signature of `CTFPlayer::OnTakeDamage` and `OnTakeDamage_Alive`,
 /// `int (const CTakeDamageInfo &)`, with the player as its receiver.
-pub type TakeDamage =
+#[doc(alias = "OnTakeDamage")]
+#[doc(alias = "OnTakeDamage_Alive")]
+pub type TakeDamageFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::CTakeDamageInfo) -> c_int;
 
 // SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists these slots in
@@ -25,12 +27,12 @@ const _: () = {
 };
 
 // `CTFPlayer` keeps `CBaseEntity::OnTakeDamage`'s slot, and the generated
-// method has the signature of `TakeDamage`.
+// method has the signature of `TakeDamageFn`.
 const _: () = assert!(
 	ON_TAKE_DAMAGE_SLOT == vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_OnTakeDamage)
 );
 
-const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TakeDamage =
+const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TakeDamageFn =
 	|vtable| vtable.CBaseEntity_OnTakeDamage;
 
 /// The value of `CTakeDamageInfo::m_flBaseDamage` that marks the base damage
@@ -110,7 +112,7 @@ pub const NO_AMMO_TYPE: c_int = -1;
 ///
 /// The generated method takes a `CTFPlayer` receiver. It is the player's
 /// primary base, `CBaseEntity`, at the same address, so the method can be
-/// called and hooked as a [`TakeDamage`].
+/// called and hooked as a [`TakeDamageFn`].
 #[doc(alias = "OnTakeDamage_Alive")]
 pub const ON_TAKE_DAMAGE_ALIVE_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage_Alive);

@@ -466,7 +466,7 @@ impl<'s> NetChannel<'s> {
 		// SAFETY: As for `name`. The engine only reads the buffer, which
 		// describes the writer's storage and outlives the call.
 		let sent =
-			unsafe { vcall!(self.as_ptr() => INetChannel_SendData(buffer.as_sys(), reliable)) };
+			unsafe { vcall!(self.as_ptr() => INetChannel_SendData(buffer.as_raw(), reliable)) };
 
 		match sent {
 			true => Ok(()),

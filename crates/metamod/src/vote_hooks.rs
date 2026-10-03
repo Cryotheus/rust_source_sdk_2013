@@ -6,7 +6,9 @@ use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
-use source_sdk_2013::raw::tf2::voting::{REQUEST_CALL_VOTE_SLOT, RequestCallVote};
+use source_sdk_2013::raw::tf2::voting::{
+	REQUEST_CALL_VOTE_SLOT, RequestCallVoteFn as RequestCallVote,
+};
 
 use source_sdk_2013::tf2::voting::{
 	VoteDecision, VoteHookTargetError, VoteIssue, VoteRequest, VoteStartHandler, vote_issue_vtables,

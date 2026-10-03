@@ -314,10 +314,11 @@ impl<'s> PlayerWearables<'s> {
 	unsafe fn equip_native(self, wearable: Wearable<'s>) {
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified `CTFPlayer`, whose entity base
-		// `sdk_raw::tf2::weapons` asserts is at offset zero, and `Wearable::new`
-		// verified `CTFWearable`, whose entity and `CEconWearable` bases
-		// `sdk_raw::tf2::wearables` asserts are at offset zero. Both are live.
+		// SAFETY: `new` found `CTFPlayer` in the player's datamaps, so it is
+		// one, whose entity base `sdk_raw::tf2` asserts is at offset zero, and
+		// `Wearable::new` found `CTFWearable` in the wearable's, whose entity
+		// and `CEconWearable` bases `sdk_raw::tf2::wearables` asserts are at
+		// offset zero. Both are live.
 		// `EquipWearable` adds the wearable to the head of the list, which the
 		// caller guarantees the game is not iterating, and runs its `Equip`,
 		// which deletes only through `UTIL_Remove`.

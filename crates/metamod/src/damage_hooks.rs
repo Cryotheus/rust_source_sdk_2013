@@ -15,7 +15,7 @@ use crate::hook::{
 use source_sdk_2013::entities::Entity;
 
 use source_sdk_2013::raw::tf2::damage::{
-	ON_TAKE_DAMAGE_ALIVE_SLOT, ON_TAKE_DAMAGE_SLOT, TakeDamage,
+	ON_TAKE_DAMAGE_ALIVE_SLOT, ON_TAKE_DAMAGE_SLOT, TakeDamageFn as TakeDamage,
 };
 
 use source_sdk_2013::raw::util::vtable::vtable_pointer;

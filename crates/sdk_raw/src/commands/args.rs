@@ -68,7 +68,7 @@ impl CommandLine {
 	///
 	/// `raw` must point to a `CCommand` that stays live and unmodified for the
 	/// duration of this call, as the engine's `CCommand::Tokenize` leaves it.
-	pub unsafe fn copy(raw: NonNull<sys::CCommand>) -> Result<Self, MalformedCommand> {
+	pub unsafe fn copy(raw: NonNull<sys::CCommand>) -> Result<Self, CommandLineError> {
 		let raw = raw.as_ptr();
 
 		// SAFETY: The caller guarantees `raw` is live. Fields are read without
@@ -83,7 +83,7 @@ impl CommandLine {
 		let argc_usize = usize::try_from(argc)
 			.ok()
 			.filter(|argc| (1..=MAX_ARGC).contains(argc))
-			.ok_or(MalformedCommand::ArgCount(argc))?;
+			.ok_or(CommandLineError::ArgCount(argc))?;
 
 		let mut copy = Self {
 			line: [0; MAX_LENGTH],
@@ -101,7 +101,7 @@ impl CommandLine {
 
 		// SAFETY: The buffer holds `MAX_LENGTH` bytes, read up to the first NUL.
 		let line_length = unsafe { copy_terminated(line, MAX_LENGTH, &mut copy.line) }
-			.ok_or(MalformedCommand::Unterminated)?;
+			.ok_or(CommandLineError::Unterminated)?;
 
 		// `Tokenize` only records where the arguments start once it reaches one,
 		// and `ArgS` reads 0 as there being none.
@@ -111,7 +111,7 @@ impl CommandLine {
 			offset => usize::try_from(offset)
 				.ok()
 				.filter(|&offset| offset <= line_length)
-				.ok_or(MalformedCommand::ArgsOffset(offset))?,
+				.ok_or(CommandLineError::ArgsOffset(offset))?,
 		};
 
 		// SAFETY: As for `line`.
@@ -136,7 +136,7 @@ impl CommandLine {
 				.addr()
 				.checked_sub(argv_buffer.addr())
 				.filter(|&offset| offset < MAX_LENGTH)
-				.ok_or(MalformedCommand::ArgOutsideBuffer { index })?;
+				.ok_or(CommandLineError::ArgOutsideBuffer { index })?;
 
 			// SAFETY: `offset` lies within the argument buffer, read up to the first
 			// NUL before its end.
@@ -147,11 +147,11 @@ impl CommandLine {
 					&mut copy.args[packed..],
 				)
 			}
-			.ok_or(MalformedCommand::ArgOutsideBuffer { index })?;
+			.ok_or(CommandLineError::ArgOutsideBuffer { index })?;
 
 			// The packed arguments never exceed the buffer they were packed in.
 			copy.starts[index] =
-				u16::try_from(packed).map_err(|_| MalformedCommand::ArgOutsideBuffer { index })?;
+				u16::try_from(packed).map_err(|_| CommandLineError::ArgOutsideBuffer { index })?;
 			packed += length + 1;
 		}
 
@@ -191,7 +191,7 @@ impl CommandLine {
 
 /// A `CCommand` could not be read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum MalformedCommand {
+pub enum CommandLineError {
 	/// Its argument count, given, is outside 1 to `COMMAND_MAX_ARGC`.
 	#[error("the command has {0} arguments, outside 1 to {MAX_ARGC}")]
 	ArgCount(c_int),
@@ -294,7 +294,7 @@ mod tests {
 	}
 
 	/// Copies a command the tests built, which stays unchanged for the call.
-	fn copy(raw: &sys::CCommand) -> Result<CommandLine, MalformedCommand> {
+	fn copy(raw: &sys::CCommand) -> Result<CommandLine, CommandLineError> {
 		// SAFETY: `raw` is live and unmodified for the call.
 		unsafe { CommandLine::copy(NonNull::from(raw)) }
 	}
@@ -304,25 +304,25 @@ mod tests {
 		let mut raw = tokenized("a", &["a"], 0);
 
 		raw.m_nArgc = 0;
-		assert_eq!(copy(&raw).err(), Some(MalformedCommand::ArgCount(0)));
+		assert_eq!(copy(&raw).err(), Some(CommandLineError::ArgCount(0)));
 		assert_eq!(
-			MalformedCommand::ArgCount(0).to_string(),
+			CommandLineError::ArgCount(0).to_string(),
 			"the command has 0 arguments, outside 1 to 64"
 		);
 
 		raw.m_nArgc = 1;
 		raw.m_nArgv0Size = 2;
-		assert_eq!(copy(&raw).err(), Some(MalformedCommand::ArgsOffset(2)));
+		assert_eq!(copy(&raw).err(), Some(CommandLineError::ArgsOffset(2)));
 
 		raw.m_nArgv0Size = 1;
 		raw.m_ppArgv[0] = c"elsewhere".as_ptr();
 		assert_eq!(
 			copy(&raw).err(),
-			Some(MalformedCommand::ArgOutsideBuffer { index: 0 })
+			Some(CommandLineError::ArgOutsideBuffer { index: 0 })
 		);
 
 		raw.m_pArgSBuffer.fill(b'x' as c_char);
-		assert_eq!(copy(&raw).err(), Some(MalformedCommand::Unterminated));
+		assert_eq!(copy(&raw).err(), Some(CommandLineError::Unterminated));
 	}
 
 	#[test]

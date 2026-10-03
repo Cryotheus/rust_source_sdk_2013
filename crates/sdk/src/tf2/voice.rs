@@ -320,12 +320,14 @@ impl<'s> Speaker<'s> {
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified the zero-offset CTFPlayer primary base, whose
-		// generated TF2 vtable has this entry under the target's ABI. The game
-		// copies the path into the scene before returning, and gets no response
-		// or filter, which it accepts as null. The scene entity it creates is
-		// only ever removed with deferred deletion, in later frames, and the
-		// callbacks its creation runs are bound by `Server::new`'s contract.
+		// SAFETY: `new` found `CTFPlayer` in the player's datamaps, so it is
+		// one, whose entity base `sdk_raw::tf2` asserts is at offset zero, and
+		// whose generated TF2 vtable has this entry under the target's ABI. The
+		// game copies the path into the scene before returning, and gets no
+		// response or filter, which it accepts as null. The scene entity it
+		// creates is only ever removed with deferred deletion, in later frames,
+		// and the callbacks its creation runs are bound by `Server::new`'s
+		// contract.
 		let length = unsafe {
 			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_PlayScene(
 				scene.as_c_str().as_ptr(),

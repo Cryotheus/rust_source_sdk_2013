@@ -12,7 +12,8 @@ use std::ptr::NonNull;
 /// player with entity index `caller`, or [`DEDICATED_SERVER`], may call a
 /// vote on the issue with `details`, writing why not and for how long to
 /// `failure` and `time` when it may not.
-pub type RequestCallVote = unsafe extern "C" fn(
+#[doc(alias = "RequestCallVote")]
+pub type RequestCallVoteFn = unsafe extern "C" fn(
 	this: *mut sys::CBaseIssue,
 	caller: c_int,
 	details: *const c_char,
@@ -20,8 +21,8 @@ pub type RequestCallVote = unsafe extern "C" fn(
 	time: *mut c_int,
 ) -> bool;
 
-// The generated method has the signature of `RequestCallVote`.
-const _: fn(&sys::CBaseIssue__bindgen_vtable) -> RequestCallVote =
+// The generated method has the signature of `RequestCallVoteFn`.
+const _: fn(&sys::CBaseIssue__bindgen_vtable) -> RequestCallVoteFn =
 	|vtable| vtable.CBaseIssue_RequestCallVote;
 
 /// The caller index TF2 uses for server-initiated and automatic votes, in

@@ -12,7 +12,10 @@
 //!   generated bindings omit, functions found by signature or symbol, and the
 //!   utilities behind them, such as RTTI and signature scanning, in [`util`].
 //!   Its modules mirror the module tree of `source_sdk_2013`, the raw half of
-//!   `source_sdk_2013::X` living at `source_sdk_2013_raw::X`.
+//!   `source_sdk_2013::X` living at `source_sdk_2013_raw::X`. Modules without
+//!   a counterpart there hold what several areas share: [`abi`], [`tier0`],
+//!   [`util`], and `tf2::item_generation`, which both `tf2::weapons` and
+//!   `tf2::wearables` use.
 //! - `source_sdk_2013` is the safe, idiomatic API over both, scoped to the
 //!   engine callback a plugin runs in.
 //!

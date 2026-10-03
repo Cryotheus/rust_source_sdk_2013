@@ -1,6 +1,6 @@
 //! Hand-written ABI of the engine's game event listener and visitor objects.
 //!
-//! [`RawGameEventListener`] is an `IGameEventListener2` implemented in Rust,
+//! [`GameEventListenerObject`] is an `IGameEventListener2` implemented in Rust,
 //! which the game event manager calls with the events it fires, and
 //! [`for_event_data`] walks an event's data with an `IGameEventVisitor2`
 //! implemented in Rust. [`VERSION`] is the version string of the game event
@@ -105,44 +105,13 @@ static VISITOR_VTABLE: sys::IGameEventVisitor2__bindgen_vtable =
 		IGameEventVisitor2_VisitBool: visit_bool,
 	};
 
-/// The `IGameEventVisitor2` [`for_event_data`] lends the engine.
-#[repr(C)]
-struct EventVisitor<'a> {
-	interface: sys::IGameEventVisitor2,
-	visit: &'a mut dyn FnMut(&CStr, RawEventValue<'_>) -> bool,
-}
-
-/// The `IGameEventListener2` vtable of a [`RawGameEventListener`].
-#[repr(C)]
-struct GameEventListenerVtable {
-	destructor: CppDestructors,
-	fire_game_event: FireGameEventFn,
-}
-
-/// Receives the events the engine fires a [`RawGameEventListener`].
-pub trait OnFireGameEvent {
-	/// Called for each event the engine fires the listener, as the listener's
-	/// `FireGameEvent`.
-	///
-	/// The call comes from C++, so a panic cannot unwind out of it and aborts
-	/// the process.
-	///
-	/// # Safety
-	///
-	/// `event` must point to a live `IGameEvent`, which stays live for the
-	/// duration of the call, and the call must be made on the thread the
-	/// engine fires events on, the server's main thread.
-	#[doc(alias = "FireGameEvent")]
-	unsafe fn fire_game_event(&self, event: NonNull<sys::IGameEvent>);
-}
-
 /// A value of an event's data, as an `IGameEventVisitor2` method delivered
 /// it.
 ///
 /// Strings borrow the event's data, so they are only valid during the visit
 /// that delivered them.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum RawEventValue<'a> {
+pub enum EventValue<'a> {
 	/// From `VisitLocal`: an opaque pointer, or `None` for null.
 	///
 	/// The pointee's type and lifetime are not part of the visitor's
@@ -168,6 +137,13 @@ pub enum RawEventValue<'a> {
 	Bool(bool),
 }
 
+/// The `IGameEventVisitor2` [`for_event_data`] lends the engine.
+#[repr(C)]
+struct EventVisitor<'a> {
+	interface: sys::IGameEventVisitor2,
+	visit: &'a mut dyn FnMut(&CStr, EventValue<'_>) -> bool,
+}
+
 /// An `IGameEventListener2` implemented in Rust, which passes the events the
 /// engine fires it to an [`OnFireGameEvent`].
 ///
@@ -179,12 +155,12 @@ pub enum RawEventValue<'a> {
 /// deletes it, so its destructor slots do nothing.
 #[doc(alias = "IGameEventListener2")]
 #[repr(C)]
-pub struct RawGameEventListener<T> {
+pub struct GameEventListenerObject<T> {
 	vtable: &'static GameEventListenerVtable,
 	inner: T,
 }
 
-impl<T: OnFireGameEvent> RawGameEventListener<T> {
+impl<T: OnFireGameEvent> GameEventListenerObject<T> {
 	const VTABLE: GameEventListenerVtable = GameEventListenerVtable {
 		destructor: CppDestructors::new_noop(),
 		fire_game_event: Self::fire_game_event,
@@ -209,7 +185,7 @@ impl<T: OnFireGameEvent> RawGameEventListener<T> {
 		};
 
 		// SAFETY: The manager only calls the listeners registered with it,
-		// which stay live until removed, as `RawGameEventListener` requires,
+		// which stay live until removed, as `GameEventListenerObject` requires,
 		// and only reads them.
 		let listener = unsafe { &*this.cast::<Self>() };
 
@@ -219,7 +195,7 @@ impl<T: OnFireGameEvent> RawGameEventListener<T> {
 	}
 }
 
-impl<T> RawGameEventListener<T> {
+impl<T> GameEventListenerObject<T> {
 	/// The address the manager registers and calls the listener by.
 	pub const fn as_raw(&self) -> *mut sys::IGameEventListener2 {
 		(&raw const *self).cast_mut().cast()
@@ -231,12 +207,36 @@ impl<T> RawGameEventListener<T> {
 	}
 }
 
-impl<T: Debug> Debug for RawGameEventListener<T> {
+impl<T: Debug> Debug for GameEventListenerObject<T> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("RawGameEventListener")
+		f.debug_struct("GameEventListenerObject")
 			.field("inner", &self.inner)
 			.finish_non_exhaustive()
 	}
+}
+
+/// The `IGameEventListener2` vtable of a [`GameEventListenerObject`].
+#[repr(C)]
+struct GameEventListenerVtable {
+	destructor: CppDestructors,
+	fire_game_event: FireGameEventFn,
+}
+
+/// Receives the events the engine fires a [`GameEventListenerObject`].
+pub trait OnFireGameEvent {
+	/// Called for each event the engine fires the listener, as the listener's
+	/// `FireGameEvent`.
+	///
+	/// The call comes from C++, so a panic cannot unwind out of it and aborts
+	/// the process.
+	///
+	/// # Safety
+	///
+	/// `event` must point to a live `IGameEvent`, which stays live for the
+	/// duration of the call, and the call must be made on the thread the
+	/// engine fires events on, the server's main thread.
+	#[doc(alias = "FireGameEvent")]
+	unsafe fn fire_game_event(&self, event: NonNull<sys::IGameEvent>);
 }
 
 /// Runs `IGameEvent::ForEventData`, which passes the name and value of each
@@ -255,7 +255,7 @@ impl<T: Debug> Debug for RawGameEventListener<T> {
 #[doc(alias = "ForEventData")]
 pub unsafe fn for_event_data(
 	event: NonNull<sys::IGameEvent>,
-	visit: &mut dyn FnMut(&CStr, RawEventValue<'_>) -> bool,
+	visit: &mut dyn FnMut(&CStr, EventValue<'_>) -> bool,
 ) -> bool {
 	let mut visitor = EventVisitor {
 		interface: sys::IGameEventVisitor2 {
@@ -286,7 +286,7 @@ pub unsafe fn for_event_data(
 unsafe fn visit(
 	this: *mut sys::IGameEventVisitor2,
 	name: *const c_char,
-	value: RawEventValue<'_>,
+	value: EventValue<'_>,
 ) -> bool {
 	// SAFETY: The caller guarantees that a non-null name is terminated and
 	// unchanged during the call.
@@ -308,7 +308,7 @@ unsafe extern "C" fn visit_bool(
 ) -> bool {
 	// SAFETY: The engine calls the visitor `for_event_data` lent it, during
 	// `ForEventData`, with the key's terminated name.
-	unsafe { visit(this, name, RawEventValue::Bool(value)) }
+	unsafe { visit(this, name, EventValue::Bool(value)) }
 }
 
 /// `VisitFloat`.
@@ -318,7 +318,7 @@ unsafe extern "C" fn visit_float(
 	value: c_float,
 ) -> bool {
 	// SAFETY: As for `visit_bool`.
-	unsafe { visit(this, name, RawEventValue::Float(value)) }
+	unsafe { visit(this, name, EventValue::Float(value)) }
 }
 
 /// `VisitInt`.
@@ -328,7 +328,7 @@ unsafe extern "C" fn visit_int(
 	value: c_int,
 ) -> bool {
 	// SAFETY: As for `visit_bool`.
-	unsafe { visit(this, name, RawEventValue::Int(value)) }
+	unsafe { visit(this, name, EventValue::Int(value)) }
 }
 
 /// `VisitLocal`.
@@ -342,7 +342,7 @@ unsafe extern "C" fn visit_local(
 		visit(
 			this,
 			name,
-			RawEventValue::Local(NonNull::new(value.cast_mut())),
+			EventValue::Local(NonNull::new(value.cast_mut())),
 		)
 	}
 }
@@ -355,7 +355,7 @@ unsafe extern "C" fn visit_string(
 ) -> bool {
 	// SAFETY: As for `visit_bool`, and the value is null or a terminated
 	// string of the event's, unchanged during the call.
-	unsafe { visit(this, name, RawEventValue::String(borrow_cstr(value))) }
+	unsafe { visit(this, name, EventValue::String(borrow_cstr(value))) }
 }
 
 /// `VisitUint64`.
@@ -365,7 +365,7 @@ unsafe extern "C" fn visit_uint64(
 	value: u64,
 ) -> bool {
 	// SAFETY: As for `visit_bool`.
-	unsafe { visit(this, name, RawEventValue::UInt64(value)) }
+	unsafe { visit(this, name, EventValue::UInt64(value)) }
 }
 
 /// `VisitWString`.
@@ -376,7 +376,7 @@ unsafe extern "C" fn visit_wstring(
 ) -> bool {
 	// SAFETY: As for `visit_bool`, and the value is null or an aligned,
 	// terminated wide string of the event's, unchanged during the call.
-	unsafe { visit(this, name, RawEventValue::WString(borrow_wide_cstr(value))) }
+	unsafe { visit(this, name, EventValue::WString(borrow_wide_cstr(value))) }
 }
 
 #[cfg(test)]
@@ -402,19 +402,16 @@ mod tests {
 		Bool(bool),
 	}
 
-	impl From<RawEventValue<'_>> for Copied {
-		fn from(value: RawEventValue<'_>) -> Self {
+	impl From<EventValue<'_>> for Copied {
+		fn from(value: EventValue<'_>) -> Self {
 			match value {
-				RawEventValue::Local(local) => {
-					Self::Local(local.map(NonNull::addr).map(Into::into))
-				}
-
-				RawEventValue::String(string) => Self::String(string.map(CStr::to_owned)),
-				RawEventValue::Float(float) => Self::Float(float),
-				RawEventValue::Int(int) => Self::Int(int),
-				RawEventValue::UInt64(uint) => Self::UInt64(uint),
-				RawEventValue::WString(wide) => Self::WString(wide.map(<[WChar]>::to_vec)),
-				RawEventValue::Bool(bool) => Self::Bool(bool),
+				EventValue::Local(local) => Self::Local(local.map(NonNull::addr).map(Into::into)),
+				EventValue::String(string) => Self::String(string.map(CStr::to_owned)),
+				EventValue::Float(float) => Self::Float(float),
+				EventValue::Int(int) => Self::Int(int),
+				EventValue::UInt64(uint) => Self::UInt64(uint),
+				EventValue::WString(wide) => Self::WString(wide.map(<[WChar]>::to_vec)),
+				EventValue::Bool(bool) => Self::Bool(bool),
 			}
 		}
 	}
@@ -539,7 +536,7 @@ mod tests {
 
 	#[test]
 	fn listeners_pass_fired_events_and_outlive_their_destructors() {
-		let listener = RawGameEventListener::new(Recorder::default());
+		let listener = GameEventListenerObject::new(Recorder::default());
 		let raw = listener.as_raw();
 		let mut event = sys::IGameEvent { vtable_: null() };
 		let event = &raw mut event;

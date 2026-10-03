@@ -18,7 +18,7 @@ use source_sdk_2013::raw::interfaces::server_game_dll::{
 	GAME_FRAME_SLOT, GameFrameFn as GameFrame,
 };
 
-use source_sdk_2013::raw::net::incoming::ProcessMessage;
+use source_sdk_2013::raw::net::incoming::ProcessMessageFn as ProcessMessage;
 use source_sdk_2013::{Server, ServerBinding};
 use std::cell::Cell;
 use std::ffi::{CStr, c_char, c_int, c_void};

@@ -8,6 +8,7 @@
 #[cfg(target_os = "windows")]
 use super::platform::{PAGE_EXECUTE_READWRITE, flush_instruction_cache, protect};
 
+use std::fmt::{self, Display, Formatter};
 use std::io;
 
 #[cfg(target_os = "windows")]
@@ -285,7 +286,7 @@ pub enum PatchError {
 
 	/// An OS call failed. The OS error is both in the message and the error's
 	/// [`source`](std::error::Error::source).
-	#[error("{operation:?} failed: {source}")]
+	#[error("{operation} failed: {source}")]
 	Os {
 		/// The call that failed.
 		operation: PatchOperation,
@@ -309,6 +310,18 @@ pub enum PatchOperation {
 
 	/// Making the patched byte's page writable, with `VirtualProtect`.
 	Unprotect,
+}
+
+impl Display for PatchOperation {
+	/// Names the OS call, and what it was for when that call has several
+	/// uses.
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		f.write_str(match self {
+			Self::FlushInstructionCache => "FlushInstructionCache",
+			Self::Reprotect => "VirtualProtect (restore)",
+			Self::Unprotect => "VirtualProtect (writable)",
+		})
+	}
 }
 
 #[cfg(all(test, target_os = "windows"))]
@@ -434,5 +447,18 @@ mod tests {
 			assert!(BytePatch::new(page.0, VERIFIED.into(), 4, 0xeb).is_none());
 			assert!(BytePatch::new(page.0, VERIFIED.into(), 2, 0x75).is_none());
 		}
+	}
+
+	#[test]
+	fn os_errors_name_the_call() {
+		let error = PatchError::Os {
+			operation: PatchOperation::Unprotect,
+			source: io::Error::other("reason"),
+		};
+
+		assert_eq!(
+			error.to_string(),
+			"VirtualProtect (writable) failed: reason"
+		);
 	}
 }

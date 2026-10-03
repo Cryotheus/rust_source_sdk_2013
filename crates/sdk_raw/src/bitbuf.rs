@@ -69,7 +69,7 @@ impl BfRead {
 	}
 
 	/// The engine's type for the buffer, for the calls that take one.
-	pub fn as_sys(&mut self) -> *mut sys::bf_read {
+	pub fn as_raw(&mut self) -> *mut sys::bf_read {
 		(&raw mut *self).cast()
 	}
 
@@ -318,7 +318,7 @@ impl BfWrite {
 	}
 
 	/// The engine's type for the buffer, for the calls that take one.
-	pub fn as_sys(&mut self) -> *mut sys::bf_write {
+	pub fn as_raw(&mut self) -> *mut sys::bf_write {
 		(&raw mut *self).cast()
 	}
 }

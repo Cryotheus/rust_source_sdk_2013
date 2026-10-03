@@ -15,3 +15,16 @@ Resolving an address does not establish its type, ABI, or lifetime. The
 lifetimes, which `source_sdk_2013` discharges from its own guarantees.
 
 The `tf2` feature enables Team Fortress 2's game-specific raw bindings.
+
+It builds only for `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu`.
+
+# License
+
+For Valve's Source SDK 2013, see the [SOURCE 1 SDK LICENSE](https://github.com/ValveSoftware/source-sdk-2013/blob/master/LICENSE).
+
+This project is licensed under either of
+
+* Apache License, Version 2.0, ([LICENSE-APACHE](/LICENSE-APACHE) or
+  https://www.apache.org/licenses/LICENSE-2.0)
+* MIT license ([LICENSE-MIT](/LICENSE-MIT) or
+  https://opensource.org/licenses/MIT)

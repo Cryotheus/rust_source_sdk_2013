@@ -32,7 +32,7 @@ use std::ptr::NonNull;
 #[doc(hidden)]
 pub use args::tokenized;
 
-pub use args::{CommandLine, MalformedCommand};
+pub use args::{CommandLine, CommandLineError};
 pub use object::{ConCommandHooks, ConCommandObject};
 
 pub use variable::{

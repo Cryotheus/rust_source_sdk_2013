@@ -88,8 +88,10 @@ impl<'s> PlayerWeapons<'s> {
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified a CTFPlayer and `Weapon::new` a CTFWeaponBase,
-		// whose entity bases `sdk_raw::tf2::weapons` asserts are at offset zero.
+		// SAFETY: `new` found `CTFPlayer` in the player's datamaps and
+		// `Weapon::new` found `CTFWeaponBase` in the weapon's, so the player is
+		// a `CTFPlayer` and the weapon a `CTFWeaponBase`, whose entity bases
+		// `sdk_raw::tf2` and `sdk_raw::tf2::weapons` assert are at offset zero.
 		// The player owns this live weapon. RemovePlayerItem detaches and
 		// holsters it without immediately deleting either entity.
 		let removed = unsafe {
@@ -133,10 +135,13 @@ impl<'s> PlayerWeapons<'s> {
 		}
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
-		// SAFETY: Both checked classes have CBaseEntity at primary offset zero,
-		// as `sdk_raw::tf2::weapons` asserts. The live weapon is not in an
-		// inventory. Native equip updates inventory, ownership, and attribute
-		// providers through the generated TF2 vtable.
+		// SAFETY: `new` found `CTFPlayer` in the player's datamaps and
+		// `Weapon::new` found `CTFWeaponBase` in the weapon's, so the player is
+		// a `CTFPlayer` and the weapon a `CTFWeaponBase`, whose entity bases
+		// `sdk_raw::tf2` and `sdk_raw::tf2::weapons` assert are at offset zero.
+		// The live weapon is not in an inventory. Native equip updates
+		// inventory, ownership, and attribute providers through the generated
+		// TF2 vtable.
 		unsafe {
 			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_Weapon_Equip(
 				weapon.entity.as_ptr().cast(),
@@ -162,11 +167,11 @@ impl<'s> PlayerWeapons<'s> {
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified a CTFPlayer, whose entity base
-		// `sdk_raw::tf2::weapons` asserts is at offset zero. The generated
-		// virtual method scans its own inventory and returns a live weapon or
-		// null, whose entity base is likewise at offset zero. The slot is a
-		// comparison value.
+		// SAFETY: `new` found `CTFPlayer` in the player's datamaps, so it is
+		// one, whose entity base `sdk_raw::tf2` asserts is at offset zero. The
+		// generated virtual method scans its own inventory and returns a live
+		// weapon or null, whose entity base `sdk_raw::tf2::weapons` asserts is
+		// likewise at offset zero. The slot is a comparison value.
 		let raw = unsafe {
 			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_Weapon_GetSlot(
 				slot.into_weapon_slot(),
@@ -196,13 +201,13 @@ impl<'s> PlayerWeapons<'s> {
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified a CTFPlayer, whose entity base
-		// `sdk_raw::tf2::weapons` asserts is at offset zero. This generated
-		// overload takes a nullable CEconItemView and a force flag. Null requests
-		// native stock-item generation; force keeps the
-		// exact classname instead of translating it for the player's class. The
-		// caller vouches for the spawn/pickup path. GiveNamedItem returns a newly
-		// created callback-live entity.
+		// SAFETY: `new` found `CTFPlayer` in the player's datamaps, so it is
+		// one, whose entity base `sdk_raw::tf2` asserts is at offset zero. This
+		// generated overload takes a nullable CEconItemView and a force flag.
+		// Null requests native stock-item generation; force keeps the exact
+		// classname instead of translating it for the player's class. The
+		// caller vouches for the spawn/pickup path. GiveNamedItem returns a
+		// newly created callback-live entity.
 		unsafe {
 			self.give_with(
 				None,
@@ -603,9 +608,9 @@ impl<'s> Weapon<'s> {
 
 		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
 
-		// SAFETY: `new` verified a CTFWeaponBase, whose entity base
-		// `sdk_raw::tf2::weapons` asserts is at offset zero. The generated
-		// GetSlot entry leaves the weapon alive.
+		// SAFETY: `new` found `CTFWeaponBase` in the weapon's datamaps, so it
+		// is one, whose entity base `sdk_raw::tf2::weapons` asserts is at offset
+		// zero. The generated GetSlot entry leaves the weapon alive.
 		Ok(unsafe {
 			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetSlot())
 		})

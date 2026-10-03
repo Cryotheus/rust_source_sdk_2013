@@ -16,7 +16,7 @@ use crate::NotThreadSafe;
 use crate::bitbuf::BitWriter;
 use crate::interfaces::game_server::GameClient;
 use crate::server::{InterfaceError, Server, ServerBinding};
-use sdk_raw::net::incoming::{self as raw, ClientMessage, MessageClass, UnexpectedLayout};
+use sdk_raw::net::incoming::{self as raw, ClientLayoutError, ClientMessage, MessageClass};
 use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
 use std::ffi::{CString, c_int};
@@ -58,8 +58,8 @@ pub enum HookTargetError {
 	UnexpectedLayout,
 }
 
-impl From<UnexpectedLayout> for HookTargetError {
-	fn from(_: UnexpectedLayout) -> Self {
+impl From<ClientLayoutError> for HookTargetError {
+	fn from(_: ClientLayoutError) -> Self {
 		Self::UnexpectedLayout
 	}
 }

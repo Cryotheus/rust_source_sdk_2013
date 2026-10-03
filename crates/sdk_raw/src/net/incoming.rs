@@ -33,7 +33,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// its only base, so a message's address is its `INetMessage`'s, which C++
 /// passes as it passes any pointer.
 #[doc(alias = "Process")]
-pub type ProcessMessage = unsafe extern "C" fn(
+#[doc(alias = "ProcessMessage")]
+pub type ProcessMessageFn = unsafe extern "C" fn(
 	this: *mut sys::IClientMessageHandler,
 	message: *mut sys::INetMessage,
 ) -> bool;
@@ -216,6 +217,11 @@ pub struct ClientInfoFields {
 	/// (`m_nCustomFiles`).
 	pub custom_files: [sys::CRC32_t; MAX_CUSTOM_FILES],
 }
+
+/// The engine's clients are not laid out as [`handler_of_client`] expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the engine's clients are not laid out as expected")]
+pub struct ClientLayoutError;
 
 /// A message's fields, as [`read_message`] copies them.
 ///
@@ -652,11 +658,6 @@ pub struct TickFields {
 	pub host_frame_time_std_deviation: f32,
 }
 
-/// The engine's clients are not laid out as [`handler_of_client`] expects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the engine's clients are not laid out as expected")]
-pub struct UnexpectedLayout;
-
 /// The fields `CLC_VoiceData` holds.
 #[doc(alias = "CLC_VoiceData")]
 #[derive(Debug, Clone, Copy)]
@@ -812,14 +813,14 @@ unsafe fn copy<T>(fields: *const u8) -> T {
 #[doc(alias = "CGameClient")]
 pub unsafe fn handler_of_client(
 	client: NonNull<sys::IClient>,
-) -> Result<NonNull<sys::IClientMessageHandler>, UnexpectedLayout> {
+) -> Result<NonNull<sys::IClientMessageHandler>, ClientLayoutError> {
 	let client = client.as_ptr().cast_const();
 
 	// SAFETY: As the caller promises.
 	let client_offset = unsafe { rtti::subobject_offset(client.cast(), GAME_CLIENT) };
 
 	if client_offset.and_then(|offset| usize::try_from(offset).ok()) != Some(CLIENT_OFFSET) {
-		return Err(UnexpectedLayout);
+		return Err(ClientLayoutError);
 	}
 
 	// SAFETY: The complete object is a `CGameClient`, confirmed above with its
@@ -838,11 +839,11 @@ pub unsafe fn handler_of_client(
 	if handler_offset.and_then(|offset| usize::try_from(offset).ok())
 		!= CLIENT_OFFSET.checked_add(CLIENT_TO_HANDLER)
 	{
-		return Err(UnexpectedLayout);
+		return Err(ClientLayoutError);
 	}
 
 	let handler = NonNull::new(handler.cast::<sys::IClientMessageHandler>().cast_mut())
-		.ok_or(UnexpectedLayout)?;
+		.ok_or(ClientLayoutError)?;
 
 	HANDLER_OFFSET.store(CLIENT_TO_HANDLER, Ordering::Relaxed);
 	Ok(handler)

@@ -1901,13 +1901,14 @@ pub fn reset_scores(server: Server<'_>, player: Entity<'_>) -> Result<(), Scoreb
 
 	let player = player.as_ptr().cast::<sys::CTFPlayer>();
 
-	// SAFETY: The datamaps show a `CTFPlayer`, whose primary vtable starts the
-	// object, and the generated field gives `ResetScores`' slot in it under both
-	// ABIs. The game's own code resets statistics and relationships, and frees
-	// no entity. It also fires a game event to every listener and, for a human
-	// player, sends a user message, both before returning; `Server::new`'s
-	// contract requires the code those reach to free entities only through
-	// deferred deletion, so every entity of the scope stays allocated.
+	// SAFETY: The datamaps show a `CTFPlayer`, whose entity base, and so its
+	// primary vtable, `sdk_raw::tf2` asserts is at offset zero, and the
+	// generated field gives `ResetScores`' slot in it under both ABIs. The
+	// game's own code resets statistics and relationships, and frees no entity.
+	// It also fires a game event to every listener and, for a human player,
+	// sends a user message, both before returning; `Server::new`'s contract
+	// requires the code those reach to free entities only through deferred
+	// deletion, so every entity of the scope stays allocated.
 	unsafe {
 		vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_ResetScores());
 	}
