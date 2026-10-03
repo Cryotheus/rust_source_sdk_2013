@@ -8,13 +8,25 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
-description = "Low-level module inspection utilities for Source engine integrations."
-categories = []
-keywords = []
+description = "Hand-written low-level FFI and utilities for the Source SDK 2013, for what source_sdk_2013_sys does not generate."
+categories = ["external-ffi-bindings"]
+keywords = ["gamedev", "source-engine", "valve"]
+
+[features]
+default = []
+## Team Fortress 2's game-specific raw bindings, in the `tf2` module.
+tf2 = []
+## Doc-hidden mock helpers for tests of crates built on this one.
+test-support = []
 
 [dependencies]
 sys = { path = "../sdk_sys", version = "0.1.0-alpha.4", package = "source_sdk_2013_sys" }
 thiserror.workspace = true
 
-[features]
-default = []
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+	"-Zunstable-options",
+	"--generate-link-to-definition",
+	"--generate-macro-expansion",
+]

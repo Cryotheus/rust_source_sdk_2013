@@ -47,7 +47,6 @@ publish-p1 = [
 	"publish",
 	"--package", "source_sdk_2013_sys_x64_windows",
 	"--package", "source_sdk_2013_sys_x64_linux",
-	"--package", "source_sdk_2013_raw",
 	"--package", "source_sdk_2013_declmacros",
 	"--package", "metamod_source_sys",
 	"--package", "source_sdk_2013_bindgen"
@@ -56,6 +55,7 @@ publish-p1 = [
 publish-p2 = [
 	"publish",
 	"--package", "source_sdk_2013_sys",
+	"--package", "source_sdk_2013_raw",
 ]
 
 publish-p3 = [
