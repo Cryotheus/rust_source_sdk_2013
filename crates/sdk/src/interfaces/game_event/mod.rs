@@ -1116,6 +1116,10 @@ mod tests {
 		static LISTENER: Cell<*mut sys::IGameEventListener2> = const { Cell::new(null_mut()) };
 	}
 
+	/// A listener built in a constant, as plugins build theirs for statics.
+	const RECORDING_LISTENER: GameEventListener<RecordingHandler> =
+		GameEventListener::new(RecordingHandler);
+
 	#[derive(Debug)]
 	struct RecordingHandler;
 
@@ -1213,7 +1217,7 @@ mod tests {
 		let interface_pointer = &raw mut interface;
 		let manager =
 			unsafe { GameEventManager::from_raw(NonNull::new(interface_pointer).unwrap()) };
-		let listener = std::pin::pin!(GameEventListener::new(RecordingHandler));
+		let listener = std::pin::pin!(RECORDING_LISTENER);
 		let listener = listener.into_ref();
 		let listener_pointer = listener.as_raw();
 
