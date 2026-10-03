@@ -8,9 +8,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
-description = "Hand-written low-level FFI and utilities for the Source SDK 2013, for what source_sdk_2013_sys does not generate."
+description = "Hand-written low-level FFI and utilities for the Source SDK 2013."
 categories = ["external-ffi-bindings"]
-keywords = ["gamedev", "source-engine", "valve"]
+keywords = []
 
 [features]
 default = []
