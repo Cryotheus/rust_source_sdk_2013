@@ -12,6 +12,7 @@ use crate::math::Vector;
 use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::item_generation::ItemGeneration;
+use sdk_raw::tf2::weapons::INVALID_ITEM_DEF_INDEX;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
@@ -38,9 +39,10 @@ impl IntoWeaponSlot for c_int {
 pub struct ItemDefinitionIndex(u16);
 
 impl ItemDefinitionIndex {
-	/// Excludes the engine's invalid sentinel, 65535. Index zero is valid.
+	/// Excludes the engine's invalid sentinel, [`INVALID_ITEM_DEF_INDEX`].
+	/// Index zero is valid.
 	pub const fn new(index: u16) -> Option<Self> {
-		if index == u16::MAX {
+		if index == INVALID_ITEM_DEF_INDEX {
 			None
 		} else {
 			Some(Self(index))

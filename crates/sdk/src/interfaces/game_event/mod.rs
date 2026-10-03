@@ -506,7 +506,7 @@ impl Drop for OwnedGameEvent<'_> {
 interface! {
 	/// Creates, fires, and delivers game events (`IGameEventManager2`).
 	#[doc(alias = "IGameEventManager2")]
-	pub struct GameEventManager(sys::IGameEventManager2) = Engine c"GAMEEVENTSMANAGER002";
+	pub struct GameEventManager(sys::IGameEventManager2) = Engine sdk_raw::interfaces::game_event::VERSION;
 }
 
 /// The name of a field in a game event's data, copied from the engine.

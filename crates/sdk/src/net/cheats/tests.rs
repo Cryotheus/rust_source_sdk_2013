@@ -437,7 +437,7 @@ fn answers_must_match_the_client_cookie_and_name() {
 
 	let other_name = Incoming::RespondCvarValue {
 		cookie,
-		status: 0,
+		status: QUERY_CVAR_VALUE_INTACT,
 		name: c"sv_pure".into(),
 		value: c"1".into(),
 	};
@@ -452,7 +452,7 @@ fn answers_must_match_the_client_cookie_and_name() {
 	// Names are compared as the engine compares variable names.
 	let upper = Incoming::RespondCvarValue {
 		cookie,
-		status: 0,
+		status: QUERY_CVAR_VALUE_INTACT,
 		name: c"SV_CHEATS".into(),
 		value: c"1".into(),
 	};
@@ -469,7 +469,7 @@ fn answers_reach_leases_through_the_incoming_hook() {
 	// SAFETY: The mock messages are leaked, and answer the only virtual call
 	// `on_incoming` makes of them.
 	let incoming = |kind, raw| unsafe { message(kind, raw, client) };
-	let foreign = respond_cvar_value(7, 0, c"sv_cheats", c"1");
+	let foreign = respond_cvar_value(7, QUERY_CVAR_VALUE_INTACT, c"sv_cheats", c"1");
 
 	// No answer is expected yet.
 	assert_eq!(
@@ -481,7 +481,7 @@ fn answers_reach_leases_through_the_incoming_hook() {
 		panic!("a lease");
 	};
 	let cookie = query_cookie(&mock.take_sent(0)[0]);
-	let answer = respond_cvar_value(cookie, 0, c"sv_cheats", c"1");
+	let answer = respond_cvar_value(cookie, QUERY_CVAR_VALUE_INTACT, c"sv_cheats", c"1");
 
 	// Other kinds of messages, and answers to other queries, pass.
 	assert_eq!(

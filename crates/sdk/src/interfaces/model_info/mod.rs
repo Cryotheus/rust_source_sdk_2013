@@ -11,7 +11,7 @@ const ERROR_MODEL: &[u8] = b"error.mdl";
 interface! {
 	/// The server's registry of precached models (`IVModelInfo`).
 	#[doc(alias = "IVModelInfo")]
-	pub struct ModelInfo(sys::IVModelInfo) = Engine c"VModelInfoServer004";
+	pub struct ModelInfo(sys::IVModelInfo) = Engine sdk_raw::interfaces::model_info::VERSION;
 }
 
 impl<'s> ModelInfo<'s> {

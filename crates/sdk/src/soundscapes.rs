@@ -17,7 +17,7 @@ use crate::datatables::NetPropError;
 use crate::entities::Entity;
 use crate::interfaces::ServerTools;
 use crate::server::{InterfaceError, Server};
-use sdk_raw::soundscapes::EnvSoundscapeLayout;
+use sdk_raw::soundscapes::{EnvSoundscapeLayout, NO_SOUNDSCAPE};
 use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::{CStr, CString, c_int};
 use std::num::NonZero;
@@ -158,7 +158,7 @@ pub struct SoundscapeIndex(c_int);
 
 impl SoundscapeIndex {
 	/// No soundscape. A client given it keeps playing the one it has.
-	pub const NONE: Self = Self(-1);
+	pub const NONE: Self = Self(NO_SOUNDSCAPE);
 
 	/// The index as the game stores it, which is negative for no soundscape.
 	pub const fn get(self) -> c_int {
@@ -246,8 +246,9 @@ pub fn set_player_soundscape<'s>(
 	let source_id = soundscape.source.map_or(0, SoundscapeId::get);
 
 	// SAFETY: The values are ones the game assigns itself: an index read from a
-	// soundscape entity or -1, and 0 or the ID of a soundscape entity, which
-	// the game looks up in its list only after checking it is within the list.
+	// soundscape entity or `NO_SOUNDSCAPE`, and 0 or the ID of a soundscape
+	// entity, which the game looks up in its list only after checking it is
+	// within the list.
 	unsafe {
 		index.set(engine, player, soundscape.index.get())?;
 		source.set(engine, player, source_id)?;

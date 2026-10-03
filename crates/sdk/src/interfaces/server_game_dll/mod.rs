@@ -59,7 +59,7 @@ interface! {
 	/// See the [module documentation](self) for how each method is exposed.
 	#[doc(alias = "IServerGameDLL")]
 	#[doc(alias = "CServerGameDLL")]
-	pub struct ServerGameDll(sys::IServerGameDLL) = GameServer c"ServerGameDLL012";
+	pub struct ServerGameDll(sys::IServerGameDLL) = GameServer sdk_raw::interfaces::server_game_dll::VERSION;
 }
 
 /// How far preparing a level has come, from

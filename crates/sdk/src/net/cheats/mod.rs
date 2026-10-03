@@ -133,6 +133,8 @@ use crate::net::messages::{GetCvarValue, MAX_CONVAR_LEN, SetConVar, StringCmd};
 use crate::net::{EncodeError, NetChannel, NetMessage, Reliability, SendError};
 use crate::players::UserId;
 use crate::server::{InterfaceError, Server};
+use sdk_raw::interfaces::plugin_helpers::QUERY_CVAR_VALUE_INTACT;
+use sdk_raw::net::incoming::MAX_SET_CONVARS;
 use std::ffi::{CStr, CString, c_int};
 use std::hash::{BuildHasher, RandomState};
 use std::mem::take;
@@ -161,9 +163,6 @@ pub const COOKIES: RangeInclusive<c_int> = -0x4348_FFFF..=-0x4348_0000;
 /// The most cookies remembered per client after a restore made their answers
 /// meaningless, so that late answers are still blocked.
 const MAX_RETIRED: usize = 16;
-
-/// The most variables one `net_SetConVar` holds.
-const MAX_SET_CONVARS: usize = 255;
 
 /// What [`ClientCheats::begin`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -915,7 +914,7 @@ impl ClientCheats {
 			Some(lease) if lease.is_sent() => {
 				// Only a found value can be checked. A variable the client hides
 				// or lacks still answers after everything sent before the query.
-				let cheats = *status != 0 || is_set(value);
+				let cheats = *status != QUERY_CVAR_VALUE_INTACT || is_set(value);
 
 				lease.state = LeaseState::Answered {
 					cookie: *cookie,

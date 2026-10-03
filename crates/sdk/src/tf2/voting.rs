@@ -348,9 +348,10 @@ pub fn vote_issue_vtables(
 		return Err(VoteHookTargetError::WrongGame);
 	}
 
-	// SAFETY: The game server factory lies inside the game module, which the
-	// Server's callback scope keeps loaded while its sections are inspected.
-	let vtables = unsafe { IssueVtables::load(server.game_server_factory().as_raw() as usize) }?;
+	// SAFETY: The game server factory is the game module's `CreateInterface`,
+	// and the Server's callback scope keeps the module loaded while its sections
+	// are inspected (`Server::new` condition 1).
+	let vtables = unsafe { IssueVtables::load(server.game_server_factory().as_raw()) }?;
 
 	VoteIssue::ALL
 		.into_iter()

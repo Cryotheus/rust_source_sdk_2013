@@ -9,7 +9,7 @@ interface! {
 	/// Creates and controls bots (`IBotManager`).
 	#[doc(alias = "IBotManager")]
 	#[doc(alias = "CPluginBotManager")]
-	pub struct BotManager(sys::IBotManager) = GameServer c"BotManager001";
+	pub struct BotManager(sys::IBotManager) = GameServer sdk_raw::interfaces::bot_manager::VERSION;
 }
 
 impl<'s> BotManager<'s> {

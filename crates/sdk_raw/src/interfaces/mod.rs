@@ -1,13 +1,21 @@
 //! Hand-written ABI of the engine's and game's interfaces, and of the factories
 //! that export them.
 
+pub mod bot_manager;
+pub mod cvar;
 pub mod engine_sound;
+pub mod engine_trace;
 pub mod game_event;
+pub mod model_info;
 pub mod network_string_tables;
+pub mod player_info_manager;
 pub mod plugin_helpers;
 pub mod server_game_clients;
 pub mod server_game_dll;
+pub mod server_game_ents;
+pub mod server_tools;
 pub mod valve_engine;
+pub mod voice_server;
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr::NonNull;

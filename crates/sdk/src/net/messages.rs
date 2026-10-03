@@ -13,6 +13,7 @@
 use super::{EncodeError, MessageId, NetMessage};
 use crate::bitbuf::BitWriter;
 use crate::math::{QAngle, Vector};
+use sdk_raw::edicts::MAX_EDICT_BITS;
 use std::ffi::CStr;
 
 /// Bits in each of a [`FixAngle`]'s angles.
@@ -20,9 +21,6 @@ const ANGLE_BITS: u32 = 16;
 
 /// Bits in a decal's texture index (`MAX_DECAL_INDEX_BITS`).
 const DECAL_INDEX_BITS: u32 = 9;
-
-/// Bits in an entity index (`MAX_EDICT_BITS`).
-const EDICT_BITS: u32 = 11;
 
 /// The longest command a client accepts, less its terminator.
 pub const MAX_COMMAND_LEN: usize = 1023;
@@ -79,7 +77,7 @@ impl NetMessage for BspDecal {
 		EncodeError::check_bits("texture", self.texture.into(), DECAL_INDEX_BITS)?;
 
 		if let Some(target) = self.target {
-			EncodeError::check_bits("entity", target.entity.into(), EDICT_BITS)?;
+			EncodeError::check_bits("entity", target.entity.into(), MAX_EDICT_BITS)?;
 			EncodeError::check_bits("model", target.model.into(), MODEL_INDEX_BITS)?;
 		}
 
@@ -89,7 +87,7 @@ impl NetMessage for BspDecal {
 		match self.target {
 			Some(target) => {
 				out.write_bit(true);
-				out.write_ubits(target.entity.into(), EDICT_BITS);
+				out.write_ubits(target.entity.into(), MAX_EDICT_BITS);
 				out.write_ubits(target.model.into(), MODEL_INDEX_BITS);
 			}
 
@@ -131,12 +129,12 @@ impl NetMessage for EntityMessage<'_> {
 	}
 
 	fn write_body(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		EncodeError::check_bits("entity", self.entity.into(), EDICT_BITS)?;
+		EncodeError::check_bits("entity", self.entity.into(), MAX_EDICT_BITS)?;
 		EncodeError::check_bits("class ID", self.class_id.into(), SERVER_CLASS_BITS)?;
 
 		let mut body = BitWriter::new();
 
-		body.write_ubits(self.entity.into(), EDICT_BITS);
+		body.write_ubits(self.entity.into(), MAX_EDICT_BITS);
 		body.write_ubits(self.class_id.into(), SERVER_CLASS_BITS);
 		write_payload(
 			&mut body,
@@ -362,8 +360,8 @@ impl NetMessage for SetView {
 	}
 
 	fn write_body(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
-		EncodeError::check_bits("entity", self.entity.into(), EDICT_BITS)?;
-		out.write_ubits(self.entity.into(), EDICT_BITS);
+		EncodeError::check_bits("entity", self.entity.into(), MAX_EDICT_BITS)?;
+		out.write_ubits(self.entity.into(), MAX_EDICT_BITS);
 		Ok(())
 	}
 }

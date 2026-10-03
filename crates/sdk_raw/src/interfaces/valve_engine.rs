@@ -7,6 +7,7 @@
 //! vtable, so a regenerated binding cannot silently dispatch to another method.
 
 use crate::vtable_slot;
+use std::ffi::CStr;
 
 const _: () = {
 	assert!(
@@ -40,3 +41,9 @@ const _: () = {
 		) == 53
 	);
 };
+
+/// The version string `IVEngineServer` is exported and requested under.
+///
+/// This is `INTERFACEVERSION_VENGINESERVER` from `public/eiface.h`.
+#[doc(alias = "INTERFACEVERSION_VENGINESERVER")]
+pub const VERSION: &CStr = c"VEngineServer023";

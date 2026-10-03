@@ -172,9 +172,16 @@ pub enum Incoming {
 		/// The cookie of the query answered.
 		cookie: c_int,
 
-		/// `EQueryCvarValueStatus`: 0 when the value was found, 1 when no
-		/// variable has the name, 2 when a command has it instead, and 3 when
-		/// the variable does not allow queries.
+		/// The `EQueryCvarValueStatus` of the answer:
+		/// [`QUERY_CVAR_VALUE_INTACT`] when the value was found,
+		/// [`QUERY_CVAR_NOT_FOUND`] when no variable has the name,
+		/// [`QUERY_CVAR_NOT_A_CVAR`] when a command has it instead, and
+		/// [`QUERY_CVAR_PROTECTED`] when the variable does not allow queries.
+		///
+		/// [`QUERY_CVAR_VALUE_INTACT`]: sdk_raw::interfaces::plugin_helpers::QUERY_CVAR_VALUE_INTACT
+		/// [`QUERY_CVAR_NOT_FOUND`]: sdk_raw::interfaces::plugin_helpers::QUERY_CVAR_NOT_FOUND
+		/// [`QUERY_CVAR_NOT_A_CVAR`]: sdk_raw::interfaces::plugin_helpers::QUERY_CVAR_NOT_A_CVAR
+		/// [`QUERY_CVAR_PROTECTED`]: sdk_raw::interfaces::plugin_helpers::QUERY_CVAR_PROTECTED
 		status: c_int,
 
 		/// The variable's name.

@@ -2,6 +2,7 @@
 //! describe.
 
 use crate::vtable_slot;
+use std::ffi::CStr;
 
 /// `void IServerGameClients::ClientCommand(edict_t *, const CCommand &)`,
 /// which the engine calls to run a command a client sent, and plugins hook to
@@ -29,3 +30,9 @@ const _: fn(&sys::IServerGameClients__bindgen_vtable) -> ClientCommandFn =
 /// The interface declares no virtual destructor, so the slot is the same under
 /// the MSVC and Itanium ABIs.
 pub const CLIENT_COMMAND_SLOT: usize = 5;
+
+/// The version string `IServerGameClients` is exported and requested under.
+///
+/// This is `INTERFACEVERSION_SERVERGAMECLIENTS` from `public/eiface.h`.
+#[doc(alias = "INTERFACEVERSION_SERVERGAMECLIENTS")]
+pub const VERSION: &CStr = c"ServerGameClients005";

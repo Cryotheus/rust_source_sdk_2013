@@ -1,8 +1,8 @@
 //! Hand-written ABI of TF2's damage handling: the `DMG_*` damage-type bits of
 //! `game/shared/shareddefs.h` and the aliases TF2 gives them in
 //! `game/shared/tf/tf_shareddefs.h`, `takedamageinfo.h`'s
-//! `BASEDAMAGE_NOT_SPECIFIED`, and the vtable slots of a TF2 player's damage
-//! methods.
+//! `BASEDAMAGE_NOT_SPECIFIED`, the ammo type `CTakeDamageInfo::Init` leaves,
+//! and the vtable slots of a TF2 player's damage methods.
 //!
 //! The generated bindings omit these `#define`s. The bits are those of
 //! `CTakeDamageInfo::m_bitsDamageType`.
@@ -100,6 +100,10 @@ pub const DMG_USE_HITLOCATIONS: c_int = DMG_AIRBOAT;
 /// TF2's damage that its distance modifiers scale, an alias of
 /// [`DMG_SLOWBURN`].
 pub const DMG_USEDISTANCEMOD: c_int = DMG_SLOWBURN;
+
+/// The value of `CTakeDamageInfo::m_iAmmoType` for damage with no ammo type,
+/// as `CTakeDamageInfo::Init` leaves it (`game/shared/takedamageinfo.cpp`).
+pub const NO_AMMO_TYPE: c_int = -1;
 
 /// The slot of `CTFPlayer::OnTakeDamage_Alive` in a TF2 player's primary
 /// vtable, from the generated binding.

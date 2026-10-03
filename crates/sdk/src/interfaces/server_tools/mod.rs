@@ -82,7 +82,7 @@ pub struct ServerTools<'s> {
 
 impl<'s> ServerTools<'s> {
 	/// The version string this interface is requested by.
-	pub const VERSION: &'static CStr = c"VSERVERTOOLS003";
+	pub const VERSION: &'static CStr = sdk_raw::interfaces::server_tools::VERSION;
 
 	/// Wraps the interface of a game DLL built for `game`, which selects
 	/// game-specific vtable slots such as `Teleport`'s.

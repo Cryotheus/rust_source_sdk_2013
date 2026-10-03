@@ -9,7 +9,7 @@ interface! {
 	/// The game's conversions between entities and edicts (`IServerGameEnts`).
 	#[doc(alias = "IServerGameEnts")]
 	#[doc(alias = "CServerGameEnts")]
-	pub struct ServerGameEnts(sys::IServerGameEnts) = GameServer c"ServerGameEnts001";
+	pub struct ServerGameEnts(sys::IServerGameEnts) = GameServer sdk_raw::interfaces::server_game_ents::VERSION;
 }
 
 impl<'s> ServerGameEnts<'s> {

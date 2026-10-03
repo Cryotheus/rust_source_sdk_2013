@@ -549,9 +549,16 @@ pub struct RespondCvarValueFields {
 	/// (`m_szCvarValue`).
 	pub value: *const c_char,
 
-	/// `EQueryCvarValueStatus`: 0 when the value was found, 1 when no
-	/// variable has the name, 2 when a command has it instead, and 3 when the
-	/// variable does not allow queries (`m_eStatusCode`).
+	/// The `EQueryCvarValueStatus` of the answer (`m_eStatusCode`):
+	/// [`QUERY_CVAR_VALUE_INTACT`] when the value was found,
+	/// [`QUERY_CVAR_NOT_FOUND`] when no variable has the name,
+	/// [`QUERY_CVAR_NOT_A_CVAR`] when a command has it instead, and
+	/// [`QUERY_CVAR_PROTECTED`] when the variable does not allow queries.
+	///
+	/// [`QUERY_CVAR_VALUE_INTACT`]: crate::interfaces::plugin_helpers::QUERY_CVAR_VALUE_INTACT
+	/// [`QUERY_CVAR_NOT_FOUND`]: crate::interfaces::plugin_helpers::QUERY_CVAR_NOT_FOUND
+	/// [`QUERY_CVAR_NOT_A_CVAR`]: crate::interfaces::plugin_helpers::QUERY_CVAR_NOT_A_CVAR
+	/// [`QUERY_CVAR_PROTECTED`]: crate::interfaces::plugin_helpers::QUERY_CVAR_PROTECTED
 	pub status: c_int,
 
 	/// The storage of the variable's name (`m_szCvarNameBuffer`).

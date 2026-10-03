@@ -11,7 +11,7 @@
 macro_rules! interface {
 	(
 		$(#[$meta:meta])*
-		$vis:vis struct $Name:ident($Raw:ty) = $Module:ident $version:literal;
+		$vis:vis struct $Name:ident($Raw:ty) = $Module:ident $version:expr;
 	) => {
 		$(#[$meta])*
 		#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

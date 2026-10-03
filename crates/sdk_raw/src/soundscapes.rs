@@ -4,6 +4,10 @@
 use crate::entities::datamap::DataMaps;
 use std::ffi::c_int;
 
+/// The soundscape index that names none: what `CEnvSoundscape`'s constructor
+/// sets `m_soundscapeIndex` to, in `game/server/soundscape.cpp`.
+pub const NO_SOUNDSCAPE: c_int = -1;
+
 /// The number of position names `CEnvSoundscape` keeps (`m_positionNames`),
 /// as many as there are local sounds (`localSound`) in a player's audio
 /// parameters.

@@ -29,3 +29,10 @@ const _: () = {
 			&& offset_of!(sys::CBaseAnimating, _base) == 0
 	);
 };
+
+/// The item definition index that names no item,
+/// `(item_definition_index_t)-1`.
+///
+/// This is `INVALID_ITEM_DEF_INDEX` from
+/// `game/shared/econ/econ_item_constants.h`.
+pub const INVALID_ITEM_DEF_INDEX: sys::item_definition_index_t = sys::item_definition_index_t::MAX;

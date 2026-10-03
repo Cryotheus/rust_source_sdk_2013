@@ -13,7 +13,7 @@ interface! {
 	/// Exposes player state and the engine's globals (`IPlayerInfoManager`).
 	#[doc(alias = "IPlayerInfoManager")]
 	#[doc(alias = "CPlayerInfoManager")]
-	pub struct PlayerInfoManager(sys::IPlayerInfoManager) = GameServer c"PlayerInfoManager002";
+	pub struct PlayerInfoManager(sys::IPlayerInfoManager) = GameServer sdk_raw::interfaces::player_info_manager::VERSION;
 }
 
 /// The engine's globals (`CGlobalVars`), which it updates every frame.

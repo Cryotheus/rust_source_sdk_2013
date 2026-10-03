@@ -2,6 +2,7 @@
 //! `#define`s of `game/shared/shareddefs.h`, `CBaseIssue::RequestCallVote`'s
 //! slot and signature, and the search for each issue class's vtable.
 
+use crate::interfaces::CreateInterfaceFn;
 use crate::util::{self, Image};
 use crate::vtable_slot;
 use std::ffi::{c_char, c_int, c_void};
@@ -42,16 +43,17 @@ pub const REQUEST_CALL_VOTE_SLOT: usize =
 pub struct IssueVtables(Image);
 
 impl IssueVtables {
-	/// Snapshots the module containing `module_address`, such as the game
-	/// server module's `CreateInterface` export.
+	/// Snapshots the module whose `CreateInterface` export is `factory`, such
+	/// as the game server module.
 	///
 	/// # Safety
 	///
-	/// `module_address` must be an executable address in a loaded module,
-	/// which stays loaded throughout this call.
-	pub unsafe fn load(module_address: usize) -> Result<Self, util::Error> {
-		// SAFETY: The caller keeps the module loaded while it is inspected.
-		unsafe { Image::load(module_address) }.map(Self)
+	/// `factory` must be the `CreateInterface` export of a module that stays
+	/// loaded throughout this call.
+	pub unsafe fn load(factory: CreateInterfaceFn) -> Result<Self, util::Error> {
+		// SAFETY: The factory is an executable address in its module, which the
+		// caller keeps loaded while it is inspected.
+		unsafe { Image::load(factory as usize) }.map(Self)
 	}
 
 	/// The unique primary vtable of the global C++ class named `class`, such

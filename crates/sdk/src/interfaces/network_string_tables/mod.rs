@@ -14,7 +14,7 @@
 
 use crate::NotThreadSafe;
 use crate::server::{InterfaceError, Server};
-use sdk_raw::interfaces::network_string_tables::INVALID_STRING_INDEX;
+use sdk_raw::interfaces::network_string_tables::{INVALID_STRING_INDEX, UNKNOWN_STRING_LENGTH};
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
@@ -32,7 +32,7 @@ pub const SOUND_PRECACHE: &CStr = c"soundprecache";
 interface! {
 	/// The string tables the server replicates to clients (`INetworkStringTableContainer`).
 	#[doc(alias = "INetworkStringTableContainer")]
-	pub struct NetworkStringTables(sys::INetworkStringTableContainer) = Engine c"VEngineServerStringTable001";
+	pub struct NetworkStringTables(sys::INetworkStringTableContainer) = Engine sdk_raw::interfaces::network_string_tables::VERSION;
 }
 
 /// A file could not be added to the [`DOWNLOADABLES`] table, as
@@ -115,10 +115,10 @@ impl<'s> NetworkStringTable<'s> {
 	pub fn add(self, string: &CStr) -> Result<usize, AddStringError> {
 		// SAFETY: As for `name`. The engine copies the string, which only needs
 		// to live for the call. As in the game's own additions, such as
-		// `PrecacheMaterial`, the length is -1 and no user data is passed, so
-		// there is no buffer for the engine to read.
+		// `PrecacheMaterial`, the length is the header's default and no user
+		// data is passed, so there is no buffer for the engine to read.
 		let index = unsafe {
-			vcall!(self.as_ptr() => INetworkStringTable_AddString(true, string.as_ptr(), -1, ptr::null()))
+			vcall!(self.as_ptr() => INetworkStringTable_AddString(true, string.as_ptr(), UNKNOWN_STRING_LENGTH, ptr::null()))
 		};
 
 		usize::try_from(index)

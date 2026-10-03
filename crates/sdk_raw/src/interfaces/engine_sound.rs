@@ -2,7 +2,7 @@
 //! describe, and the values sounds are emitted with, from
 //! `public/soundflags.h` and `public/engine/IEngineSound.h`.
 
-use std::ffi::{c_char, c_int};
+use std::ffi::{CStr, c_char, c_int};
 
 /// `IEngineSound::EmitSound`'s overload that takes a `soundlevel_t`:
 ///
@@ -75,6 +75,14 @@ pub const CHAN_VOICE2: c_int = 7;
 /// `CHAN_WEAPON`: weapon sounds.
 pub const CHAN_WEAPON: c_int = 1;
 
+/// The special DSP effect sounds are emitted with: the default of
+/// `IEngineSound::EmitSound`'s `iSpecialDSP`, which the game's own calls pass.
+pub const DEFAULT_SPECIAL_DSP: c_int = 0;
+
+/// The speaker entity of a sound that plays through no speaker: the default
+/// of `IEngineSound::EmitSound`'s `speakerentity`.
+pub const NO_SPEAKER_ENTITY: c_int = -1;
+
 /// `PITCH_HIGH`: a raised pitch.
 pub const PITCH_HIGH: c_int = 120;
 
@@ -133,6 +141,13 @@ pub const SOUND_FROM_LOCAL_PLAYER: c_int = -1;
 
 /// `SOUND_FROM_WORLD`: the entity index of the world.
 pub const SOUND_FROM_WORLD: c_int = 0;
+
+/// The version string `IEngineSound` is exported and requested under.
+///
+/// This is `IENGINESOUND_SERVER_INTERFACE_VERSION` from
+/// `public/engine/IEngineSound.h`.
+#[doc(alias = "IENGINESOUND_SERVER_INTERFACE_VERSION")]
+pub const VERSION: &CStr = c"IEngineSoundServer003";
 
 /// `VOL_NORM`: the sample's own volume.
 pub const VOL_NORM: f32 = 1.0;

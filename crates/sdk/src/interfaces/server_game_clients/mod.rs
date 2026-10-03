@@ -12,7 +12,7 @@ interface! {
 	/// [`route_client_command`](crate::commands::route_client_command).
 	#[doc(alias = "IServerGameClients")]
 	#[doc(alias = "CServerGameClients")]
-	pub struct ServerGameClients(sys::IServerGameClients) = GameServer c"ServerGameClients005";
+	pub struct ServerGameClients(sys::IServerGameClients) = GameServer sdk_raw::interfaces::server_game_clients::VERSION;
 }
 
 /// The player counts a game supports, from [`ServerGameClients::player_limits`].

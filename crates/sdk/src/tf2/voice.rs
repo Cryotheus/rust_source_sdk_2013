@@ -66,18 +66,14 @@ use crate::entities::Entity;
 use crate::tf2::PlayerClass;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
+use sdk_raw::entities::BASE_ENTITY_FIELD_OFFSET_LIMIT;
 use sdk_raw::players::LIFE_ALIVE;
 use sdk_raw::tf2::voice::MAX_SCENE_FILENAME;
-use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::ptr::null_mut;
 use std::time::Duration;
-
-/// An exclusive bound on the offsets of `CBaseEntity`'s own fields, past which
-/// an offset its datamap gives is not trusted.
-const MAX_FIELD_OFFSET: usize = 8192;
 
 /// The post-speak delay (`flPostDelay`) scenes are played with. The game adds
 /// it only to the time an NPC is marked as speaking
@@ -450,18 +446,16 @@ fn life_state_offset(entity: Entity<'_>) -> Option<usize> {
 		.data_maps()
 		.find(|map| map.class_name() == Some(c"CBaseEntity"))?;
 	let field = map.fields().iter().find(|field| {
-		field.fieldType == sys::_fieldtypes_FIELD_CHARACTER
-			// SAFETY: Field names are string literals of the game DLL.
-			&& unsafe { borrow_cstr(field.fieldName) } == Some(c"m_lifeState")
+		field.fieldType == sys::_fieldtypes_FIELD_CHARACTER && field.name() == Some(c"m_lifeState")
 	})?;
 
 	if field.fieldSize != 1 || field.fieldSizeInBytes != 1 {
 		return None;
 	}
 
-	usize::try_from(field.fieldOffset[0])
-		.ok()
-		.filter(|&offset| offset < MAX_FIELD_OFFSET)
+	field
+		.offset()
+		.filter(|&offset| offset < BASE_ENTITY_FIELD_OFFSET_LIMIT)
 }
 
 /// The length the game reported for a scene it played, or
@@ -853,7 +847,7 @@ mod tests {
 
 		let mut far = life_state_field();
 
-		far.fieldOffset[0] = MAX_FIELD_OFFSET as c_int;
+		far.fieldOffset[0] = BASE_ENTITY_FIELD_OFFSET_LIMIT as c_int;
 
 		for life_state in [wide, array, integer, far] {
 			DATA_MAP.set(maps(c"CTFPlayer", Some(life_state)));

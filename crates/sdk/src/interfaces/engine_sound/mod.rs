@@ -12,10 +12,10 @@ use crate::user_messages::Recipients;
 
 use sdk_raw::interfaces::engine_sound::{
 	CHAN_AUTO, CHAN_BODY, CHAN_ITEM, CHAN_STATIC, CHAN_STREAM, CHAN_VOICE, CHAN_VOICE2,
-	CHAN_WEAPON, PITCH_HIGH, PITCH_LOW, PITCH_NORM, SND_CHANGE_PITCH, SND_CHANGE_VOL, SND_DELAY,
-	SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL, SND_FLAG_BITS_ENCODE, SND_IGNORE_NAME,
-	SND_IGNORE_PHONEMES, SND_NOFLAGS, SND_SHOULDPAUSE, SND_SPAWNING, SND_SPEAKER, SND_STOP,
-	SND_STOP_LOOPING, SOUND_FROM_WORLD, VOL_NORM,
+	CHAN_WEAPON, DEFAULT_SPECIAL_DSP, NO_SPEAKER_ENTITY, PITCH_HIGH, PITCH_LOW, PITCH_NORM,
+	SND_CHANGE_PITCH, SND_CHANGE_VOL, SND_DELAY, SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL,
+	SND_FLAG_BITS_ENCODE, SND_IGNORE_NAME, SND_IGNORE_PHONEMES, SND_NOFLAGS, SND_SHOULDPAUSE,
+	SND_SPAWNING, SND_SPEAKER, SND_STOP, SND_STOP_LOOPING, SOUND_FROM_WORLD, VOL_NORM,
 };
 
 use sdk_raw::vcall;
@@ -30,7 +30,7 @@ const MAX_CHANNEL: c_int = CHAN_VOICE2;
 interface! {
 	/// The server's sound system (`IEngineSound`).
 	#[doc(alias = "IEngineSound")]
-	pub struct EngineSound(sys::IEngineSound) = Engine c"IEngineSoundServer003";
+	pub struct EngineSound(sys::IEngineSound) = Engine sdk_raw::interfaces::engine_sound::VERSION;
 }
 
 /// One of a source's sound channels (`CHAN_*`).
@@ -495,7 +495,7 @@ impl<'s> EngineSound<'s> {
 		let entity = source.to_raw()?;
 		let speaker = match speaker {
 			Some(speaker) => SoundSource::Entity(speaker).to_raw()?,
-			None => -1,
+			None => NO_SPEAKER_ENTITY,
 		};
 		let origin = finite_vector(origin)?;
 		let sound_time = match sound_time {
@@ -514,7 +514,7 @@ impl<'s> EngineSound<'s> {
 		// code the call reaches, such as other plugins' sound hooks, to free
 		// entities only through deferred deletion. The engine reads the filter,
 		// sample, and origin during the call, and all of them outlive it. The
-		// special DSP of 0, null direction, and position updates are what the
+		// default special DSP, null direction, and position updates are what the
 		// game passes, and `SoundInfo_t::WriteDelta` never sends a direction to
 		// clients. The null origins vector is the header's default.
 		unsafe {
@@ -527,7 +527,7 @@ impl<'s> EngineSound<'s> {
 				sys::soundlevel_t::from(level.decibels()),
 				flags.bits(),
 				c_int::from(pitch.get()),
-				0,
+				DEFAULT_SPECIAL_DSP,
 				origin.as_ref().map_or(ptr::null(), ptr::from_ref),
 				ptr::null(),
 				null_mut(),

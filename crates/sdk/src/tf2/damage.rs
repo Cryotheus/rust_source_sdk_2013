@@ -303,7 +303,7 @@ impl DamageInfo {
 		result.set_inflictor(EntityHandle::INVALID);
 		result.set_weapon(EntityHandle::INVALID);
 		result.set_bonus_provider(EntityHandle::INVALID);
-		result.set_ammo_type(-1);
+		result.set_ammo_type(sdk_raw::tf2::damage::NO_AMMO_TYPE);
 		result
 	}
 
@@ -408,10 +408,12 @@ impl DamageInfo {
 		i32
 	);
 	scalar!(
-		/// The ammo type of the weapon that caused the damage, or -1 for none.
+		/// The ammo type of the weapon that caused the damage, or
+		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) for none.
 		#[doc(alias = "GetAmmoType")]
 		ammo_type,
-		/// Replaces the ammo type. -1 means none.
+		/// Replaces the ammo type.
+		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) means none.
 		#[doc(alias = "SetAmmoType")]
 		set_ammo_type,
 		m_iAmmoType,

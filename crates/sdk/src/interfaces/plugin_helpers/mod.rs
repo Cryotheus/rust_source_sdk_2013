@@ -8,7 +8,7 @@ use std::ffi::{CStr, c_int};
 interface! {
 	/// The engine's services for server plugins (`IServerPluginHelpers`).
 	#[doc(alias = "IServerPluginHelpers")]
-	pub struct PluginHelpers(sys::IServerPluginHelpers) = Engine c"ISERVERPLUGINHELPERS001";
+	pub struct PluginHelpers(sys::IServerPluginHelpers) = Engine sdk_raw::interfaces::plugin_helpers::VERSION;
 }
 
 /// Identifies a pending client console variable query.

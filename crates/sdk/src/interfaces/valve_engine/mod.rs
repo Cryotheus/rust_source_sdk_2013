@@ -14,7 +14,7 @@ use std::ptr::{self, NonNull};
 interface! {
 	/// The engine's services for the game server (`IVEngineServer`).
 	#[doc(alias = "IVEngineServer")]
-	pub struct ValveEngine(sys::IVEngineServer) = Engine c"VEngineServer023";
+	pub struct ValveEngine(sys::IVEngineServer) = Engine sdk_raw::interfaces::valve_engine::VERSION;
 }
 
 impl<'s> ValveEngine<'s> {

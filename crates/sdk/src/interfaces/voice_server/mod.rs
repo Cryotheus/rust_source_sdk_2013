@@ -6,7 +6,7 @@ use std::ffi::c_int;
 interface! {
 	/// Routes voice between clients (`IVoiceServer`).
 	#[doc(alias = "IVoiceServer")]
-	pub struct VoiceServer(sys::IVoiceServer) = Engine c"VoiceServer002";
+	pub struct VoiceServer(sys::IVoiceServer) = Engine sdk_raw::interfaces::voice_server::VERSION;
 }
 
 impl<'s> VoiceServer<'s> {

@@ -1,6 +1,7 @@
 //! Typed schema attribute definitions and the values they accept.
 
 use crate::tf2::attributes::AttributeError;
+use sdk_raw::tf2::attributes::INVALID_ATTRIB_DEF_INDEX;
 use std::ffi::CStr;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::marker::PhantomData;
@@ -156,9 +157,9 @@ impl<V: AttributeValue> AttributeDef<V> {
 pub struct AttributeIndex(u16);
 
 impl AttributeIndex {
-	/// Excludes `INVALID_ATTRIB_DEF_INDEX`, 65535.
+	/// Excludes [`INVALID_ATTRIB_DEF_INDEX`], 65535.
 	pub const fn new(index: u16) -> Option<Self> {
-		if index == u16::MAX {
+		if index == INVALID_ATTRIB_DEF_INDEX {
 			None
 		} else {
 			Some(Self(index))

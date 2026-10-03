@@ -15,7 +15,7 @@ const MAX_LISTED: usize = 1 << 16;
 interface! {
 	/// The registry of console variables and commands (`ICvar`).
 	#[doc(alias = "ICvar")]
-	pub struct Cvar(sys::ICvar) = Engine c"VEngineCvar004";
+	pub struct Cvar(sys::ICvar) = Engine sdk_raw::interfaces::cvar::VERSION;
 }
 
 /// A console variable or command the registry lists (`ConCommandBase`), from

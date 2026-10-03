@@ -3,7 +3,8 @@
 //! [`RawGameEventListener`] is an `IGameEventListener2` implemented in Rust,
 //! which the game event manager calls with the events it fires, and
 //! [`for_event_data`] walks an event's data with an `IGameEventVisitor2`
-//! implemented in Rust.
+//! implemented in Rust. [`VERSION`] is the version string of the game event
+//! manager, `IGameEventManager2`.
 
 use crate::abi::{CppDestructors, VTABLE_SLOT_SIZE, WChar};
 use crate::util::cstr::{borrow_cstr, borrow_wide_cstr};
@@ -84,6 +85,12 @@ const _: fn(&sys::IGameEventListener2__bindgen_vtable) -> FireGameEventFn =
 ///
 /// This is `MAX_EVENT_BYTES` from `public/igameevents.h`.
 pub const MAX_EVENT_BYTES: usize = 1024;
+
+/// The version string `IGameEventManager2` is exported and requested under.
+///
+/// This is `INTERFACEVERSION_GAMEEVENTSMANAGER2` from `public/igameevents.h`.
+#[doc(alias = "INTERFACEVERSION_GAMEEVENTSMANAGER2")]
+pub const VERSION: &CStr = c"GAMEEVENTSMANAGER002";
 
 /// The vtable of every [`EventVisitor`], whose methods pass what the engine
 /// visits to the visitor's callback.

@@ -8,7 +8,7 @@ use std::ptr;
 interface! {
 	/// Traces rays and queries what the world contains (`IEngineTrace`).
 	#[doc(alias = "IEngineTrace")]
-	pub struct EngineTrace(sys::IEngineTrace) = Engine c"EngineTraceServer003";
+	pub struct EngineTrace(sys::IEngineTrace) = Engine sdk_raw::interfaces::engine_trace::VERSION;
 }
 
 impl<'s> EngineTrace<'s> {
