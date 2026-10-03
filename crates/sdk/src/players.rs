@@ -71,7 +71,7 @@ impl Error for InvalidUserId {}
 ///
 /// [`ValveEngine::edict_of_user_id`]: crate::interfaces::valve_engine::ValveEngine::edict_of_user_id
 /// [`ValveEngine::user_id_of_edict`]: crate::interfaces::valve_engine::ValveEngine::user_id_of_edict
-#[doc(alias = "userid")]
+#[doc(alias("userid"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct UserId(NonZero<u16>);

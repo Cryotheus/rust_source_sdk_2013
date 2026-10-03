@@ -11,15 +11,14 @@ use std::ptr::NonNull;
 
 interface! {
 	/// Exposes player state and the engine's globals (`IPlayerInfoManager`).
-	#[doc(alias = "IPlayerInfoManager")]
-	#[doc(alias = "CPlayerInfoManager")]
+	#[doc(alias("IPlayerInfoManager", "CPlayerInfoManager"))]
 	pub struct PlayerInfoManager(sys::IPlayerInfoManager) = GameServer sdk_raw::interfaces::player_info_manager::VERSION;
 }
 
 /// The engine's globals (`CGlobalVars`), which it updates every frame.
 ///
 /// Every accessor reads the current value.
-#[doc(alias = "CGlobalVars")]
+#[doc(alias("CGlobalVars"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlobalVars<'s> {
 	raw: NonNull<sys::CGlobalVars>,
@@ -29,8 +28,7 @@ pub struct GlobalVars<'s> {
 
 impl<'s> PlayerInfoManager<'s> {
 	/// The engine's globals, which the game calls `gpGlobals`.
-	#[doc(alias = "GetGlobalVars")]
-	#[doc(alias = "gpGlobals")]
+	#[doc(alias("GetGlobalVars", "gpGlobals"))]
 	pub fn global_vars(self) -> Option<GlobalVars<'s>> {
 		// SAFETY: `Server::new` guarantees the interface is live.
 		let globals =
@@ -48,7 +46,7 @@ impl<'s> PlayerInfoManager<'s> {
 	///
 	/// Only the player slots, from 1 up to [`GlobalVars::max_clients`], hold
 	/// players, so `None` is returned for any other edict.
-	#[doc(alias = "GetPlayerInfo")]
+	#[doc(alias("GetPlayerInfo"))]
 	pub fn player_info(self, edict: Edict<'_>) -> Option<PlayerInfo<'s>> {
 		let max_clients = self.global_vars().map_or(0, GlobalVars::max_clients);
 
@@ -89,8 +87,7 @@ macro_rules! global_var {
 /// The state of a connected player (`IPlayerInfo`).
 ///
 /// The game embeds this in the player entity, so it lives as long as the player.
-#[doc(alias = "IPlayerInfo")]
-#[doc(alias = "CPlayerInfo")]
+#[doc(alias("IPlayerInfo", "CPlayerInfo"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlayerInfo<'s> {
 	raw: NonNull<sys::IPlayerInfo>,
@@ -106,21 +103,21 @@ impl<'s> PlayerInfo<'s> {
 
 	/// Whether the player is dead, which the game decides by its life state
 	/// being `LIFE_DEAD`, so a dying player is not dead yet.
-	#[doc(alias = "IsDead")]
+	#[doc(alias("IsDead"))]
 	pub fn is_dead(self) -> bool {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsDead()) }
 	}
 
 	/// Whether the player is a bot.
-	#[doc(alias = "IsFakeClient")]
+	#[doc(alias("IsFakeClient"))]
 	pub fn is_fake_client(self) -> bool {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsFakeClient()) }
 	}
 
 	/// The player's name.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: The player is live for `'s`. The name lives in a buffer that
 		// renaming overwrites, so it is copied immediately.
@@ -128,14 +125,14 @@ impl<'s> PlayerInfo<'s> {
 	}
 
 	/// The player's network ID, such as a rendered Steam ID or `BOT`.
-	#[doc(alias = "GetNetworkIDString")]
+	#[doc(alias("GetNetworkIDString"))]
 	pub fn network_id(self) -> Option<CString> {
 		// SAFETY: As for `name`.
 		unsafe { copy_cstr(vcall!(self.as_ptr() => IPlayerInfo_GetNetworkIDString())) }
 	}
 
 	/// The index of the player's team.
-	#[doc(alias = "GetTeamIndex")]
+	#[doc(alias("GetTeamIndex"))]
 	pub fn team(self) -> c_int {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetTeamIndex()) }
@@ -145,7 +142,7 @@ impl<'s> PlayerInfo<'s> {
 	/// owns the player, as for [`ValveEngine::user_id_of_edict`].
 	///
 	/// [`ValveEngine::user_id_of_edict`]: crate::interfaces::ValveEngine::user_id_of_edict
-	#[doc(alias = "GetUserID")]
+	#[doc(alias("GetUserID"))]
 	pub fn user_id(self) -> Option<UserId> {
 		// SAFETY: As for `name`.
 		UserId::from_raw(unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetUserID()) }).ok()
@@ -160,25 +157,25 @@ impl<'s> GlobalVars<'s> {
 
 	global_var! {
 		/// Game time in seconds, which only advances while the game simulates.
-		#[doc(alias = "curtime")]
+		#[doc(alias("curtime"))]
 		current_time: f32 = _base.curtime
 	}
 
 	global_var! {
 		/// Game time elapsed in the current frame, in seconds.
-		#[doc(alias = "frametime")]
+		#[doc(alias("frametime"))]
 		frame_time: f32 = _base.frametime
 	}
 
 	global_var! {
 		/// The number of player slots.
-		#[doc(alias = "maxClients")]
+		#[doc(alias("maxClients"))]
 		max_clients: c_int = _base.maxClients
 	}
 
 	global_var! {
 		/// Simulation ticks since the level started.
-		#[doc(alias = "tickcount")]
+		#[doc(alias("tickcount"))]
 		tick_count: c_int = _base.tickcount
 	}
 
@@ -188,7 +185,7 @@ impl<'s> GlobalVars<'s> {
 	}
 
 	/// The name of the current map, such as `ctf_2fort`.
-	#[doc(alias = "mapname")]
+	#[doc(alias("mapname"))]
 	pub fn map_name(self) -> Option<CString> {
 		// SAFETY: As for `global_var!`. The name is copied immediately.
 		unsafe { copy_cstr((&raw const (*self.raw.as_ptr()).mapname.pszValue).read()) }

@@ -87,7 +87,7 @@ pub(crate) use layout::item_definition;
 /// The most runtime attributes the game networks per item
 /// (`MAX_ATTRIBUTES_PER_ITEM`). The game applies further entries on the
 /// server but silently does not send them, so clients mispredict the item.
-#[doc(alias = "MAX_ATTRIBUTES_PER_ITEM")]
+#[doc(alias("MAX_ATTRIBUTES_PER_ITEM"))]
 pub const MAX_RUNTIME_ATTRIBUTES: usize = sdk_raw::tf2::attributes::MAX_ATTRIBUTES_PER_ITEM;
 
 /// An attribute operation could not be performed.
@@ -364,8 +364,7 @@ impl Change {
 ///
 /// Some effects apply only when the game next looks at them, such as movement
 /// speed after a weapon switch; the [`catalog`] notes them.
-#[doc(alias = "CEconEntity")]
-#[doc(alias = "CAttributeList")]
+#[doc(alias("CEconEntity", "CAttributeList"))]
 #[derive(Debug, Clone, Copy)]
 pub struct ItemAttributes<'s> {
 	layout: ItemLayout<'s>,
@@ -460,7 +459,7 @@ impl<'s> ItemAttributes<'s> {
 
 	/// The item's definition index (`m_iItemDefinitionIndex`), or `None` for
 	/// an item without one.
-	#[doc(alias = "m_iItemDefinitionIndex")]
+	#[doc(alias("m_iItemDefinitionIndex"))]
 	pub fn definition(self) -> Result<Option<ItemDefinitionIndex>, AttributeError> {
 		self.check_live()?;
 
@@ -486,7 +485,7 @@ impl<'s> ItemAttributes<'s> {
 	///
 	/// The getter iterates the item's attributes through their types, which
 	/// the token vouches for.
-	#[doc(alias = "GetAttribute")]
+	#[doc(alias("GetAttribute"))]
 	pub fn get<V: AttributeValue>(
 		self,
 		token: SchemaToken<'s>,
@@ -527,7 +526,7 @@ impl<'s> ItemAttributes<'s> {
 	/// through their types, the runtime attributes of the weapon, of its
 	/// owner and of every item providing to the owner. The token vouches for
 	/// them.
-	#[doc(alias = "ReapplyProvision")]
+	#[doc(alias("ReapplyProvision"))]
 	pub fn reapply_provision(self, token: SchemaToken<'s>) -> Result<(), AttributeError> {
 		let _ = token;
 
@@ -546,7 +545,7 @@ impl<'s> ItemAttributes<'s> {
 	/// native change does: the cached results of the attribute hooks of the
 	/// item and of the entities it provides to, such as its owner, are
 	/// cleared, and clients are made to do the same. It reads no attributes.
-	#[doc(alias = "OnAttributeValuesChanged")]
+	#[doc(alias("OnAttributeValuesChanged"))]
 	pub fn refresh(self) -> Result<(), AttributeError> {
 		self.check_live()?;
 		self.layout.notify()
@@ -561,7 +560,7 @@ impl<'s> ItemAttributes<'s> {
 	/// `RemoveAttribute` removes the entry the running schema maps the name
 	/// to. If that is another definition's, the removal cannot be undone and
 	/// fails with [`AttributeError::SchemaMismatch`].
-	#[doc(alias = "RemoveAttribute")]
+	#[doc(alias("RemoveAttribute"))]
 	pub fn remove<V: AttributeValue>(self, def: &AttributeDef<V>) -> Result<bool, AttributeError> {
 		self.check_live()?;
 
@@ -594,7 +593,7 @@ impl<'s> ItemAttributes<'s> {
 	///
 	/// Removal reads no attribute through its type: the game compares the
 	/// entries' definitions, then notifies the container.
-	#[doc(alias = "RemoveAttribute")]
+	#[doc(alias("RemoveAttribute"))]
 	pub fn remove_by_name(self, name: &CStr) -> Result<Option<RuntimeAttribute>, AttributeError> {
 		self.check_live()?;
 
@@ -627,7 +626,7 @@ impl<'s> ItemAttributes<'s> {
 
 	/// Copies the item's runtime attributes, in the order the game keeps and
 	/// networks them, without reading any through its type.
-	#[doc(alias = "m_AttributeList")]
+	#[doc(alias("m_AttributeList"))]
 	pub fn runtime(self) -> Result<Vec<RuntimeAttribute>, AttributeError> {
 		self.check_live()?;
 		self.layout.snapshot()
@@ -670,7 +669,7 @@ impl<'s> ItemAttributes<'s> {
 	/// would change nothing, and so not show which entry the running schema
 	/// maps the name to. Another value within the bounds is set first, which
 	/// shows it, then the value itself.
-	#[doc(alias = "AddAttribute")]
+	#[doc(alias("AddAttribute"))]
 	pub fn set<V: AttributeValue>(
 		self,
 		token: SchemaToken<'s>,
@@ -700,7 +699,7 @@ impl<'s> ItemAttributes<'s> {
 	/// domain; being finite does not stop an extreme value overflowing the
 	/// integer conversions of the code that reads it. A value that is
 	/// stored as an integer must be the integer's bits as a float.
-	#[doc(alias = "AddAttribute")]
+	#[doc(alias("AddAttribute"))]
 	pub unsafe fn set_by_name_unchecked(
 		self,
 		name: &CStr,
@@ -873,7 +872,7 @@ impl<'s> ItemAttributes<'s> {
 /// pending deletion, [`AttributeError::UnsupportedMethod`] when the game lacks
 /// the expected native method, and [`AttributeError::Rejected`] when the
 /// method's binding reports failure.
-#[doc(alias = "CTFPlayer")]
+#[doc(alias("CTFPlayer"))]
 #[derive(Debug, Clone, Copy)]
 pub struct PlayerAttributes<'s> {
 	player: Entity<'s>,
@@ -924,7 +923,7 @@ impl<'s> PlayerAttributes<'s> {
 	///
 	/// The getter iterates the player's attributes through their types, which
 	/// the token vouches for.
-	#[doc(alias = "GetCustomAttribute")]
+	#[doc(alias("GetCustomAttribute"))]
 	pub fn get(self, token: SchemaToken<'s>, name: &CStr) -> Result<Option<f32>, AttributeError> {
 		let _ = token;
 
@@ -966,7 +965,7 @@ impl<'s> PlayerAttributes<'s> {
 	/// The game then recomputes the player's speed, whose attribute hooks
 	/// iterate, through their types, the runtime attributes of the player and
 	/// of every item providing to the player. The token vouches for them.
-	#[doc(alias = "RemoveCustomAttribute")]
+	#[doc(alias("RemoveCustomAttribute"))]
 	pub fn remove(self, token: SchemaToken<'s>, name: &CStr) -> Result<(), AttributeError> {
 		let _ = token;
 
@@ -992,7 +991,7 @@ impl<'s> PlayerAttributes<'s> {
 	/// # Safety
 	///
 	/// The contract of [`Self::set_unchecked`] applies.
-	#[doc(alias = "AddCustomAttribute")]
+	#[doc(alias("AddCustomAttribute"))]
 	pub unsafe fn set_for_unchecked(
 		self,
 		name: &CStr,
@@ -1040,7 +1039,7 @@ impl<'s> PlayerAttributes<'s> {
 	/// [`trust_shipped_schema`] must hold: the speed update iterates the
 	/// attributes of the player and of every item providing to it, and the
 	/// read-back the player's own.
-	#[doc(alias = "AddCustomAttribute")]
+	#[doc(alias("AddCustomAttribute"))]
 	pub unsafe fn set_unchecked(self, name: &CStr, value: f32) -> Result<bool, AttributeError> {
 		// SAFETY: The caller upholds the same contract.
 		unsafe { self.set_for_unchecked(name, value, None) }

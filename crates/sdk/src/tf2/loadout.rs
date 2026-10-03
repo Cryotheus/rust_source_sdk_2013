@@ -375,8 +375,7 @@ pub enum LoadoutError {
 /// [module documentation](crate::tf2::loadout#re-entrancy) gives, so a
 /// reapplier is not `Sync`: keep it where only the server's main thread
 /// reaches it.
-#[doc(alias = "Regenerate")]
-#[doc(alias = "ValidateWearables")]
+#[doc(alias("Regenerate", "ValidateWearables"))]
 #[derive(Debug, Default)]
 pub struct LoadoutReapplier {
 	applying: Cell<bool>,
@@ -566,7 +565,7 @@ impl LoadoutReapplier {
 	/// such a loop.
 	///
 	/// [`GameEventId::PostInventoryApplication`]: crate::tf2::game_events::GameEventId::PostInventoryApplication
-	#[doc(alias = "post_inventory_application")]
+	#[doc(alias("post_inventory_application"))]
 	pub unsafe fn on_game_event<'s>(
 		&self,
 		server: Server<'s>,

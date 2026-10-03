@@ -7,7 +7,7 @@ use std::ffi::{CStr, c_int};
 
 interface! {
 	/// The engine's services for server plugins (`IServerPluginHelpers`).
-	#[doc(alias = "IServerPluginHelpers")]
+	#[doc(alias("IServerPluginHelpers"))]
 	pub struct PluginHelpers(sys::IServerPluginHelpers) = Engine sdk_raw::interfaces::plugin_helpers::VERSION;
 }
 
@@ -15,7 +15,7 @@ interface! {
 ///
 /// [`PluginHelpers::start_query_cvar_value`] returns it, and the engine passes
 /// it back to the plugin's `OnQueryCvarValueFinished` callback with the answer.
-#[doc(alias = "QueryCvarCookie_t")]
+#[doc(alias("QueryCvarCookie_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct QueryCvarCookie(pub c_int);
 
@@ -26,7 +26,7 @@ impl<'s> PluginHelpers<'s> {
 	/// These calls count toward `sv_quota_stringcmdspersecond`. Engine console
 	/// commands such as `status` can require a real incoming packet's client
 	/// context; use the server console for those instead.
-	#[doc(alias = "ClientCommand")]
+	#[doc(alias("ClientCommand"))]
 	pub fn client_command(self, client: Edict<'_>, command: &CStr) {
 		// SAFETY: `Server::new` guarantees the interface is live, and the edict is live.
 		unsafe {
@@ -40,7 +40,7 @@ impl<'s> PluginHelpers<'s> {
 	/// callback, carrying the returned cookie. Returns `None` if the engine
 	/// refuses the query with `InvalidQueryCvarCookie`, as it does for an
 	/// invalid entity.
-	#[doc(alias = "StartQueryCvarValue")]
+	#[doc(alias("StartQueryCvarValue"))]
 	pub fn start_query_cvar_value(self, client: Edict<'_>, name: &CStr) -> Option<QueryCvarCookie> {
 		// SAFETY: As for `client_command`.
 		let cookie = unsafe {

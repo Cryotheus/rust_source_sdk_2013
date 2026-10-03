@@ -147,44 +147,44 @@ pub enum InputError {
 
 /// The type of value an input declares, which [`InputValue`]s are converted
 /// to.
-#[doc(alias = "fieldtype_t")]
+#[doc(alias("fieldtype_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InputType {
 	/// The input ignores its value.
-	#[doc(alias = "FIELD_VOID")]
+	#[doc(alias("FIELD_VOID"))]
 	Void,
 
 	/// A boolean, which integers, floats, and strings convert to.
-	#[doc(alias = "FIELD_BOOLEAN")]
+	#[doc(alias("FIELD_BOOLEAN"))]
 	Bool,
 
 	/// An integer, which floats and strings convert to.
-	#[doc(alias = "FIELD_INTEGER")]
+	#[doc(alias("FIELD_INTEGER"))]
 	Int,
 
 	/// A float, which integers and strings convert to.
-	#[doc(alias = "FIELD_FLOAT")]
+	#[doc(alias("FIELD_FLOAT"))]
 	Float,
 
 	/// A string, which entities convert to as their name. [`InputValue::Void`]
 	/// arrives as an empty string.
-	#[doc(alias = "FIELD_STRING")]
+	#[doc(alias("FIELD_STRING"))]
 	String,
 
 	/// A vector, which strings convert to.
-	#[doc(alias = "FIELD_VECTOR")]
+	#[doc(alias("FIELD_VECTOR"))]
 	Vector,
 
 	/// A color, which strings convert to.
-	#[doc(alias = "FIELD_COLOR32")]
+	#[doc(alias("FIELD_COLOR32"))]
 	Color,
 
 	/// An entity handle, which strings convert to by a name search.
-	#[doc(alias = "FIELD_EHANDLE")]
+	#[doc(alias("FIELD_EHANDLE"))]
 	Entity,
 
 	/// The handler reads the value as it arrives (`FIELD_INPUT`).
-	#[doc(alias = "FIELD_INPUT")]
+	#[doc(alias("FIELD_INPUT"))]
 	Any,
 
 	/// A type no [`InputValue`] converts to, by its `fieldtype_t`.
@@ -261,7 +261,7 @@ impl Display for InputType {
 /// [`InputType`] describes: strings to every type but [`InputType::Other`],
 /// as map I/O relies on, integers and floats to each other and to booleans,
 /// and entities to their name.
-#[doc(alias = "variant_t")]
+#[doc(alias("variant_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum InputValue<'a> {
 	/// No value, as map I/O sends for an empty parameter. Inputs that take a

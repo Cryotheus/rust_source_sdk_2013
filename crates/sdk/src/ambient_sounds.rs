@@ -44,7 +44,7 @@ impl<'s> AmbientSound<'s> {
 	}
 
 	/// Whether its sound loops, unless the map set "Is NOT Looped".
-	#[doc(alias = "m_fLooping")]
+	#[doc(alias("m_fLooping"))]
 	pub fn is_looping(self) -> bool {
 		// SAFETY: As for `is_playing`.
 		unsafe { self.layout.looping(self.entity.as_ptr()).read() != 0 }
@@ -54,7 +54,7 @@ impl<'s> AmbientSound<'s> {
 	/// from the level's start unless the map starts it silent, and while the
 	/// map has it play. The game never marks a sound that does not loop as
 	/// playing. A muted ambient sound can be playing without being heard.
-	#[doc(alias = "m_fActive")]
+	#[doc(alias("m_fActive"))]
 	pub fn is_playing(self) -> bool {
 		// SAFETY: The layout was found in the live entity's own maps, so the
 		// field lies within it, and is read without forming a reference, as
@@ -70,7 +70,7 @@ impl<'s> AmbientSound<'s> {
 	/// with a source through that source, so a sound played from any other
 	/// source keeps playing until the level ends unless it is stopped while
 	/// that source is set.
-	#[doc(alias = "m_hSoundSource")]
+	#[doc(alias("m_hSoundSource"))]
 	pub fn set_source(self, source: Option<Entity<'_>>) {
 		let handle = source.map_or(EntityHandle::INVALID, Entity::handle);
 
@@ -88,7 +88,7 @@ impl<'s> AmbientSound<'s> {
 	/// The sound it plays, as the map named it: a sound file, or an entry of
 	/// the game's sound scripts, such as `Ambient.MachineHum`. Returns `None`
 	/// if the name is null.
-	#[doc(alias = "m_iszSound")]
+	#[doc(alias("m_iszSound"))]
 	pub fn sound(self) -> Option<CString> {
 		// SAFETY: As for `is_playing`. The name is a pooled string or null, and
 		// is copied at once.
@@ -104,7 +104,7 @@ impl<'s> AmbientSound<'s> {
 	///
 	/// The handle may refer to an entity removed since. Whether an ambient
 	/// sound came from the map is told by [`Entity::hammer_id`] instead.
-	#[doc(alias = "m_hSoundSource")]
+	#[doc(alias("m_hSoundSource"))]
 	pub fn source(self) -> Option<EntityHandle> {
 		// SAFETY: As for `is_playing`.
 		let handle = EntityHandle::from_raw(unsafe {

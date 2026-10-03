@@ -109,8 +109,7 @@ const ELEMENT_NAMES: [&CStr; MAX_NETWORKED_WEARABLES] = [
 
 /// `MAX_WEARABLES_SENT_FROM_SERVER` (TF2's `LOADOUT_MAX_WEARABLES_COUNT`): the
 /// most entries of a player's wearable list the game networks.
-#[doc(alias = "MAX_WEARABLES_SENT_FROM_SERVER")]
-#[doc(alias = "LOADOUT_MAX_WEARABLES_COUNT")]
+#[doc(alias("MAX_WEARABLES_SENT_FROM_SERVER", "LOADOUT_MAX_WEARABLES_COUNT"))]
 pub const MAX_NETWORKED_WEARABLES: usize = sdk_raw::tf2::wearables::MAX_WEARABLES_SENT_FROM_SERVER;
 
 /// How far up the move hierarchy a wearable's player is looked for: a view
@@ -278,7 +277,7 @@ impl<'s> PlayerWearables<'s> {
 	/// such as from a hook on `EquipWearable`, `RemoveWearable` or an item's
 	/// `UnEquip`, as the
 	/// [module documentation](crate::tf2::wearables#wearable-loops) describes.
-	#[doc(alias = "EquipWearable")]
+	#[doc(alias("EquipWearable"))]
 	pub unsafe fn equip(self, wearable: Wearable<'s>) -> Result<(), WearableError> {
 		self.check_playing()?;
 		check_live(wearable.entity)?;
@@ -363,8 +362,7 @@ impl<'s> PlayerWearables<'s> {
 	/// [module documentation](crate::tf2::wearables#wearable-loops) describes.
 	///
 	/// [`PlayerWeapons::give_item`]: crate::tf2::weapons::PlayerWeapons::give_item
-	#[doc(alias = "SpawnItem")]
-	#[doc(alias = "EquipWearable")]
+	#[doc(alias("SpawnItem", "EquipWearable"))]
 	pub unsafe fn give(
 		self,
 		definition: ItemDefinitionIndex,
@@ -487,8 +485,7 @@ impl<'s> PlayerWearables<'s> {
 	/// list in another shape, or if [`Wearable::new`] does for a listed
 	/// wearable, and with [`WearableError::NetProp`] if the player is not
 	/// networked or its class networks no `m_hMyWearables`.
-	#[doc(alias = "m_hMyWearables")]
-	#[doc(alias = "GetWearable")]
+	#[doc(alias("m_hMyWearables", "GetWearable"))]
 	pub fn list(self) -> Result<WearableList<'s>, WearableError> {
 		check_live(self.player)?;
 
@@ -576,7 +573,7 @@ impl<'s> PlayerWearables<'s> {
 	///
 	/// As for [`Self::equip`]: it must not be called while the game iterates
 	/// this player's wearables.
-	#[doc(alias = "RemoveWearable")]
+	#[doc(alias("RemoveWearable"))]
 	pub unsafe fn remove(self, wearable: Wearable<'s>) -> Result<(), WearableError> {
 		check_live(self.player)?;
 		check_live(wearable.entity)?;
@@ -657,7 +654,7 @@ impl<'s> PlayerWearables<'s> {
 
 /// A callback-scoped TF2 wearable. Keep its entity handle, or better its
 /// definition, across callbacks.
-#[doc(alias = "CTFWearable")]
+#[doc(alias("CTFWearable"))]
 #[derive(Debug, Clone, Copy)]
 pub struct Wearable<'s> {
 	server: Server<'s>,
@@ -698,8 +695,7 @@ impl<'s> Wearable<'s> {
 	/// Unlike [`Self::owner`], this finds the entity rather than returning its
 	/// handle: the game networks only the low bits of the handle's serial
 	/// number, so the full handle is that of the weapon found.
-	#[doc(alias = "m_hWeaponAssociatedWith")]
-	#[doc(alias = "GetWeaponAssociatedWith")]
+	#[doc(alias("m_hWeaponAssociatedWith", "GetWeaponAssociatedWith"))]
 	pub fn associated_weapon(self) -> Result<Option<Entity<'s>>, WearableError> {
 		let tools = self.server.server_tools()?;
 
@@ -721,8 +717,7 @@ impl<'s> Wearable<'s> {
 
 	/// The item's economy definition (`m_iItemDefinitionIndex`), or `None` if
 	/// its item was never initialized, as for weapons' extra wearables.
-	#[doc(alias = "m_iItemDefinitionIndex")]
-	#[doc(alias = "GetItemDefIndex")]
+	#[doc(alias("m_iItemDefinitionIndex", "GetItemDefIndex"))]
 	pub fn definition(self) -> Result<Option<ItemDefinitionIndex>, WearableError> {
 		if !self.is_initialized()? {
 			return Ok(None);
@@ -756,8 +751,7 @@ impl<'s> Wearable<'s> {
 
 	/// Whether this is one of a disguised Spy's disguise wearables
 	/// (`m_bDisguiseWearable`).
-	#[doc(alias = "m_bDisguiseWearable")]
-	#[doc(alias = "IsDisguiseWearable")]
+	#[doc(alias("m_bDisguiseWearable", "IsDisguiseWearable"))]
 	pub fn is_disguise(self) -> Result<bool, WearableError> {
 		Ok(self
 			.net_prop(c"m_bDisguiseWearable")?
@@ -785,7 +779,7 @@ impl<'s> Wearable<'s> {
 
 	/// Whether other players' clients draw the wearable on its owner even if
 	/// the owner's inventory lacks it (`m_bValidatedAttachedEntity`).
-	#[doc(alias = "m_bValidatedAttachedEntity")]
+	#[doc(alias("m_bValidatedAttachedEntity"))]
 	pub fn is_validated(self) -> Result<bool, WearableError> {
 		Ok(self
 			.net_prop(c"m_bValidatedAttachedEntity")?
@@ -808,8 +802,7 @@ impl<'s> Wearable<'s> {
 	/// The entity that owns the wearable (`m_hOwnerEntity`), which is the
 	/// player wearing it, or `None` once it is unequipped. Fails with
 	/// [`WearableError::MarkedForDeletion`] for a wearable marked for deletion.
-	#[doc(alias = "m_hOwnerEntity")]
-	#[doc(alias = "GetOwnerEntity")]
+	#[doc(alias("m_hOwnerEntity", "GetOwnerEntity"))]
 	pub fn owner(self) -> Result<Option<EntityHandle>, WearableError> {
 		check_live(self.entity)?;
 
@@ -826,8 +819,7 @@ impl<'s> Wearable<'s> {
 	///
 	/// Clients decide once, when they first see the wearable attached, so set
 	/// this before equipping it, in the same callback.
-	#[doc(alias = "m_bValidatedAttachedEntity")]
-	#[doc(alias = "MarkAttachedEntityAsValidated")]
+	#[doc(alias("m_bValidatedAttachedEntity", "MarkAttachedEntityAsValidated"))]
 	pub fn set_validated(self, validated: bool) -> Result<(), WearableError> {
 		let engine = self.server.valve_engine()?;
 		let prop = self.net_prop(c"m_bValidatedAttachedEntity")?;
@@ -915,16 +907,16 @@ pub enum WearableError {
 #[non_exhaustive]
 pub enum WearableKind {
 	/// `tf_wearable_campaign_item`, a campaign's item.
-	#[doc(alias = "CTFWearableCampaignItem")]
+	#[doc(alias("CTFWearableCampaignItem"))]
 	Campaign,
 
 	/// `tf_wearable_demoshield`, a Demoman's shield, such as the Chargin'
 	/// Targe.
-	#[doc(alias = "CTFWearableDemoShield")]
+	#[doc(alias("CTFWearableDemoShield"))]
 	DemoShield,
 
 	/// `tf_wearable_levelable_item`, an item that levels up.
-	#[doc(alias = "CTFWearableLevelableItem")]
+	#[doc(alias("CTFWearableLevelableItem"))]
 	Levelable,
 
 	/// Any other class name.
@@ -932,24 +924,24 @@ pub enum WearableKind {
 
 	/// `tf_wearable`: cosmetics, and gameplay items worn in weapon slots, such
 	/// as the Gunboats or the Mantreads.
-	#[doc(alias = "CTFWearable")]
+	#[doc(alias("CTFWearable"))]
 	Plain,
 
 	/// `tf_powerup_bottle`, Mann vs. Machine's Power Up Canteen.
-	#[doc(alias = "CTFPowerupBottle")]
+	#[doc(alias("CTFPowerupBottle"))]
 	PowerupBottle,
 
 	/// `tf_wearable_razorback`, the Sniper's Razorback.
-	#[doc(alias = "CTFWearableRazorback")]
+	#[doc(alias("CTFWearableRazorback"))]
 	Razorback,
 
 	/// `tf_wearable_robot_arm`, the Engineer's Gunslinger arm.
-	#[doc(alias = "CTFWearableRobotArm")]
+	#[doc(alias("CTFWearableRobotArm"))]
 	RobotArm,
 
 	/// `tf_wearable_vm`, drawn on the player's view model, such as a weapon's
 	/// extra view model wearable.
-	#[doc(alias = "CTFWearableVM")]
+	#[doc(alias("CTFWearableVM"))]
 	ViewModel,
 }
 

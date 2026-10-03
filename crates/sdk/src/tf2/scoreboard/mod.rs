@@ -683,69 +683,68 @@ pub enum PlayerStat {
 	/// The scoreboard's "Score" column: `m_iTotalScore`, the points the game
 	/// works out from the player's statistics. Clients' achievement logic
 	/// compares it between teammates, as the module documentation describes.
-	#[doc(alias = "m_iTotalScore")]
+	#[doc(alias("m_iTotalScore"))]
 	Score,
 
 	/// Kills in the statistics panel of the player selected on the
 	/// scoreboard: `m_iScore`, a copy of the player's frag count.
-	#[doc(alias = "m_iScore")]
+	#[doc(alias("m_iScore"))]
 	Kills,
 
 	/// Deaths in the statistics panel: `m_iDeaths`.
-	#[doc(alias = "m_iDeaths")]
+	#[doc(alias("m_iDeaths"))]
 	Deaths,
 
 	/// The ping column: `m_iPing`. Clients show "BOT" for bots whatever it
 	/// holds.
-	#[doc(alias = "m_iPing")]
+	#[doc(alias("m_iPing"))]
 	Ping,
 
 	/// The number of players the player dominates, shown as an icon:
 	/// `m_iActiveDominations`. A client's Spy achievement checks it for the
 	/// victims of backstabs, as the module documentation describes.
-	#[doc(alias = "m_iActiveDominations")]
+	#[doc(alias("m_iActiveDominations"))]
 	Dominations,
 
 	/// The killstreak count: the `kTFStreak_Kills` element of the player's
 	/// group in `m_iStreaks`. Clients show it only for players whose entity
 	/// they have, holding a weapon.
-	#[doc(alias = "m_iStreaks")]
-	#[doc(alias = "kTFStreak_Kills")]
+	#[doc(alias("m_iStreaks", "kTFStreak_Kills"))]
 	Killstreak,
 
 	/// Damage dealt, in the statistics panel and Mann vs. Machine's
 	/// scoreboard: `m_iDamage`.
-	#[doc(alias = "m_iDamage")]
+	#[doc(alias("m_iDamage"))]
 	Damage,
 
 	/// Damage to bosses, Mann vs. Machine's "tank" column: `m_iDamageBoss`.
-	#[doc(alias = "m_iDamageBoss")]
+	#[doc(alias("m_iDamageBoss"))]
 	BossDamage,
 
 	/// Mann vs. Machine's healing column: `m_iHealing`.
-	#[doc(alias = "m_iHealing")]
+	#[doc(alias("m_iHealing"))]
 	Healing,
 
 	/// Damage assisted, part of Mann vs. Machine's "support" column:
 	/// `m_iDamageAssist`.
-	#[doc(alias = "m_iDamageAssist")]
+	#[doc(alias("m_iDamageAssist"))]
 	DamageAssist,
 
 	/// Healing assisted, part of the "support" column: `m_iHealingAssist`.
-	#[doc(alias = "m_iHealingAssist")]
+	#[doc(alias("m_iHealingAssist"))]
 	HealingAssist,
 
 	/// Damage blocked, part of the "support" column: `m_iDamageBlocked`.
-	#[doc(alias = "m_iDamageBlocked")]
+	#[doc(alias("m_iDamageBlocked"))]
 	DamageBlocked,
 
 	/// Bonus points, each counted as 25 in the "support" column:
 	/// `m_iBonusPoints`.
-	#[doc(alias = "m_iBonusPoints")]
+	#[doc(alias("m_iBonusPoints"))]
 	BonusPoints,
 
 	/// Mann vs. Machine's credits column: `m_iCurrencyCollected`.
-	#[doc(alias = "m_iCurrencyCollected")]
+	#[doc(alias("m_iCurrencyCollected"))]
 	CurrencyCollected,
 }
 
@@ -897,8 +896,7 @@ impl Scalar {
 /// callbacks at other times is safe, but lets game logic see overrides.
 ///
 /// [`GameEventId::PlayerDisconnect`]: crate::tf2::game_events::GameEventId::PlayerDisconnect
-#[doc(alias = "CTFPlayerResource")]
-#[doc(alias = "tf_player_manager")]
+#[doc(alias("CTFPlayerResource", "tf_player_manager"))]
 #[must_use = "overrides only reach clients while the store's frame callbacks run"]
 #[derive(Debug, Default)]
 pub struct Scoreboard {
@@ -1239,7 +1237,7 @@ impl Scoreboard {
 	/// holds.
 	///
 	/// Fails as [`Self::set_player_stat`] does.
-	#[doc(alias = "m_bAlive")]
+	#[doc(alias("m_bAlive"))]
 	pub fn set_player_alive(
 		&mut self,
 		server: Server<'_>,
@@ -1260,7 +1258,7 @@ impl Scoreboard {
 	/// the module documentation describes.
 	///
 	/// Fails as [`Self::set_player_stat`] does.
-	#[doc(alias = "m_iPlayerClass")]
+	#[doc(alias("m_iPlayerClass"))]
 	pub fn set_player_class(
 		&mut self,
 		server: Server<'_>,
@@ -1356,8 +1354,7 @@ impl Scoreboard {
 	/// Fails if the server does not run TF2, an interface is unavailable, the
 	/// team has no entity, the running game does not network the number as an
 	/// `int`, or `value` is outside [`Self::team_stat_range`].
-	#[doc(alias = "SetScore")]
-	#[doc(alias = "SetFlagCaptures")]
+	#[doc(alias("SetScore", "SetFlagCaptures"))]
 	pub fn set_real_team_stat(
 		&mut self,
 		server: Server<'_>,
@@ -1664,11 +1661,11 @@ pub enum ScoreboardError {
 #[repr(i32)]
 pub enum ScoringTeam {
 	/// RED.
-	#[doc(alias = "TF_TEAM_RED")]
+	#[doc(alias("TF_TEAM_RED"))]
 	Red = TF_TEAM_RED,
 
 	/// BLU.
-	#[doc(alias = "TF_TEAM_BLUE")]
+	#[doc(alias("TF_TEAM_BLUE"))]
 	Blue = TF_TEAM_BLUE,
 }
 
@@ -1732,7 +1729,7 @@ struct TeamSlot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TeamStat {
 	/// The team's score, `CTeam::m_iScore`: rounds won in most game modes.
-	#[doc(alias = "m_iScore")]
+	#[doc(alias("m_iScore"))]
 	Score,
 
 	/// The flags the team captured this round, `CTFTeam::m_nFlagCaptures`,
@@ -1740,7 +1737,7 @@ pub enum TeamStat {
 	/// `tf_flag_caps_per_round` is above 0 (`tf_hud_flagstatus.cpp:643-677`).
 	/// PASS Time keeps its goals here, and its HUD shows them as the team's
 	/// score (`tf_hud_passtime.cpp:200-213`).
-	#[doc(alias = "m_nFlagCaptures")]
+	#[doc(alias("m_nFlagCaptures"))]
 	FlagCaptures,
 }
 
@@ -1891,7 +1888,7 @@ fn networking(entity: Entity<'_>) -> Result<(ServerClass<'_>, Edict<'_>), Scoreb
 ///
 /// Fails if the server does not run TF2, or `player`'s datamaps do not include
 /// `CTFPlayer`'s.
-#[doc(alias = "ResetScores")]
+#[doc(alias("ResetScores"))]
 pub fn reset_scores(server: Server<'_>, player: Entity<'_>) -> Result<(), ScoreboardError> {
 	check_game(server)?;
 
@@ -1966,7 +1963,7 @@ fn saturate(value: i64) -> i32 {
 /// wrapped into that range.
 ///
 /// Fails as [`set_frags`] does.
-#[doc(alias = "m_iDeaths")]
+#[doc(alias("m_iDeaths"))]
 pub fn set_deaths(
 	server: Server<'_>,
 	player: Entity<'_>,
@@ -1991,7 +1988,7 @@ pub fn set_deaths(
 /// Fails if the server does not run TF2, `player`'s datamaps do not include
 /// `CTFPlayer`'s, or `CBasePlayer`'s does not declare the count as an `int`
 /// at a plausible offset.
-#[doc(alias = "m_iFrags")]
+#[doc(alias("m_iFrags"))]
 pub fn set_frags(
 	server: Server<'_>,
 	player: Entity<'_>,
@@ -2053,8 +2050,7 @@ fn set_player_count(
 ///
 /// Fails as [`Scoreboard::set_real_team_stat`] does; the SDK networks -128 to
 /// 127.
-#[doc(alias = "SetFlagCaptures")]
-#[doc(alias = "m_nFlagCaptures")]
+#[doc(alias("SetFlagCaptures", "m_nFlagCaptures"))]
 pub fn set_team_flag_captures(
 	server: Server<'_>,
 	team: ScoringTeam,
@@ -2077,8 +2073,7 @@ pub fn set_team_flag_captures(
 /// [`Scoreboard::set_real_team_stat`] instead, which this otherwise matches.
 ///
 /// Fails as [`Scoreboard::set_real_team_stat`] does.
-#[doc(alias = "SetScore")]
-#[doc(alias = "m_iScore")]
+#[doc(alias("SetScore", "m_iScore"))]
 pub fn set_team_score(
 	server: Server<'_>,
 	team: ScoringTeam,

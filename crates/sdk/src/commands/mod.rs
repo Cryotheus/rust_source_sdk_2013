@@ -275,67 +275,67 @@ pub struct CommandFlags(c_int);
 impl CommandFlags {
 	/// `FCVAR_ARCHIVE`: a variable the engine saves when it writes its
 	/// configuration.
-	#[doc(alias = "FCVAR_ARCHIVE")]
+	#[doc(alias("FCVAR_ARCHIVE"))]
 	pub const ARCHIVE: Self = Self(raw::FCVAR_ARCHIVE);
 
 	/// `FCVAR_CHEAT`: runnable only while `sv_cheats` is set. The engine checks
 	/// this for server-side invokers, and [`route_client_command`] for clients.
-	#[doc(alias = "FCVAR_CHEAT")]
+	#[doc(alias("FCVAR_CHEAT"))]
 	pub const CHEAT: Self = Self(raw::FCVAR_CHEAT);
 
 	/// `FCVAR_CLIENTCMD_CAN_EXECUTE`: a client command or variable that the
 	/// client library's `IVEngineClient::ClientCmd` may run, which it refuses
 	/// otherwise. `ClientCmd_Unrestricted` runs either.
-	#[doc(alias = "FCVAR_CLIENTCMD_CAN_EXECUTE")]
+	#[doc(alias("FCVAR_CLIENTCMD_CAN_EXECUTE"))]
 	pub const CLIENT_CMD_CAN_EXECUTE: Self = Self(raw::FCVAR_CLIENTCMD_CAN_EXECUTE);
 
 	/// `FCVAR_CLIENTDLL`: declared by the client library, which shares a listen
 	/// server's registry.
-	#[doc(alias = "FCVAR_CLIENTDLL")]
+	#[doc(alias("FCVAR_CLIENTDLL"))]
 	pub const CLIENT_DLL: Self = Self(raw::FCVAR_CLIENTDLL);
 
 	/// `FCVAR_DEMO`: a variable recorded when a demo recording starts.
-	#[doc(alias = "FCVAR_DEMO")]
+	#[doc(alias("FCVAR_DEMO"))]
 	pub const DEMO: Self = Self(raw::FCVAR_DEMO);
 
 	/// `FCVAR_DEVELOPMENTONLY`: hidden from the console in released builds of
 	/// the engine.
-	#[doc(alias = "FCVAR_DEVELOPMENTONLY")]
+	#[doc(alias("FCVAR_DEVELOPMENTONLY"))]
 	pub const DEVELOPMENT_ONLY: Self = Self(raw::FCVAR_DEVELOPMENTONLY);
 
 	/// `FCVAR_DONTRECORD`: left out of demo recordings.
-	#[doc(alias = "FCVAR_DONTRECORD")]
+	#[doc(alias("FCVAR_DONTRECORD"))]
 	pub const DONT_RECORD: Self = Self(raw::FCVAR_DONTRECORD);
 
 	/// `FCVAR_GAMEDLL`: declared by the game server library.
 	///
 	/// A [`ConsoleCommand`] registered from Rust never carries or reports it,
 	/// while a [`ConsoleVariable`] keeps it.
-	#[doc(alias = "FCVAR_GAMEDLL")]
+	#[doc(alias("FCVAR_GAMEDLL"))]
 	pub const GAME_DLL: Self = Self(raw::FCVAR_GAMEDLL);
 
 	/// `FCVAR_HIDDEN`: left out of `find`, `cvarlist`, and completion.
-	#[doc(alias = "FCVAR_HIDDEN")]
+	#[doc(alias("FCVAR_HIDDEN"))]
 	pub const HIDDEN: Self = Self(raw::FCVAR_HIDDEN);
 
 	/// `FCVAR_NEVER_AS_STRING`: a variable whose string is never updated from
 	/// its value, so it keeps the one it was declared with.
-	#[doc(alias = "FCVAR_NEVER_AS_STRING")]
+	#[doc(alias("FCVAR_NEVER_AS_STRING"))]
 	pub const NEVER_AS_STRING: Self = Self(raw::FCVAR_NEVER_AS_STRING);
 
 	/// `FCVAR_NONE`: no flags, the default.
-	#[doc(alias = "FCVAR_NONE")]
+	#[doc(alias("FCVAR_NONE"))]
 	pub const NONE: Self = Self(raw::FCVAR_NONE);
 
 	/// `FCVAR_NOT_CONNECTED`: a client variable that clients cannot change while
 	/// connected to a server, unless the game's
 	/// `CGameRules::IsConnectedUserInfoChangeAllowed` allows it.
-	#[doc(alias = "FCVAR_NOT_CONNECTED")]
+	#[doc(alias("FCVAR_NOT_CONNECTED"))]
 	pub const NOT_CONNECTED: Self = Self(raw::FCVAR_NOT_CONNECTED);
 
 	/// `FCVAR_NOTIFY`: changes to a variable are announced to players and
 	/// written to the server log.
-	#[doc(alias = "FCVAR_NOTIFY")]
+	#[doc(alias("FCVAR_NOTIFY"))]
 	pub const NOTIFY: Self = Self(raw::FCVAR_NOTIFY);
 
 	/// `FCVAR_PRINTABLEONLY`: a variable whose string may only contain
@@ -344,22 +344,22 @@ impl CommandFlags {
 	/// either.
 	///
 	/// [`ConVar::set_string`]: crate::interfaces::cvar::ConVar::set_string
-	#[doc(alias = "FCVAR_PRINTABLEONLY")]
+	#[doc(alias("FCVAR_PRINTABLEONLY"))]
 	pub const PRINTABLE_ONLY: Self = Self(raw::FCVAR_PRINTABLEONLY);
 
 	/// `FCVAR_PROTECTED`: a server variable whose value is withheld, such as a
 	/// password. Queries of the server's rules learn only whether it is set.
-	#[doc(alias = "FCVAR_PROTECTED")]
+	#[doc(alias("FCVAR_PROTECTED"))]
 	pub const PROTECTED: Self = Self(raw::FCVAR_PROTECTED);
 
 	/// `FCVAR_REPLICATED`: a variable whose server value is sent to every
 	/// client, whose own copy follows it.
-	#[doc(alias = "FCVAR_REPLICATED")]
+	#[doc(alias("FCVAR_REPLICATED"))]
 	pub const REPLICATED: Self = Self(raw::FCVAR_REPLICATED);
 
 	/// `FCVAR_SERVER_CAN_EXECUTE`: a client command clients run when the
 	/// server sends it to them, such as through `IVEngineServer::ClientCommand`.
-	#[doc(alias = "FCVAR_SERVER_CAN_EXECUTE")]
+	#[doc(alias("FCVAR_SERVER_CAN_EXECUTE"))]
 	pub const SERVER_CAN_EXECUTE: Self = Self(raw::FCVAR_SERVER_CAN_EXECUTE);
 
 	/// `FCVAR_SERVER_CANNOT_QUERY`: a client variable whose value clients refuse
@@ -367,24 +367,24 @@ impl CommandFlags {
 	/// [`PluginHelpers::start_query_cvar_value`] asks them to.
 	///
 	/// [`PluginHelpers::start_query_cvar_value`]: crate::interfaces::PluginHelpers::start_query_cvar_value
-	#[doc(alias = "FCVAR_SERVER_CANNOT_QUERY")]
+	#[doc(alias("FCVAR_SERVER_CANNOT_QUERY"))]
 	pub const SERVER_CANNOT_QUERY: Self = Self(raw::FCVAR_SERVER_CANNOT_QUERY);
 
 	/// `FCVAR_SPONLY`: meant for single-player games; clients connected to a
 	/// multiplayer server cannot change a variable marked with it.
-	#[doc(alias = "FCVAR_SPONLY")]
+	#[doc(alias("FCVAR_SPONLY"))]
 	pub const SP_ONLY: Self = Self(raw::FCVAR_SPONLY);
 
 	/// `FCVAR_UNLOGGED`: changes to a variable are not written to the server
 	/// log, even if it is marked [`NOTIFY`](Self::NOTIFY).
-	#[doc(alias = "FCVAR_UNLOGGED")]
+	#[doc(alias("FCVAR_UNLOGGED"))]
 	pub const UNLOGGED: Self = Self(raw::FCVAR_UNLOGGED);
 
 	/// `FCVAR_USERINFO`: a client variable whose value clients send to the
 	/// server, which [`ValveEngine::client_convar_value`] reads.
 	///
 	/// [`ValveEngine::client_convar_value`]: crate::interfaces::ValveEngine::client_convar_value
-	#[doc(alias = "FCVAR_USERINFO")]
+	#[doc(alias("FCVAR_USERINFO"))]
 	pub const USERINFO: Self = Self(raw::FCVAR_USERINFO);
 
 	/// The flags the engine stores as `bits` in `ConCommandBase::m_nFlags`,

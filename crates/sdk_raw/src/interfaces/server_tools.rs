@@ -8,5 +8,5 @@ use std::ffi::CStr;
 ///
 /// This is `VSERVERTOOLS_INTERFACE_VERSION` from
 /// `public/toolframework/itoolentity.h`.
-#[doc(alias = "VSERVERTOOLS_INTERFACE_VERSION")]
+#[doc(alias("VSERVERTOOLS_INTERFACE_VERSION"))]
 pub const VERSION: &CStr = c"VSERVERTOOLS003";

@@ -64,7 +64,7 @@ pub enum VoteDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VoteEvent {
 	/// A vote was created. Option labels are in `VoteChoice` order.
-	#[doc(alias = "vote_options")]
+	#[doc(alias("vote_options"))]
 	Started {
 		/// The vote's ID (`voteidx`).
 		vote_id: c_int,
@@ -74,7 +74,7 @@ pub enum VoteEvent {
 	},
 
 	/// TF2 accepted this player's choice for the identified vote.
-	#[doc(alias = "vote_cast")]
+	#[doc(alias("vote_cast"))]
 	Cast {
 		/// The vote's ID (`voteidx`).
 		vote_id: c_int,
@@ -144,51 +144,51 @@ impl From<util::Error> for VoteHookTargetError {
 }
 
 /// TF2's concrete built-in vote issues.
-#[doc(alias = "CBaseIssue")]
+#[doc(alias("CBaseIssue"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VoteIssue {
 	/// Restart the current map.
-	#[doc(alias = "CRestartGameIssue")]
+	#[doc(alias("CRestartGameIssue"))]
 	RestartGame,
 
 	/// Kick a player.
-	#[doc(alias = "CKickIssue")]
+	#[doc(alias("CKickIssue"))]
 	Kick,
 
 	/// Change the map immediately.
-	#[doc(alias = "CChangeLevelIssue")]
+	#[doc(alias("CChangeLevelIssue"))]
 	ChangeLevel,
 
 	/// Choose the next map.
-	#[doc(alias = "CNextLevelIssue")]
+	#[doc(alias("CNextLevelIssue"))]
 	NextLevel,
 
 	/// Extend the current map.
-	#[doc(alias = "CExtendLevelIssue")]
+	#[doc(alias("CExtendLevelIssue"))]
 	ExtendLevel,
 
 	/// Scramble the teams.
-	#[doc(alias = "CScrambleTeams")]
+	#[doc(alias("CScrambleTeams"))]
 	ScrambleTeams,
 
 	/// Change the Mann vs. Machine mission.
-	#[doc(alias = "CMannVsMachineChangeChallengeIssue")]
+	#[doc(alias("CMannVsMachineChangeChallengeIssue"))]
 	ChangeMission,
 
 	/// Enable Halloween mode temporarily.
-	#[doc(alias = "CEnableTemporaryHalloweenIssue")]
+	#[doc(alias("CEnableTemporaryHalloweenIssue"))]
 	Eternaween,
 
 	/// Enable or disable automatic team balancing.
-	#[doc(alias = "CTeamAutoBalanceIssue")]
+	#[doc(alias("CTeamAutoBalanceIssue"))]
 	TeamAutoBalance,
 
 	/// Enable or disable class limits.
-	#[doc(alias = "CClassLimitsIssue")]
+	#[doc(alias("CClassLimitsIssue"))]
 	ClassLimits,
 
 	/// Pause the game.
-	#[doc(alias = "CPauseGameIssue")]
+	#[doc(alias("CPauseGameIssue"))]
 	PauseGame,
 }
 
@@ -285,7 +285,7 @@ impl VoteRequest<'_> {
 pub trait VoteStartHandler: 'static {
 	/// Returning `Allow` does not force a vote to start; the game's own checks
 	/// still run. A panic in a Metamod handler is contained and lets TF2 proceed.
-	#[doc(alias = "RequestCallVote")]
+	#[doc(alias("RequestCallVote"))]
 	fn vote_start(&self, server: Server<'_>, request: VoteRequest<'_>) -> VoteDecision;
 }
 

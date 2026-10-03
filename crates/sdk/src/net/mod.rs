@@ -25,7 +25,7 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 /// Bits in each message's type (`NETMSG_TYPE_BITS`).
-#[doc(alias = "NETMSG_TYPE_BITS")]
+#[doc(alias("NETMSG_TYPE_BITS"))]
 pub const MESSAGE_TYPE_BITS: u32 = 6;
 
 /// Why a message could not be encoded.
@@ -82,11 +82,11 @@ impl EncodeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Flow {
 	/// From the server to the client (`FLOW_OUTGOING`).
-	#[doc(alias = "FLOW_OUTGOING")]
+	#[doc(alias("FLOW_OUTGOING"))]
 	Outgoing,
 
 	/// From the client to the server (`FLOW_INCOMING`).
-	#[doc(alias = "FLOW_INCOMING")]
+	#[doc(alias("FLOW_INCOMING"))]
 	Incoming,
 }
 
@@ -111,129 +111,129 @@ pub struct MessageId(u8);
 impl MessageId {
 	/// A decal on the world or a brush entity, as [`messages::BspDecal`]
 	/// places.
-	#[doc(alias = "svc_BSPDecal")]
+	#[doc(alias("svc_BSPDecal"))]
 	pub const BSP_DECAL: Self = Self(21);
 
 	/// The server's classes, sent while connecting.
-	#[doc(alias = "svc_ClassInfo")]
+	#[doc(alias("svc_ClassInfo"))]
 	pub const CLASS_INFO: Self = Self(10);
 
 	/// A command with key values.
-	#[doc(alias = "svc_CmdKeyValues")]
+	#[doc(alias("svc_CmdKeyValues"))]
 	pub const CMD_KEY_VALUES: Self = Self(32);
 
 	/// Creates a string table on the client.
-	#[doc(alias = "svc_CreateStringTable")]
+	#[doc(alias("svc_CreateStringTable"))]
 	pub const CREATE_STRING_TABLE: Self = Self(12);
 
 	/// Aims the client's crosshair, for auto-aim.
-	#[doc(alias = "svc_CrosshairAngle")]
+	#[doc(alias("svc_CrosshairAngle"))]
 	pub const CROSSHAIR_ANGLE: Self = Self(20);
 
 	/// Ends the connection.
-	#[doc(alias = "net_Disconnect")]
+	#[doc(alias("net_Disconnect"))]
 	pub const DISCONNECT: Self = Self(1);
 
 	/// A message for one entity's client-side class, as
 	/// [`messages::EntityMessage`] sends.
-	#[doc(alias = "svc_EntityMessage")]
+	#[doc(alias("svc_EntityMessage"))]
 	pub const ENTITY_MESSAGE: Self = Self(24);
 
 	/// Requests or denies a file.
-	#[doc(alias = "net_File")]
+	#[doc(alias("net_File"))]
 	pub const FILE: Self = Self(2);
 
 	/// Sets the client's view angles, as [`messages::FixAngle`] does.
-	#[doc(alias = "svc_FixAngle")]
+	#[doc(alias("svc_FixAngle"))]
 	pub const FIX_ANGLE: Self = Self(19);
 
 	/// A game event, as [`messages::GameEvent`] sends.
-	#[doc(alias = "svc_GameEvent")]
+	#[doc(alias("svc_GameEvent"))]
 	pub const GAME_EVENT: Self = Self(25);
 
 	/// The game events and their fields.
-	#[doc(alias = "svc_GameEventList")]
+	#[doc(alias("svc_GameEventList"))]
 	pub const GAME_EVENT_LIST: Self = Self(30);
 
 	/// Asks for a console variable's value, as [`messages::GetCvarValue`]
 	/// does.
-	#[doc(alias = "svc_GetCvarValue")]
+	#[doc(alias("svc_GetCvarValue"))]
 	pub const GET_CVAR_VALUE: Self = Self(31);
 
 	/// Shows a plugin's menu.
-	#[doc(alias = "svc_Menu")]
+	#[doc(alias("svc_Menu"))]
 	pub const MENU: Self = Self(29);
 
 	/// Does nothing.
-	#[doc(alias = "net_NOP")]
+	#[doc(alias("net_NOP"))]
 	pub const NOP: Self = Self(0);
 
 	/// Entities' states, for a snapshot.
-	#[doc(alias = "svc_PacketEntities")]
+	#[doc(alias("svc_PacketEntities"))]
 	pub const PACKET_ENTITIES: Self = Self(26);
 
 	/// Loads a sound ahead of its first use, as [`messages::Prefetch`] does.
-	#[doc(alias = "svc_Prefetch")]
+	#[doc(alias("svc_Prefetch"))]
 	pub const PREFETCH: Self = Self(28);
 
 	/// Prints console text, as [`messages::Print`] does.
-	#[doc(alias = "svc_Print")]
+	#[doc(alias("svc_Print"))]
 	pub const PRINT: Self = Self(7);
 
 	/// A server class's send table, sent while connecting.
-	#[doc(alias = "svc_SendTable")]
+	#[doc(alias("svc_SendTable"))]
 	pub const SEND_TABLE: Self = Self(9);
 
 	/// The server's and map's details, sent while connecting.
-	#[doc(alias = "svc_ServerInfo")]
+	#[doc(alias("svc_ServerInfo"))]
 	pub const SERVER_INFO: Self = Self(8);
 
 	/// Sets console variables, as [`messages::SetConVar`] does.
-	#[doc(alias = "net_SetConVar")]
+	#[doc(alias("net_SetConVar"))]
 	pub const SET_CONVAR: Self = Self(5);
 
 	/// Shows or hides the paused screen, as [`messages::SetPause`] does.
-	#[doc(alias = "svc_SetPause")]
+	#[doc(alias("svc_SetPause"))]
 	pub const SET_PAUSE: Self = Self(11);
 
 	/// Renders the view from an entity, as [`messages::SetView`] does.
-	#[doc(alias = "svc_SetView")]
+	#[doc(alias("svc_SetView"))]
 	pub const SET_VIEW: Self = Self(18);
 
 	/// A step through the sign-on sequence.
-	#[doc(alias = "net_SignonState")]
+	#[doc(alias("net_SignonState"))]
 	pub const SIGNON_STATE: Self = Self(6);
 
 	/// Plays sounds on the client.
-	#[doc(alias = "svc_Sounds")]
+	#[doc(alias("svc_Sounds"))]
 	pub const SOUNDS: Self = Self(17);
 
 	/// Runs a command, as [`messages::StringCmd`] does.
-	#[doc(alias = "net_StringCmd")]
+	#[doc(alias("net_StringCmd"))]
 	pub const STRING_CMD: Self = Self(4);
 
 	/// Temporary entities, such as effects.
-	#[doc(alias = "svc_TempEntities")]
+	#[doc(alias("svc_TempEntities"))]
 	pub const TEMP_ENTITIES: Self = Self(27);
 
 	/// The sender's tick and frame times.
-	#[doc(alias = "net_Tick")]
+	#[doc(alias("net_Tick"))]
 	pub const TICK: Self = Self(3);
 
 	/// Changes a string table's entries.
-	#[doc(alias = "svc_UpdateStringTable")]
+	#[doc(alias("svc_UpdateStringTable"))]
 	pub const UPDATE_STRING_TABLE: Self = Self(13);
 
 	/// A user message, as [`messages::UserMessage`] sends.
-	#[doc(alias = "svc_UserMessage")]
+	#[doc(alias("svc_UserMessage"))]
 	pub const USER_MESSAGE: Self = Self(23);
 
 	/// Encoded voice for the client to play.
-	#[doc(alias = "svc_VoiceData")]
+	#[doc(alias("svc_VoiceData"))]
 	pub const VOICE_DATA: Self = Self(15);
 
 	/// The voice codec and its quality.
-	#[doc(alias = "svc_VoiceInit")]
+	#[doc(alias("svc_VoiceInit"))]
 	pub const VOICE_INIT: Self = Self(14);
 
 	/// A type from its number, or `None` if the number does not fit in
@@ -304,7 +304,7 @@ impl Display for MessageId {
 /// The engine frees a channel when its client disconnects, which none of this
 /// crate's safe functions causes, so a channel stays valid for the scope `'s`.
 /// Fake clients, such as bots and SourceTV, have none.
-#[doc(alias = "INetChannel")]
+#[doc(alias("INetChannel"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NetChannel<'s> {
 	raw: NonNull<sys::INetChannel>,
@@ -328,7 +328,7 @@ impl<'s> NetChannel<'s> {
 
 	/// The client's address, such as `203.0.113.7:27005`, or `None` if the
 	/// engine returns none.
-	#[doc(alias = "GetAddress")]
+	#[doc(alias("GetAddress"))]
 	pub fn address(self) -> Option<CString> {
 		// SAFETY: As for `name`.
 		unsafe { copy_cstr(vcall!(self.as_const() => INetChannel_GetAddress())) }
@@ -344,42 +344,42 @@ impl<'s> NetChannel<'s> {
 	}
 
 	/// The average share of packets held back by the rate, from 0 to 1.
-	#[doc(alias = "GetAvgChoke")]
+	#[doc(alias("GetAvgChoke"))]
 	pub fn average_choke(self, flow: Flow) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetAvgChoke(flow.raw())) }
 	}
 
 	/// The average traffic, in bytes per second.
-	#[doc(alias = "GetAvgData")]
+	#[doc(alias("GetAvgData"))]
 	pub fn average_data(self, flow: Flow) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetAvgData(flow.raw())) }
 	}
 
 	/// The average round-trip time, in seconds.
-	#[doc(alias = "GetAvgLatency")]
+	#[doc(alias("GetAvgLatency"))]
 	pub fn average_latency(self, flow: Flow) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetAvgLatency(flow.raw())) }
 	}
 
 	/// The average share of packets lost, from 0 to 1.
-	#[doc(alias = "GetAvgLoss")]
+	#[doc(alias("GetAvgLoss"))]
 	pub fn average_loss(self, flow: Flow) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetAvgLoss(flow.raw())) }
 	}
 
 	/// The average packets per second.
-	#[doc(alias = "GetAvgPackets")]
+	#[doc(alias("GetAvgPackets"))]
 	pub fn average_packets(self, flow: Flow) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetAvgPackets(flow.raw())) }
 	}
 
 	/// The bits waiting in a stream for the next packet.
-	#[doc(alias = "GetNumBitsWritten")]
+	#[doc(alias("GetNumBitsWritten"))]
 	pub fn bits_waiting(self, reliability: Reliability) -> c_int {
 		let reliable = reliability == Reliability::Reliable;
 
@@ -388,7 +388,7 @@ impl<'s> NetChannel<'s> {
 	}
 
 	/// The rate, in bytes per second, the channel sends at most.
-	#[doc(alias = "GetDataRate")]
+	#[doc(alias("GetDataRate"))]
 	pub fn data_rate(self) -> c_int {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetDataRate()) }
@@ -399,7 +399,7 @@ impl<'s> NetChannel<'s> {
 	///
 	/// Once this turns false after a reliable message was sent, the client has
 	/// received it.
-	#[doc(alias = "HasPendingReliableData")]
+	#[doc(alias("HasPendingReliableData"))]
 	pub fn has_pending_reliable_data(self) -> bool {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_ptr() => INetChannel_HasPendingReliableData()) }
@@ -407,28 +407,28 @@ impl<'s> NetChannel<'s> {
 
 	/// Whether the client runs in the server's own process, as a listen
 	/// server's host does.
-	#[doc(alias = "IsLoopback")]
+	#[doc(alias("IsLoopback"))]
 	pub fn is_loopback(self) -> bool {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_IsLoopback()) }
 	}
 
 	/// Whether the reliable stream overflowed, which disconnects the client.
-	#[doc(alias = "IsOverflowed")]
+	#[doc(alias("IsOverflowed"))]
 	pub fn is_overflowed(self) -> bool {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_IsOverflowed()) }
 	}
 
 	/// Whether nothing has arrived from the client for a while.
-	#[doc(alias = "IsTimingOut")]
+	#[doc(alias("IsTimingOut"))]
 	pub fn is_timing_out(self) -> bool {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_IsTimingOut()) }
 	}
 
 	/// The latest round-trip time, in seconds.
-	#[doc(alias = "GetLatency")]
+	#[doc(alias("GetLatency"))]
 	pub fn latency(self, flow: Flow) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetLatency(flow.raw())) }
@@ -436,14 +436,14 @@ impl<'s> NetChannel<'s> {
 
 	/// The channel's name, which is the client's name, or `None` if the
 	/// engine returns none.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: The channel is live for `'s`, and the string is copied at once.
 		unsafe { copy_cstr(vcall!(self.as_const() => INetChannel_GetName())) }
 	}
 
 	/// The protocol version the client connected with.
-	#[doc(alias = "GetProtocolVersion")]
+	#[doc(alias("GetProtocolVersion"))]
 	pub fn protocol_version(self) -> c_int {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_ptr() => INetChannel_GetProtocolVersion()) }
@@ -458,7 +458,7 @@ impl<'s> NetChannel<'s> {
 	/// Queues already encoded messages, each a type followed by its fields.
 	///
 	/// A malformed message makes the client disconnect.
-	#[doc(alias = "SendData")]
+	#[doc(alias("SendData"))]
 	pub fn send_encoded(self, bits: &BitWriter, reliability: Reliability) -> Result<(), SendError> {
 		let mut buffer = BfWrite::written(bits.as_words(), bits.len());
 		let reliable = reliability == Reliability::Reliable;
@@ -484,7 +484,7 @@ impl<'s> NetChannel<'s> {
 	}
 
 	/// The channel's packet sequence numbers.
-	#[doc(alias = "GetSequenceData")]
+	#[doc(alias("GetSequenceData"))]
 	pub fn sequence_data(self) -> SequenceData {
 		let mut data = SequenceData {
 			outgoing: 0,
@@ -505,28 +505,28 @@ impl<'s> NetChannel<'s> {
 	}
 
 	/// Seconds since the client connected.
-	#[doc(alias = "GetTimeConnected")]
+	#[doc(alias("GetTimeConnected"))]
 	pub fn time_connected(self) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetTimeConnected()) }
 	}
 
 	/// Seconds since a packet last arrived from the client.
-	#[doc(alias = "GetTimeSinceLastReceived")]
+	#[doc(alias("GetTimeSinceLastReceived"))]
 	pub fn time_since_last_received(self) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetTimeSinceLastReceived()) }
 	}
 
 	/// Seconds without a packet from the client before it times out.
-	#[doc(alias = "GetTimeoutSeconds")]
+	#[doc(alias("GetTimeoutSeconds"))]
 	pub fn timeout_seconds(self) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetTimeoutSeconds()) }
 	}
 
 	/// The bytes sent or received since the client connected.
-	#[doc(alias = "GetTotalData")]
+	#[doc(alias("GetTotalData"))]
 	pub fn total_data(self, flow: Flow) -> c_int {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.as_const() => INetChannel_GetTotalData(flow.raw())) }

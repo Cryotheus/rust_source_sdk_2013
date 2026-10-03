@@ -71,7 +71,7 @@ enum IterState {
 /// Entity enumeration and manipulation meant for tools (`IServerTools`).
 ///
 /// Unlike edict lookups, this reaches server-only entities too.
-#[doc(alias = "IServerTools")]
+#[doc(alias("IServerTools"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ServerTools<'s> {
 	raw: NonNull<sys::IServerTools>,
@@ -143,8 +143,7 @@ impl<'s> ServerTools<'s> {
 	/// can remove any entity later. Removing a player, the world, or another
 	/// entity the game keeps pointers to, such as the game rules or a team,
 	/// crashes the server once it is freed, as with [`Self::remove`].
-	#[doc(alias = "AcceptInput")]
-	#[doc(alias = "AcceptEntityInput")]
+	#[doc(alias("AcceptInput", "AcceptEntityInput"))]
 	pub fn accept_input(
 		self,
 		target: Entity<'_>,
@@ -176,7 +175,7 @@ impl<'s> ServerTools<'s> {
 	/// dereference them without checking for null, and the value must not make
 	/// the game dereference a missing entity, as `"!picker"` does when the
 	/// first player slot is empty.
-	#[doc(alias = "AcceptInput")]
+	#[doc(alias("AcceptInput"))]
 	pub unsafe fn accept_input_unchecked(
 		self,
 		target: Entity<'_>,
@@ -206,7 +205,7 @@ impl<'s> ServerTools<'s> {
 	///
 	/// The class's constructor must free entities only through Source's
 	/// deferred deletion (condition 4 of [`Server::new`]).
-	#[doc(alias = "CreateEntityByName")]
+	#[doc(alias("CreateEntityByName"))]
 	pub unsafe fn create_entity_by_name(self, class_name: &CStr) -> Option<Entity<'s>> {
 		// SAFETY: As for `entity_by_index`, and the caller vouches for the
 		// constructor. The game adds the entity to its entity list.
@@ -227,7 +226,7 @@ impl<'s> ServerTools<'s> {
 	/// Everything the entity's `Spawn` runs must free entities only through
 	/// Source's deferred deletion (condition 4 of [`Server::new`]), and the
 	/// entity must not have been spawned before.
-	#[doc(alias = "DispatchSpawn")]
+	#[doc(alias("DispatchSpawn"))]
 	pub unsafe fn dispatch_spawn(self, entity: Entity<'_>) {
 		// SAFETY: As for `entity_by_index`, and the caller vouches for `Spawn`.
 		unsafe { vcall!(self.as_ptr() => IServerTools_DispatchSpawn(entity.as_ptr())) };
@@ -235,8 +234,7 @@ impl<'s> ServerTools<'s> {
 
 	/// Iterates over every entity, including server-only ones and those
 	/// pending deletion.
-	#[doc(alias = "FirstEntity")]
-	#[doc(alias = "NextEntity")]
+	#[doc(alias("FirstEntity", "NextEntity"))]
 	pub fn entities(self) -> Entities<'s> {
 		Entities {
 			tools: self,
@@ -245,7 +243,7 @@ impl<'s> ServerTools<'s> {
 	}
 
 	/// Looks up the entity a handle refers to, or `None` if it no longer exists.
-	#[doc(alias = "LookupEntity")]
+	#[doc(alias("LookupEntity"))]
 	pub fn entity_by_handle(self, handle: EntityHandle) -> Option<Entity<'s>> {
 		let index = handle
 			.index()
@@ -282,7 +280,7 @@ impl<'s> ServerTools<'s> {
 	///
 	/// Server-only entities have no edict index; find them with
 	/// [`Self::entities`] or [`Self::entity_by_handle`].
-	#[doc(alias = "GetBaseEntityByEntIndex")]
+	#[doc(alias("GetBaseEntityByEntIndex"))]
 	pub fn entity_by_index(self, index: c_int) -> Option<Entity<'s>> {
 		if !(0..sdk_raw::edicts::MAX_EDICTS).contains(&index) {
 			return None;
@@ -299,7 +297,7 @@ impl<'s> ServerTools<'s> {
 	/// Finds the next entity after `after`, or from the start of the entity
 	/// list if it is `None`, whose class name matches `class_name`, which may
 	/// end in a `*` wildcard. Returns `None` if no later entity matches.
-	#[doc(alias = "FindEntityByClassname")]
+	#[doc(alias("FindEntityByClassname"))]
 	pub fn find_by_class_name(
 		self,
 		after: Option<Entity<'_>>,
@@ -323,7 +321,7 @@ impl<'s> ServerTools<'s> {
 	/// Entities a `point_template` spawns share their template entity's ID. To
 	/// find every entity with an ID, filter [`Self::entities`] by
 	/// [`Entity::hammer_id`].
-	#[doc(alias = "FindEntityByHammerID")]
+	#[doc(alias("FindEntityByHammerID"))]
 	pub fn find_by_hammer_id(self, id: HammerId) -> Option<Entity<'s>> {
 		// SAFETY: As for `entity_by_index`. The game only compares each entity's
 		// ID with this one.
@@ -342,7 +340,7 @@ impl<'s> ServerTools<'s> {
 	/// the field, since `GetKeyValue` copies the bytes of the string's pointer
 	/// instead of its text. An unset string reads as empty. Other values longer
 	/// than 1023 bytes are truncated.
-	#[doc(alias = "GetKeyValue")]
+	#[doc(alias("GetKeyValue"))]
 	pub fn key_value(self, entity: Entity<'_>, key: &CStr) -> Option<CString> {
 		if let Some(field) = entity.string_key_field(key) {
 			// SAFETY: The field belongs to the live entity, and is read without
@@ -417,8 +415,7 @@ impl<'s> ServerTools<'s> {
 	/// Refuses the world, players, and soundscapes, which the game keeps using
 	/// after they are freed. Other entities the game keeps pointers to, such as
 	/// the game rules or a team, crash the server the same way once freed.
-	#[doc(alias = "RemoveEntity")]
-	#[doc(alias = "UTIL_Remove")]
+	#[doc(alias("RemoveEntity", "UTIL_Remove"))]
 	pub fn remove(self, entity: Entity<'_>) -> Result<(), ProtectedEntity> {
 		if entity.is_protected() {
 			return Err(ProtectedEntity);
@@ -465,7 +462,7 @@ impl<'s> ServerTools<'s> {
 	///
 	/// The key and value are copied first, since the game writes into keys
 	/// containing `#`.
-	#[doc(alias = "SetKeyValue")]
+	#[doc(alias("SetKeyValue"))]
 	pub fn set_key_value(self, entity: Entity<'_>, key: &CStr, value: &CStr) -> bool {
 		let key = key.to_owned();
 		let value = value.to_owned();
@@ -483,7 +480,7 @@ impl<'s> ServerTools<'s> {
 	///
 	/// Fails without moving the entity if a given component is not finite, or
 	/// the entity is marked for deletion.
-	#[doc(alias = "Teleport")]
+	#[doc(alias("Teleport"))]
 	pub fn teleport(
 		self,
 		entity: Entity<'_>,

@@ -35,7 +35,7 @@ const _: () = {
 };
 
 /// A layout mirror of the engine's `bf_read`.
-#[doc(alias = "bf_read")]
+#[doc(alias("bf_read"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BfRead {
@@ -108,7 +108,7 @@ impl BfRead {
 }
 
 /// A layout mirror of the engine's `bf_write`.
-#[doc(alias = "bf_write")]
+#[doc(alias("bf_write"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BfWrite {

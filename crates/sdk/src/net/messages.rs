@@ -30,7 +30,7 @@ pub const MAX_COMMAND_LEN: usize = 1023;
 pub const MAX_CONVAR_LEN: usize = sdk_raw::net::incoming::MAX_OSPATH - 1;
 
 /// The largest payload of a user or entity message (`MAX_USER_MSG_DATA`).
-#[doc(alias = "MAX_USER_MSG_DATA")]
+#[doc(alias("MAX_USER_MSG_DATA"))]
 pub const MAX_MESSAGE_DATA_BYTES: usize = 255;
 
 /// The longest console text a client accepts, less its terminator.
@@ -52,7 +52,7 @@ const SERVER_CLASS_BITS: u32 = 9;
 const SOUND_INDEX_BITS: u32 = 14;
 
 /// Places a decal on the world or a brush entity (`svc_BSPDecal`).
-#[doc(alias = "SVC_BSPDecal")]
+#[doc(alias("SVC_BSPDecal"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BspDecal {
 	/// Where the decal is, in world coordinates.
@@ -110,7 +110,7 @@ pub struct DecalTarget {
 }
 
 /// A message for one entity's client-side class (`svc_EntityMessage`).
-#[doc(alias = "SVC_EntityMessage")]
+#[doc(alias("SVC_EntityMessage"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityMessage<'a> {
 	/// An entity index below 2048.
@@ -148,7 +148,7 @@ impl NetMessage for EntityMessage<'_> {
 }
 
 /// Sets the client's view angles (`svc_FixAngle`), as teleports do.
-#[doc(alias = "SVC_FixAngle")]
+#[doc(alias("SVC_FixAngle"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FixAngle {
 	/// Adds the angles to the client's own instead of replacing them.
@@ -176,7 +176,7 @@ impl NetMessage for FixAngle {
 /// [`GameEventManager::serialize_event`] encodes it.
 ///
 /// [`GameEventManager::serialize_event`]: crate::interfaces::GameEventManager::serialize_event
-#[doc(alias = "SVC_GameEvent")]
+#[doc(alias("SVC_GameEvent"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GameEvent<'a> {
 	/// The event's ID and fields, in fewer than 2048 bits.
@@ -200,7 +200,7 @@ impl NetMessage for GameEvent<'_> {
 /// cookie the engine chooses, and reports the answer to server plugins.
 ///
 /// [`PluginHelpers::start_query_cvar_value`]: crate::interfaces::PluginHelpers::start_query_cvar_value
-#[doc(alias = "SVC_GetCvarValue")]
+#[doc(alias("SVC_GetCvarValue"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GetCvarValue<'a> {
 	/// A number the client returns with its answer, to match it to the query.
@@ -224,7 +224,7 @@ impl NetMessage for GetCvarValue<'_> {
 }
 
 /// Loads a precached sound ahead of its first use (`svc_Prefetch`).
-#[doc(alias = "SVC_Prefetch")]
+#[doc(alias("SVC_Prefetch"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Prefetch {
 	/// The sound's precache index, below 16384.
@@ -244,7 +244,7 @@ impl NetMessage for Prefetch {
 }
 
 /// Prints text to the client's console (`svc_Print`).
-#[doc(alias = "SVC_Print")]
+#[doc(alias("SVC_Print"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Print<'a> {
 	/// The text, at most [`MAX_PRINT_LEN`] bytes long.
@@ -292,7 +292,7 @@ impl NetMessage for Raw<'_> {
 ///
 /// Clients only accept variables marked `FCVAR_REPLICATED`, and keep the
 /// values until the server's own change or another message replaces them.
-#[doc(alias = "NET_SetConVar")]
+#[doc(alias("NET_SetConVar"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetConVar<'a> {
 	/// Names and values; at most 255.
@@ -327,7 +327,7 @@ impl NetMessage for SetConVar<'_> {
 /// Shows or hides the client's paused screen (`svc_SetPause`).
 ///
 /// Only the client's display changes: the server keeps simulating.
-#[doc(alias = "SVC_SetPause")]
+#[doc(alias("SVC_SetPause"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetPause {
 	/// Shows the paused screen when true, and hides it when false.
@@ -347,7 +347,7 @@ impl NetMessage for SetPause {
 
 /// Renders the client's view from an entity (`svc_SetView`), as
 /// `IVEngineServer::SetView` does.
-#[doc(alias = "SVC_SetView")]
+#[doc(alias("SVC_SetView"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetView {
 	/// An entity index below 2048.
@@ -375,7 +375,7 @@ impl NetMessage for SetView {
 /// frame, not as the message arrives.
 ///
 /// [`PluginHelpers::client_command`]: crate::interfaces::PluginHelpers::client_command
-#[doc(alias = "NET_StringCmd")]
+#[doc(alias("NET_StringCmd"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StringCmd<'a> {
 	/// The command and its arguments, at most [`MAX_COMMAND_LEN`] bytes long.
@@ -403,7 +403,7 @@ impl NetMessage for StringCmd<'_> {
 ///
 /// [`ServerGameDll::user_messages`]: crate::interfaces::ServerGameDll::user_messages
 /// [`user_messages::send`]: crate::user_messages::send
-#[doc(alias = "SVC_UserMessage")]
+#[doc(alias("SVC_UserMessage"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UserMessage<'a> {
 	/// The index of the user message the game registered.

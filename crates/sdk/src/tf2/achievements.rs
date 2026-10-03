@@ -82,7 +82,7 @@ pub type LockResult = Result<LockState, LockError>;
 /// It records which lease locks each client, and reads the rest from the
 /// [`ClientCheats`] that coordinates the leases, which the plugin keeps and
 /// drives as its module describes. Like it, a lock holds only plain data.
-#[doc(alias = "m_bCheatsEverOn")]
+#[doc(alias("m_bCheatsEverOn"))]
 #[derive(Debug, Default)]
 pub struct AchievementLock {
 	requests: Vec<(UserId, Request)>,

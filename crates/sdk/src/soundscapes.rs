@@ -24,27 +24,28 @@ use std::num::NonZero;
 
 /// The soundscape a player's client was last told of, in the player's audio
 /// parameters (`m_Local.m_audio`), which only that client receives.
-#[doc(alias = "audioparams_t")]
-#[doc(alias = "m_audio")]
+#[doc(alias("audioparams_t", "m_audio"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerSoundscape {
 	/// The soundscape entity that gave it, which the game keeps as the
 	/// player's while it stays enabled and in sight.
-	#[doc(alias = "entIndex")]
+	#[doc(alias("entIndex"))]
 	pub source: Option<SoundscapeId>,
 
 	/// The soundscape's position in the game's list, or none
 	/// ([`SoundscapeIndex::is_none`]).
-	#[doc(alias = "soundscapeIndex")]
+	#[doc(alias("soundscapeIndex"))]
 	pub index: SoundscapeIndex,
 }
 
 /// An `env_soundscape`, `env_soundscape_proxy`, or
 /// `env_soundscape_triggerable` entity.
-#[doc(alias = "CEnvSoundscape")]
-#[doc(alias = "env_soundscape")]
-#[doc(alias = "env_soundscape_proxy")]
-#[doc(alias = "env_soundscape_triggerable")]
+#[doc(alias(
+	"CEnvSoundscape",
+	"env_soundscape",
+	"env_soundscape_proxy",
+	"env_soundscape_triggerable"
+))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Soundscape<'s> {
 	entity: Entity<'s>,
@@ -67,7 +68,7 @@ impl<'s> Soundscape<'s> {
 	}
 
 	/// Its ID in the soundscape system, or `None` if it has none.
-	#[doc(alias = "m_soundscapeEntityId")]
+	#[doc(alias("m_soundscapeEntityId"))]
 	pub fn id(self) -> Option<SoundscapeId> {
 		// SAFETY: As for `index`.
 		SoundscapeId::new(unsafe { self.layout.entity_id(self.entity.as_ptr()).read() })
@@ -77,7 +78,7 @@ impl<'s> Soundscape<'s> {
 	///
 	/// The game resolves its name when it spawns, and a proxy copies its main
 	/// soundscape's when the level starts.
-	#[doc(alias = "m_soundscapeIndex")]
+	#[doc(alias("m_soundscapeIndex"))]
 	pub fn index(self) -> SoundscapeIndex {
 		// SAFETY: The layout was found in the live entity's own maps, so the
 		// field lies within it, and is read without forming a reference, as
@@ -86,7 +87,7 @@ impl<'s> Soundscape<'s> {
 	}
 
 	/// Whether the game may choose it for players (not `StartDisabled`).
-	#[doc(alias = "m_bDisabled")]
+	#[doc(alias("m_bDisabled"))]
 	pub fn is_enabled(self) -> bool {
 		// SAFETY: As for `index`. The game only stores 0 or 1.
 		unsafe { self.layout.disabled(self.entity.as_ptr()).read() == 0 }
@@ -94,7 +95,7 @@ impl<'s> Soundscape<'s> {
 
 	/// The name of the soundscape it was given, such as `Halloween.Outside`.
 	/// Returns `None` if the name is null.
-	#[doc(alias = "m_soundscapeName")]
+	#[doc(alias("m_soundscapeName"))]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: As for `index`. The name is a pooled string or null, and is
 		// copied at once.
@@ -103,7 +104,7 @@ impl<'s> Soundscape<'s> {
 
 	/// Changes the soundscape it gives players from now on. Players it already
 	/// gave one are not told.
-	#[doc(alias = "m_soundscapeIndex")]
+	#[doc(alias("m_soundscapeIndex"))]
 	pub fn set_index(self, index: SoundscapeIndex) {
 		// SAFETY: As for `index`. The game only copies the index into players'
 		// audio parameters, and every value it can hold is one the game could

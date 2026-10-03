@@ -71,7 +71,7 @@ const _: fn(&sys::IRecipientFilter__bindgen_vtable) -> RecipientIndexFn =
 /// not be given to game code that casts it to the game's `CRecipientFilter`,
 /// such as `CSceneEntity::SetRecipientFilter`. The engine never deletes a
 /// filter it is given, so the destructor slots do nothing.
-#[doc(alias = "IRecipientFilter")]
+#[doc(alias("IRecipientFilter"))]
 #[repr(C)]
 pub struct RecipientFilter<'a> {
 	vtable: &'static RecipientFilterVtable,

@@ -22,11 +22,11 @@ const _: () = {
 
 /// `CCommand::COMMAND_MAX_ARGC`: the most arguments a command has, its name
 /// included.
-#[doc(alias = "COMMAND_MAX_ARGC")]
+#[doc(alias("COMMAND_MAX_ARGC"))]
 const MAX_ARGC: usize = sys::CCommand_COMMAND_MAX_ARGC as usize;
 
 /// `CCommand::COMMAND_MAX_LENGTH`: the size of each of its buffers.
-#[doc(alias = "COMMAND_MAX_LENGTH")]
+#[doc(alias("COMMAND_MAX_LENGTH"))]
 const MAX_LENGTH: usize = sys::CCommand_COMMAND_MAX_LENGTH as usize;
 
 /// A validated copy of one `CCommand`, which keeps its arguments however the
@@ -36,7 +36,7 @@ const MAX_LENGTH: usize = sys::CCommand_COMMAND_MAX_LENGTH as usize;
 /// while another runs rewrites the engine's copy. The tail of each of its
 /// buffers is also uninitialized, so only the bytes up to each terminator are
 /// copied.
-#[doc(alias = "CCommand")]
+#[doc(alias("CCommand"))]
 pub struct CommandLine {
 	/// `m_pArgSBuffer` up to and including its terminator: the whole line.
 	line: [u8; MAX_LENGTH],
@@ -160,7 +160,7 @@ impl CommandLine {
 
 	/// The argument at `index`, counting the command name as 0, or `None` past
 	/// the last.
-	#[doc(alias = "Arg")]
+	#[doc(alias("Arg"))]
 	pub fn arg(&self, index: usize) -> Option<&CStr> {
 		if index >= self.argc {
 			return None;
@@ -171,19 +171,19 @@ impl CommandLine {
 
 	/// The number of arguments, including the command name: at least 1, and
 	/// at most `CCommand::COMMAND_MAX_ARGC`.
-	#[doc(alias = "ArgC")]
+	#[doc(alias("ArgC"))]
 	pub const fn argc(&self) -> usize {
 		self.argc
 	}
 
 	/// The whole command line.
-	#[doc(alias = "GetCommandString")]
+	#[doc(alias("GetCommandString"))]
 	pub fn line(&self) -> &CStr {
 		CStr::from_bytes_until_nul(&self.line).unwrap_or_default()
 	}
 
 	/// Everything after the command name, exactly as typed, quotes included.
-	#[doc(alias = "ArgS")]
+	#[doc(alias("ArgS"))]
 	pub fn raw_args(&self) -> &CStr {
 		CStr::from_bytes_until_nul(&self.line[self.args_offset..]).unwrap_or_default()
 	}

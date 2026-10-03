@@ -22,7 +22,7 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 
 /// Name used to request [`sys::IGameEventManager2`] from an engine interface factory.
-#[doc(alias = "INTERFACEVERSION_GAMEEVENTSMANAGER2")]
+#[doc(alias("INTERFACEVERSION_GAMEEVENTSMANAGER2"))]
 pub const GAME_EVENT_MANAGER_INTERFACE_VERSION: &CStr = GameEventManager::<'static>::VERSION;
 
 /// The manager refused to register a listener, as
@@ -55,7 +55,7 @@ pub struct FireEventError {
 /// Events delivered to a [`GameEventHandler`] live for the duration of the
 /// call, and events created with [`GameEventManager::create_event`] until they
 /// are fired or dropped, so the lifetime keeps a handle from outliving either.
-#[doc(alias = "IGameEvent")]
+#[doc(alias("IGameEvent"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GameEvent<'e> {
 	raw: NonNull<sys::IGameEvent>,
@@ -178,7 +178,7 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Reads a boolean value, or `None` if the event has no such key.
-	#[doc(alias = "GetBool")]
+	#[doc(alias("GetBool"))]
 	pub fn get_bool(self, key: &CStr) -> Option<bool> {
 		// SAFETY: The event is live for `'e`.
 		self.has_key(key)
@@ -186,7 +186,7 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Reads a float value, or `None` if the event has no such key.
-	#[doc(alias = "GetFloat")]
+	#[doc(alias("GetFloat"))]
 	pub fn get_float(self, key: &CStr) -> Option<f32> {
 		// SAFETY: As for `get_bool`.
 		self.has_key(key)
@@ -194,7 +194,7 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Reads an integer value, or `None` if the event has no such key.
-	#[doc(alias = "GetInt")]
+	#[doc(alias("GetInt"))]
 	pub fn get_int(self, key: &CStr) -> Option<c_int> {
 		// SAFETY: As for `get_bool`.
 		self.has_key(key)
@@ -204,7 +204,7 @@ impl<'e> GameEvent<'e> {
 	/// Reads a string value, or `None` if the event has no such key.
 	///
 	/// Values of other types are formatted as strings.
-	#[doc(alias = "GetString")]
+	#[doc(alias("GetString"))]
 	pub fn get_string(self, key: &CStr) -> Option<CString> {
 		if !self.has_key(key) {
 			return None;
@@ -218,7 +218,7 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Reads a 64-bit value, or `None` if the event has no such key.
-	#[doc(alias = "GetUint64")]
+	#[doc(alias("GetUint64"))]
 	pub fn get_uint64(self, key: &CStr) -> Option<u64> {
 		// SAFETY: As for `get_bool`.
 		self.has_key(key)
@@ -226,21 +226,21 @@ impl<'e> GameEvent<'e> {
 	}
 
 	/// Whether the event has a value for `key`.
-	#[doc(alias = "IsEmpty")]
+	#[doc(alias("IsEmpty"))]
 	pub fn has_key(self, key: &CStr) -> bool {
 		// SAFETY: As for `get_bool`.
 		!unsafe { vcall!(self.as_ptr() => IGameEvent_IsEmpty(key.as_ptr())) }
 	}
 
 	/// Whether the event is never networked to clients.
-	#[doc(alias = "IsLocal")]
+	#[doc(alias("IsLocal"))]
 	pub fn is_local(self) -> bool {
 		// SAFETY: As for `get_bool`.
 		unsafe { vcall!(self.as_ptr() => IGameEvent_IsLocal()) }
 	}
 
 	/// Whether the event is networked reliably.
-	#[doc(alias = "IsReliable")]
+	#[doc(alias("IsReliable"))]
 	pub fn is_reliable(self) -> bool {
 		// SAFETY: As for `get_bool`.
 		unsafe { vcall!(self.as_ptr() => IGameEvent_IsReliable()) }
@@ -304,7 +304,7 @@ impl<'e> GameEvent<'e> {
 	/// # Panics
 	///
 	/// Panics if the engine returns a null name.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> &'e CStr {
 		// SAFETY: As for `get_bool`. The name belongs to the event's descriptor,
 		// which the manager keeps while the event exists.
@@ -390,7 +390,7 @@ impl<'e> GameEvent<'e> {
 	///
 	/// Returns [`ControlFlow::Break`] with the value the visitor stopped with,
 	/// or [`ControlFlow::Continue`] with the visitor after it visited every pair.
-	#[doc(alias = "ForEventData")]
+	#[doc(alias("ForEventData"))]
 	pub fn visit<V: GameEventVisitor>(self, visitor: V) -> ControlFlow<V::Break, V> {
 		let mut state = ControlFlow::Continue(visitor);
 
@@ -447,7 +447,7 @@ impl<'s> OwnedGameEvent<'s> {
 	/// Listeners run synchronously, so this may run arbitrary game and plugin
 	/// code, including this plugin's own listeners. Fails if the manager reports
 	/// that it did not fire the event, which the engine frees either way.
-	#[doc(alias = "FireEvent")]
+	#[doc(alias("FireEvent"))]
 	pub fn fire(self, broadcast: bool) -> Result<(), FireEventError> {
 		let this = ManuallyDrop::new(self);
 		let name = this.as_event().name().to_owned();
@@ -461,35 +461,35 @@ impl<'s> OwnedGameEvent<'s> {
 	}
 
 	/// Sets a boolean value for `key`.
-	#[doc(alias = "SetBool")]
+	#[doc(alias("SetBool"))]
 	pub fn set_bool(&mut self, key: &CStr, value: bool) {
 		// SAFETY: The event is live and owned by this plugin.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetBool(key.as_ptr(), value)) };
 	}
 
 	/// Sets a float value for `key`.
-	#[doc(alias = "SetFloat")]
+	#[doc(alias("SetFloat"))]
 	pub fn set_float(&mut self, key: &CStr, value: f32) {
 		// SAFETY: As for `set_bool`.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetFloat(key.as_ptr(), value)) };
 	}
 
 	/// Sets an integer value for `key`.
-	#[doc(alias = "SetInt")]
+	#[doc(alias("SetInt"))]
 	pub fn set_int(&mut self, key: &CStr, value: c_int) {
 		// SAFETY: As for `set_bool`.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetInt(key.as_ptr(), value)) };
 	}
 
 	/// Sets a string value for `key`. The event stores a copy of `value`.
-	#[doc(alias = "SetString")]
+	#[doc(alias("SetString"))]
 	pub fn set_string(&mut self, key: &CStr, value: &CStr) {
 		// SAFETY: As for `set_bool`. The event copies the string.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetString(key.as_ptr(), value.as_ptr())) };
 	}
 
 	/// Sets a 64-bit value for `key`.
-	#[doc(alias = "SetUint64")]
+	#[doc(alias("SetUint64"))]
 	pub fn set_uint64(&mut self, key: &CStr, value: u64) {
 		// SAFETY: As for `set_bool`.
 		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetUint64(key.as_ptr(), value)) };
@@ -505,7 +505,7 @@ impl Drop for OwnedGameEvent<'_> {
 
 interface! {
 	/// Creates, fires, and delivers game events (`IGameEventManager2`).
-	#[doc(alias = "IGameEventManager2")]
+	#[doc(alias("IGameEventManager2"))]
 	pub struct GameEventManager(sys::IGameEventManager2) = Engine sdk_raw::interfaces::game_event::VERSION;
 }
 
@@ -807,7 +807,7 @@ pub trait GameEventHandler {
 	///
 	/// A panic cannot unwind into the engine and aborts the server, so catch
 	/// any the handler may raise.
-	#[doc(alias = "FireGameEvent")]
+	#[doc(alias("FireGameEvent"))]
 	fn fire_game_event(&self, event: GameEvent<'_>);
 }
 
@@ -816,7 +816,7 @@ pub trait GameEventHandler {
 /// The manager keeps the address of a registered listener, so registering
 /// takes it pinned. The listener is `!Unpin` so it cannot move while pinned,
 /// and `!Send`/`!Sync` since the engine calls it on the server's main thread.
-#[doc(alias = "IGameEventListener2")]
+#[doc(alias("IGameEventListener2"))]
 pub struct GameEventListener<H> {
 	raw: GameEventListenerObject<HandlerAdapter<H>>,
 	_pinned: PhantomPinned,
@@ -857,7 +857,7 @@ impl<H: std::fmt::Debug> std::fmt::Debug for GameEventListener<H> {
 /// Types that can consume an iterator of key-pairs emitted by the Source SDK's Game Event key-value iterator.
 ///
 /// [`GameEvent::visit`] runs a visitor through an `IGameEventVisitor2`.
-#[doc(alias = "IGameEventVisitor2")]
+#[doc(alias("IGameEventVisitor2"))]
 pub trait GameEventVisitor {
 	/// The value the visitor stops with.
 	type Break;
@@ -894,7 +894,7 @@ impl<'s> GameEventManager<'s> {
 	/// The listener must be removed with [`Self::remove_listener`] before it is
 	/// dropped or the module containing it is unloaded, since the manager keeps
 	/// calling it through its address until then.
-	#[doc(alias = "AddListener")]
+	#[doc(alias("AddListener"))]
 	pub unsafe fn add_listener<H: GameEventHandler>(
 		self,
 		listener: Pin<&GameEventListener<H>>,
@@ -915,7 +915,7 @@ impl<'s> GameEventManager<'s> {
 	/// Creates an event to fill in and fire.
 	///
 	/// Fails if the event is unknown or no listener is registered for it.
-	#[doc(alias = "CreateEvent")]
+	#[doc(alias("CreateEvent"))]
 	pub fn create_event(self, name: &CStr) -> Result<OwnedGameEvent<'s>, CreateEventError> {
 		// SAFETY: As for `add_listener`.
 		let event = unsafe {
@@ -931,7 +931,7 @@ impl<'s> GameEventManager<'s> {
 
 	/// Creates a copy of an event to fill in and fire, or returns `None` if the
 	/// manager returns no copy.
-	#[doc(alias = "DuplicateEvent")]
+	#[doc(alias("DuplicateEvent"))]
 	pub fn duplicate_event(self, event: GameEvent<'_>) -> Option<OwnedGameEvent<'s>> {
 		// SAFETY: As for `add_listener`, and the event is live.
 		let duplicate =
@@ -941,7 +941,7 @@ impl<'s> GameEventManager<'s> {
 	}
 
 	/// Whether a listener is registered for an event name.
-	#[doc(alias = "FindListener")]
+	#[doc(alias("FindListener"))]
 	pub fn is_listening<H: GameEventHandler>(
 		self,
 		listener: Pin<&GameEventListener<H>>,
@@ -960,7 +960,7 @@ impl<'s> GameEventManager<'s> {
 	/// Loading a new event schema mutates shared manager state and may invalidate
 	/// events or borrowed data obtained from this manager. The caller must ensure
 	/// no such values are live or concurrently in use.
-	#[doc(alias = "LoadEventsFromFile")]
+	#[doc(alias("LoadEventsFromFile"))]
 	pub unsafe fn load_events_from_file(self, filename: &CStr) -> c_int {
 		// SAFETY: The caller upholds the contract.
 		unsafe { vcall!(self.as_ptr() => IGameEventManager2_LoadEventsFromFile(filename.as_ptr())) }
@@ -968,7 +968,7 @@ impl<'s> GameEventManager<'s> {
 
 	/// Removes every registration of a listener. Removing a listener that is
 	/// not registered does nothing.
-	#[doc(alias = "RemoveListener")]
+	#[doc(alias("RemoveListener"))]
 	pub fn remove_listener<H: GameEventHandler>(self, listener: Pin<&GameEventListener<H>>) {
 		// SAFETY: As for `is_listening`.
 		unsafe { vcall!(self.as_ptr() => IGameEventManager2_RemoveListener(listener.as_raw())) };
@@ -980,7 +980,7 @@ impl<'s> GameEventManager<'s> {
 	///
 	/// Reset removes the manager's event data. The caller must ensure no events
 	/// or values borrowed from them remain live or concurrently in use.
-	#[doc(alias = "Reset")]
+	#[doc(alias("Reset"))]
 	pub unsafe fn reset(self) {
 		// SAFETY: The caller upholds the contract.
 		unsafe { vcall!(self.as_ptr() => IGameEventManager2_Reset()) }
@@ -992,7 +992,7 @@ impl<'s> GameEventManager<'s> {
 	/// [`net::messages::GameEvent`](crate::net::messages::GameEvent) sends the
 	/// result to a single client. Returns `None` if the manager has no
 	/// description of the event, or the encoding exceeds 1024 bytes.
-	#[doc(alias = "SerializeEvent")]
+	#[doc(alias("SerializeEvent"))]
 	pub fn serialize_event(self, event: GameEvent<'_>) -> Option<BitWriter> {
 		let mut storage = [0u32; MAX_EVENT_BYTES / size_of::<u32>()];
 		let mut buffer = BfWrite::empty(&mut storage);

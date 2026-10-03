@@ -27,7 +27,7 @@ macro_rules! game_events {
 			$(#[$VariantMeta])*
 			#[doc = ""]
 			#[doc = concat!("The `", $Name, "` game event.")]
-			#[doc(alias = $Name)]
+			#[doc(alias($Name))]
 			$Variant,
 			)*
 		}
@@ -53,7 +53,7 @@ macro_rules! game_events {
 			}
 
 			/// The event's name, such as `player_death`.
-			#[doc(alias = "GetName")]
+			#[doc(alias("GetName"))]
 			pub const fn name(&self) -> &'static str {
 				match self {
 					$(Self::$Variant => $Name,)*

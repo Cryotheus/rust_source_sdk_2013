@@ -6,7 +6,7 @@
 /// lasts until removed.
 ///
 /// This is the default of its `flDuration` in `game/server/tf/tf_player.h`.
-#[doc(alias = "AddCustomAttribute")]
+#[doc(alias("AddCustomAttribute"))]
 pub const DEFAULT_CUSTOM_ATTRIBUTE_DURATION: f32 = -1.0;
 
 /// The attribute definition index that names no attribute,

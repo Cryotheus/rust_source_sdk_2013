@@ -9,7 +9,7 @@ pub struct TimestampFmt {
 }
 
 impl TimestampFmt {
-	#[doc(alias = "new")]
+	#[doc(alias("new"))]
 	pub fn from_env() -> Result<Self, RequireVarError> {
 		let profile = Profile::from_env()?;
 

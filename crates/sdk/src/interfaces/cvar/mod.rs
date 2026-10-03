@@ -14,7 +14,7 @@ const MAX_LISTED: usize = 1 << 16;
 
 interface! {
 	/// The registry of console variables and commands (`ICvar`).
-	#[doc(alias = "ICvar")]
+	#[doc(alias("ICvar"))]
 	pub struct Cvar(sys::ICvar) = Engine sdk_raw::interfaces::cvar::VERSION;
 }
 
@@ -25,7 +25,7 @@ interface! {
 /// since condition 5 of [`Server::new`] keeps it allocated.
 ///
 /// [`Server::new`]: crate::Server::new
-#[doc(alias = "ConCommandBase")]
+#[doc(alias("ConCommandBase"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CommandBase<'s> {
 	raw: NonNull<sys::ConCommandBase>,
@@ -55,8 +55,7 @@ impl<'s> CommandBase<'s> {
 
 	/// The flags, which for a variable are those of the variable that holds
 	/// its value, as [`ConVar::flags`] reads them.
-	#[doc(alias = "GetFlags")]
-	#[doc(alias = "IsFlagSet")]
+	#[doc(alias("GetFlags", "IsFlagSet"))]
 	pub fn flags(self) -> CommandFlags {
 		if let Some(var) = self.as_var() {
 			return var.flags();
@@ -68,13 +67,13 @@ impl<'s> CommandBase<'s> {
 
 	/// Whether this is a command or a variable, as its `IsCommand` reported
 	/// when the registry was listed.
-	#[doc(alias = "IsCommand")]
+	#[doc(alias("IsCommand"))]
 	pub const fn kind(self) -> CommandBaseKind {
 		self.kind
 	}
 
 	/// The name it is registered under.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> &'s CStr {
 		// SAFETY: The registry listed the entry, so condition 5 of `Server::new`
 		// keeps it allocated, with its name unchanged, for `'s`. The field is
@@ -151,7 +150,7 @@ impl<'s> ConVar<'s> {
 	}
 
 	/// The value the variable was declared with.
-	#[doc(alias = "GetDefault")]
+	#[doc(alias("GetDefault"))]
 	pub fn default_string(self) -> CString {
 		// SAFETY: As for `string`.
 		unsafe { copy_cstr((&raw const (*self.parent()).m_pszDefaultValue).read()) }
@@ -160,8 +159,7 @@ impl<'s> ConVar<'s> {
 
 	/// The flags of the variable that holds the value, which keep every bit
 	/// the engine stores.
-	#[doc(alias = "GetFlags")]
-	#[doc(alias = "IsFlagSet")]
+	#[doc(alias("GetFlags", "IsFlagSet"))]
 	pub fn flags(self) -> CommandFlags {
 		// SAFETY: As for `name`.
 		CommandFlags::from_bits_retain(unsafe {
@@ -170,14 +168,14 @@ impl<'s> ConVar<'s> {
 	}
 
 	/// The current value as a float.
-	#[doc(alias = "GetFloat")]
+	#[doc(alias("GetFloat"))]
 	pub fn float(self) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { (&raw const (*self.parent()).m_fValue).read() }
 	}
 
 	/// The current value as an integer.
-	#[doc(alias = "GetInt")]
+	#[doc(alias("GetInt"))]
 	pub fn int(self) -> c_int {
 		// SAFETY: As for `name`.
 		unsafe { (&raw const (*self.parent()).m_nValue).read() }
@@ -212,7 +210,7 @@ impl<'s> ConVar<'s> {
 	}
 
 	/// The variable's name.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> &'s CStr {
 		// SAFETY: `from_raw`'s caller guaranteed that the variable stays
 		// allocated, with its name unchanged, for `'s`. Fields are read without
@@ -236,7 +234,7 @@ impl<'s> ConVar<'s> {
 
 	/// Sets the value from a float, which the string then shows with six
 	/// decimals. Nothing happens if the float value is unchanged.
-	#[doc(alias = "SetValue")]
+	#[doc(alias("SetValue"))]
 	pub fn set_float(self, value: f32) {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.interface() => IConVar_SetValue1(value)) };
@@ -244,14 +242,14 @@ impl<'s> ConVar<'s> {
 
 	/// Sets the value from an integer. Nothing happens if the integer value is
 	/// unchanged.
-	#[doc(alias = "SetValue")]
+	#[doc(alias("SetValue"))]
 	pub fn set_int(self, value: c_int) {
 		// SAFETY: As for `name`.
 		unsafe { vcall!(self.interface() => IConVar_SetValue2(value)) };
 	}
 
 	/// Sets the value from a string, as the console does.
-	#[doc(alias = "SetValue")]
+	#[doc(alias("SetValue"))]
 	pub fn set_string(self, value: &CStr) {
 		// SAFETY: As for `name`. The variable copies the string.
 		unsafe { vcall!(self.interface() => IConVar_SetValue(value.as_ptr())) };
@@ -283,7 +281,7 @@ impl<'s> ConVar<'s> {
 	}
 
 	/// The current value as a string.
-	#[doc(alias = "GetString")]
+	#[doc(alias("GetString"))]
 	pub fn string(self) -> CString {
 		// SAFETY: As for `name`. Changing the value reallocates the string, so
 		// it is copied immediately.
@@ -294,7 +292,7 @@ impl<'s> ConVar<'s> {
 impl<'s> Cvar<'s> {
 	/// Reserves an identifier, which `ICvar::UnregisterConCommands` uses to
 	/// unlink every command a module registered.
-	#[doc(alias = "AllocateDLLIdentifier")]
+	#[doc(alias("AllocateDLLIdentifier"))]
 	pub(crate) fn allocate_dll_identifier(self) -> sys::CVarDLLIdentifier_t {
 		// SAFETY: As for `find_var`.
 		unsafe { vcall!(self.as_ptr() => ICvar_AllocateDLLIdentifier()) }
@@ -307,7 +305,7 @@ impl<'s> Cvar<'s> {
 	///
 	/// `var` must be a live, registered variable whose value just changed from
 	/// `old_value`, as `ConVar::ChangeStringValue` calls it.
-	#[doc(alias = "CallGlobalChangeCallbacks")]
+	#[doc(alias("CallGlobalChangeCallbacks"))]
 	pub(crate) unsafe fn call_global_change_callbacks(
 		self,
 		var: NonNull<sys::ConVar>,
@@ -342,8 +340,7 @@ impl<'s> Cvar<'s> {
 	/// cannot hang the server.
 	///
 	/// [`Server::new`]: crate::Server::new
-	#[doc(alias = "GetCommands")]
-	#[doc(alias = "GetNext")]
+	#[doc(alias("GetCommands", "GetNext"))]
 	pub fn command_bases(self) -> CommandBases<'s> {
 		let mut listed = Vec::new();
 
@@ -381,7 +378,7 @@ impl<'s> Cvar<'s> {
 
 	/// Prints to the console display functions, which a dedicated server does
 	/// not install; see [`Server::console_print`](crate::Server::console_print).
-	#[doc(alias = "ConsolePrintf")]
+	#[doc(alias("ConsolePrintf"))]
 	pub(crate) fn console_printf(self, message: &CStr) {
 		// SAFETY: As for `find_var`. The message is passed as an argument of a
 		// constant format, so it is never interpreted as one.
@@ -389,7 +386,7 @@ impl<'s> Cvar<'s> {
 	}
 
 	/// Finds a console variable or command by name, ignoring case.
-	#[doc(alias = "FindCommandBase")]
+	#[doc(alias("FindCommandBase"))]
 	pub(crate) fn find_command_base(self, name: &CStr) -> Option<NonNull<sys::ConCommandBase>> {
 		// SAFETY: As for `find_var`.
 		NonNull::new(unsafe { vcall!(self.as_ptr() => ICvar_FindCommandBase(name.as_ptr())) })
@@ -398,7 +395,7 @@ impl<'s> Cvar<'s> {
 	/// Finds a console variable by name. Commands are not variables.
 	///
 	/// Returns `None` if no variable is registered under the name.
-	#[doc(alias = "FindVar")]
+	#[doc(alias("FindVar"))]
 	pub fn find_var(self, name: &CStr) -> Option<ConVar<'s>> {
 		// SAFETY: `Server::new` guarantees the interface is live.
 		let var = NonNull::new(unsafe { vcall!(self.as_ptr() => ICvar_FindVar(name.as_ptr())) })?;
@@ -414,7 +411,7 @@ impl<'s> Cvar<'s> {
 	///
 	/// `command` must be a live `ConCommandBase` that stays at its address,
 	/// with its code loaded, until it is unregistered.
-	#[doc(alias = "RegisterConCommand")]
+	#[doc(alias("RegisterConCommand"))]
 	pub(crate) unsafe fn register_con_command(self, command: NonNull<sys::ConCommandBase>) {
 		// SAFETY: As for `find_var`, and the caller upholds the contract.
 		unsafe { vcall!(self.as_ptr() => ICvar_RegisterConCommand(command.as_ptr())) };
@@ -425,7 +422,7 @@ impl<'s> Cvar<'s> {
 	/// # Safety
 	///
 	/// `command` must be a live `ConCommandBase`.
-	#[doc(alias = "UnregisterConCommand")]
+	#[doc(alias("UnregisterConCommand"))]
 	pub(crate) unsafe fn unregister_con_command(self, command: NonNull<sys::ConCommandBase>) {
 		// SAFETY: As for `find_var`, and the caller upholds the contract.
 		unsafe { vcall!(self.as_ptr() => ICvar_UnregisterConCommand(command.as_ptr())) };
@@ -434,7 +431,7 @@ impl<'s> Cvar<'s> {
 	/// Every console variable the registry lists, in its order, leaving out
 	/// commands. The registry is listed in full first, as
 	/// [`Self::command_bases`] describes.
-	#[doc(alias = "GetCommands")]
+	#[doc(alias("GetCommands"))]
 	pub fn vars(self) -> impl DoubleEndedIterator<Item = ConVar<'s>> + FusedIterator {
 		self.command_bases().filter_map(CommandBase::as_var)
 	}

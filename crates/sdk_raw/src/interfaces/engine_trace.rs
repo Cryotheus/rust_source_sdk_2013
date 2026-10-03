@@ -8,5 +8,5 @@ use std::ffi::CStr;
 ///
 /// This is `INTERFACEVERSION_ENGINETRACE_SERVER` from
 /// `public/engine/IEngineTrace.h`.
-#[doc(alias = "INTERFACEVERSION_ENGINETRACE_SERVER")]
+#[doc(alias("INTERFACEVERSION_ENGINETRACE_SERVER"))]
 pub const VERSION: &CStr = c"EngineTraceServer003";

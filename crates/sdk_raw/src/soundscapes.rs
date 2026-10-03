@@ -19,7 +19,7 @@ pub const POSITION_NAMES: usize = 8;
 /// `game/server/soundscape.h` declares the name, the index, the ID, eight
 /// position names, the proxy's handle, then the disabled flag. The datamap
 /// has all but the index and ID, whose place the others pin down.
-#[doc(alias = "CEnvSoundscape")]
+#[doc(alias("CEnvSoundscape"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EnvSoundscapeLayout {
 	/// The offset of the soundscape's name, `m_soundscapeName`.
@@ -61,21 +61,21 @@ impl EnvSoundscapeLayout {
 	/// The pointer is computed without being dereferenced. It points to the
 	/// field if `entity` points to a live `CEnvSoundscape` whose maps this
 	/// layout was found in.
-	#[doc(alias = "m_bDisabled")]
+	#[doc(alias("m_bDisabled"))]
 	pub fn disabled(self, entity: *mut sys::CBaseEntity) -> *mut u8 {
 		entity.wrapping_byte_add(self.disabled).cast()
 	}
 
 	/// The entity's ID in the soundscape system, `m_soundscapeEntityId`, of
 	/// `entity`, right after the index. As for [`Self::disabled`].
-	#[doc(alias = "m_soundscapeEntityId")]
+	#[doc(alias("m_soundscapeEntityId"))]
 	pub fn entity_id(self, entity: *mut sys::CBaseEntity) -> *mut c_int {
 		self.index(entity).wrapping_add(1)
 	}
 
 	/// The soundscape's index, `m_soundscapeIndex`, of `entity`, right after
 	/// the name. As for [`Self::disabled`].
-	#[doc(alias = "m_soundscapeIndex")]
+	#[doc(alias("m_soundscapeIndex"))]
 	pub fn index(self, entity: *mut sys::CBaseEntity) -> *mut c_int {
 		entity
 			.wrapping_byte_add(self.name + size_of::<sys::string_t>())
@@ -84,7 +84,7 @@ impl EnvSoundscapeLayout {
 
 	/// The soundscape's name, `m_soundscapeName`, of `entity`. As for
 	/// [`Self::disabled`].
-	#[doc(alias = "m_soundscapeName")]
+	#[doc(alias("m_soundscapeName"))]
 	pub fn name(self, entity: *mut sys::CBaseEntity) -> *mut sys::string_t {
 		entity.wrapping_byte_add(self.name).cast()
 	}

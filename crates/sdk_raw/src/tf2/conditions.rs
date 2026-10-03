@@ -26,7 +26,7 @@ pub const PERMANENT_CONDITION: f32 = -1.0;
 ///
 /// As for [`binding::call`], with `player` a live `CTFPlayer` and `condition`
 /// a valid `ETFCond`.
-#[doc(alias = "AddCondEx")]
+#[doc(alias("AddCondEx"))]
 pub unsafe fn add_cond_ex(
 	player: NonNull<sys::CBaseEntity>,
 	condition: sys::ETFCond,
@@ -56,7 +56,7 @@ pub unsafe fn add_cond_ex(
 /// # Safety
 ///
 /// As for [`add_cond_ex`].
-#[doc(alias = "InCond")]
+#[doc(alias("InCond"))]
 pub unsafe fn in_cond(
 	player: NonNull<sys::CBaseEntity>,
 	condition: sys::ETFCond,
@@ -83,7 +83,7 @@ pub unsafe fn in_cond(
 /// # Safety
 ///
 /// As for [`binding::call`], with `player` a live `CTFPlayer`.
-#[doc(alias = "RemoveAllCond")]
+#[doc(alias("RemoveAllCond"))]
 pub unsafe fn remove_all_cond(player: NonNull<sys::CBaseEntity>) -> Result<(), BindingError> {
 	// SAFETY: As the caller promises; the method takes no arguments.
 	unsafe { binding::call(player, CLASS, c"RemoveAllCond", &mut [], binding::VOID) }.map(drop)
@@ -96,7 +96,7 @@ pub unsafe fn remove_all_cond(player: NonNull<sys::CBaseEntity>) -> Result<(), B
 /// # Safety
 ///
 /// As for [`add_cond_ex`].
-#[doc(alias = "RemoveCondEx")]
+#[doc(alias("RemoveCondEx"))]
 pub unsafe fn remove_cond_ex(
 	player: NonNull<sys::CBaseEntity>,
 	condition: sys::ETFCond,

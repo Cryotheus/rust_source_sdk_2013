@@ -17,7 +17,7 @@ use std::ffi::{CStr, c_char, c_int};
 /// MSVC and Itanium order the slots of `EmitSound`'s two overloads
 /// differently, so the overload is reached by its generated field,
 /// `IEngineSound_EmitSound1`, which has this signature under both ABIs.
-#[doc(alias = "EmitSound")]
+#[doc(alias("EmitSound"))]
 pub type EmitSoundFn = unsafe extern "C" fn(
 	this: *mut sys::IEngineSound,
 	filter: *mut sys::IRecipientFilter,
@@ -146,7 +146,7 @@ pub const SOUND_FROM_WORLD: c_int = 0;
 ///
 /// This is `IENGINESOUND_SERVER_INTERFACE_VERSION` from
 /// `public/engine/IEngineSound.h`.
-#[doc(alias = "IENGINESOUND_SERVER_INTERFACE_VERSION")]
+#[doc(alias("IENGINESOUND_SERVER_INTERFACE_VERSION"))]
 pub const VERSION: &CStr = c"IEngineSoundServer003";
 
 /// `VOL_NORM`: the sample's own volume.

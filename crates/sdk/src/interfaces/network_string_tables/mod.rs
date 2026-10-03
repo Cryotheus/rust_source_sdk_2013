@@ -31,7 +31,7 @@ pub const SOUND_PRECACHE: &CStr = c"soundprecache";
 
 interface! {
 	/// The string tables the server replicates to clients (`INetworkStringTableContainer`).
-	#[doc(alias = "INetworkStringTableContainer")]
+	#[doc(alias("INetworkStringTableContainer"))]
 	pub struct NetworkStringTables(sys::INetworkStringTableContainer) = Engine sdk_raw::interfaces::network_string_tables::VERSION;
 }
 
@@ -63,7 +63,7 @@ pub struct AddStringError;
 /// One of the server's network string tables (`INetworkStringTable`).
 ///
 /// The engine recreates its tables for every level.
-#[doc(alias = "INetworkStringTable")]
+#[doc(alias("INetworkStringTable"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NetworkStringTable<'s> {
 	raw: NonNull<sys::INetworkStringTable>,
@@ -107,7 +107,7 @@ impl<'s> NetworkStringTable<'s> {
 	/// add only strings a table's readers expect.
 	///
 	/// [`ValveEngine::with_unlocked_string_tables`]: crate::interfaces::ValveEngine::with_unlocked_string_tables
-	#[doc(alias = "AddString")]
+	#[doc(alias("AddString"))]
 	#[expect(
 		clippy::should_implement_trait,
 		reason = "adds to the table, unlike `Add::add`"
@@ -134,7 +134,7 @@ impl<'s> NetworkStringTable<'s> {
 
 	/// The index of a string in the table, or `None` if the table does not
 	/// contain it.
-	#[doc(alias = "FindStringIndex")]
+	#[doc(alias("FindStringIndex"))]
 	pub fn find(self, string: &CStr) -> Option<usize> {
 		// SAFETY: As for `name`.
 		let index = unsafe {
@@ -152,7 +152,7 @@ impl<'s> NetworkStringTable<'s> {
 	}
 
 	/// The number of strings in the table.
-	#[doc(alias = "GetNumStrings")]
+	#[doc(alias("GetNumStrings"))]
 	pub fn len(self) -> usize {
 		// SAFETY: As for `name`.
 		usize::try_from(unsafe { vcall!(self.as_ptr() => INetworkStringTable_GetNumStrings()) })
@@ -161,7 +161,7 @@ impl<'s> NetworkStringTable<'s> {
 
 	/// The table's name, such as `modelprecache`, or an empty string if the
 	/// engine reports none.
-	#[doc(alias = "GetTableName")]
+	#[doc(alias("GetTableName"))]
 	pub fn name(self) -> &'s CStr {
 		// SAFETY: Tables live until the level ends, which it does not during
 		// `'s`, and never rename themselves.
@@ -171,7 +171,7 @@ impl<'s> NetworkStringTable<'s> {
 
 	/// The string at an index, which ranges up to [`Self::len`], or `None` if
 	/// the index is out of range or the engine returns no string.
-	#[doc(alias = "GetString")]
+	#[doc(alias("GetString"))]
 	pub fn string(self, index: usize) -> Option<CString> {
 		if index >= self.len() {
 			return None;
@@ -194,7 +194,7 @@ impl<'s> NetworkStringTables<'s> {
 
 	/// Finds a table by name, such as `modelprecache` or [`DOWNLOADABLES`], or
 	/// returns `None` if no table has that name.
-	#[doc(alias = "FindTable")]
+	#[doc(alias("FindTable"))]
 	pub fn find(self, name: &CStr) -> Option<NetworkStringTable<'s>> {
 		// SAFETY: `Server::new` guarantees the interface is live.
 		let table = unsafe {
@@ -209,7 +209,7 @@ impl<'s> NetworkStringTables<'s> {
 
 	/// The table with an ID, which ranges up to [`Self::len`], or `None` if the
 	/// ID is out of range.
-	#[doc(alias = "GetTable")]
+	#[doc(alias("GetTable"))]
 	pub fn get(self, id: usize) -> Option<NetworkStringTable<'s>> {
 		let id = c_int::try_from(id).ok().filter(|&id| id < self.count())?;
 
@@ -235,14 +235,14 @@ impl<'s> NetworkStringTables<'s> {
 	/// in. `false` if the level has no such table.
 	///
 	/// [`EngineSound::is_sound_precached`]: crate::interfaces::EngineSound::is_sound_precached
-	#[doc(alias = "IsSoundPrecached")]
+	#[doc(alias("IsSoundPrecached"))]
 	pub fn is_sound_precached(self, sample: &CStr) -> bool {
 		self.find(SOUND_PRECACHE)
 			.is_some_and(|table| table.find(sample).is_some())
 	}
 
 	/// The number of tables, which bounds the IDs [`Self::get`] takes.
-	#[doc(alias = "GetNumTables")]
+	#[doc(alias("GetNumTables"))]
 	pub fn len(self) -> usize {
 		usize::try_from(self.count()).unwrap_or(0)
 	}

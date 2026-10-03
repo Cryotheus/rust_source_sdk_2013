@@ -20,7 +20,7 @@ use std::rc::Rc;
 /// instruction sequences are refused. `Drop` attempts restoration, but callers
 /// should call [`Self::restore`] to observe and handle errors before unloading.
 /// On Linux this is a no-op guard.
-#[doc(alias = "Host_AccumulateTime")]
+#[doc(alias("Host_AccumulateTime"))]
 #[must_use = "keep the patch guard until the plugin restores normal time scaling"]
 pub struct HostTimescalePatch {
 	#[cfg(target_os = "windows")]

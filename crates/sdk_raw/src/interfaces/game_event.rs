@@ -89,7 +89,7 @@ pub const MAX_EVENT_BYTES: usize = 1024;
 /// The version string `IGameEventManager2` is exported and requested under.
 ///
 /// This is `INTERFACEVERSION_GAMEEVENTSMANAGER2` from `public/igameevents.h`.
-#[doc(alias = "INTERFACEVERSION_GAMEEVENTSMANAGER2")]
+#[doc(alias("INTERFACEVERSION_GAMEEVENTSMANAGER2"))]
 pub const VERSION: &CStr = c"GAMEEVENTSMANAGER002";
 
 /// The vtable of every [`EventVisitor`], whose methods pass what the engine
@@ -153,7 +153,7 @@ struct EventVisitor<'a> {
 /// live, at the same address, and the module containing its code must stay
 /// loaded, until it is removed. The manager only reads the listener, and never
 /// deletes it, so its destructor slots do nothing.
-#[doc(alias = "IGameEventListener2")]
+#[doc(alias("IGameEventListener2"))]
 #[repr(C)]
 pub struct GameEventListenerObject<T> {
 	vtable: &'static GameEventListenerVtable,
@@ -235,7 +235,7 @@ pub trait OnFireGameEvent {
 	/// `event` must point to a live `IGameEvent`, which stays live for the
 	/// duration of the call, and the call must be made on the thread the
 	/// engine fires events on, the server's main thread.
-	#[doc(alias = "FireGameEvent")]
+	#[doc(alias("FireGameEvent"))]
 	unsafe fn fire_game_event(&self, event: NonNull<sys::IGameEvent>);
 }
 
@@ -252,7 +252,7 @@ pub trait OnFireGameEvent {
 /// `event` must point to a live `IGameEvent`, which stays live with its data
 /// unchanged until the call returns, including while `visit` runs, and the
 /// call must be made on the server's main thread.
-#[doc(alias = "ForEventData")]
+#[doc(alias("ForEventData"))]
 pub unsafe fn for_event_data(
 	event: NonNull<sys::IGameEvent>,
 	visit: &mut dyn FnMut(&CStr, EventValue<'_>) -> bool,

@@ -13,13 +13,13 @@ use std::ptr::{self, NonNull};
 
 interface! {
 	/// The engine's services for the game server (`IVEngineServer`).
-	#[doc(alias = "IVEngineServer")]
+	#[doc(alias("IVEngineServer"))]
 	pub struct ValveEngine(sys::IVEngineServer) = Engine sdk_raw::interfaces::valve_engine::VERSION;
 }
 
 impl<'s> ValveEngine<'s> {
 	/// The engine's change-tracking record for an edict.
-	#[doc(alias = "GetChangeAccessor")]
+	#[doc(alias("GetChangeAccessor"))]
 	pub(crate) fn change_accessor(
 		self,
 		edict: Edict<'_>,
@@ -33,7 +33,7 @@ impl<'s> ValveEngine<'s> {
 	/// Queues a change to another level, as the `changelevel` command does.
 	///
 	/// `landmark` is only used by single-player level transitions.
-	#[doc(alias = "ChangeLevel")]
+	#[doc(alias("ChangeLevel"))]
 	pub fn change_level(self, map: &CStr, landmark: Option<&CStr>) {
 		let landmark = landmark.map_or(ptr::null(), CStr::as_ptr);
 
@@ -46,7 +46,7 @@ impl<'s> ValveEngine<'s> {
 	///
 	/// The engine reports an unknown setting, or an edict that no connected
 	/// client owns, as empty. Returns `None` if the engine returns null.
-	#[doc(alias = "GetClientConVarValue")]
+	#[doc(alias("GetClientConVarValue"))]
 	pub fn client_convar_value(self, client: Edict<'_>, name: &CStr) -> Option<CString> {
 		// SAFETY: As for `change_level`. The engine checks the index, and the
 		// value is copied at once.
@@ -58,7 +58,7 @@ impl<'s> ValveEngine<'s> {
 	}
 
 	/// Prints a message to the console of the client owning an edict.
-	#[doc(alias = "ClientPrintf")]
+	#[doc(alias("ClientPrintf"))]
 	pub fn client_print(self, client: Edict<'_>, message: &CStr) {
 		// SAFETY: As for `change_level`, and the edict is live. The engine
 		// ignores edicts that no connected client owns.
@@ -68,7 +68,7 @@ impl<'s> ValveEngine<'s> {
 	}
 
 	/// Offsets the crosshair of the client owning an edict, in degrees.
-	#[doc(alias = "CrosshairAngle")]
+	#[doc(alias("CrosshairAngle"))]
 	pub fn crosshair_angle(self, client: Edict<'_>, pitch: f32, yaw: f32) {
 		// SAFETY: As for `set_view`.
 		unsafe {
@@ -81,8 +81,7 @@ impl<'s> ValveEngine<'s> {
 	/// Returns `None` if the index is outside the edict table or its slot is
 	/// free. The engine keeps every player slot's edict in use, even while no
 	/// client occupies it.
-	#[doc(alias = "PEntityOfEntIndex")]
-	#[doc(alias = "INDEXENT")]
+	#[doc(alias("PEntityOfEntIndex", "INDEXENT"))]
 	pub fn edict_of_index(self, index: c_int) -> Option<Edict<'s>> {
 		// The engine validates the index too, but an out-of-range index never
 		// needs to reach it.
@@ -116,7 +115,7 @@ impl<'s> ValveEngine<'s> {
 	}
 
 	/// The path of the game directory, such as `.../tf`.
-	#[doc(alias = "GetGameDir")]
+	#[doc(alias("GetGameDir"))]
 	pub fn game_dir(self) -> CString {
 		let mut buffer = [0 as c_char; MAX_PATH];
 
@@ -129,7 +128,7 @@ impl<'s> ValveEngine<'s> {
 	}
 
 	/// Whether a map file exists and can be loaded, such as `maps/ctf_2fort.bsp`.
-	#[doc(alias = "IsMapValid")]
+	#[doc(alias("IsMapValid"))]
 	pub fn is_map_valid(self, file: &CStr) -> bool {
 		// SAFETY: As for `change_level`.
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_IsMapValid(file.as_ptr())) != 0 }
@@ -142,7 +141,7 @@ impl<'s> ValveEngine<'s> {
 	/// strings, such as spawning a player, and then restores the state this
 	/// returned, as the engine's interface asks of every caller.
 	/// [`Self::with_unlocked_string_tables`] does both.
-	#[doc(alias = "LockNetworkStringTables")]
+	#[doc(alias("LockNetworkStringTables"))]
 	pub fn lock_network_string_tables(self, lock: bool) -> bool {
 		// SAFETY: As for `change_level`. The game itself sets both states during
 		// ordinary play, such as around a player's first spawn.
@@ -150,7 +149,7 @@ impl<'s> ValveEngine<'s> {
 	}
 
 	/// Writes a line to the server log, as the `log` command does.
-	#[doc(alias = "LogPrint")]
+	#[doc(alias("LogPrint"))]
 	pub fn log_print(self, message: &CStr) {
 		// SAFETY: As for `change_level`.
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_LogPrint(message.as_ptr())) };
@@ -160,7 +159,7 @@ impl<'s> ValveEngine<'s> {
 	///
 	/// Returns `None` for an edict that no connected client owns, and for fake
 	/// clients such as bots and SourceTV, which have no channel.
-	#[doc(alias = "GetPlayerNetInfo")]
+	#[doc(alias("GetPlayerNetInfo"))]
 	pub fn net_channel(self, client: Edict<'_>) -> Option<NetChannel<'s>> {
 		// SAFETY: As for `change_level`. The engine checks the index.
 		let info = NonNull::new(unsafe {
@@ -180,7 +179,7 @@ impl<'s> ValveEngine<'s> {
 	/// Returns `None` for an edict that no client owns, which covers the edict
 	/// of every entity that is not a player. The edict of an empty player slot
 	/// can still report an ID, such as `STEAM_ID_PENDING`.
-	#[doc(alias = "GetPlayerNetworkIDString")]
+	#[doc(alias("GetPlayerNetworkIDString"))]
 	pub fn player_network_id(self, edict: Edict<'_>) -> Option<CString> {
 		// SAFETY: As for `user_id_of_edict`. The engine renders the ID into a
 		// buffer it reuses, so it is copied immediately.
@@ -195,7 +194,7 @@ impl<'s> ValveEngine<'s> {
 	///
 	/// Commands are normally processed on the next frame. Include a command
 	/// separator such as a trailing newline when required by the command parser.
-	#[doc(alias = "ServerCommand")]
+	#[doc(alias("ServerCommand"))]
 	pub fn server_command(self, command: &CStr) {
 		// SAFETY: As for `change_level`.
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_ServerCommand(command.as_ptr())) };
@@ -203,7 +202,7 @@ impl<'s> ValveEngine<'s> {
 
 	/// Renders a client's view from another entity, such as a camera, or from
 	/// its own player again.
-	#[doc(alias = "SetView")]
+	#[doc(alias("SetView"))]
 	pub fn set_view(self, client: Edict<'_>, view: Edict<'_>) {
 		// SAFETY: As for `change_level`, and both edicts are live. The engine
 		// ignores edicts that no connected client owns.
@@ -211,7 +210,7 @@ impl<'s> ValveEngine<'s> {
 	}
 
 	/// The engine's per-frame record of changed network variables.
-	#[doc(alias = "GetSharedEdictChangeInfo")]
+	#[doc(alias("GetSharedEdictChangeInfo"))]
 	pub(crate) fn shared_edict_change_info(self) -> Option<NonNull<sys::CSharedEdictChangeInfo>> {
 		// SAFETY: As for `change_level`.
 		NonNull::new(unsafe { vcall!(self.as_ptr() => IVEngineServer_GetSharedEdictChangeInfo()) })
@@ -221,7 +220,7 @@ impl<'s> ValveEngine<'s> {
 	///
 	/// Returns `None` for an edict that no connected client owns, which covers
 	/// the edict of every entity that is not a player.
-	#[doc(alias = "GetPlayerUserId")]
+	#[doc(alias("GetPlayerUserId"))]
 	pub fn user_id_of_edict(self, edict: Edict<'_>) -> Option<UserId> {
 		// The engine returns -1 for an edict none of its clients own, and can
 		// return 0 for the edict of a client slot nobody occupies. Neither is a
@@ -242,7 +241,7 @@ impl<'s> ValveEngine<'s> {
 	/// additions.
 	///
 	/// [`NetworkStringTable::add`]: crate::interfaces::network_string_tables::NetworkStringTable::add
-	#[doc(alias = "LockNetworkStringTables")]
+	#[doc(alias("LockNetworkStringTables"))]
 	pub fn with_unlocked_string_tables<R>(self, f: impl FnOnce() -> R) -> R {
 		/// Restores the tables' previous lock state when dropped.
 		struct Restore<'s> {

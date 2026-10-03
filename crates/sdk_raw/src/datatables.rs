@@ -74,7 +74,7 @@ pub const SPROP_IS_A_VECTOR_ELEM: c_int = 1 << 11;
 
 /// `SPROP_NORMAL` from `public/dt_common.h`: the vector is a normal. Integer
 /// properties reuse the bit as `SPROP_VARINT`.
-#[doc(alias = "SPROP_VARINT")]
+#[doc(alias("SPROP_VARINT"))]
 pub const SPROP_NORMAL: c_int = 1 << 5;
 
 /// `SPROP_NOSCALE` from `public/dt_common.h`: the float is sent as is, rather
@@ -106,35 +106,35 @@ pub const SPROP_XYZE: c_int = 1 << 7;
 /// shares between the properties of the table it builds for the vector.
 ///
 /// The class is private to that file, so the generated bindings lack it.
-#[doc(alias = "CSendPropExtra_UtlVector")]
+#[doc(alias("CSendPropExtra_UtlVector"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct SendPropExtraUtlVector {
 	/// `m_DataTableProxyFn`: the proxy given for the elements of a vector of
 	/// data tables.
-	#[doc(alias = "m_DataTableProxyFn")]
+	#[doc(alias("m_DataTableProxyFn"))]
 	pub data_table_proxy: sys::SendTableProxyFn,
 
 	/// `m_ProxyFn`: the proxy given for the elements of a vector of other
 	/// values.
-	#[doc(alias = "m_ProxyFn")]
+	#[doc(alias("m_ProxyFn"))]
 	pub proxy: sys::SendVarProxyFn,
 
 	/// `m_EnsureCapacityFn`: grows the vector.
-	#[doc(alias = "m_EnsureCapacityFn")]
+	#[doc(alias("m_EnsureCapacityFn"))]
 	pub ensure_capacity: Option<EnsureCapacityFn>,
 
 	/// `m_ElementStride`: the size of each element.
-	#[doc(alias = "m_ElementStride")]
+	#[doc(alias("m_ElementStride"))]
 	pub element_stride: c_int,
 
 	/// `m_Offset`: bytes from the structure the vector's property belongs to,
 	/// to the vector.
-	#[doc(alias = "m_Offset")]
+	#[doc(alias("m_Offset"))]
 	pub offset: c_int,
 
 	/// `m_nMaxElements`: the most elements networked.
-	#[doc(alias = "m_nMaxElements")]
+	#[doc(alias("m_nMaxElements"))]
 	pub max_elements: c_int,
 }
 
@@ -178,7 +178,7 @@ pub struct StandardVarProxies {
 ///   to the variable within it, both within a live object of a class the
 ///   property belongs to. `element` must be the variable's index in its
 ///   array, or 0, and `object_id` the object's edict index.
-#[doc(alias = "SendVarProxyFn")]
+#[doc(alias("SendVarProxyFn"))]
 pub unsafe fn call_var_proxy(
 	prop: *const sys::SendProp,
 	struct_base: *const c_void,
@@ -316,7 +316,7 @@ fn table_proxy_address(proxy: sys::SendTableProxyFn) -> Option<usize> {
 /// # Safety
 ///
 /// `prop` must point to a live `SendProp`.
-#[doc(alias = "m_pExtraData")]
+#[doc(alias("m_pExtraData"))]
 pub unsafe fn utl_vector_extra(
 	prop: *const sys::SendProp,
 ) -> Option<NonNull<SendPropExtraUtlVector>> {

@@ -34,7 +34,7 @@ impl IntoWeaponSlot for c_int {
 
 /// An item definition in TF2's economy schema. A valid index need not exist in
 /// the running server's schema, and can describe a cosmetic instead of a weapon.
-#[doc(alias = "item_definition_index_t")]
+#[doc(alias("item_definition_index_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ItemDefinitionIndex(u16);
 
@@ -78,7 +78,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// This is an inventory operation: native `RemovePlayerItem` can leave
 	/// the entity's parenting and attribute-provider association until it is
 	/// equipped again or removed. Use `replace` for a complete exchange.
-	#[doc(alias = "RemovePlayerItem")]
+	#[doc(alias("RemovePlayerItem"))]
 	pub fn detach(self, weapon: Weapon<'s>) -> Result<(), WeaponError> {
 		check_live(self.player)?;
 
@@ -111,7 +111,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// owned and present in this player's inventory is left alone. A matching
 	/// owner without inventory membership is reconciled through native equip.
 	/// It never steals another player's weapon.
-	#[doc(alias = "Weapon_Equip")]
+	#[doc(alias("Weapon_Equip"))]
 	pub fn equip(self, weapon: Weapon<'s>) -> Result<(), WeaponError> {
 		check_live(self.player)?;
 		check_live(weapon.entity)?;
@@ -161,7 +161,7 @@ impl<'s> PlayerWeapons<'s> {
 
 	/// A weapon in this player's inventory whose native slot matches, or
 	/// `None` when none does.
-	#[doc(alias = "Weapon_GetSlot")]
+	#[doc(alias("Weapon_GetSlot"))]
 	pub fn get_slot(self, slot: impl IntoWeaponSlot) -> Result<Option<Weapon<'s>>, WeaponError> {
 		check_live(self.player)?;
 
@@ -195,7 +195,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// The selected weapon's constructor, spawn, pickup and all callbacks they
 	/// run must uphold `Server::new`'s no-immediate-deletion contract. As with
 	/// `ServerTools::dispatch_spawn`, failed spawning can flush pending deletes.
-	#[doc(alias = "GiveNamedItem")]
+	#[doc(alias("GiveNamedItem"))]
 	pub unsafe fn give(self, classname: &CStr, subtype: i32) -> Result<Weapon<'s>, WeaponError> {
 		check_live(self.player)?;
 
@@ -241,7 +241,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// # Safety
 	/// The definition's constructor, spawn, activation and equipment callbacks
 	/// must uphold `Server::new`'s no-immediate-deletion contract.
-	#[doc(alias = "SpawnItem")]
+	#[doc(alias("SpawnItem"))]
 	pub unsafe fn give_item(
 		self,
 		definition: ItemDefinitionIndex,
@@ -257,7 +257,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// # Safety
 	/// The guarantees of `give_item` apply, and the classname must be a weapon
 	/// implementation compatible with the chosen item definition.
-	#[doc(alias = "SpawnItem")]
+	#[doc(alias("SpawnItem"))]
 	pub unsafe fn give_item_as(
 		self,
 		definition: ItemDefinitionIndex,
@@ -286,8 +286,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// The guarantees of `give_item` apply.
 	///
 	/// [`PROVIDE_ON_ACTIVE`]: crate::tf2::attributes::catalog::PROVIDE_ON_ACTIVE
-	#[doc(alias = "SpawnItem")]
-	#[doc(alias = "AddAttribute")]
+	#[doc(alias("SpawnItem", "AddAttribute"))]
 	pub unsafe fn give_item_with(
 		self,
 		token: SchemaToken<'s>,
@@ -511,7 +510,7 @@ impl<'s> PlayerWeapons<'s> {
 }
 
 /// A callback-scoped TF2 weapon. Keep its entity handle across callbacks.
-#[doc(alias = "CTFWeaponBase")]
+#[doc(alias("CTFWeaponBase"))]
 #[derive(Debug, Clone, Copy)]
 pub struct Weapon<'s> {
 	server: Server<'s>,
@@ -556,8 +555,7 @@ impl<'s> Weapon<'s> {
 	/// Fails with [`WeaponError::UnsupportedLayout`] unless they place it
 	/// where the SDK's layout does, and with [`WeaponError::Interface`]
 	/// without the game DLL's interface.
-	#[doc(alias = "m_iItemDefinitionIndex")]
-	#[doc(alias = "GetItemDefIndex")]
+	#[doc(alias("m_iItemDefinitionIndex", "GetItemDefIndex"))]
 	pub fn definition(self) -> Result<Option<ItemDefinitionIndex>, WeaponError> {
 		check_live(self.entity)?;
 
@@ -574,7 +572,7 @@ impl<'s> Weapon<'s> {
 	/// Its combat owner's handle (`m_hOwner`), or None for a detached weapon.
 	/// The separate base-entity `m_hOwnerEntity` can remain set after detaching
 	/// and is not the authority for membership in a player's weapon inventory.
-	#[doc(alias = "m_hOwner")]
+	#[doc(alias("m_hOwner"))]
 	pub fn owner(self) -> Result<Option<EntityHandle>, WeaponError> {
 		check_live(self.entity)?;
 
@@ -596,13 +594,13 @@ impl<'s> Weapon<'s> {
 
 	/// The native weapon slot, which can depend on its item definition, or
 	/// `None` for a slot outside [`WeaponSlot`] (see [`Self::slot_raw`]).
-	#[doc(alias = "GetSlot")]
+	#[doc(alias("GetSlot"))]
 	pub fn slot(self) -> Result<Option<WeaponSlot>, WeaponError> {
 		self.slot_raw().map(WeaponSlot::from_raw)
 	}
 
 	/// The native weapon slot number, including those [`WeaponSlot`] does not name.
-	#[doc(alias = "GetSlot")]
+	#[doc(alias("GetSlot"))]
 	pub fn slot_raw(self) -> Result<c_int, WeaponError> {
 		check_live(self.entity)?;
 

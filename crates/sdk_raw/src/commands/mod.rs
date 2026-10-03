@@ -133,7 +133,7 @@ pub const FCVAR_USERINFO: c_int = 1 << 9;
 /// # Safety
 ///
 /// `base` must point to a live `ConCommandBase`.
-#[doc(alias = "IsRegistered")]
+#[doc(alias("IsRegistered"))]
 pub unsafe fn is_registered(base: NonNull<sys::ConCommandBase>) -> bool {
 	// SAFETY: The caller guarantees the object is live. The field is read
 	// without forming a reference, since C++ writes it too.

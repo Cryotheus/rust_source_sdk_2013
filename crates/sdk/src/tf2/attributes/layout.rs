@@ -161,7 +161,7 @@ impl<'s> ItemLayout<'s> {
 	/// (`CAttributeManager::ClearCache`, which walks `m_Receivers`), bumps the
 	/// parity that makes clients do the same, and marks the item for
 	/// networking. It does not iterate any attributes.
-	#[doc(alias = "OnAttributeValuesChanged")]
+	#[doc(alias("OnAttributeValuesChanged"))]
 	pub(super) fn notify(self) -> Result<(), AttributeError> {
 		let list = self.list()?;
 

@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 /// Removing an entity frees it at the end of the frame, so a handle is bound
 /// to the scope that produced it. To refer to an entity across callbacks, keep
 /// its [`EntityHandle`] and look it up again.
-#[doc(alias = "CBaseEntity")]
+#[doc(alias("CBaseEntity"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Entity<'s> {
 	raw: NonNull<sys::CBaseEntity>,
@@ -92,7 +92,7 @@ impl<'s> Entity<'s> {
 
 	/// The entity's class name, such as `tf_player`, or an empty string if
 	/// Source reports none.
-	#[doc(alias = "GetClassname")]
+	#[doc(alias("GetClassname"))]
 	pub fn class_name(self) -> &'s CStr {
 		let Some(networkable) = self.networkable() else {
 			return c"";
@@ -113,7 +113,7 @@ impl<'s> Entity<'s> {
 	}
 
 	/// The entity's edict, or `None` for a server-only entity.
-	#[doc(alias = "GetEdict")]
+	#[doc(alias("GetEdict"))]
 	pub fn edict(self) -> Option<Edict<'s>> {
 		let networkable = self.networkable()?;
 
@@ -141,7 +141,7 @@ impl<'s> Entity<'s> {
 	///
 	/// The member is read directly, at the offset the `CBaseEntity` datamap
 	/// gives for it. `None` also means that datamap lacks it.
-	#[doc(alias = "m_iHammerID")]
+	#[doc(alias("m_iHammerID"))]
 	pub fn hammer_id(self) -> Option<HammerId> {
 		static HAMMER_ID_OFFSET: OnceLock<Option<usize>> = OnceLock::new();
 
@@ -160,7 +160,7 @@ impl<'s> Entity<'s> {
 	}
 
 	/// The handle that identifies this entity across frames.
-	#[doc(alias = "GetRefEHandle")]
+	#[doc(alias("GetRefEHandle"))]
 	pub fn handle(self) -> EntityHandle {
 		// SAFETY: The entity is live.
 		let handle = unsafe { vcall!(self.server_entity() => IServerEntity_GetRefEHandle()) };
@@ -183,7 +183,7 @@ impl<'s> Entity<'s> {
 
 	/// The entity's slot in the entity list, which is its edict index if it is
 	/// networked, or `None` if its handle is invalid.
-	#[doc(alias = "entindex")]
+	#[doc(alias("entindex"))]
 	pub fn index(self) -> Option<usize> {
 		self.handle().index()
 	}
@@ -194,8 +194,7 @@ impl<'s> Entity<'s> {
 	///
 	/// If the entity's datamaps do not include `CBaseEntity`'s, or it does not
 	/// declare `m_iEFlags` as an `int` at an aligned, plausible offset.
-	#[doc(alias = "EFL_KILLME")]
-	#[doc(alias = "IsMarkedForDeletion")]
+	#[doc(alias("EFL_KILLME", "IsMarkedForDeletion"))]
 	pub fn is_marked_for_deletion(self) -> bool {
 		static EFLAGS_OFFSET: OnceLock<usize> = OnceLock::new();
 
@@ -260,8 +259,7 @@ impl<'s> Entity<'s> {
 	///
 	/// Source's collision property returns its owner's `GetAbsOrigin()` here.
 	/// Returns `None` if the entity has no collideable or it reports no origin.
-	#[doc(alias = "GetAbsOrigin")]
-	#[doc(alias = "GetCollisionOrigin")]
+	#[doc(alias("GetAbsOrigin", "GetCollisionOrigin"))]
 	pub fn position(self) -> Option<Vector> {
 		// SAFETY: As for `handle`.
 		let collideable = NonNull::new(unsafe {
@@ -279,7 +277,7 @@ impl<'s> Entity<'s> {
 
 	/// The class describing how the entity is networked, or `None` if Source
 	/// reports none.
-	#[doc(alias = "GetServerClass")]
+	#[doc(alias("GetServerClass"))]
 	pub fn server_class(self) -> Option<ServerClass<'s>> {
 		let networkable = self.networkable()?;
 
@@ -379,18 +377,17 @@ impl<'s> Entity<'s> {
 /// [`ServerTools::entity_by_handle`](crate::interfaces::ServerTools::entity_by_handle)
 /// after its entity was removed finds nothing, rather than whatever entity
 /// reused the slot.
-#[doc(alias = "CBaseHandle")]
-#[doc(alias = "EHANDLE")]
+#[doc(alias("CBaseHandle", "EHANDLE"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EntityHandle(u32);
 
 impl EntityHandle {
 	/// `INVALID_EHANDLE_INDEX`, which refers to no entity.
-	#[doc(alias = "INVALID_EHANDLE_INDEX")]
+	#[doc(alias("INVALID_EHANDLE_INDEX"))]
 	pub const INVALID: Self = Self(INVALID_EHANDLE_INDEX);
 
 	/// `NUM_ENT_ENTRIES`, the number of slots in the entity list.
-	#[doc(alias = "NUM_ENT_ENTRIES")]
+	#[doc(alias("NUM_ENT_ENTRIES"))]
 	pub const SLOTS: usize = NUM_ENT_ENTRIES;
 
 	/// Wraps a handle's raw value, the `m_Index` a `CBaseHandle` stores.
@@ -399,7 +396,7 @@ impl EntityHandle {
 	}
 
 	/// The entity's slot in the entity list, or `None` for an invalid handle.
-	#[doc(alias = "GetEntryIndex")]
+	#[doc(alias("GetEntryIndex"))]
 	pub const fn index(self) -> Option<usize> {
 		if self.is_valid() {
 			Some((self.0 & ENT_ENTRY_MASK) as usize)
@@ -410,20 +407,20 @@ impl EntityHandle {
 
 	/// Whether the handle is not [`INVALID`](Self::INVALID). A valid handle
 	/// can still refer to an entity that has since been removed.
-	#[doc(alias = "IsValid")]
+	#[doc(alias("IsValid"))]
 	pub const fn is_valid(self) -> bool {
 		self.0 != Self::INVALID.0
 	}
 
 	/// The serial number the entity's slot had when the entity was created,
 	/// which tells it apart from later entities in the same slot.
-	#[doc(alias = "GetSerialNumber")]
+	#[doc(alias("GetSerialNumber"))]
 	pub const fn serial_number(self) -> u32 {
 		self.0 >> NUM_SERIAL_NUM_SHIFT_BITS
 	}
 
 	/// The handle's raw value, the `m_Index` a `CBaseHandle` stores.
-	#[doc(alias = "ToInt")]
+	#[doc(alias("ToInt"))]
 	pub const fn to_raw(self) -> u32 {
 		self.0
 	}

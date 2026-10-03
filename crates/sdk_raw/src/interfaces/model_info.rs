@@ -8,5 +8,5 @@ use std::ffi::CStr;
 ///
 /// This is `VMODELINFO_SERVER_INTERFACE_VERSION` from
 /// `public/engine/ivmodelinfo.h`.
-#[doc(alias = "VMODELINFO_SERVER_INTERFACE_VERSION")]
+#[doc(alias("VMODELINFO_SERVER_INTERFACE_VERSION"))]
 pub const VERSION: &CStr = c"VModelInfoServer004";

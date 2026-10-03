@@ -199,7 +199,7 @@ pub struct ConVarHooks {
 ///
 /// It holds its value as tier1's `ConVar` does: a float, an integer, and a
 /// string, which is its default until [replaced](Self::replace_string).
-#[doc(alias = "ConVar")]
+#[doc(alias("ConVar"))]
 #[repr(C)]
 pub struct ConVarObject {
 	/// The engine-visible `ConVar`, which Rust never forms a reference into.
@@ -282,7 +282,7 @@ impl ConVarObject {
 	/// pointer handed to the engine, since the callback may pass it back to
 	/// the variable's slots. This must run on the thread the engine calls
 	/// variables on, while the module that installed the callback is loaded.
-	#[doc(alias = "m_fnChangeCallback")]
+	#[doc(alias("m_fnChangeCallback"))]
 	pub unsafe fn call_change_callback(this: NonNull<Self>, old: &CStr, old_float: f32) {
 		let raw = Self::as_var(this).as_ptr();
 
@@ -359,20 +359,20 @@ impl ConVarObject {
 	}
 
 	/// The value the variable reverts to.
-	#[doc(alias = "GetDefault")]
+	#[doc(alias("GetDefault"))]
 	pub const fn default(&self) -> &'static CStr {
 		self.default
 	}
 
 	/// The flags the engine currently sees, which other plugins may change.
-	#[doc(alias = "m_nFlags")]
+	#[doc(alias("m_nFlags"))]
 	pub fn flags(&self) -> c_int {
 		// SAFETY: As for `float`.
 		unsafe { (&raw const (*self.raw.get())._base.m_nFlags).read() }
 	}
 
 	/// The value as a float.
-	#[doc(alias = "GetFloat")]
+	#[doc(alias("GetFloat"))]
 	pub fn float(&self) -> f32 {
 		// SAFETY: The field is read through the cell without forming a
 		// reference. `prepare`'s contract keeps C++ from writing it on another
@@ -381,7 +381,7 @@ impl ConVarObject {
 	}
 
 	/// The value as an integer.
-	#[doc(alias = "GetInt")]
+	#[doc(alias("GetInt"))]
 	pub fn int(&self) -> c_int {
 		// SAFETY: As for `float`.
 		unsafe { (&raw const (*self.raw.get()).m_nValue).read() }
@@ -428,7 +428,7 @@ impl ConVarObject {
 	}
 
 	/// The value as a string, copied, or empty if another module cleared it.
-	#[doc(alias = "GetString")]
+	#[doc(alias("GetString"))]
 	pub fn string(&self) -> CString {
 		// SAFETY: As for `float`. The string is the static default or the one
 		// `self.string` holds, which is only replaced on this thread, and is
@@ -705,7 +705,7 @@ unsafe extern "C" fn is_registered(this: *const sys::ConVar) -> bool {
 /// Parses the leading decimal number of a string as C's `atof` does: an
 /// optional sign, digits with an optional point, and an optional exponent,
 /// after whitespace. Anything else reads as 0.
-#[doc(alias = "atof")]
+#[doc(alias("atof"))]
 pub const fn parse_float(text: &[u8]) -> f64 {
 	/// More digits than this are only counted, since they cannot change the
 	/// nearest `f32`.
@@ -813,7 +813,7 @@ pub const fn parse_float(text: &[u8]) -> f64 {
 }
 
 /// Parses the leading integer of a string as C's `atoi` does, saturating.
-#[doc(alias = "atoi")]
+#[doc(alias("atoi"))]
 pub const fn parse_int(text: &[u8]) -> c_int {
 	let mut index = skip_space(text);
 	let negative = index < text.len() && text[index] == b'-';

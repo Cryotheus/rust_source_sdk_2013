@@ -101,7 +101,7 @@ struct Addresses {
 /// called while the module [`Self::resolve`] inspected stays loaded. It is
 /// neither `Send` nor `Sync`, since the game generates items on its main
 /// thread.
-#[doc(alias = "CItemGeneration")]
+#[doc(alias("CItemGeneration"))]
 #[derive(Debug, Clone, Copy)]
 pub struct ItemGeneration {
 	get_item_definition: GetItemDefinitionFn,
@@ -181,8 +181,7 @@ impl ItemGeneration {
 	/// - `classname`, if given, names an entity class compatible with
 	///   `definition`, since `SpawnItem` initializes the item of whatever entity
 	///   it creates from `definition` without checking.
-	#[doc(alias = "SpawnItem")]
-	#[doc(alias = "GenerateItemFromDefIndex")]
+	#[doc(alias("SpawnItem", "GenerateItemFromDefIndex"))]
 	pub unsafe fn spawn(
 		&self,
 		definition: u16,

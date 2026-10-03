@@ -16,14 +16,14 @@ pub const ELEMENT_SIZE: usize = size_of::<c_int>();
 
 /// The element of a player slot's `m_iStreaks` group the scoreboard shows:
 /// `CTFPlayerShared::kTFStreak_Kills`.
-#[doc(alias = "kTFStreak_Kills")]
+#[doc(alias("kTFStreak_Kills"))]
 pub const KILL_STREAK: usize = sys::CTFPlayerShared_ETFStreak_kTFStreak_Kills as usize;
 
 /// `m_iStreaks` elements per player slot: `CTFPlayerShared::kTFStreak_COUNT`.
 ///
 /// `CTFPlayerResource` keeps each slot's streaks together, the slot's group
 /// starting at its index times this (`tf_player_resource.cpp:282`).
-#[doc(alias = "kTFStreak_COUNT")]
+#[doc(alias("kTFStreak_COUNT"))]
 pub const STREAKS_PER_SLOT: usize = sys::CTFPlayerShared_ETFStreak_kTFStreak_COUNT as usize;
 
 /// BLU's team number.

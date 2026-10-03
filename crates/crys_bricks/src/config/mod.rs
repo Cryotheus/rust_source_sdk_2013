@@ -48,7 +48,7 @@ pub enum Profile {
 }
 
 impl Profile {
-	#[doc(alias = "new")]
+	#[doc(alias("new"))]
 	pub fn from_env() -> Result<Self, RequireVarError> {
 		match RsProfile::from_env() {
 			Ok(profile) => Ok(Self::Standard(profile)),
@@ -145,7 +145,7 @@ impl<'a> RerunEmitter<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RsProfile {
-	#[doc(alias = "Dev")]
+	#[doc(alias("Dev"))]
 	Debug,
 
 	Release,
@@ -156,7 +156,7 @@ pub enum RsProfile {
 }
 
 impl RsProfile {
-	#[doc(alias = "new")]
+	#[doc(alias("new"))]
 	pub fn from_env() -> Result<Self, RsProfileError> {
 		let string = cargo_var("PROFILE")?;
 

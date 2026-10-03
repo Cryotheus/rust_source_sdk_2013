@@ -32,8 +32,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// Every message class derives from `CNetMessage`, then `INetMessage`, each
 /// its only base, so a message's address is its `INetMessage`'s, which C++
 /// passes as it passes any pointer.
-#[doc(alias = "Process")]
-#[doc(alias = "ProcessMessage")]
+#[doc(alias("Process", "ProcessMessage"))]
 pub type ProcessMessageFn = unsafe extern "C" fn(
 	this: *mut sys::IClientMessageHandler,
 	message: *mut sys::INetMessage,
@@ -173,7 +172,7 @@ static HANDLER_OFFSET: AtomicUsize = AtomicUsize::new(0);
 static MESSAGE_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// The fields `CLC_BaselineAck` declares.
-#[doc(alias = "CLC_BaselineAck")]
+#[doc(alias("CLC_BaselineAck"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BaselineAckFields {
@@ -188,7 +187,7 @@ pub struct BaselineAckFields {
 }
 
 /// The fields `CLC_ClientInfo` declares.
-#[doc(alias = "CLC_ClientInfo")]
+#[doc(alias("CLC_ClientInfo"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ClientInfoFields {
@@ -285,7 +284,7 @@ pub enum ClientMessage {
 }
 
 /// The fields `CLC_CmdKeyValues` holds.
-#[doc(alias = "CLC_CmdKeyValues")]
+#[doc(alias("CLC_CmdKeyValues"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CmdKeyValuesFields {
@@ -298,7 +297,7 @@ pub struct CmdKeyValuesFields {
 }
 
 /// A variable of `NET_SetConVar` (`cvar_t`).
-#[doc(alias = "cvar_t")]
+#[doc(alias("cvar_t"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ConVarEntry {
@@ -310,7 +309,7 @@ pub struct ConVarEntry {
 }
 
 /// The fields `CLC_FileCRCCheck` declares.
-#[doc(alias = "CLC_FileCRCCheck")]
+#[doc(alias("CLC_FileCRCCheck"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FileCrcCheckFields {
@@ -348,7 +347,7 @@ pub struct FileCrcCheckFields {
 }
 
 /// The fields `CLC_FileMD5Check` declares.
-#[doc(alias = "CLC_FileMD5Check")]
+#[doc(alias("CLC_FileMD5Check"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FileMd5CheckFields {
@@ -367,7 +366,7 @@ pub struct FileMd5CheckFields {
 }
 
 /// The fields `CLC_ListenEvents` declares.
-#[doc(alias = "CLC_ListenEvents")]
+#[doc(alias("CLC_ListenEvents"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ListenEventsFields {
@@ -383,59 +382,59 @@ pub struct ListenEventsFields {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MessageClass {
 	/// `NET_Tick`, for `ProcessTick`.
-	#[doc(alias = "NET_Tick")]
+	#[doc(alias("NET_Tick"))]
 	Tick,
 
 	/// `NET_StringCmd`, for `ProcessStringCmd`.
-	#[doc(alias = "NET_StringCmd")]
+	#[doc(alias("NET_StringCmd"))]
 	StringCmd,
 
 	/// `NET_SetConVar`, for `ProcessSetConVar`.
-	#[doc(alias = "NET_SetConVar")]
+	#[doc(alias("NET_SetConVar"))]
 	SetConVar,
 
 	/// `NET_SignonState`, for `ProcessSignonState`.
-	#[doc(alias = "NET_SignonState")]
+	#[doc(alias("NET_SignonState"))]
 	SignonState,
 
 	/// `CLC_ClientInfo`, for `ProcessClientInfo`.
-	#[doc(alias = "CLC_ClientInfo")]
+	#[doc(alias("CLC_ClientInfo"))]
 	ClientInfo,
 
 	/// `CLC_Move`, for `ProcessMove`.
-	#[doc(alias = "CLC_Move")]
+	#[doc(alias("CLC_Move"))]
 	Move,
 
 	/// `CLC_VoiceData`, for `ProcessVoiceData`.
-	#[doc(alias = "CLC_VoiceData")]
+	#[doc(alias("CLC_VoiceData"))]
 	VoiceData,
 
 	/// `CLC_BaselineAck`, for `ProcessBaselineAck`.
-	#[doc(alias = "CLC_BaselineAck")]
+	#[doc(alias("CLC_BaselineAck"))]
 	BaselineAck,
 
 	/// `CLC_ListenEvents`, for `ProcessListenEvents`.
-	#[doc(alias = "CLC_ListenEvents")]
+	#[doc(alias("CLC_ListenEvents"))]
 	ListenEvents,
 
 	/// `CLC_RespondCvarValue`, for `ProcessRespondCvarValue`.
-	#[doc(alias = "CLC_RespondCvarValue")]
+	#[doc(alias("CLC_RespondCvarValue"))]
 	RespondCvarValue,
 
 	/// `CLC_FileCRCCheck`, for `ProcessFileCRCCheck`.
-	#[doc(alias = "CLC_FileCRCCheck")]
+	#[doc(alias("CLC_FileCRCCheck"))]
 	FileCrcCheck,
 
 	/// `CLC_FileMD5Check`, for `ProcessFileMD5Check`.
-	#[doc(alias = "CLC_FileMD5Check")]
+	#[doc(alias("CLC_FileMD5Check"))]
 	FileMd5Check,
 
 	/// `CLC_SaveReplay`, for `ProcessSaveReplay`.
-	#[doc(alias = "CLC_SaveReplay")]
+	#[doc(alias("CLC_SaveReplay"))]
 	SaveReplay,
 
 	/// `CLC_CmdKeyValues`, for `ProcessCmdKeyValues`.
-	#[doc(alias = "CLC_CmdKeyValues")]
+	#[doc(alias("CLC_CmdKeyValues"))]
 	CmdKeyValues,
 }
 
@@ -508,7 +507,7 @@ impl MessageClass {
 }
 
 /// The fields `CLC_Move` declares.
-#[doc(alias = "CLC_Move")]
+#[doc(alias("CLC_Move"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct MoveFields {
@@ -535,7 +534,7 @@ pub struct MoveFields {
 }
 
 /// The fields `CLC_RespondCvarValue` declares.
-#[doc(alias = "CLC_RespondCvarValue")]
+#[doc(alias("CLC_RespondCvarValue"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct RespondCvarValueFields {
@@ -575,7 +574,7 @@ pub struct RespondCvarValueFields {
 }
 
 /// The fields `CLC_SaveReplay` declares.
-#[doc(alias = "CLC_SaveReplay")]
+#[doc(alias("CLC_SaveReplay"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct SaveReplayFields {
@@ -595,7 +594,7 @@ pub struct SaveReplayFields {
 }
 
 /// The fields `NET_SetConVar` declares.
-#[doc(alias = "NET_SetConVar")]
+#[doc(alias("NET_SetConVar"))]
 #[derive(Debug)]
 #[repr(C)]
 pub struct SetConVarFields {
@@ -607,7 +606,7 @@ pub struct SetConVarFields {
 }
 
 /// The fields `NET_SignonState` declares.
-#[doc(alias = "NET_SignonState")]
+#[doc(alias("NET_SignonState"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct SignonStateFields {
@@ -623,7 +622,7 @@ pub struct SignonStateFields {
 }
 
 /// The fields `NET_StringCmd` declares.
-#[doc(alias = "NET_StringCmd")]
+#[doc(alias("NET_StringCmd"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct StringCmdFields {
@@ -640,7 +639,7 @@ pub struct StringCmdFields {
 }
 
 /// The fields `NET_Tick` declares.
-#[doc(alias = "NET_Tick")]
+#[doc(alias("NET_Tick"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TickFields {
@@ -659,7 +658,7 @@ pub struct TickFields {
 }
 
 /// The fields `CLC_VoiceData` holds.
-#[doc(alias = "CLC_VoiceData")]
+#[doc(alias("CLC_VoiceData"))]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct VoiceDataFields {
@@ -810,7 +809,7 @@ unsafe fn copy<T>(fields: *const u8) -> T {
 /// `client` must point to the `IClient` base of a live client the engine
 /// made, a polymorphic subobject whose vtable the engine's module emitted with
 /// run-time type information, and which stays loaded for the call.
-#[doc(alias = "CGameClient")]
+#[doc(alias("CGameClient"))]
 pub unsafe fn handler_of_client(
 	client: NonNull<sys::IClient>,
 ) -> Result<NonNull<sys::IClientMessageHandler>, ClientLayoutError> {

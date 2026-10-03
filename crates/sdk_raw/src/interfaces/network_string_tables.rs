@@ -14,7 +14,7 @@ pub const INVALID_STRING_INDEX: u16 = u16::MAX;
 /// The `length` to pass `INetworkStringTable::AddString` when adding a string
 /// without user data: its default in `public/networkstringtabledefs.h`.
 /// `length` is the size of the user data, not of the string.
-#[doc(alias = "AddString")]
+#[doc(alias("AddString"))]
 pub const UNKNOWN_STRING_LENGTH: c_int = -1;
 
 /// The version string `INetworkStringTableContainer` is exported and requested
@@ -22,5 +22,5 @@ pub const UNKNOWN_STRING_LENGTH: c_int = -1;
 ///
 /// This is `INTERFACENAME_NETWORKSTRINGTABLESERVER` from
 /// `public/networkstringtabledefs.h`.
-#[doc(alias = "INTERFACENAME_NETWORKSTRINGTABLESERVER")]
+#[doc(alias("INTERFACENAME_NETWORKSTRINGTABLESERVER"))]
 pub const VERSION: &CStr = c"VEngineServerStringTable001";

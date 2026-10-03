@@ -5,13 +5,13 @@ use std::ffi::c_int;
 
 interface! {
 	/// Routes voice between clients (`IVoiceServer`).
-	#[doc(alias = "IVoiceServer")]
+	#[doc(alias("IVoiceServer"))]
 	pub struct VoiceServer(sys::IVoiceServer) = Engine sdk_raw::interfaces::voice_server::VERSION;
 }
 
 impl<'s> VoiceServer<'s> {
 	/// Whether the client with entity index `receiver` hears `sender`.
-	#[doc(alias = "GetClientListening")]
+	#[doc(alias("GetClientListening"))]
 	pub fn client_listening(self, receiver: c_int, sender: c_int) -> bool {
 		// SAFETY: `Server::new` guarantees the interface is live, and the engine
 		// validates the indices.
@@ -19,7 +19,7 @@ impl<'s> VoiceServer<'s> {
 	}
 
 	/// Sets whether `receiver` hears `sender`, returning whether both are clients.
-	#[doc(alias = "SetClientListening")]
+	#[doc(alias("SetClientListening"))]
 	pub fn set_client_listening(self, receiver: c_int, sender: c_int, listen: bool) -> bool {
 		// SAFETY: As for `client_listening`.
 		unsafe {

@@ -14,7 +14,7 @@ use std::ffi::c_int;
 /// handle, the index of the source found at activation, then the sound's
 /// name. The datamap has all but the file name, the handle, and the index,
 /// whose places the others pin down.
-#[doc(alias = "CAmbientGeneric")]
+#[doc(alias("CAmbientGeneric"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AmbientGenericLayout {
 	/// The offset of the playing flag, `m_fActive`.
@@ -64,27 +64,27 @@ impl AmbientGenericLayout {
 	/// The pointer is computed without being dereferenced. It points to the
 	/// field if `entity` points to a live `CAmbientGeneric` whose maps this
 	/// layout was found in.
-	#[doc(alias = "m_fActive")]
+	#[doc(alias("m_fActive"))]
 	pub fn active(self, entity: *mut sys::CBaseEntity) -> *mut u8 {
 		entity.wrapping_byte_add(self.active).cast()
 	}
 
 	/// The looping flag, `m_fLooping`, of `entity`, right after the playing
 	/// flag. As for [`Self::active`].
-	#[doc(alias = "m_fLooping")]
+	#[doc(alias("m_fLooping"))]
 	pub fn looping(self, entity: *mut sys::CBaseEntity) -> *mut u8 {
 		entity.wrapping_byte_add(self.active + 1).cast()
 	}
 
 	/// The sound's name, `m_iszSound`, of `entity`. As for [`Self::active`].
-	#[doc(alias = "m_iszSound")]
+	#[doc(alias("m_iszSound"))]
 	pub fn sound(self, entity: *mut sys::CBaseEntity) -> *mut sys::string_t {
 		entity.wrapping_byte_add(self.sound).cast()
 	}
 
 	/// The handle of the entity it plays its sound from, `m_hSoundSource`, of
 	/// `entity`, right after the source's name. As for [`Self::active`].
-	#[doc(alias = "m_hSoundSource")]
+	#[doc(alias("m_hSoundSource"))]
 	pub fn sound_source(self, entity: *mut sys::CBaseEntity) -> *mut sys::CBaseHandle {
 		entity
 			.wrapping_byte_add(self.source_name + size_of::<sys::string_t>())

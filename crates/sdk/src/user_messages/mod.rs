@@ -53,8 +53,7 @@ impl UserMessage for RawUserMessage<'_> {
 ///
 /// [`EngineSound::emit_sound`](crate::interfaces::EngineSound::emit_sound)
 /// sends sounds to them too.
-#[doc(alias = "IRecipientFilter")]
-#[doc(alias = "CRecipientFilter")]
+#[doc(alias("IRecipientFilter", "CRecipientFilter"))]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Recipients {
 	players: Vec<c_int>,
@@ -74,7 +73,7 @@ impl Recipients {
 	/// an entity.
 	///
 	/// Fails if the engine or the player info manager is missing.
-	#[doc(alias = "AddAllPlayers")]
+	#[doc(alias("AddAllPlayers"))]
 	pub fn all_players(server: Server<'_>) -> Result<Self, InterfaceError> {
 		let engine = server.valve_engine()?;
 		let max_clients = server
@@ -96,7 +95,7 @@ impl Recipients {
 	}
 
 	/// One client.
-	#[doc(alias = "CSingleUserRecipientFilter")]
+	#[doc(alias("CSingleUserRecipientFilter"))]
 	pub fn player(client: Edict<'_>) -> Self {
 		let mut recipients = Self::new();
 
@@ -117,7 +116,7 @@ impl Recipients {
 	/// a player on the team are not added.
 	///
 	/// Fails if the engine or the player info manager is missing.
-	#[doc(alias = "CTeamRecipientFilter")]
+	#[doc(alias("CTeamRecipientFilter"))]
 	pub fn team(server: Server<'_>, team: c_int) -> Result<Self, InterfaceError> {
 		let engine = server.valve_engine()?;
 		let players = server.player_info_manager()?;
@@ -140,7 +139,7 @@ impl Recipients {
 	}
 
 	/// Adds a client, once.
-	#[doc(alias = "AddRecipient")]
+	#[doc(alias("AddRecipient"))]
 	pub fn add(&mut self, client: Edict<'_>) {
 		let index = client.index();
 
@@ -161,27 +160,27 @@ impl Recipients {
 	}
 
 	/// The number of clients added, each counted once.
-	#[doc(alias = "GetRecipientCount")]
+	#[doc(alias("GetRecipientCount"))]
 	pub fn len(&self) -> usize {
 		self.players.len()
 	}
 
 	/// The player index of each client, in the order they were added.
-	#[doc(alias = "GetRecipientIndex")]
+	#[doc(alias("GetRecipientIndex"))]
 	pub fn players(&self) -> &[c_int] {
 		&self.players
 	}
 
 	/// Sends the message in each client's reliable stream, in order with the
 	/// other reliable messages, instead of dropping it when the packet is full.
-	#[doc(alias = "MakeReliable")]
+	#[doc(alias("MakeReliable"))]
 	pub fn reliable(mut self) -> Self {
 		self.reliable = true;
 		self
 	}
 
 	/// Removes a client, if it was added, keeping the others in order.
-	#[doc(alias = "RemoveRecipient")]
+	#[doc(alias("RemoveRecipient"))]
 	pub fn remove(&mut self, client: Edict<'_>) {
 		let index = client.index();
 
@@ -273,8 +272,7 @@ fn finish(
 ///
 /// The payload must have the size the game registered the message with, if
 /// fixed, and at most [`MAX_MESSAGE_DATA_BYTES`] otherwise.
-#[doc(alias = "UserMessageBegin")]
-#[doc(alias = "MessageEnd")]
+#[doc(alias("UserMessageBegin", "MessageEnd"))]
 pub fn send(
 	server: Server<'_>,
 	recipients: &Recipients,
@@ -327,7 +325,7 @@ pub fn send(
 /// entity.
 ///
 /// The payload must be at most [`MAX_MESSAGE_DATA_BYTES`] bytes.
-#[doc(alias = "EntityMessageBegin")]
+#[doc(alias("EntityMessageBegin"))]
 pub fn send_entity_message(
 	server: Server<'_>,
 	entity: Entity<'_>,

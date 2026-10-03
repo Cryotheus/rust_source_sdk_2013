@@ -41,7 +41,7 @@ pub enum ArgError {
 ///
 /// Argument 0, the command name, is [`Self::name`]; [`Self::get`] counts the
 /// arguments after it from 0.
-#[doc(alias = "CCommand")]
+#[doc(alias("CCommand"))]
 #[derive(Clone, Copy)]
 pub struct CommandArgs<'d> {
 	/// A copy owned by a single dispatch, so commands run in the meantime
@@ -55,13 +55,13 @@ impl<'d> CommandArgs<'d> {
 	}
 
 	/// The whole command line.
-	#[doc(alias = "GetCommandString")]
+	#[doc(alias("GetCommandString"))]
 	pub fn command_line(self) -> &'d CStr {
 		self.line.line()
 	}
 
 	/// The argument at `index` after the name, or `None` past the last.
-	#[doc(alias = "Arg")]
+	#[doc(alias("Arg"))]
 	pub fn get(self, index: usize) -> Option<&'d CStr> {
 		self.line.arg(index.checked_add(1)?)
 	}
@@ -88,7 +88,7 @@ impl<'d> CommandArgs<'d> {
 	}
 
 	/// The number of arguments after the name.
-	#[doc(alias = "ArgC")]
+	#[doc(alias("ArgC"))]
 	pub fn len(self) -> usize {
 		// A copy always holds the name.
 		self.line.argc() - 1
@@ -112,7 +112,7 @@ impl<'d> CommandArgs<'d> {
 	}
 
 	/// Everything after the name, exactly as typed, quotes included.
-	#[doc(alias = "ArgS")]
+	#[doc(alias("ArgS"))]
 	pub fn raw_args(self) -> &'d CStr {
 		self.line.raw_args()
 	}

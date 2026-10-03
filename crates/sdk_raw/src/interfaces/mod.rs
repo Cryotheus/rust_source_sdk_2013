@@ -25,7 +25,7 @@ use std::ptr::NonNull;
 ///
 /// This is `CreateInterfaceFn` from `public/tier1/interface.h`, whose
 /// generated binding, `sys::CreateInterfaceFn`, is nullable.
-#[doc(alias = "CreateInterface")]
+#[doc(alias("CreateInterface"))]
 pub type CreateInterfaceFn =
 	unsafe extern "C" fn(name: *const c_char, return_code: *mut c_int) -> *mut c_void;
 

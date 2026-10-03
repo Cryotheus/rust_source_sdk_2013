@@ -42,90 +42,89 @@ pub struct PropFlags(c_int);
 impl PropFlags {
 	/// `SPROP_CHANGES_OFTEN`: the variable changes often, so the engine moves
 	/// it to the start of its table, where it gets a small index.
-	#[doc(alias = "SPROP_CHANGES_OFTEN")]
+	#[doc(alias("SPROP_CHANGES_OFTEN"))]
 	pub const CHANGES_OFTEN: Self = Self(SPROP_CHANGES_OFTEN);
 
 	/// `SPROP_COLLAPSIBLE`: the data table sits at offset 0 behind
 	/// `SendProxy_DataTableToDataTable`, as base class tables do, so the engine
 	/// can flatten it away.
-	#[doc(alias = "SPROP_COLLAPSIBLE")]
+	#[doc(alias("SPROP_COLLAPSIBLE"))]
 	pub const COLLAPSIBLE: Self = Self(SPROP_COLLAPSIBLE);
 
 	/// `SPROP_COORD`: the float or vector is a world coordinate, and its bit
 	/// count is ignored.
-	#[doc(alias = "SPROP_COORD")]
+	#[doc(alias("SPROP_COORD"))]
 	pub const COORD: Self = Self(SPROP_COORD);
 
 	/// `SPROP_COORD_MP`: like [`COORD`](Self::COORD), with special handling for
 	/// multiplayer games.
-	#[doc(alias = "SPROP_COORD_MP")]
+	#[doc(alias("SPROP_COORD_MP"))]
 	pub const COORD_MP: Self = Self(SPROP_COORD_MP);
 
 	/// `SPROP_COORD_MP_INTEGRAL`: like [`COORD_MP`](Self::COORD_MP), with
 	/// coordinates rounded to whole units.
-	#[doc(alias = "SPROP_COORD_MP_INTEGRAL")]
+	#[doc(alias("SPROP_COORD_MP_INTEGRAL"))]
 	pub const COORD_MP_INTEGRAL: Self = Self(SPROP_COORD_MP_INTEGRAL);
 
 	/// `SPROP_COORD_MP_LOWPRECISION`: like [`COORD_MP`](Self::COORD_MP), with 3
 	/// bits for the fractional part instead of 5.
-	#[doc(alias = "SPROP_COORD_MP_LOWPRECISION")]
+	#[doc(alias("SPROP_COORD_MP_LOWPRECISION"))]
 	pub const COORD_MP_LOW_PRECISION: Self = Self(SPROP_COORD_MP_LOWPRECISION);
 
 	/// `SPROP_ENCODED_AGAINST_TICKCOUNT`: the integer's proxy encodes it
 	/// relative to the tick count, as for `m_flSimulationTime`. This flag is
 	/// only known to the server, and not networked.
-	#[doc(alias = "SPROP_ENCODED_AGAINST_TICKCOUNT")]
+	#[doc(alias("SPROP_ENCODED_AGAINST_TICKCOUNT"))]
 	pub const ENCODED_AGAINST_TICK_COUNT: Self = Self(SPROP_ENCODED_AGAINST_TICKCOUNT);
 
 	/// `SPROP_EXCLUDE`: the property names another property to exclude, rather
 	/// than a variable.
-	#[doc(alias = "SPROP_EXCLUDE")]
+	#[doc(alias("SPROP_EXCLUDE"))]
 	pub const EXCLUDE: Self = Self(SPROP_EXCLUDE);
 
 	/// `SPROP_INSIDEARRAY`: the property describes the elements of the array
 	/// property after it.
-	#[doc(alias = "SPROP_INSIDEARRAY")]
+	#[doc(alias("SPROP_INSIDEARRAY"))]
 	pub const INSIDE_ARRAY: Self = Self(SPROP_INSIDEARRAY);
 
 	/// `SPROP_IS_A_VECTOR_ELEM`: the property is one component of a vector,
 	/// declared with `SENDINFO_VECTORELEM`.
-	#[doc(alias = "SPROP_IS_A_VECTOR_ELEM")]
+	#[doc(alias("SPROP_IS_A_VECTOR_ELEM"))]
 	pub const IS_A_VECTOR_ELEM: Self = Self(SPROP_IS_A_VECTOR_ELEM);
 
 	/// `SPROP_NOSCALE`: the float is sent as is, rather than scaled into the
 	/// range between its [low](SendProp::low_value) and
 	/// [high](SendProp::high_value) values.
-	#[doc(alias = "SPROP_NOSCALE")]
+	#[doc(alias("SPROP_NOSCALE"))]
 	pub const NO_SCALE: Self = Self(SPROP_NOSCALE);
 
 	/// `SPROP_NORMAL`: the vector is a normal. Integer properties reuse the bit
 	/// as `SPROP_VARINT`.
-	#[doc(alias = "SPROP_NORMAL")]
-	#[doc(alias = "SPROP_VARINT")]
+	#[doc(alias("SPROP_NORMAL", "SPROP_VARINT"))]
 	pub const NORMAL: Self = Self(SPROP_NORMAL);
 
 	/// `SPROP_PROXY_ALWAYS_YES`: the data table's proxy is a standard one that
 	/// sends the table to every client.
-	#[doc(alias = "SPROP_PROXY_ALWAYS_YES")]
+	#[doc(alias("SPROP_PROXY_ALWAYS_YES"))]
 	pub const PROXY_ALWAYS_YES: Self = Self(SPROP_PROXY_ALWAYS_YES);
 
 	/// `SPROP_ROUNDDOWN`: the float's [high value](SendProp::high_value) is
 	/// lowered by one encoding step.
-	#[doc(alias = "SPROP_ROUNDDOWN")]
+	#[doc(alias("SPROP_ROUNDDOWN"))]
 	pub const ROUND_DOWN: Self = Self(SPROP_ROUNDDOWN);
 
 	/// `SPROP_ROUNDUP`: the float's [low value](SendProp::low_value) is raised
 	/// by one encoding step.
-	#[doc(alias = "SPROP_ROUNDUP")]
+	#[doc(alias("SPROP_ROUNDUP"))]
 	pub const ROUND_UP: Self = Self(SPROP_ROUNDUP);
 
 	/// `SPROP_UNSIGNED`: the integer is networked unsigned. [`Storage`] takes
 	/// its signedness from this flag.
-	#[doc(alias = "SPROP_UNSIGNED")]
+	#[doc(alias("SPROP_UNSIGNED"))]
 	pub const UNSIGNED: Self = Self(SPROP_UNSIGNED);
 
 	/// `SPROP_XYZE`: the vector uses XYZ/exponent encoding.
-	#[doc(alias = "SPROP_XYZE")]
+	#[doc(alias("SPROP_XYZE"))]
 	pub const XYZE: Self = Self(SPROP_XYZE);
 
 	/// Wraps raw `SPROP_*` bits, keeping any this type has no constant for.
@@ -151,35 +150,35 @@ impl Debug for PropFlags {
 }
 
 /// The type a [`SendProp`] is networked as.
-#[doc(alias = "SendPropType")]
+#[doc(alias("SendPropType"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PropKind {
 	/// An integer, read as [`NetValue::Int`].
-	#[doc(alias = "DPT_Int")]
+	#[doc(alias("DPT_Int"))]
 	Int,
 
 	/// A float, read as [`NetValue::Float`].
-	#[doc(alias = "DPT_Float")]
+	#[doc(alias("DPT_Float"))]
 	Float,
 
 	/// Three floats, read as [`NetValue::Vector`].
-	#[doc(alias = "DPT_Vector")]
+	#[doc(alias("DPT_Vector"))]
 	Vector,
 
 	/// A vector of which only X and Y are networked.
-	#[doc(alias = "DPT_VectorXY")]
+	#[doc(alias("DPT_VectorXY"))]
 	VectorXY,
 
 	/// A string, read as [`NetValue::String`].
-	#[doc(alias = "DPT_String")]
+	#[doc(alias("DPT_String"))]
 	String,
 
 	/// Elements described by [`SendProp::array_prop`].
-	#[doc(alias = "DPT_Array")]
+	#[doc(alias("DPT_Array"))]
 	Array,
 
 	/// A nested [`SendTable`].
-	#[doc(alias = "DPT_DataTable")]
+	#[doc(alias("DPT_DataTable"))]
 	DataTable,
 
 	/// A type this crate does not know.
@@ -308,14 +307,14 @@ impl<'s> SendTable<'s> {
 	}
 
 	/// The number of properties in the table.
-	#[doc(alias = "GetNumProps")]
+	#[doc(alias("GetNumProps"))]
 	pub fn len(self) -> usize {
 		// SAFETY: As for `name`.
 		usize::try_from(unsafe { (&raw const (*self.as_ptr()).m_nProps).read() }).unwrap_or(0)
 	}
 
 	/// The table's name, such as `DT_TFPlayer`.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> &'s CStr {
 		// SAFETY: Send tables and their names are statics of the game DLL.
 		// Fields are read without forming references.
@@ -325,7 +324,7 @@ impl<'s> SendTable<'s> {
 
 	/// The property at `index`, or `None` if `index` is out of range or the
 	/// table has no properties.
-	#[doc(alias = "GetProp")]
+	#[doc(alias("GetProp"))]
 	pub fn prop(self, index: usize) -> Option<SendProp<'s>> {
 		if index >= self.len() {
 			return None;
@@ -373,14 +372,14 @@ impl<'s> ServerClass<'s> {
 	}
 
 	/// The ID the engine assigned the class for networking.
-	#[doc(alias = "m_ClassID")]
+	#[doc(alias("m_ClassID"))]
 	pub fn class_id(self) -> c_int {
 		// SAFETY: As for `name`.
 		unsafe { (&raw const (*self.as_ptr()).m_ClassID).read() }
 	}
 
 	/// The class's network name, such as `CTFPlayer`.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> &'s CStr {
 		// SAFETY: Server classes and their names are statics of the game DLL.
 		// Fields are read without forming references.
@@ -398,7 +397,7 @@ impl<'s> ServerClass<'s> {
 	}
 
 	/// The table of the class's networked variables.
-	#[doc(alias = "m_pTable")]
+	#[doc(alias("m_pTable"))]
 	pub fn table(self) -> Option<SendTable<'s>> {
 		// SAFETY: As for `name`.
 		let table = NonNull::new(unsafe { (&raw const (*self.as_ptr()).m_pTable).read() })?;
@@ -447,7 +446,7 @@ macro_rules! prop_field {
 }
 
 /// A value as clients receive it, from [`NetProp::value`].
-#[doc(alias = "DVariant")]
+#[doc(alias("DVariant"))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetValue {
 	/// The value of a [`PropKind::Int`] property.
@@ -503,7 +502,7 @@ pub trait NetVar: sealed::Sealed + Copy {
 /// A property's proxy converts its variable for networking, so a standard
 /// proxy reveals how the variable is stored. Comparisons use widths only,
 /// since a linker may fold proxies whose code is identical into one.
-#[doc(alias = "CStandardSendProxies")]
+#[doc(alias("CStandardSendProxies"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StandardSendProxies<'s> {
 	raw: NonNull<sys::CStandardSendProxies>,
@@ -641,7 +640,7 @@ impl<'s> SendProp<'s> {
 	}
 
 	/// The property describing each element of a [`PropKind::Array`] property.
-	#[doc(alias = "GetArrayProp")]
+	#[doc(alias("GetArrayProp"))]
 	pub fn array_prop(self) -> Option<SendProp<'s>> {
 		// SAFETY: The array's element property precedes it in the same table.
 		NonNull::new(prop_field!(self, m_pArrayProp))
@@ -654,13 +653,13 @@ impl<'s> SendProp<'s> {
 	}
 
 	/// The number of bits the value is encoded with.
-	#[doc(alias = "m_nBits")]
+	#[doc(alias("m_nBits"))]
 	pub fn bits(self) -> c_int {
 		prop_field!(self, m_nBits)
 	}
 
 	/// The nested table of a [`PropKind::DataTable`] property.
-	#[doc(alias = "GetDataTable")]
+	#[doc(alias("GetDataTable"))]
 	pub fn data_table(self) -> Option<SendTable<'s>> {
 		// SAFETY: Send tables are statics of the game DLL.
 		NonNull::new(prop_field!(self, m_pDataTable))
@@ -668,19 +667,19 @@ impl<'s> SendProp<'s> {
 	}
 
 	/// The number of elements of a [`PropKind::Array`] property.
-	#[doc(alias = "GetNumElements")]
+	#[doc(alias("GetNumElements"))]
 	pub fn element_count(self) -> c_int {
 		prop_field!(self, m_nElements)
 	}
 
 	/// Bytes between consecutive elements of a [`PropKind::Array`] property.
-	#[doc(alias = "GetElementStride")]
+	#[doc(alias("GetElementStride"))]
 	pub fn element_stride(self) -> c_int {
 		prop_field!(self, m_ElementStride)
 	}
 
 	/// The table an [exclude](PropFlags::EXCLUDE) property excludes a property from.
-	#[doc(alias = "GetExcludeDTName")]
+	#[doc(alias("GetExcludeDTName"))]
 	pub fn exclude_table_name(self) -> Option<&'s CStr> {
 		if !self.flags().contains(PropFlags::EXCLUDE) {
 			return None;
@@ -693,31 +692,31 @@ impl<'s> SendProp<'s> {
 	}
 
 	/// The property's `SPROP_*` flags.
-	#[doc(alias = "GetFlags")]
+	#[doc(alias("GetFlags"))]
 	pub fn flags(self) -> PropFlags {
 		PropFlags(prop_field!(self, m_Flags))
 	}
 
 	/// The highest value a float is encoded to.
-	#[doc(alias = "m_fHighValue")]
+	#[doc(alias("m_fHighValue"))]
 	pub fn high_value(self) -> f32 {
 		prop_field!(self, m_fHighValue)
 	}
 
 	/// The type the property is networked as.
-	#[doc(alias = "GetType")]
+	#[doc(alias("GetType"))]
 	pub fn kind(self) -> PropKind {
 		PropKind::from_raw(prop_field!(self, m_Type))
 	}
 
 	/// The lowest value a float is encoded to.
-	#[doc(alias = "m_fLowValue")]
+	#[doc(alias("m_fLowValue"))]
 	pub fn low_value(self) -> f32 {
 		prop_field!(self, m_fLowValue)
 	}
 
 	/// The variable's name, such as `m_iHealth`.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> &'s CStr {
 		let name = prop_field!(self, m_pVarName);
 
@@ -726,7 +725,7 @@ impl<'s> SendProp<'s> {
 	}
 
 	/// Bytes from the start of the structure the property's table describes.
-	#[doc(alias = "GetOffset")]
+	#[doc(alias("GetOffset"))]
 	pub fn offset(self) -> c_int {
 		prop_field!(self, m_Offset)
 	}
@@ -1091,7 +1090,7 @@ impl<'s> NetProp<'s> {
 	/// entity is not networked or its class does not derive from the one the
 	/// variable was resolved in, or if the property is not a scalar or has no
 	/// proxy.
-	#[doc(alias = "SendVarProxyFn")]
+	#[doc(alias("SendVarProxyFn"))]
 	pub fn value(self, entity: Entity<'_>) -> Result<NetValue, NetPropError> {
 		let edict = self.check_entity(entity)?;
 		let kind = self.prop.kind();

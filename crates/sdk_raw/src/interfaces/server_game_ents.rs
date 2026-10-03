@@ -6,5 +6,5 @@ use std::ffi::CStr;
 /// The version string `IServerGameEnts` is exported and requested under.
 ///
 /// This is `INTERFACEVERSION_SERVERGAMEENTS` from `public/eiface.h`.
-#[doc(alias = "INTERFACEVERSION_SERVERGAMEENTS")]
+#[doc(alias("INTERFACEVERSION_SERVERGAMEENTS"))]
 pub const VERSION: &CStr = c"ServerGameEnts001";

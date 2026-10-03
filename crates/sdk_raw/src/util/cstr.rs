@@ -87,7 +87,7 @@ pub fn cstring_from_buffer(buffer: &[c_char]) -> CString {
 /// `pointer` must be aligned for [`WChar`] and reference a NUL-terminated
 /// sequence of them, no longer than `isize::MAX` bytes, that stays allocated
 /// for the call.
-#[doc(alias = "wcslen")]
+#[doc(alias("wcslen"))]
 pub unsafe fn wide_cstr_len(pointer: NonNull<WChar>) -> usize {
 	let mut len = 0;
 

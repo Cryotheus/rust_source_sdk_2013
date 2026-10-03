@@ -47,5 +47,5 @@ const _: () = {
 /// The version string `IVEngineServer` is exported and requested under.
 ///
 /// This is `INTERFACEVERSION_VENGINESERVER` from `public/eiface.h`.
-#[doc(alias = "INTERFACEVERSION_VENGINESERVER")]
+#[doc(alias("INTERFACEVERSION_VENGINESERVER"))]
 pub const VERSION: &CStr = c"VEngineServer023";

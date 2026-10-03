@@ -68,7 +68,7 @@ impl From<ClientLayoutError> for HookTargetError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Incoming {
 	/// The client's last received tick and frame times (`NET_Tick`).
-	#[doc(alias = "NET_Tick")]
+	#[doc(alias("NET_Tick"))]
 	Tick {
 		/// The last server tick the client received.
 		tick: c_int,
@@ -81,21 +81,21 @@ pub enum Incoming {
 	},
 
 	/// A console command for the server (`NET_StringCmd`).
-	#[doc(alias = "NET_StringCmd")]
+	#[doc(alias("NET_StringCmd"))]
 	StringCmd {
 		/// The command and its arguments.
 		command: CString,
 	},
 
 	/// Changed user settings (`NET_SetConVar`).
-	#[doc(alias = "NET_SetConVar")]
+	#[doc(alias("NET_SetConVar"))]
 	SetConVar {
 		/// Names and values; at most 255.
 		convars: Vec<(CString, CString)>,
 	},
 
 	/// Progress through connecting (`NET_SignonState`).
-	#[doc(alias = "NET_SignonState")]
+	#[doc(alias("NET_SignonState"))]
 	SignonState {
 		/// The sign-on state the client reached, a `SIGNONSTATE_*` value.
 		state: c_int,
@@ -105,7 +105,7 @@ pub enum Incoming {
 	},
 
 	/// The client's identity and custom files (`CLC_ClientInfo`).
-	#[doc(alias = "CLC_ClientInfo")]
+	#[doc(alias("CLC_ClientInfo"))]
 	ClientInfo {
 		/// A CRC of the client's send tables.
 		send_table_crc: u32,
@@ -130,7 +130,7 @@ pub enum Incoming {
 	},
 
 	/// User commands (`CLC_Move`).
-	#[doc(alias = "CLC_Move")]
+	#[doc(alias("CLC_Move"))]
 	Move {
 		/// Commands sent before, repeated in case their packets were lost.
 		backup_commands: c_int,
@@ -143,14 +143,14 @@ pub enum Incoming {
 	},
 
 	/// Encoded voice (`CLC_VoiceData`).
-	#[doc(alias = "CLC_VoiceData")]
+	#[doc(alias("CLC_VoiceData"))]
 	VoiceData {
 		/// The encoded voice.
 		data: BitWriter,
 	},
 
 	/// Acknowledgement of an entity baseline (`CLC_BaselineAck`).
-	#[doc(alias = "CLC_BaselineAck")]
+	#[doc(alias("CLC_BaselineAck"))]
 	BaselineAck {
 		/// The tick of the baseline the client acknowledges.
 		tick: c_int,
@@ -160,14 +160,14 @@ pub enum Incoming {
 	},
 
 	/// The game events the client wants (`CLC_ListenEvents`).
-	#[doc(alias = "CLC_ListenEvents")]
+	#[doc(alias("CLC_ListenEvents"))]
 	ListenEvents {
 		/// A bit per game event ID.
 		events: [u32; 16],
 	},
 
 	/// The answer to a console variable query (`CLC_RespondCvarValue`).
-	#[doc(alias = "CLC_RespondCvarValue")]
+	#[doc(alias("CLC_RespondCvarValue"))]
 	RespondCvarValue {
 		/// The cookie of the query answered.
 		cookie: c_int,
@@ -192,7 +192,7 @@ pub enum Incoming {
 	},
 
 	/// A file's hash, for `sv_pure` (`CLC_FileCRCCheck`).
-	#[doc(alias = "CLC_FileCRCCheck")]
+	#[doc(alias("CLC_FileCRCCheck"))]
 	FileCrcCheck {
 		/// The search path ID the file was found under, such as `GAME`.
 		path_id: CString,
@@ -223,7 +223,7 @@ pub enum Incoming {
 	},
 
 	/// A file's MD5 hash (`CLC_FileMD5Check`).
-	#[doc(alias = "CLC_FileMD5Check")]
+	#[doc(alias("CLC_FileMD5Check"))]
 	FileMd5Check {
 		/// The search path ID the file was found under, such as `GAME`.
 		path_id: CString,
@@ -236,7 +236,7 @@ pub enum Incoming {
 	},
 
 	/// A request to save a replay (`CLC_SaveReplay`).
-	#[doc(alias = "CLC_SaveReplay")]
+	#[doc(alias("CLC_SaveReplay"))]
 	SaveReplay {
 		/// The byte of the replay's data to start sending from.
 		start_send_byte: c_int,
@@ -250,7 +250,7 @@ pub enum Incoming {
 
 	/// A command with key values (`CLC_CmdKeyValues`). The key values are not
 	/// decoded.
-	#[doc(alias = "CLC_CmdKeyValues")]
+	#[doc(alias("CLC_CmdKeyValues"))]
 	CmdKeyValues,
 }
 
@@ -356,51 +356,51 @@ pub trait IncomingHandler: 'static {
 }
 
 /// The client message handler methods, one per kind of message.
-#[doc(alias = "IClientMessageHandler")]
+#[doc(alias("IClientMessageHandler"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IncomingKind {
 	/// `net_Tick`: the client's last received tick and frame times.
-	#[doc(alias = "ProcessTick")]
+	#[doc(alias("ProcessTick"))]
 	Tick,
 	/// `net_StringCmd`: a console command for the server.
-	#[doc(alias = "ProcessStringCmd")]
+	#[doc(alias("ProcessStringCmd"))]
 	StringCmd,
 	/// `net_SetConVar`: changed user settings.
-	#[doc(alias = "ProcessSetConVar")]
+	#[doc(alias("ProcessSetConVar"))]
 	SetConVar,
 	/// `net_SignonState`: progress through connecting.
-	#[doc(alias = "ProcessSignonState")]
+	#[doc(alias("ProcessSignonState"))]
 	SignonState,
 	/// `clc_ClientInfo`: the client's identity and custom files.
-	#[doc(alias = "ProcessClientInfo")]
+	#[doc(alias("ProcessClientInfo"))]
 	ClientInfo,
 	/// `clc_Move`: user commands.
-	#[doc(alias = "ProcessMove")]
+	#[doc(alias("ProcessMove"))]
 	Move,
 	/// `clc_VoiceData`: encoded voice.
-	#[doc(alias = "ProcessVoiceData")]
+	#[doc(alias("ProcessVoiceData"))]
 	VoiceData,
 	/// `clc_BaselineAck`: acknowledgement of an entity baseline.
-	#[doc(alias = "ProcessBaselineAck")]
+	#[doc(alias("ProcessBaselineAck"))]
 	BaselineAck,
 	/// `clc_ListenEvents`: the game events the client wants.
-	#[doc(alias = "ProcessListenEvents")]
+	#[doc(alias("ProcessListenEvents"))]
 	ListenEvents,
 	/// `clc_RespondCvarValue`: the answer to a console variable query.
-	#[doc(alias = "ProcessRespondCvarValue")]
+	#[doc(alias("ProcessRespondCvarValue"))]
 	RespondCvarValue,
 	/// `clc_FileCRCCheck`: a file's hash, for `sv_pure`.
-	#[doc(alias = "ProcessFileCRCCheck")]
+	#[doc(alias("ProcessFileCRCCheck"))]
 	FileCrcCheck,
 	/// `clc_FileMD5Check`: a file's MD5 hash.
-	#[doc(alias = "ProcessFileMD5Check")]
+	#[doc(alias("ProcessFileMD5Check"))]
 	FileMd5Check,
 	/// `clc_SaveReplay`: a request to save a replay.
-	#[doc(alias = "ProcessSaveReplay")]
+	#[doc(alias("ProcessSaveReplay"))]
 	SaveReplay,
 	/// `clc_CmdKeyValues`: a command with key values, such as TF2's Mann vs.
 	/// Machine upgrades.
-	#[doc(alias = "ProcessCmdKeyValues")]
+	#[doc(alias("ProcessCmdKeyValues"))]
 	CmdKeyValues,
 }
 
@@ -467,7 +467,7 @@ impl IncomingKind {
 }
 
 /// A message a client sent, before the engine processed it.
-#[doc(alias = "INetMessage")]
+#[doc(alias("INetMessage"))]
 #[derive(Debug, Clone, Copy)]
 pub struct IncomingMessage<'s> {
 	kind: IncomingKind,
@@ -506,7 +506,7 @@ impl<'s> IncomingMessage<'s> {
 
 	/// The engine's own description of the message and its fields, or `None`
 	/// if the engine returns none.
-	#[doc(alias = "ToString")]
+	#[doc(alias("ToString"))]
 	pub fn describe(self) -> Option<CString> {
 		// SAFETY: As for `id`. The engine formats into a buffer it reuses, so
 		// the text is copied at once.
@@ -514,21 +514,21 @@ impl<'s> IncomingMessage<'s> {
 	}
 
 	/// The group the engine counts the message's traffic in.
-	#[doc(alias = "GetGroup")]
+	#[doc(alias("GetGroup"))]
 	pub fn group(self) -> c_int {
 		// SAFETY: As for `id`.
 		unsafe { vcall!(self.as_const() => INetMessage_GetGroup()) }
 	}
 
 	/// The message's type, as the client numbers its messages.
-	#[doc(alias = "GetType")]
+	#[doc(alias("GetType"))]
 	pub fn id(self) -> c_int {
 		// SAFETY: The engine keeps the message alive while it is processed.
 		unsafe { vcall!(self.as_const() => INetMessage_GetType()) }
 	}
 
 	/// Whether the client sent it in its reliable stream.
-	#[doc(alias = "IsReliable")]
+	#[doc(alias("IsReliable"))]
 	pub fn is_reliable(self) -> bool {
 		// SAFETY: As for `id`.
 		unsafe { vcall!(self.as_const() => INetMessage_IsReliable()) }
@@ -541,7 +541,7 @@ impl<'s> IncomingMessage<'s> {
 
 	/// The engine's name for the message, such as `clc_VoiceData`, or `None`
 	/// if the engine returns none.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: As for `id`, and the name is copied at once.
 		unsafe { copy_cstr(vcall!(self.as_const() => INetMessage_GetName())) }

@@ -110,7 +110,7 @@ pub struct ScenePath(CString);
 impl ScenePath {
 	/// The longest path, in bytes, that the game keeps whole: 127, leaving
 	/// room for the terminator in its 128-byte buffer.
-	#[doc(alias = "MAX_SCENE_FILENAME")]
+	#[doc(alias("MAX_SCENE_FILENAME"))]
 	pub const MAX_LEN: usize = MAX_SCENE_FILENAME - 1;
 
 	/// Checks and copies a path.
@@ -247,8 +247,7 @@ impl<'s> Speaker<'s> {
 
 	/// Whether the player is alive (`m_lifeState` is `LIFE_ALIVE`), as a
 	/// scene requires of its speaker. Players waiting to respawn are not.
-	#[doc(alias = "IsAlive")]
-	#[doc(alias = "m_lifeState")]
+	#[doc(alias("IsAlive", "m_lifeState"))]
 	pub fn is_alive(self) -> bool {
 		// SAFETY: `new` found the one-byte field in `CBaseEntity`'s own datamap,
 		// which every entity shares through its base, at a plausible offset.
@@ -313,8 +312,7 @@ impl<'s> Speaker<'s> {
 	/// (`CTFPlayer::PlayScene` clears `m_bInitTaunt`), so this must not be
 	/// called from a hook inside TF2's taunt code, where the line would
 	/// replace the taunt.
-	#[doc(alias = "PlayScene")]
-	#[doc(alias = "InstancedScriptedScene")]
+	#[doc(alias("PlayScene", "InstancedScriptedScene"))]
 	pub fn play_scene(self, scene: &ScenePath) -> Result<Duration, VoiceError> {
 		self.check_ready()?;
 
@@ -367,7 +365,7 @@ impl<'s> Speaker<'s> {
 	/// reports failure.
 	///
 	/// [`play_scene`]: Self::play_scene
-	#[doc(alias = "ScriptPlayScene")]
+	#[doc(alias("ScriptPlayScene"))]
 	pub fn play_scene_scripted(self, scene: &ScenePath) -> Result<Duration, VoiceError> {
 		self.check_ready()?;
 

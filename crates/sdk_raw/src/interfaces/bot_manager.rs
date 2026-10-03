@@ -8,5 +8,5 @@ use std::ffi::CStr;
 ///
 /// This is `INTERFACEVERSION_PLAYERBOTMANAGER` from
 /// `public/game/server/iplayerinfo.h`.
-#[doc(alias = "INTERFACEVERSION_PLAYERBOTMANAGER")]
+#[doc(alias("INTERFACEVERSION_PLAYERBOTMANAGER"))]
 pub const VERSION: &CStr = c"BotManager001";

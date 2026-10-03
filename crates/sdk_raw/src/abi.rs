@@ -27,7 +27,7 @@ pub type CppDestructors = cfg_select! {
 
 /// An unsigned integer as wide as C++'s `wchar_t` on the target: 16 bits on
 /// Windows and 32 bits on Linux.
-#[doc(alias = "wchar_t")]
+#[doc(alias("wchar_t"))]
 pub type WChar = cfg_select! {
 	all(target_os = "windows", target_pointer_width = "64") => u16,
 	all(target_os = "linux", target_pointer_width = "64") => u32,

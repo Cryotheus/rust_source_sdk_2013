@@ -10,7 +10,7 @@ const ERROR_MODEL: &[u8] = b"error.mdl";
 
 interface! {
 	/// The server's registry of precached models (`IVModelInfo`).
-	#[doc(alias = "IVModelInfo")]
+	#[doc(alias("IVModelInfo"))]
 	pub struct ModelInfo(sys::IVModelInfo) = Engine sdk_raw::interfaces::model_info::VERSION;
 }
 
@@ -33,7 +33,7 @@ impl<'s> ModelInfo<'s> {
 	/// The precache index of a model, such as `models/player/scout.mdl`, or
 	/// `None` if the model is not precached. Dynamic models, whose indices are
 	/// negative, also give `None`.
-	#[doc(alias = "GetModelIndex")]
+	#[doc(alias("GetModelIndex"))]
 	pub fn model_index(self, name: &CStr) -> Option<c_int> {
 		// SAFETY: `Server::new` guarantees the interface is live.
 		let index = unsafe { vcall!(self.as_ptr() => IVModelInfo_GetModelIndex(name.as_ptr())) };
@@ -43,7 +43,7 @@ impl<'s> ModelInfo<'s> {
 
 	/// The name of the model at a precache index, or `None` if no model has
 	/// that index.
-	#[doc(alias = "GetModelName")]
+	#[doc(alias("GetModelName"))]
 	pub fn model_name(self, index: c_int) -> Option<CString> {
 		// SAFETY: As for `model_index`.
 		let model = unsafe { vcall!(self.as_ptr() => IVModelInfo_GetModel(index)) };
@@ -59,7 +59,7 @@ impl<'s> ModelInfo<'s> {
 	/// The name a model's studio header gives, such as
 	/// `player\items\scout\bonk_helmet.mdl`, or `None` if no model has the
 	/// index or it is not a studio model.
-	#[doc(alias = "GetStudiomodel")]
+	#[doc(alias("GetStudiomodel"))]
 	pub fn studio_name(self, index: c_int) -> Option<CString> {
 		// SAFETY: As for `model_index`.
 		let model = unsafe { vcall!(self.as_ptr() => IVModelInfo_GetModel(index)) };

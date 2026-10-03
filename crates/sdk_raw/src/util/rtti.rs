@@ -42,7 +42,7 @@ const TYPE_DESCRIPTOR_NAME_OFFSET: usize = 2 * size_of::<*const c_void>();
 /// MSVC's `_RTTIBaseClassDescriptor` for 64-bit images, which describes one
 /// class of a hierarchy, the class itself included. Its references are
 /// relative to the image's base.
-#[doc(alias = "_RTTIBaseClassDescriptor")]
+#[doc(alias("_RTTIBaseClassDescriptor"))]
 #[cfg(target_os = "windows")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -74,13 +74,13 @@ pub struct BaseClassDescriptor {
 impl BaseClassDescriptor {
 	/// `BCD_HASPCHD`: [`class_descriptor`](Self::class_descriptor) refers to
 	/// the class's hierarchy.
-	#[doc(alias = "BCD_HASPCHD")]
+	#[doc(alias("BCD_HASPCHD"))]
 	pub const HAS_HIERARCHY: u32 = 0x40;
 }
 
 /// MSVC's `_RTTIClassHierarchyDescriptor` for 64-bit images, which lists a
 /// class and its bases. Its references are relative to the image's base.
-#[doc(alias = "_RTTIClassHierarchyDescriptor")]
+#[doc(alias("_RTTIClassHierarchyDescriptor"))]
 #[cfg(target_os = "windows")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -103,7 +103,7 @@ pub struct ClassHierarchyDescriptor {
 
 /// The Itanium ABI's `std::type_info` for a class without bases,
 /// `__cxxabiv1::__class_type_info`: its vtable and mangled name.
-#[doc(alias = "__class_type_info")]
+#[doc(alias("__class_type_info"))]
 #[cfg(not(target_os = "windows"))]
 #[derive(Debug)]
 #[repr(C)]
@@ -126,7 +126,7 @@ unsafe impl Sync for ClassTypeInfo {}
 ///
 /// MSVC stores the address of a vtable's locator in the slot before the
 /// vtable's first.
-#[doc(alias = "_RTTICompleteObjectLocator")]
+#[doc(alias("_RTTICompleteObjectLocator"))]
 #[cfg(any(target_os = "windows", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -176,7 +176,7 @@ impl CompleteObjectLocator {
 /// MSVC's `_TypeDescriptor`, laid out as its `std::type_info`: its vtable,
 /// the undecorated name the runtime caches when asked for it, and the
 /// decorated name, `N` bytes with its terminator, which casts compare.
-#[doc(alias = "_TypeDescriptor")]
+#[doc(alias("_TypeDescriptor"))]
 #[cfg(target_os = "windows")]
 #[derive(Debug)]
 #[repr(C)]

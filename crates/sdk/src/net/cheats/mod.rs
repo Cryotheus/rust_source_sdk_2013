@@ -532,7 +532,7 @@ impl Client {
 ///
 /// See the [module documentation](self) for how leases work, and how a plugin
 /// wires this in.
-#[doc(alias = "sv_cheats")]
+#[doc(alias("sv_cheats"))]
 #[derive(Debug)]
 pub struct ClientCheats {
 	clients: Vec<Client>,
@@ -854,7 +854,7 @@ impl ClientCheats {
 	/// as [`LeaseOutcome::Unverified`], so that the next
 	/// [`Self::on_game_frame`] restores the client instead of waiting for
 	/// their timeout.
-	#[doc(alias = "ProcessRespondCvarValue")]
+	#[doc(alias("ProcessRespondCvarValue"))]
 	pub fn on_incoming(&mut self, message: IncomingMessage<'_>) -> Verdict {
 		if message.kind() != IncomingKind::RespondCvarValue || !self.awaits_answers() {
 			return Verdict::Continue;
@@ -881,7 +881,7 @@ impl ClientCheats {
 	/// [`Self::on_incoming`] calls this with the decoded message; call it
 	/// directly when the message is already decoded. It only updates state:
 	/// the lease is confirmed or refused once the client's restore is sent.
-	#[doc(alias = "CLC_RespondCvarValue")]
+	#[doc(alias("CLC_RespondCvarValue"))]
 	pub fn on_response(&mut self, user_id: UserId, response: &Incoming) -> Verdict {
 		let Incoming::RespondCvarValue {
 			cookie,
@@ -1482,7 +1482,7 @@ fn restore_bits(values: &[(CString, CString)]) -> BitWriter {
 /// Clients revert their cheat-flagged variables when their `sv_cheats` turns
 /// off, which would leave their copies of these at their defaults. Variables
 /// too long for a `net_SetConVar` are left out, and the values are copied.
-#[doc(alias = "FCVAR_REPLICATED")]
+#[doc(alias("FCVAR_REPLICATED"))]
 pub fn restore_values(cvar: Cvar<'_>) -> Result<Vec<(CString, CString)>, CheatsError> {
 	let cheats = cvar.find_var(CHEATS).ok_or(CheatsError::MissingCheats)?;
 

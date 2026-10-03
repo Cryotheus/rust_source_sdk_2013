@@ -34,9 +34,7 @@ impl UserMessage for ForcePlayerViewAngles {
 
 /// TF2's notification with an icon (`HudNotifyCustom`), as
 /// `CTFGameRules::SendHudNotification` sends it.
-#[doc(alias = "HudNotifyCustom")]
-#[doc(alias = "SendHudNotification")]
-#[doc(alias = "game_text_tf")]
+#[doc(alias("HudNotifyCustom", "SendHudNotification", "game_text_tf"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HudNotification<'a> {
 	/// The text shown with the icon.

@@ -6,7 +6,7 @@ use std::ffi::CStr;
 
 /// `void IServerGameDLL::GameFrame(bool simulating)`, which the engine calls
 /// once per server frame to run the game's.
-#[doc(alias = "GameFrame")]
+#[doc(alias("GameFrame"))]
 pub type GameFrameFn = unsafe extern "C" fn(this: *mut sys::IServerGameDLL, simulating: bool);
 
 const _: () = assert!(
@@ -29,5 +29,5 @@ pub const GAME_FRAME_SLOT: usize = 5;
 /// The version string `IServerGameDLL` is exported and requested under.
 ///
 /// This is `INTERFACEVERSION_SERVERGAMEDLL` from `public/eiface.h`.
-#[doc(alias = "INTERFACEVERSION_SERVERGAMEDLL")]
+#[doc(alias("INTERFACEVERSION_SERVERGAMEDLL"))]
 pub const VERSION: &CStr = c"ServerGameDLL012";

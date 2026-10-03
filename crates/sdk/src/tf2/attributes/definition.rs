@@ -92,7 +92,7 @@ impl<V: AttributeValue> AttributeDef<V> {
 
 	/// The attribute class, the name of the gameplay hook that reads the
 	/// attribute, such as `mult_dmg`.
-	#[doc(alias = "attribute_class")]
+	#[doc(alias("attribute_class"))]
 	pub const fn class(&self) -> &'static CStr {
 		self.raw.class
 	}
@@ -104,14 +104,14 @@ impl<V: AttributeValue> AttributeDef<V> {
 
 	/// How the schema describes the value, which decides how the game folds
 	/// it with the same attribute class from other providers.
-	#[doc(alias = "description_format")]
+	#[doc(alias("description_format"))]
 	pub const fn format(&self) -> DescriptionFormat {
 		self.raw.format
 	}
 
 	/// The definition index the shipped schema gives the attribute. Writes
 	/// check that the running schema maps [`Self::name`] to it.
-	#[doc(alias = "defindex")]
+	#[doc(alias("defindex"))]
 	pub const fn index(&self) -> AttributeIndex {
 		self.raw.index
 	}
@@ -152,7 +152,7 @@ impl<V: AttributeValue> AttributeDef<V> {
 
 /// An attribute definition index in TF2's item schema
 /// (`attrib_definition_index_t`), never the invalid sentinel 65535.
-#[doc(alias = "attrib_definition_index_t")]
+#[doc(alias("attrib_definition_index_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct AttributeIndex(u16);
 
@@ -213,23 +213,23 @@ pub enum Combine {
 #[non_exhaustive]
 pub enum DescriptionFormat {
 	/// An amount added to the hooked value.
-	#[doc(alias = "value_is_additive")]
+	#[doc(alias("value_is_additive"))]
 	Additive,
 
 	/// A fraction added to the hooked value, described as a percentage.
-	#[doc(alias = "value_is_additive_percentage")]
+	#[doc(alias("value_is_additive_percentage"))]
 	AdditivePercentage,
 
 	/// A multiplier, described as a percentage of decrease.
-	#[doc(alias = "value_is_inverted_percentage")]
+	#[doc(alias("value_is_inverted_percentage"))]
 	InvertedPercentage,
 
 	/// Bits combined with a bitwise or.
-	#[doc(alias = "value_is_or")]
+	#[doc(alias("value_is_or"))]
 	Or,
 
 	/// A multiplier, described as a percentage of increase.
-	#[doc(alias = "value_is_percentage")]
+	#[doc(alias("value_is_percentage"))]
 	Percentage,
 }
 

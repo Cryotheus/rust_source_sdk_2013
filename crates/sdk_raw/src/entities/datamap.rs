@@ -31,7 +31,7 @@ pub const TD_OFFSET_NORMAL: usize = 0;
 /// Fields are only reached through [`DataMap::fields`], borrowed for as long
 /// as their map, which is what makes reading their names safe. The raw
 /// description is readable through `Deref`.
-#[doc(alias = "typedescription_t")]
+#[doc(alias("typedescription_t"))]
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct DataField(sys::typedescription_t);
@@ -78,7 +78,7 @@ impl Deref for DataField {
 
 /// One class's data description map (`datamap_t`), which declares the fields
 /// of that class, not those of its bases.
-#[doc(alias = "datamap_t")]
+#[doc(alias("datamap_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DataMap<'a> {
 	raw: NonNull<sys::datamap_t>,
@@ -111,7 +111,7 @@ impl<'a> DataMap<'a> {
 
 	/// The map of the class's base class (`baseMap`), or `None` for a class
 	/// without one.
-	#[doc(alias = "baseMap")]
+	#[doc(alias("baseMap"))]
 	pub fn base(self) -> Option<Self> {
 		// SAFETY: The map is allocated and unmodified for `'a`, as `from_raw`
 		// requires, and its field is read without forming a reference.
@@ -124,7 +124,7 @@ impl<'a> DataMap<'a> {
 
 	/// The name of the class the map describes (`dataClassName`), such as
 	/// `CBaseEntity`, or `None` if it has none.
-	#[doc(alias = "dataClassName")]
+	#[doc(alias("dataClassName"))]
 	pub fn class_name(self) -> Option<&'a CStr> {
 		// SAFETY: As for `base`, and the name is a string of the map's module,
 		// which stays allocated and unmodified for `'a`.
@@ -145,7 +145,7 @@ impl<'a> DataMap<'a> {
 	///
 	/// A map whose array is null or misaligned, or whose count is not within
 	/// 1 to [`Self::MAX_FIELDS`], declares none.
-	#[doc(alias = "dataDesc")]
+	#[doc(alias("dataDesc"))]
 	pub fn fields(self) -> &'a [DataField] {
 		// SAFETY: As for `base`.
 		let (fields, count) = unsafe {

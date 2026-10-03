@@ -188,37 +188,39 @@ pub struct OverlayMaterial(Cow<'static, CStr>);
 
 impl OverlayMaterial {
 	/// Bleeding (`effects/bleed_overlay`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_BLEED")]
+	#[doc(alias("TF_SCREEN_OVERLAY_MATERIAL_BLEED"))]
 	pub const BLEED: Self = Self::stock(c"effects/bleed_overlay");
 
 	/// Burning (`effects/imcookin`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_BURNING")]
+	#[doc(alias("TF_SCREEN_OVERLAY_MATERIAL_BURNING"))]
 	pub const BURNING: Self = Self::stock(c"effects/imcookin");
 
 	/// Covered in gas, from the Gas Passer (`effects/gas_overlay`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_GAS")]
+	#[doc(alias("TF_SCREEN_OVERLAY_MATERIAL_GAS"))]
 	pub const GAS: Self = Self::stock(c"effects/gas_overlay");
 
 	/// BLU's ÜberCharge (`effects/invuln_overlay_blue`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_INVULN_BLUE")]
+	#[doc(alias("TF_SCREEN_OVERLAY_MATERIAL_INVULN_BLUE"))]
 	pub const INVULN_BLUE: Self = Self::stock(c"effects/invuln_overlay_blue");
 
 	/// RED's ÜberCharge (`effects/invuln_overlay_red`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_INVULN_RED")]
+	#[doc(alias("TF_SCREEN_OVERLAY_MATERIAL_INVULN_RED"))]
 	pub const INVULN_RED: Self = Self::stock(c"effects/invuln_overlay_red");
 
 	/// Covered in Jarate, which TF2 also shows for marked for death and the
 	/// swimming curse (`effects/jarate_overlay`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_SWIMMING_CURSE")]
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_URINE")]
+	#[doc(alias(
+		"TF_SCREEN_OVERLAY_MATERIAL_SWIMMING_CURSE",
+		"TF_SCREEN_OVERLAY_MATERIAL_URINE"
+	))]
 	pub const JARATE: Self = Self::stock(c"effects/jarate_overlay");
 
 	/// Intercepting a pass in PASS Time (`effects/dodge_overlay`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_PHASE")]
+	#[doc(alias("TF_SCREEN_OVERLAY_MATERIAL_PHASE"))]
 	pub const PHASE: Self = Self::stock(c"effects/dodge_overlay");
 
 	/// A cloaked Spy (`effects/stealth_overlay`).
-	#[doc(alias = "TF_SCREEN_OVERLAY_MATERIAL_STEALTH")]
+	#[doc(alias("TF_SCREEN_OVERLAY_MATERIAL_STEALTH"))]
 	pub const STEALTH: Self = Self::stock(c"effects/stealth_overlay");
 
 	/// The overlay materials TF2 itself draws, which every TF2 client has
@@ -309,7 +311,7 @@ impl OverlayMaterial {
 /// deletion, [`OverlayError::UnsupportedMethod`] when the game lacks the
 /// expected native method, and [`OverlayError::Rejected`] when the method's
 /// binding reports failure.
-#[doc(alias = "m_szScriptOverlayMaterial")]
+#[doc(alias("m_szScriptOverlayMaterial"))]
 #[derive(Debug, Clone, Copy)]
 pub struct ScreenOverlay<'s> {
 	player: Entity<'s>,
@@ -344,7 +346,7 @@ impl<'s> ScreenOverlay<'s> {
 	}
 
 	/// Removes the overlay, whoever set it, so the client stops drawing it.
-	#[doc(alias = "SetScriptOverlayMaterial")]
+	#[doc(alias("SetScriptOverlayMaterial"))]
 	pub fn clear(self) -> Result<(), OverlayError> {
 		self.set_name(c"")
 	}
@@ -373,7 +375,7 @@ impl<'s> ScreenOverlay<'s> {
 	/// A copy of the overlay's material name, or `None` if there is no
 	/// overlay. A map script or another plugin may have set a name that
 	/// [`OverlayMaterial::new`] refuses.
-	#[doc(alias = "GetScriptOverlayMaterial")]
+	#[doc(alias("GetScriptOverlayMaterial"))]
 	pub fn get(self) -> Result<Option<CString>, OverlayError> {
 		self.check_live()?;
 
@@ -403,7 +405,7 @@ impl<'s> ScreenOverlay<'s> {
 	/// before, until it is changed or cleared, or the player entity is
 	/// recreated. A client that lacks the material draws the error material
 	/// instead.
-	#[doc(alias = "SetScriptOverlayMaterial")]
+	#[doc(alias("SetScriptOverlayMaterial"))]
 	pub fn set(self, material: &OverlayMaterial) -> Result<(), OverlayError> {
 		self.set_name(material.as_cstr())
 	}

@@ -11,5 +11,5 @@
 /// which sizes `CInstancedSceneEntity::m_szInstanceFilename` in
 /// `game/server/sceneentity.cpp`. Neither class has a generated layout to
 /// check it against.
-#[doc(alias = "m_szInstanceFilename")]
+#[doc(alias("m_szInstanceFilename"))]
 pub const MAX_SCENE_FILENAME: usize = 128;

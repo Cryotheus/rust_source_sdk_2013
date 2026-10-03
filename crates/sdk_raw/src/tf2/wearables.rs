@@ -25,5 +25,5 @@ const _: () = {
 /// This is `MAX_WEARABLES_SENT_FROM_SERVER` from
 /// `game/shared/econ/econ_wearable.h`, which TF2 sets to
 /// `LOADOUT_MAX_WEARABLES_COUNT` from `game/shared/tf/tf_item_constants.h`.
-#[doc(alias = "LOADOUT_MAX_WEARABLES_COUNT")]
+#[doc(alias("LOADOUT_MAX_WEARABLES_COUNT"))]
 pub const MAX_WEARABLES_SENT_FROM_SERVER: usize = 8;

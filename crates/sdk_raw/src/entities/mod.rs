@@ -18,7 +18,7 @@ use std::mem::transmute;
 
 /// `CBaseEntity::Teleport`, which moves an entity and sets each of its origin,
 /// angles, and velocity that is not null.
-#[doc(alias = "Teleport")]
+#[doc(alias("Teleport"))]
 pub type TeleportFn = unsafe extern "C" fn(
 	this: *mut sys::CBaseEntity,
 	origin: *const sys::Vector,
@@ -42,7 +42,7 @@ const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TeleportFn = |vtable| vtable.C
 /// Derived from `game/server/baseentity.h` with the MSVC ABI model on Windows
 /// and the Itanium ABI model on Linux, and verified against SourceMod's
 /// `sdktools.games/game.tf.txt` gamedata.
-#[doc(alias = "AcceptInput")]
+#[doc(alias("AcceptInput"))]
 pub const ACCEPT_INPUT_SLOT: usize = cfg_select! {
 	target_os = "windows" => 38,
 	target_os = "linux" => 39,
@@ -63,7 +63,7 @@ pub const ENT_ENTRY_MASK: u32 = (1 << NUM_SERIAL_NUM_BITS) - 1;
 /// `CBaseEntity::GetDataDescMap` in the Source SDK 2013 primary vtable.
 /// Derived from `game/server/cbase.h` with the MSVC ABI model on Windows and
 /// the Itanium ABI model on Linux.
-#[doc(alias = "GetDataDescMap")]
+#[doc(alias("GetDataDescMap"))]
 pub const GET_DATA_DESC_MAP_SLOT: usize = cfg_select! {
 	target_os = "windows" => 11,
 	target_os = "linux" => 12,
@@ -106,7 +106,7 @@ pub const NUM_SERIAL_NUM_SHIFT_BITS: u32 = 32 - NUM_SERIAL_NUM_BITS;
 
 /// `CBaseEntity::Teleport` in the generic Source SDK 2013 game DLL.
 /// This preserves the non-TF game layout; generated entity types use TF2.
-#[doc(alias = "Teleport")]
+#[doc(alias("Teleport"))]
 pub const SDK2013_TELEPORT_SLOT: usize = cfg_select! {
 	target_os = "windows" => 110,
 	target_os = "linux" => 111,
@@ -114,7 +114,7 @@ pub const SDK2013_TELEPORT_SLOT: usize = cfg_select! {
 
 /// `CBaseEntity::Teleport` in TF2's game DLL.
 /// Verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
-#[doc(alias = "Teleport")]
+#[doc(alias("Teleport"))]
 pub const TF2_TELEPORT_SLOT: usize =
 	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_Teleport);
 
@@ -152,7 +152,7 @@ pub enum TeleportSlot {
 ///   pooled string does.
 /// - The input, and every game function it runs, must free entities only
 ///   through deferred deletion.
-#[doc(alias = "AcceptInput")]
+#[doc(alias("AcceptInput"))]
 pub unsafe fn accept_input(
 	entity: *mut sys::CBaseEntity,
 	input: &CStr,
@@ -184,7 +184,7 @@ pub unsafe fn accept_input(
 /// # Safety
 ///
 /// `entity` must point to a live `CBaseEntity` of the loaded game DLL.
-#[doc(alias = "GetDataDescMap")]
+#[doc(alias("GetDataDescMap"))]
 pub unsafe fn data_desc_map(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
 	// SAFETY: The entity is live, and every game DLL's vtable has
 	// `GetDataDescMap` where the generated one does.
@@ -232,7 +232,7 @@ pub fn find_base_entity_field(
 ///   during the call.
 /// - The game functions moving the entity runs, such as those of its physics
 ///   and children, must free entities only through deferred deletion.
-#[doc(alias = "Teleport")]
+#[doc(alias("Teleport"))]
 pub unsafe fn teleport(
 	entity: *mut sys::CBaseEntity,
 	slot: TeleportSlot,

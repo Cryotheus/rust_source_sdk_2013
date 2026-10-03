@@ -14,20 +14,18 @@ use std::ffi::CStr;
 const FADE_FRACTION_BITS: u32 = 9;
 
 /// Fades the screen to or from a color (`Fade`), as `env_fade` does.
-#[doc(alias = "ScreenFade_t")]
-#[doc(alias = "UTIL_ScreenFade")]
-#[doc(alias = "env_fade")]
+#[doc(alias("ScreenFade_t", "UTIL_ScreenFade", "env_fade"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fade {
 	/// Seconds the fade takes, up to about 128.
 	pub duration: f32,
 
 	/// Seconds the color is held once reached, up to about 128.
-	#[doc(alias = "holdTime")]
+	#[doc(alias("holdTime"))]
 	pub hold: f32,
 
 	/// How the fade behaves.
-	#[doc(alias = "fadeFlags")]
+	#[doc(alias("fadeFlags"))]
 	pub flags: FadeFlags,
 
 	/// The color faded to or from, whose alpha is the fade's greatest
@@ -60,23 +58,23 @@ pub struct FadeFlags(pub u16);
 
 impl FadeFlags {
 	/// From the color to clear.
-	#[doc(alias = "FFADE_IN")]
+	#[doc(alias("FFADE_IN"))]
 	pub const IN: Self = Self(0x1);
 
 	/// Multiplies the screen by the color instead of blending it.
-	#[doc(alias = "FFADE_MODULATE")]
+	#[doc(alias("FFADE_MODULATE"))]
 	pub const MODULATE: Self = Self(0x4);
 
 	/// From clear to the color.
-	#[doc(alias = "FFADE_OUT")]
+	#[doc(alias("FFADE_OUT"))]
 	pub const OUT: Self = Self(0x2);
 
 	/// Replaces every other fade.
-	#[doc(alias = "FFADE_PURGE")]
+	#[doc(alias("FFADE_PURGE"))]
 	pub const PURGE: Self = Self(0x10);
 
 	/// Holds the color until another fade replaces it.
-	#[doc(alias = "FFADE_STAYOUT")]
+	#[doc(alias("FFADE_STAYOUT"))]
 	pub const STAY_OUT: Self = Self(0x8);
 
 	/// The flags set in either.
@@ -104,10 +102,7 @@ impl UserMessage for HintText<'_> {
 }
 
 /// Text on the HUD (`HudMsg`), as `game_text` shows it.
-#[doc(alias = "HudMsg")]
-#[doc(alias = "game_text")]
-#[doc(alias = "hudtextparms_t")]
-#[doc(alias = "UTIL_HudMessage")]
+#[doc(alias("HudMsg", "game_text", "hudtextparms_t", "UTIL_HudMessage"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HudText<'a> {
 	/// Replaces the text shown in the same channel, from 0 to 5.
@@ -132,20 +127,20 @@ pub struct HudText<'a> {
 
 	/// Seconds the text takes to fade in, or, for the scan-out effect, between
 	/// characters.
-	#[doc(alias = "fadeinTime")]
+	#[doc(alias("fadeinTime"))]
 	pub fade_in: f32,
 
 	/// Seconds the text takes to fade out.
-	#[doc(alias = "fadeoutTime")]
+	#[doc(alias("fadeoutTime"))]
 	pub fade_out: f32,
 
 	/// Seconds the text stays once shown, before it fades out.
-	#[doc(alias = "holdTime")]
+	#[doc(alias("holdTime"))]
 	pub hold: f32,
 
 	/// Seconds each character takes to change from the effect color to the
 	/// text's, for the scan-out effect.
-	#[doc(alias = "fxTime")]
+	#[doc(alias("fxTime"))]
 	pub effect_time: f32,
 
 	/// The text shown.
@@ -194,8 +189,7 @@ pub enum HudTextEffect {
 
 /// A hint about a key binding (`KeyHintText`), as `env_hudhint` shows it.
 /// Empty text hides it.
-#[doc(alias = "env_hudhint")]
-#[doc(alias = "UTIL_HudHintText")]
+#[doc(alias("env_hudhint", "UTIL_HudHintText"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyHintText<'a> {
 	/// The hint's text, or empty to hide the hint.
@@ -220,7 +214,7 @@ impl UserMessage for KeyHintText<'_> {
 ///
 /// The message is a localization token, such as `TF_Chat_All`, whose
 /// arguments are usually the speaker's name and the text.
-#[doc(alias = "UTIL_SayText2Filter")]
+#[doc(alias("UTIL_SayText2Filter"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SayText2<'a> {
 	/// The speaking player's index, whose team colors the name, or 0 for the
@@ -257,9 +251,7 @@ impl UserMessage for SayText2<'_> {
 }
 
 /// Shakes the screen (`Shake`), as `env_shake` does.
-#[doc(alias = "ScreenShake_t")]
-#[doc(alias = "UTIL_ScreenShake")]
-#[doc(alias = "env_shake")]
+#[doc(alias("ScreenShake_t", "UTIL_ScreenShake", "env_shake"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shake {
 	/// What the message does to the client's shakes.
@@ -290,27 +282,27 @@ impl UserMessage for Shake {
 }
 
 /// What a [`Shake`] does (`ShakeCommand_t`).
-#[doc(alias = "ShakeCommand_t")]
+#[doc(alias("ShakeCommand_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ShakeCommand {
 	/// Starts a shake, alongside any in progress.
-	#[doc(alias = "SHAKE_START")]
+	#[doc(alias("SHAKE_START"))]
 	Start = 0,
 	/// Stops every shake in progress.
-	#[doc(alias = "SHAKE_STOP")]
+	#[doc(alias("SHAKE_STOP"))]
 	Stop = 1,
 	/// Changes the amplitude of a shake in progress.
-	#[doc(alias = "SHAKE_AMPLITUDE")]
+	#[doc(alias("SHAKE_AMPLITUDE"))]
 	Amplitude = 2,
 	/// Changes the frequency of a shake in progress.
-	#[doc(alias = "SHAKE_FREQUENCY")]
+	#[doc(alias("SHAKE_FREQUENCY"))]
 	Frequency = 3,
 	/// Only rumbles controllers.
-	#[doc(alias = "SHAKE_START_RUMBLEONLY")]
+	#[doc(alias("SHAKE_START_RUMBLEONLY"))]
 	StartRumbleOnly = 4,
 	/// Shakes without rumbling controllers.
-	#[doc(alias = "SHAKE_START_NORUMBLE")]
+	#[doc(alias("SHAKE_START_NORUMBLE"))]
 	StartNoRumble = 5,
 }
 
@@ -319,16 +311,16 @@ pub enum ShakeCommand {
 #[repr(u8)]
 pub enum TextDestination {
 	/// The top-left notification area.
-	#[doc(alias = "HUD_PRINTNOTIFY")]
+	#[doc(alias("HUD_PRINTNOTIFY"))]
 	Notify = 1,
 	/// The console.
-	#[doc(alias = "HUD_PRINTCONSOLE")]
+	#[doc(alias("HUD_PRINTCONSOLE"))]
 	Console = 2,
 	/// The chat.
-	#[doc(alias = "HUD_PRINTTALK")]
+	#[doc(alias("HUD_PRINTTALK"))]
 	Chat = 3,
 	/// The center of the screen.
-	#[doc(alias = "HUD_PRINTCENTER")]
+	#[doc(alias("HUD_PRINTCENTER"))]
 	Center = 4,
 }
 
@@ -337,8 +329,7 @@ pub enum TextDestination {
 ///
 /// A message starting with `#` is a localization token, such as
 /// `#TF_Arena_NoRespawning`.
-#[doc(alias = "ClientPrint")]
-#[doc(alias = "UTIL_ClientPrintFilter")]
+#[doc(alias("ClientPrint", "UTIL_ClientPrintFilter"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextMsg<'a> {
 	/// Where the message prints.
@@ -371,8 +362,7 @@ impl UserMessage for TextMsg<'_> {
 
 /// Shows or hides a VGUI panel (`VGUIMenu`), such as the MOTD (`info`), with
 /// string key values for it.
-#[doc(alias = "VGUIMenu")]
-#[doc(alias = "ShowViewPortPanel")]
+#[doc(alias("VGUIMenu", "ShowViewPortPanel"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VguiMenu<'a> {
 	/// The panel's name, such as `info` or `team`.

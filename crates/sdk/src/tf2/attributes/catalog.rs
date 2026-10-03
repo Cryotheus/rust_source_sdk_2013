@@ -30,7 +30,7 @@ use crate::tf2::attributes::{Amount, AttributeDef, DescriptionFormat, Flag, Mult
 
 /// `airblast disabled` (356, `airblast_disabled`): the flame thrower cannot
 /// airblast.
-#[doc(alias = "airblast disabled")]
+#[doc(alias("airblast disabled"))]
 pub const AIRBLAST_DISABLED: AttributeDef<Flag> = AttributeDef::new(
 	356,
 	c"airblast disabled",
@@ -42,7 +42,7 @@ pub const AIRBLAST_DISABLED: AttributeDef<Flag> = AttributeDef::new(
 
 /// `Blast radius decreased` (100, `mult_explosion_radius`): scales the
 /// explosion radius of the weapon's projectiles, from 0.1 to 1.
-#[doc(alias = "Blast radius decreased")]
+#[doc(alias("Blast radius decreased"))]
 pub const BLAST_RADIUS_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	100,
 	c"Blast radius decreased",
@@ -54,7 +54,7 @@ pub const BLAST_RADIUS_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `Blast radius increased` (99, `mult_explosion_radius`): scales the
 /// explosion radius of the weapon's projectiles, from 1 to 4.
-#[doc(alias = "Blast radius increased")]
+#[doc(alias("Blast radius increased"))]
 pub const BLAST_RADIUS_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	99,
 	c"Blast radius increased",
@@ -66,7 +66,7 @@ pub const BLAST_RADIUS_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `bullets per shot bonus` (45, `mult_bullets_per_shot`): scales the
 /// bullets or pellets each shot fires, from 1 to 5.
-#[doc(alias = "bullets per shot bonus")]
+#[doc(alias("bullets per shot bonus"))]
 pub const BULLETS_PER_SHOT_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	45,
 	c"bullets per shot bonus",
@@ -78,7 +78,7 @@ pub const BULLETS_PER_SHOT_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `clip size bonus` (4, `mult_clipsize`): scales the clip size, from 1 to
 /// 10. The current clip keeps its ammo until the next reload.
-#[doc(alias = "clip size bonus")]
+#[doc(alias("clip size bonus"))]
 pub const CLIP_SIZE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	4,
 	c"clip size bonus",
@@ -90,7 +90,7 @@ pub const CLIP_SIZE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `clip size penalty` (3, `mult_clipsize`): scales the clip size, from 0.1
 /// to 1.
-#[doc(alias = "clip size penalty")]
+#[doc(alias("clip size penalty"))]
 pub const CLIP_SIZE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	3,
 	c"clip size penalty",
@@ -102,7 +102,7 @@ pub const CLIP_SIZE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `crit kill will gib` (309, `crit_kill_will_gib`): critical kills always
 /// gib the victim.
-#[doc(alias = "crit kill will gib")]
+#[doc(alias("crit kill will gib"))]
 pub const CRIT_KILL_WILL_GIB: AttributeDef<Flag> = AttributeDef::new(
 	309,
 	c"crit kill will gib",
@@ -115,7 +115,7 @@ pub const CRIT_KILL_WILL_GIB: AttributeDef<Flag> = AttributeDef::new(
 /// `critboost on kill` (31, `add_onkill_critboost_time`): seconds of
 /// critical boost after each kill with the weapon, up to 60. The game rounds
 /// them to whole seconds.
-#[doc(alias = "critboost on kill")]
+#[doc(alias("critboost on kill"))]
 pub const CRITBOOST_ON_KILL: AttributeDef<Seconds> = AttributeDef::new(
 	31,
 	c"critboost on kill",
@@ -126,7 +126,7 @@ pub const CRITBOOST_ON_KILL: AttributeDef<Seconds> = AttributeDef::new(
 );
 
 /// `damage bonus` (2, `mult_dmg`): scales the weapon's damage, from 1 to 10.
-#[doc(alias = "damage bonus")]
+#[doc(alias("damage bonus"))]
 pub const DAMAGE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	2,
 	c"damage bonus",
@@ -137,7 +137,7 @@ pub const DAMAGE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 );
 
 /// `damage penalty` (1, `mult_dmg`): scales the weapon's damage, from 0 to 1.
-#[doc(alias = "damage penalty")]
+#[doc(alias("damage penalty"))]
 pub const DAMAGE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	1,
 	c"damage penalty",
@@ -149,7 +149,7 @@ pub const DAMAGE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `dmg penalty vs players` (138, `mult_dmg_vs_players`): scales the
 /// weapon's damage to players, from 0 to 1.
-#[doc(alias = "dmg penalty vs players")]
+#[doc(alias("dmg penalty vs players"))]
 pub const DAMAGE_PENALTY_VS_PLAYERS: AttributeDef<Multiplier> = AttributeDef::new(
 	138,
 	c"dmg penalty vs players",
@@ -161,7 +161,7 @@ pub const DAMAGE_PENALTY_VS_PLAYERS: AttributeDef<Multiplier> = AttributeDef::ne
 
 /// `dmg taken from blast reduced` (64, `mult_dmgtaken_from_explosions`):
 /// scales the blast damage the owner takes, from 0 to 1.
-#[doc(alias = "dmg taken from blast reduced")]
+#[doc(alias("dmg taken from blast reduced"))]
 pub const DAMAGE_TAKEN_FROM_BLAST_REDUCED: AttributeDef<Multiplier> = AttributeDef::new(
 	64,
 	c"dmg taken from blast reduced",
@@ -173,7 +173,7 @@ pub const DAMAGE_TAKEN_FROM_BLAST_REDUCED: AttributeDef<Multiplier> = AttributeD
 
 /// `dmg taken increased` (412, `mult_dmgtaken`): scales the damage the owner
 /// takes, from 1 to 10.
-#[doc(alias = "dmg taken increased")]
+#[doc(alias("dmg taken increased"))]
 pub const DAMAGE_TAKEN_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	412,
 	c"dmg taken increased",
@@ -185,7 +185,7 @@ pub const DAMAGE_TAKEN_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `deploy time decreased` (178, `mult_deploy_time`): scales the time to
 /// switch to the weapon, from 0.1 to 1.
-#[doc(alias = "deploy time decreased")]
+#[doc(alias("deploy time decreased"))]
 pub const DEPLOY_TIME_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	178,
 	c"deploy time decreased",
@@ -197,7 +197,7 @@ pub const DEPLOY_TIME_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `deploy time increased` (177, `mult_deploy_time`): scales the time to
 /// switch to the weapon, from 1 to 10.
-#[doc(alias = "deploy time increased")]
+#[doc(alias("deploy time increased"))]
 pub const DEPLOY_TIME_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	177,
 	c"deploy time increased",
@@ -209,7 +209,7 @@ pub const DEPLOY_TIME_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `faster reload rate` (318, `fast_reload`): scales the reload time, from
 /// 0.1 to 1.
-#[doc(alias = "faster reload rate")]
+#[doc(alias("faster reload rate"))]
 pub const FASTER_RELOAD_RATE: AttributeDef<Multiplier> = AttributeDef::new(
 	318,
 	c"faster reload rate",
@@ -221,7 +221,7 @@ pub const FASTER_RELOAD_RATE: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `fire rate bonus` (6, `mult_postfiredelay`): scales the delay between
 /// shots, from 0.1 to 1.
-#[doc(alias = "fire rate bonus")]
+#[doc(alias("fire rate bonus"))]
 pub const FIRE_RATE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	6,
 	c"fire rate bonus",
@@ -233,7 +233,7 @@ pub const FIRE_RATE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `fire rate penalty` (5, `mult_postfiredelay`): scales the delay between
 /// shots, from 1 to 10.
-#[doc(alias = "fire rate penalty")]
+#[doc(alias("fire rate penalty"))]
 pub const FIRE_RATE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	5,
 	c"fire rate penalty",
@@ -245,7 +245,7 @@ pub const FIRE_RATE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `heal on hit for rapidfire` (16, `add_onhit_addhealth`): health the owner
 /// gains per hit, up to 500.
-#[doc(alias = "heal on hit for rapidfire")]
+#[doc(alias("heal on hit for rapidfire"))]
 pub const HEAL_ON_HIT_RAPID_FIRE: AttributeDef<Amount> = AttributeDef::new(
 	16,
 	c"heal on hit for rapidfire",
@@ -257,7 +257,7 @@ pub const HEAL_ON_HIT_RAPID_FIRE: AttributeDef<Amount> = AttributeDef::new(
 
 /// `heal on hit for slowfire` (110, `add_onhit_addhealth`): health the owner
 /// gains per hit, up to 500.
-#[doc(alias = "heal on hit for slowfire")]
+#[doc(alias("heal on hit for slowfire"))]
 pub const HEAL_ON_HIT_SLOW_FIRE: AttributeDef<Amount> = AttributeDef::new(
 	110,
 	c"heal on hit for slowfire",
@@ -269,7 +269,7 @@ pub const HEAL_ON_HIT_SLOW_FIRE: AttributeDef<Amount> = AttributeDef::new(
 
 /// `heal on kill` (180, `heal_on_kill`): health the owner gains per kill with
 /// the weapon, up to 500.
-#[doc(alias = "heal on kill")]
+#[doc(alias("heal on kill"))]
 pub const HEAL_ON_KILL: AttributeDef<Amount> = AttributeDef::new(
 	180,
 	c"heal on kill",
@@ -281,7 +281,7 @@ pub const HEAL_ON_KILL: AttributeDef<Amount> = AttributeDef::new(
 
 /// `health regen` (57, `add_health_regen`): health the owner regenerates per
 /// second, up to 100.
-#[doc(alias = "health regen")]
+#[doc(alias("health regen"))]
 pub const HEALTH_REGEN: AttributeDef<Amount> = AttributeDef::new(
 	57,
 	c"health regen",
@@ -293,7 +293,7 @@ pub const HEALTH_REGEN: AttributeDef<Amount> = AttributeDef::new(
 
 /// `max health additive bonus` (26, `add_maxhealth`): health added to the
 /// owner's maximum, up to 1000. Current health does not change.
-#[doc(alias = "max health additive bonus")]
+#[doc(alias("max health additive bonus"))]
 pub const MAX_HEALTH_ADDITIVE_BONUS: AttributeDef<Amount> = AttributeDef::new(
 	26,
 	c"max health additive bonus",
@@ -307,7 +307,7 @@ pub const MAX_HEALTH_ADDITIVE_BONUS: AttributeDef<Amount> = AttributeDef::new(
 /// the owner's maximum, as a negative amount down to -100, which on one item
 /// leaves every class at least 25. The game adds up `add_maxhealth` from all
 /// of the owner's items, so penalties on several items stack below that.
-#[doc(alias = "max health additive penalty")]
+#[doc(alias("max health additive penalty"))]
 pub const MAX_HEALTH_ADDITIVE_PENALTY: AttributeDef<Amount> = AttributeDef::new(
 	125,
 	c"max health additive penalty",
@@ -319,7 +319,7 @@ pub const MAX_HEALTH_ADDITIVE_PENALTY: AttributeDef<Amount> = AttributeDef::new(
 
 /// `maxammo primary increased` (76, `mult_maxammo_primary`): scales the
 /// owner's primary ammo capacity, from 1 to 10.
-#[doc(alias = "maxammo primary increased")]
+#[doc(alias("maxammo primary increased"))]
 pub const MAXAMMO_PRIMARY_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	76,
 	c"maxammo primary increased",
@@ -331,7 +331,7 @@ pub const MAXAMMO_PRIMARY_INCREASED: AttributeDef<Multiplier> = AttributeDef::ne
 
 /// `maxammo primary reduced` (77, `mult_maxammo_primary`): scales the
 /// owner's primary ammo capacity, from 0.1 to 1.
-#[doc(alias = "maxammo primary reduced")]
+#[doc(alias("maxammo primary reduced"))]
 pub const MAXAMMO_PRIMARY_REDUCED: AttributeDef<Multiplier> = AttributeDef::new(
 	77,
 	c"maxammo primary reduced",
@@ -343,7 +343,7 @@ pub const MAXAMMO_PRIMARY_REDUCED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `maxammo secondary increased` (78, `mult_maxammo_secondary`): scales the
 /// owner's secondary ammo capacity, from 1 to 10.
-#[doc(alias = "maxammo secondary increased")]
+#[doc(alias("maxammo secondary increased"))]
 pub const MAXAMMO_SECONDARY_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	78,
 	c"maxammo secondary increased",
@@ -355,7 +355,7 @@ pub const MAXAMMO_SECONDARY_INCREASED: AttributeDef<Multiplier> = AttributeDef::
 
 /// `maxammo secondary reduced` (79, `mult_maxammo_secondary`): scales the
 /// owner's secondary ammo capacity, from 0.1 to 1.
-#[doc(alias = "maxammo secondary reduced")]
+#[doc(alias("maxammo secondary reduced"))]
 pub const MAXAMMO_SECONDARY_REDUCED: AttributeDef<Multiplier> = AttributeDef::new(
 	79,
 	c"maxammo secondary reduced",
@@ -367,7 +367,7 @@ pub const MAXAMMO_SECONDARY_REDUCED: AttributeDef<Multiplier> = AttributeDef::ne
 
 /// `minicrit vs burning player` (209, `or_minicrit_vs_playercond_burning`):
 /// hits on burning players are mini-crits.
-#[doc(alias = "minicrit vs burning player")]
+#[doc(alias("minicrit vs burning player"))]
 pub const MINICRIT_VS_BURNING_PLAYER: AttributeDef<Flag> = AttributeDef::new(
 	209,
 	c"minicrit vs burning player",
@@ -379,7 +379,7 @@ pub const MINICRIT_VS_BURNING_PLAYER: AttributeDef<Flag> = AttributeDef::new(
 
 /// `minicrits become crits` (179, `minicrits_become_crits`): the weapon's
 /// mini-crits are full critical hits.
-#[doc(alias = "minicrits become crits")]
+#[doc(alias("minicrits become crits"))]
 pub const MINICRITS_BECOME_CRITS: AttributeDef<Flag> = AttributeDef::new(
 	179,
 	c"minicrits become crits",
@@ -392,7 +392,7 @@ pub const MINICRITS_BECOME_CRITS: AttributeDef<Flag> = AttributeDef::new(
 /// `move speed bonus` (107, `mult_player_movespeed`): scales the owner's
 /// movement speed, from 1 to 3. It applies when the game next recomputes the
 /// speed, such as on a weapon switch.
-#[doc(alias = "move speed bonus")]
+#[doc(alias("move speed bonus"))]
 pub const MOVE_SPEED_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	107,
 	c"move speed bonus",
@@ -405,7 +405,7 @@ pub const MOVE_SPEED_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 /// `move speed penalty` (54, `mult_player_movespeed`): scales the owner's
 /// movement speed, from 0.1 to 1. It applies when the game next recomputes
 /// the speed, such as on a weapon switch.
-#[doc(alias = "move speed penalty")]
+#[doc(alias("move speed penalty"))]
 pub const MOVE_SPEED_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	54,
 	c"move speed penalty",
@@ -417,7 +417,7 @@ pub const MOVE_SPEED_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `Projectile speed decreased` (104, `mult_projectile_speed`): scales the
 /// launch speed of the weapon's projectiles, from 0.1 to 1.
-#[doc(alias = "Projectile speed decreased")]
+#[doc(alias("Projectile speed decreased"))]
 pub const PROJECTILE_SPEED_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	104,
 	c"Projectile speed decreased",
@@ -429,7 +429,7 @@ pub const PROJECTILE_SPEED_DECREASED: AttributeDef<Multiplier> = AttributeDef::n
 
 /// `Projectile speed increased` (103, `mult_projectile_speed`): scales the
 /// launch speed of the weapon's projectiles, from 1 to 4.
-#[doc(alias = "Projectile speed increased")]
+#[doc(alias("Projectile speed increased"))]
 pub const PROJECTILE_SPEED_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	103,
 	c"Projectile speed increased",
@@ -444,7 +444,7 @@ pub const PROJECTILE_SPEED_INCREASED: AttributeDef<Multiplier> = AttributeDef::n
 /// after [`ItemAttributes::reapply_provision`].
 ///
 /// [`ItemAttributes::reapply_provision`]: super::ItemAttributes::reapply_provision
-#[doc(alias = "provide on active")]
+#[doc(alias("provide on active"))]
 pub const PROVIDE_ON_ACTIVE: AttributeDef<Flag> = AttributeDef::new(
 	128,
 	c"provide on active",
@@ -456,7 +456,7 @@ pub const PROVIDE_ON_ACTIVE: AttributeDef<Flag> = AttributeDef::new(
 
 /// `Reload time decreased` (97, `mult_reload_time`): scales the reload time,
 /// from 0.1 to 1.
-#[doc(alias = "Reload time decreased")]
+#[doc(alias("Reload time decreased"))]
 pub const RELOAD_TIME_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	97,
 	c"Reload time decreased",
@@ -468,7 +468,7 @@ pub const RELOAD_TIME_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `Reload time increased` (96, `mult_reload_time`): scales the reload time,
 /// from 1 to 10.
-#[doc(alias = "Reload time increased")]
+#[doc(alias("Reload time increased"))]
 pub const RELOAD_TIME_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	96,
 	c"Reload time increased",
@@ -480,7 +480,7 @@ pub const RELOAD_TIME_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `Set DamageType Ignite` (208, `set_dmgtype_ignite`): the weapon's hits set
 /// players on fire.
-#[doc(alias = "Set DamageType Ignite")]
+#[doc(alias("Set DamageType Ignite"))]
 pub const SET_DAMAGE_TYPE_IGNITE: AttributeDef<Flag> = AttributeDef::new(
 	208,
 	c"Set DamageType Ignite",
@@ -492,7 +492,7 @@ pub const SET_DAMAGE_TYPE_IGNITE: AttributeDef<Flag> = AttributeDef::new(
 
 /// `spread penalty` (36, `mult_spread_scale`): scales the weapon's bullet
 /// spread, from 1 to 10.
-#[doc(alias = "spread penalty")]
+#[doc(alias("spread penalty"))]
 pub const SPREAD_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	36,
 	c"spread penalty",
@@ -504,7 +504,7 @@ pub const SPREAD_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 
 /// `weapon spread bonus` (106, `mult_spread_scale`): scales the weapon's
 /// bullet spread, from 0 to 1.
-#[doc(alias = "weapon spread bonus")]
+#[doc(alias("weapon spread bonus"))]
 pub const WEAPON_SPREAD_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	106,
 	c"weapon spread bonus",

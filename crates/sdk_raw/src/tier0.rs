@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 /// `Msg` from `public/tier0/dbg.h`, which tier0 exports with C linkage, and
 /// which prints a `printf`-style format and its arguments to the console.
-#[doc(alias = "Msg")]
+#[doc(alias("Msg"))]
 pub type MsgFn = unsafe extern "C" fn(format: *const c_char, ...);
 
 /// The names tier0 has: on Windows, and in 64-bit and older Linux dedicated
@@ -47,7 +47,7 @@ fn find_msg() -> Option<MsgFn> {
 /// under Miri.
 ///
 /// The process's tier0 is looked up on the first call, and its result kept.
-#[doc(alias = "Msg")]
+#[doc(alias("Msg"))]
 pub fn msg() -> Option<MsgFn> {
 	static MSG: OnceLock<Option<MsgFn>> = OnceLock::new();
 

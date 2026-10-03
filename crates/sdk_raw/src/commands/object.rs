@@ -88,7 +88,7 @@ pub struct ConCommandHooks {
 /// plugin writes it into the flags, so the engine never dispatches a client's
 /// invocation directly: it hands it to `IServerGameClients::ClientCommand`,
 /// which tells who ran it, instead.
-#[doc(alias = "ConCommand")]
+#[doc(alias("ConCommand"))]
 #[repr(C)]
 pub struct ConCommandObject {
 	/// The engine-visible `ConCommand`. C++ writes its list link, registered
@@ -163,7 +163,7 @@ impl ConCommandObject {
 	}
 
 	/// The flags the engine currently sees, which other plugins may change.
-	#[doc(alias = "m_nFlags")]
+	#[doc(alias("m_nFlags"))]
 	pub fn flags(&self) -> c_int {
 		// SAFETY: The field is read through the cell without forming a
 		// reference. `prepare`'s contract keeps C++ from writing it on another

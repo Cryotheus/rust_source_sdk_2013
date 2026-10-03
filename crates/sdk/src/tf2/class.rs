@@ -15,39 +15,39 @@ use std::ffi::c_int;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PlayerClass {
 	/// `TF_CLASS_SCOUT`: 1.
-	#[doc(alias = "TF_CLASS_SCOUT")]
+	#[doc(alias("TF_CLASS_SCOUT"))]
 	Scout = TF_CLASS_SCOUT as isize,
 
 	/// `TF_CLASS_SNIPER`: 2.
-	#[doc(alias = "TF_CLASS_SNIPER")]
+	#[doc(alias("TF_CLASS_SNIPER"))]
 	Sniper = TF_CLASS_SNIPER as isize,
 
 	/// `TF_CLASS_SOLDIER`: 3.
-	#[doc(alias = "TF_CLASS_SOLDIER")]
+	#[doc(alias("TF_CLASS_SOLDIER"))]
 	Soldier = TF_CLASS_SOLDIER as isize,
 
 	/// `TF_CLASS_DEMOMAN`: 4.
-	#[doc(alias = "TF_CLASS_DEMOMAN")]
+	#[doc(alias("TF_CLASS_DEMOMAN"))]
 	Demoman = TF_CLASS_DEMOMAN as isize,
 
 	/// `TF_CLASS_MEDIC`: 5.
-	#[doc(alias = "TF_CLASS_MEDIC")]
+	#[doc(alias("TF_CLASS_MEDIC"))]
 	Medic = TF_CLASS_MEDIC as isize,
 
 	/// `TF_CLASS_HEAVYWEAPONS`: 6.
-	#[doc(alias = "TF_CLASS_HEAVYWEAPONS")]
+	#[doc(alias("TF_CLASS_HEAVYWEAPONS"))]
 	Heavy = TF_CLASS_HEAVYWEAPONS as isize,
 
 	/// `TF_CLASS_PYRO`: 7.
-	#[doc(alias = "TF_CLASS_PYRO")]
+	#[doc(alias("TF_CLASS_PYRO"))]
 	Pyro = TF_CLASS_PYRO as isize,
 
 	/// `TF_CLASS_SPY`: 8.
-	#[doc(alias = "TF_CLASS_SPY")]
+	#[doc(alias("TF_CLASS_SPY"))]
 	Spy = TF_CLASS_SPY as isize,
 
 	/// `TF_CLASS_ENGINEER`: 9.
-	#[doc(alias = "TF_CLASS_ENGINEER")]
+	#[doc(alias("TF_CLASS_ENGINEER"))]
 	Engineer = TF_CLASS_ENGINEER as isize,
 }
 

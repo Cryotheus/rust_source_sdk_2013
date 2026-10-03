@@ -7,39 +7,39 @@ use std::mem::MaybeUninit;
 
 /// A value for a `variant_t`, which [`Self::to_raw`] stores as the game's
 /// setters do.
-#[doc(alias = "variant_t")]
+#[doc(alias("variant_t"))]
 #[derive(Debug, Clone, Copy)]
 pub enum Variant {
 	/// No value (`FIELD_VOID`), as `variant_t`'s constructor leaves it.
 	Void,
 
 	/// A boolean (`FIELD_BOOLEAN`), as `SetBool` stores it.
-	#[doc(alias = "SetBool")]
+	#[doc(alias("SetBool"))]
 	Bool(bool),
 
 	/// An integer (`FIELD_INTEGER`), as `SetInt` stores it.
-	#[doc(alias = "SetInt")]
+	#[doc(alias("SetInt"))]
 	Int(c_int),
 
 	/// A float (`FIELD_FLOAT`), as `SetFloat` stores it.
-	#[doc(alias = "SetFloat")]
+	#[doc(alias("SetFloat"))]
 	Float(f32),
 
 	/// A string (`FIELD_STRING`), as `SetString` stores it.
-	#[doc(alias = "SetString")]
+	#[doc(alias("SetString"))]
 	String(sys::string_t),
 
 	/// A vector (`FIELD_VECTOR`), as `SetVector3D` stores it.
-	#[doc(alias = "SetVector3D")]
+	#[doc(alias("SetVector3D"))]
 	Vector([f32; 3]),
 
 	/// A color (`FIELD_COLOR32`), as `SetColor32` stores it.
-	#[doc(alias = "SetColor32")]
+	#[doc(alias("SetColor32"))]
 	Color(sys::color32),
 
 	/// An entity handle (`FIELD_EHANDLE`), as `SetEntity` stores it, by the
 	/// raw value of its `CBaseHandle`.
-	#[doc(alias = "SetEntity")]
+	#[doc(alias("SetEntity"))]
 	Entity(u32),
 }
 

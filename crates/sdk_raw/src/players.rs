@@ -57,7 +57,7 @@ pub const LIFE_RESPAWNABLE: u8 = 3;
 ///
 /// This is `TEAM_SPECTATOR` from `game/shared/shareddefs.h`, which also names
 /// it `LAST_SHARED_TEAM`.
-#[doc(alias = "LAST_SHARED_TEAM")]
+#[doc(alias("LAST_SHARED_TEAM"))]
 pub const TEAM_SPECTATOR: c_int = 1;
 
 /// The team number of a player not assigned to any team yet.

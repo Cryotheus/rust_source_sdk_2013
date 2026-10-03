@@ -62,7 +62,7 @@ macro_rules! scalar {
 
 /// The classification in `CTakeDamageInfo::ECritType`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-#[doc(alias = "ECritType")]
+#[doc(alias("ECritType"))]
 #[allow(
 	clippy::unnecessary_cast,
 	reason = "`ECritType` is `c_int` on Windows but `c_uint` on Linux"
@@ -71,15 +71,15 @@ macro_rules! scalar {
 pub enum CriticalHit {
 	/// Not a critical hit.
 	#[default]
-	#[doc(alias = "CRIT_NONE")]
+	#[doc(alias("CRIT_NONE"))]
 	None = sys::CTakeDamageInfo_ECritType_CRIT_NONE as i32,
 
 	/// A mini critical hit.
-	#[doc(alias = "CRIT_MINI")]
+	#[doc(alias("CRIT_MINI"))]
 	Mini = sys::CTakeDamageInfo_ECritType_CRIT_MINI as i32,
 
 	/// A full critical hit.
-	#[doc(alias = "CRIT_FULL")]
+	#[doc(alias("CRIT_FULL"))]
 	Full = sys::CTakeDamageInfo_ECritType_CRIT_FULL as i32,
 }
 
@@ -155,7 +155,7 @@ impl<'s> DamageEvent<'s> {
 /// The SDK's constructor leaves its unused statistics field and padding
 /// uninitialized. Keeping a `MaybeUninit` record and copying bytes preserves
 /// them without ever claiming the entire native record is initialized.
-#[doc(alias = "CTakeDamageInfo")]
+#[doc(alias("CTakeDamageInfo"))]
 pub struct DamageInfo {
 	raw: MaybeUninit<sys::CTakeDamageInfo>,
 }
@@ -220,13 +220,13 @@ impl DamageInfo {
 
 	scalar!(
 		/// The damage amount.
-		#[doc(alias = "GetDamage")]
+		#[doc(alias("GetDamage"))]
 		amount,
 		/// Replaces the damage amount.
 		///
 		/// # Panics
 		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias = "SetDamage")]
+		#[doc(alias("SetDamage"))]
 		set_amount,
 		m_flDamage,
 		f32,
@@ -236,13 +236,13 @@ impl DamageInfo {
 	scalar!(
 		/// `m_flMaxDamage`, which native constructors and [`Self::new`]
 		/// initialize to the damage amount.
-		#[doc(alias = "GetMaxDamage")]
+		#[doc(alias("GetMaxDamage"))]
 		max_damage,
 		/// Replaces `m_flMaxDamage`.
 		///
 		/// # Panics
 		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias = "SetMaxDamage")]
+		#[doc(alias("SetMaxDamage"))]
 		set_max_damage,
 		m_flMaxDamage,
 		f32,
@@ -253,15 +253,14 @@ impl DamageInfo {
 		/// The damage before skill-level adjustments, or `f32::MAX`
 		/// (`BASEDAMAGE_NOT_SPECIFIED`) when unspecified. Unlike the native
 		/// `GetBaseDamage`, this returns the sentinel instead of the amount.
-		#[doc(alias = "GetBaseDamage")]
-		#[doc(alias = "m_flBaseDamage")]
+		#[doc(alias("GetBaseDamage", "m_flBaseDamage"))]
 		base_damage,
 		/// Replaces the base damage. `f32::MAX` marks it as unspecified.
 		///
 		/// # Panics
 		/// If `value` is neither `f32::MAX` nor a finite value within
 		/// `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias = "m_flBaseDamage")]
+		#[doc(alias("m_flBaseDamage"))]
 		set_base_damage,
 		m_flBaseDamage,
 		f32,
@@ -270,14 +269,14 @@ impl DamageInfo {
 
 	scalar!(
 		/// The recorded damage increase, such as TF2's critical-hit bonus.
-		#[doc(alias = "GetDamageBonus")]
+		#[doc(alias("GetDamageBonus"))]
 		damage_bonus,
 		/// Replaces the recorded damage increase. Unlike the native
 		/// `SetDamageBonus`, this leaves the bonus provider unchanged.
 		///
 		/// # Panics
 		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias = "SetDamageBonus")]
+		#[doc(alias("SetDamageBonus"))]
 		set_damage_bonus,
 		m_flDamageBonus,
 		f32,
@@ -288,10 +287,10 @@ impl DamageInfo {
 		/// The custom damage kind. In TF2 this is an `ETFDmgCustom` value, such
 		/// as `sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32`. The cast is
 		/// needed because the sys constant's type differs between ABIs.
-		#[doc(alias = "GetDamageCustom")]
+		#[doc(alias("GetDamageCustom"))]
 		custom_damage,
 		/// Replaces the custom damage kind.
-		#[doc(alias = "SetDamageCustom")]
+		#[doc(alias("SetDamageCustom"))]
 		set_custom_damage,
 		m_iDamageCustom,
 		i32
@@ -300,11 +299,11 @@ impl DamageInfo {
 	scalar!(
 		/// The ammo type of the weapon that caused the damage, or
 		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) for none.
-		#[doc(alias = "GetAmmoType")]
+		#[doc(alias("GetAmmoType"))]
 		ammo_type,
 		/// Replaces the ammo type.
 		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) means none.
-		#[doc(alias = "SetAmmoType")]
+		#[doc(alias("SetAmmoType"))]
 		set_ammo_type,
 		m_iAmmoType,
 		i32
@@ -312,10 +311,10 @@ impl DamageInfo {
 
 	scalar!(
 		/// Whether the damage bypasses the game rules' teammate damage check.
-		#[doc(alias = "IsForceFriendlyFire")]
+		#[doc(alias("IsForceFriendlyFire"))]
 		force_friendly_fire,
 		/// Sets whether the damage bypasses the teammate damage check.
-		#[doc(alias = "SetForceFriendlyFire")]
+		#[doc(alias("SetForceFriendlyFire"))]
 		set_force_friendly_fire,
 		m_bForceFriendlyFire,
 		bool
@@ -353,14 +352,14 @@ impl DamageInfo {
 	}
 
 	/// The entity that originated the attack, such as a player.
-	#[doc(alias = "GetAttacker")]
+	#[doc(alias("GetAttacker"))]
 	pub fn attacker(&self) -> EntityHandle {
 		self.handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker))
 	}
 
 	/// The critical classification, or `None` if the record holds a value
 	/// outside `ECritType`.
-	#[doc(alias = "GetCritType")]
+	#[doc(alias("GetCritType"))]
 	pub fn critical_hit(&self) -> Option<CriticalHit> {
 		// SAFETY: Constructor-initialized scalar in owned memory.
 		match unsafe { (&raw const (*self.as_ptr()).m_eCritType).read() } {
@@ -372,7 +371,7 @@ impl DamageInfo {
 	}
 
 	/// The damage bitmask, including unknown and game-specific bits.
-	#[doc(alias = "GetDamageType")]
+	#[doc(alias("GetDamageType"))]
 	pub fn damage_type(&self) -> DamageType {
 		// SAFETY: Constructor-initialized scalar in owned memory.
 		DamageType(unsafe { (&raw const (*self.as_ptr()).m_bitsDamageType).read() } as u32)
@@ -390,7 +389,7 @@ impl DamageInfo {
 	}
 
 	/// The entity that dealt the damage: a weapon, projectile or player.
-	#[doc(alias = "GetInflictor")]
+	#[doc(alias("GetInflictor"))]
 	pub fn inflictor(&self) -> EntityHandle {
 		self.handle(offset_of!(sys::CTakeDamageInfo, m_hInflictor))
 	}
@@ -400,7 +399,7 @@ impl DamageInfo {
 	/// # Panics
 	/// If the product is rejected by [`Self::set_amount`]. The amount is then
 	/// unchanged.
-	#[doc(alias = "ScaleDamage")]
+	#[doc(alias("ScaleDamage"))]
 	pub fn scale_amount(&mut self, factor: f32) {
 		self.set_amount(self.amount() * factor);
 	}
@@ -409,7 +408,7 @@ impl DamageInfo {
 	///
 	/// # Panics
 	/// If `handle`'s index lies outside the entity table.
-	#[doc(alias = "SetAttacker")]
+	#[doc(alias("SetAttacker"))]
 	pub fn set_attacker(&mut self, handle: EntityHandle) {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker), handle);
 	}
@@ -423,7 +422,7 @@ impl DamageInfo {
 	}
 
 	/// Replaces the damage bitmask, keeping all 32 bits.
-	#[doc(alias = "SetDamageType")]
+	#[doc(alias("SetDamageType"))]
 	pub fn set_damage_type(&mut self, value: DamageType) {
 		// SAFETY: Scalar field in our allocated record; retain all 32 bits.
 		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_bitsDamageType).write(value.0 as i32) };
@@ -457,7 +456,7 @@ impl DamageInfo {
 	/// Unlike the native `SetCritType`, this replaces a full classification
 	/// with a mini one. It also sets [`DamageType::CRITICAL`] for
 	/// [`CriticalHit::Full`] and clears it otherwise.
-	#[doc(alias = "SetCritType")]
+	#[doc(alias("SetCritType"))]
 	pub fn set_incoming_critical(&mut self, critical: CriticalHit) {
 		self.write_critical(critical);
 		let ordinary = self.damage_type() & !DamageType::CRITICAL;
@@ -472,7 +471,7 @@ impl DamageInfo {
 	///
 	/// # Panics
 	/// If `handle`'s index lies outside the entity table.
-	#[doc(alias = "SetInflictor")]
+	#[doc(alias("SetInflictor"))]
 	pub fn set_inflictor(&mut self, handle: EntityHandle) {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hInflictor), handle);
 	}
@@ -481,14 +480,14 @@ impl DamageInfo {
 	///
 	/// # Panics
 	/// If `handle`'s index lies outside the entity table.
-	#[doc(alias = "SetWeapon")]
+	#[doc(alias("SetWeapon"))]
 	pub fn set_weapon(&mut self, handle: EntityHandle) {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hWeapon), handle);
 	}
 
 	/// The weapon that made the attack. For a projectile this is the weapon
 	/// that fired it, while the projectile is the [inflictor](Self::inflictor).
-	#[doc(alias = "GetWeapon")]
+	#[doc(alias("GetWeapon"))]
 	pub fn weapon(&self) -> EntityHandle {
 		self.handle(offset_of!(sys::CTakeDamageInfo, m_hWeapon))
 	}
@@ -525,80 +524,77 @@ pub struct DamageType(pub u32);
 
 impl DamageType {
 	/// Lets any damage type gib the victim on death.
-	#[doc(alias = "DMG_ALWAYSGIB")]
+	#[doc(alias("DMG_ALWAYSGIB"))]
 	pub const ALWAYS_GIB: Self = Self(damage::DMG_ALWAYSGIB as u32);
 
 	/// Explosive blast damage.
-	#[doc(alias = "DMG_BLAST")]
+	#[doc(alias("DMG_BLAST"))]
 	pub const BLAST: Self = Self(damage::DMG_BLAST as u32);
 
 	/// Shotgun pellets, distinct from [`Self::BULLET`].
-	#[doc(alias = "DMG_BUCKSHOT")]
+	#[doc(alias("DMG_BUCKSHOT"))]
 	pub const BUCKSHOT: Self = Self(damage::DMG_BUCKSHOT as u32);
 
 	/// Gunshot damage.
-	#[doc(alias = "DMG_BULLET")]
+	#[doc(alias("DMG_BULLET"))]
 	pub const BULLET: Self = Self(damage::DMG_BULLET as u32);
 
 	/// Heat burns.
-	#[doc(alias = "DMG_BURN")]
+	#[doc(alias("DMG_BURN"))]
 	pub const BURN: Self = Self(damage::DMG_BURN as u32);
 
 	/// Blunt impact, such as a crowbar or punch.
-	#[doc(alias = "DMG_CLUB")]
+	#[doc(alias("DMG_CLUB"))]
 	pub const CLUB: Self = Self(damage::DMG_CLUB as u32);
 
 	/// TF2's `DMG_CRITICAL` aliases `DMG_ACID`. Both full and mini critical
 	/// hits carry it after TF2 has computed their damage bonus.
-	#[doc(alias = "DMG_CRITICAL")]
-	#[doc(alias = "DMG_ACID")]
+	#[doc(alias("DMG_CRITICAL", "DMG_ACID"))]
 	pub const CRITICAL: Self = Self(damage::DMG_CRITICAL as u32);
 
 	/// Crushing by a falling or moving object.
-	#[doc(alias = "DMG_CRUSH")]
+	#[doc(alias("DMG_CRUSH"))]
 	pub const CRUSH: Self = Self(damage::DMG_CRUSH as u32);
 
 	/// Source's `DMG_DIRECT` bit. The SDK's `CEntityFlame` sets it alongside
 	/// [`Self::BURN`] for an attached fire's damage.
-	#[doc(alias = "DMG_DIRECT")]
+	#[doc(alias("DMG_DIRECT"))]
 	pub const DIRECT: Self = Self(damage::DMG_DIRECT as u32);
 
 	/// Drowning.
-	#[doc(alias = "DMG_DROWN")]
+	#[doc(alias("DMG_DROWN"))]
 	pub const DROWN: Self = Self(damage::DMG_DROWN as u32);
 
 	/// Falling too far.
-	#[doc(alias = "DMG_FALL")]
+	#[doc(alias("DMG_FALL"))]
 	pub const FALL: Self = Self(damage::DMG_FALL as u32);
 
 	/// The empty mask. Every mask [contains](Self::contains) it.
-	#[doc(alias = "DMG_GENERIC")]
+	#[doc(alias("DMG_GENERIC"))]
 	pub const GENERIC: Self = Self(damage::DMG_GENERIC as u32);
 
 	/// Stops any damage type from gibbing the victim on death.
-	#[doc(alias = "DMG_NEVERGIB")]
+	#[doc(alias("DMG_NEVERGIB"))]
 	pub const NEVER_GIB: Self = Self(damage::DMG_NEVERGIB as u32);
 
 	/// Prevents the damage from applying a physics force.
-	#[doc(alias = "DMG_PREVENT_PHYSICS_FORCE")]
+	#[doc(alias("DMG_PREVENT_PHYSICS_FORCE"))]
 	pub const PREVENT_PHYSICS_FORCE: Self = Self(damage::DMG_PREVENT_PHYSICS_FORCE as u32);
 
 	/// Electric shock.
-	#[doc(alias = "DMG_SHOCK")]
+	#[doc(alias("DMG_SHOCK"))]
 	pub const SHOCK: Self = Self(damage::DMG_SHOCK as u32);
 
 	/// Cutting, clawing or stabbing.
-	#[doc(alias = "DMG_SLASH")]
+	#[doc(alias("DMG_SLASH"))]
 	pub const SLASH: Self = Self(damage::DMG_SLASH as u32);
 
 	/// TF2's `DMG_USEDISTANCEMOD`, which aliases `DMG_SLOWBURN`.
-	#[doc(alias = "DMG_USEDISTANCEMOD")]
-	#[doc(alias = "DMG_SLOWBURN")]
+	#[doc(alias("DMG_USEDISTANCEMOD", "DMG_SLOWBURN"))]
 	pub const USE_DISTANCE_MOD: Self = Self(damage::DMG_USEDISTANCEMOD as u32);
 
 	/// TF2's `DMG_USE_HITLOCATIONS`, which aliases `DMG_AIRBOAT`.
-	#[doc(alias = "DMG_USE_HITLOCATIONS")]
-	#[doc(alias = "DMG_AIRBOAT")]
+	#[doc(alias("DMG_USE_HITLOCATIONS", "DMG_AIRBOAT"))]
 	pub const USE_HIT_LOCATIONS: Self = Self(damage::DMG_USE_HITLOCATIONS as u32);
 
 	/// Whether every bit of `other` is set in `self`.

@@ -29,7 +29,7 @@ const MAX_CHANNEL: c_int = CHAN_VOICE2;
 
 interface! {
 	/// The server's sound system (`IEngineSound`).
-	#[doc(alias = "IEngineSound")]
+	#[doc(alias("IEngineSound"))]
 	pub struct EngineSound(sys::IEngineSound) = Engine sdk_raw::interfaces::engine_sound::VERSION;
 }
 
@@ -53,36 +53,36 @@ pub struct Channel(c_int);
 
 impl Channel {
 	/// `CHAN_AUTO`: any free channel.
-	#[doc(alias = "CHAN_AUTO")]
+	#[doc(alias("CHAN_AUTO"))]
 	pub const AUTO: Self = Self(CHAN_AUTO);
 
 	/// `CHAN_BODY`: footsteps and other body sounds.
-	#[doc(alias = "CHAN_BODY")]
+	#[doc(alias("CHAN_BODY"))]
 	pub const BODY: Self = Self(CHAN_BODY);
 
 	/// `CHAN_ITEM`: item pickups and use.
-	#[doc(alias = "CHAN_ITEM")]
+	#[doc(alias("CHAN_ITEM"))]
 	pub const ITEM: Self = Self(CHAN_ITEM);
 
 	/// `CHAN_STATIC`: a channel allocated from the static area.
-	#[doc(alias = "CHAN_STATIC")]
+	#[doc(alias("CHAN_STATIC"))]
 	pub const STATIC: Self = Self(CHAN_STATIC);
 
 	/// `CHAN_STREAM`: a stream channel allocated from the static or dynamic
 	/// area.
-	#[doc(alias = "CHAN_STREAM")]
+	#[doc(alias("CHAN_STREAM"))]
 	pub const STREAM: Self = Self(CHAN_STREAM);
 
 	/// `CHAN_VOICE`: speech, as the game plays its voice lines on.
-	#[doc(alias = "CHAN_VOICE")]
+	#[doc(alias("CHAN_VOICE"))]
 	pub const VOICE: Self = Self(CHAN_VOICE);
 
 	/// `CHAN_VOICE2`: a second voice channel.
-	#[doc(alias = "CHAN_VOICE2")]
+	#[doc(alias("CHAN_VOICE2"))]
 	pub const VOICE2: Self = Self(CHAN_VOICE2);
 
 	/// `CHAN_WEAPON`: weapon sounds.
-	#[doc(alias = "CHAN_WEAPON")]
+	#[doc(alias("CHAN_WEAPON"))]
 	pub const WEAPON: Self = Self(CHAN_WEAPON);
 
 	/// Validates a raw `CHAN_*` value. Returns `None` for any channel the
@@ -111,15 +111,15 @@ pub struct Pitch(NonZero<u8>);
 
 impl Pitch {
 	/// `PITCH_HIGH`: 120.
-	#[doc(alias = "PITCH_HIGH")]
+	#[doc(alias("PITCH_HIGH"))]
 	pub const HIGH: Self = Self::from_header(PITCH_HIGH);
 
 	/// `PITCH_LOW`: 95.
-	#[doc(alias = "PITCH_LOW")]
+	#[doc(alias("PITCH_LOW"))]
 	pub const LOW: Self = Self::from_header(PITCH_LOW);
 
 	/// `PITCH_NORM`: 100, the sample's own pitch.
-	#[doc(alias = "PITCH_NORM")]
+	#[doc(alias("PITCH_NORM"))]
 	pub const NORM: Self = Self::from_header(PITCH_NORM);
 
 	/// Validates a pitch. Returns `None` for 0.
@@ -245,51 +245,51 @@ pub struct SoundFlags(c_int);
 
 impl SoundFlags {
 	/// `SND_CHANGE_PITCH`: changes the pitch of the sound already playing.
-	#[doc(alias = "SND_CHANGE_PITCH")]
+	#[doc(alias("SND_CHANGE_PITCH"))]
 	pub const CHANGE_PITCH: Self = Self(SND_CHANGE_PITCH);
 
 	/// `SND_CHANGE_VOL`: changes the volume of the sound already playing.
-	#[doc(alias = "SND_CHANGE_VOL")]
+	#[doc(alias("SND_CHANGE_VOL"))]
 	pub const CHANGE_VOLUME: Self = Self(SND_CHANGE_VOL);
 
 	/// `SND_DELAY`: the sound starts after a delay.
-	#[doc(alias = "SND_DELAY")]
+	#[doc(alias("SND_DELAY"))]
 	pub const DELAY: Self = Self(SND_DELAY);
 
 	/// `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: plays alongside the sound
 	/// already on the channel instead of replacing it.
-	#[doc(alias = "SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL")]
+	#[doc(alias("SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL"))]
 	pub const DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL: Self =
 		Self(SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL);
 
 	/// `SND_IGNORE_NAME`: a change or stop applies to every sound of the
 	/// source, whatever its sample.
-	#[doc(alias = "SND_IGNORE_NAME")]
+	#[doc(alias("SND_IGNORE_NAME"))]
 	pub const IGNORE_NAME: Self = Self(SND_IGNORE_NAME);
 
 	/// `SND_IGNORE_PHONEMES`: clients ignore the sample's phonemes, the lip
 	/// sync data that moves a speaker's mouth.
-	#[doc(alias = "SND_IGNORE_PHONEMES")]
+	#[doc(alias("SND_IGNORE_PHONEMES"))]
 	pub const IGNORE_PHONEMES: Self = Self(SND_IGNORE_PHONEMES);
 
 	/// `SND_NOFLAGS`: no flags, the default.
-	#[doc(alias = "SND_NOFLAGS")]
+	#[doc(alias("SND_NOFLAGS"))]
 	pub const NONE: Self = Self(SND_NOFLAGS);
 
 	/// `SND_SHOULDPAUSE`: the sound pauses while the game is paused.
-	#[doc(alias = "SND_SHOULDPAUSE")]
+	#[doc(alias("SND_SHOULDPAUSE"))]
 	pub const SHOULD_PAUSE: Self = Self(SND_SHOULDPAUSE);
 
 	/// `SND_SPEAKER`: the sound is replayed through a speaker.
-	#[doc(alias = "SND_SPEAKER")]
+	#[doc(alias("SND_SPEAKER"))]
 	pub const SPEAKER: Self = Self(SND_SPEAKER);
 
 	/// `SND_STOP`: stops the sound.
-	#[doc(alias = "SND_STOP")]
+	#[doc(alias("SND_STOP"))]
 	pub const STOP: Self = Self(SND_STOP);
 
 	/// `SND_STOP_LOOPING`: stops every looping sound of the source.
-	#[doc(alias = "SND_STOP_LOOPING")]
+	#[doc(alias("SND_STOP_LOOPING"))]
 	pub const STOP_LOOPING: Self = Self(SND_STOP_LOOPING);
 
 	/// Validates raw `SND_*` flags. Returns `None` if they include
@@ -333,33 +333,33 @@ impl std::ops::BitOr for SoundFlags {
 /// Louder sounds fade over longer distances, and [`NONE`](Self::NONE) does not
 /// fade at all. The engine's compatibility levels from 256 up, which fade as
 /// GoldSrc's did, cannot be expressed.
-#[doc(alias = "soundlevel_t")]
+#[doc(alias("soundlevel_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SoundLevel(u8);
 
 impl SoundLevel {
 	/// `SNDLVL_GUNFIRE`: 140 dB.
-	#[doc(alias = "SNDLVL_GUNFIRE")]
+	#[doc(alias("SNDLVL_GUNFIRE"))]
 	pub const GUNFIRE: Self = Self::from_header(sys::soundlevel_t_SNDLVL_GUNFIRE);
 
 	/// `SNDLVL_IDLE`: 60 dB.
-	#[doc(alias = "SNDLVL_IDLE")]
+	#[doc(alias("SNDLVL_IDLE"))]
 	pub const IDLE: Self = Self::from_header(sys::soundlevel_t_SNDLVL_IDLE);
 
 	/// `SNDLVL_NONE`: 0, heard at the same volume at any distance.
-	#[doc(alias = "SNDLVL_NONE")]
+	#[doc(alias("SNDLVL_NONE"))]
 	pub const NONE: Self = Self::from_header(sys::soundlevel_t_SNDLVL_NONE);
 
 	/// `SNDLVL_NORM`: 75 dB.
-	#[doc(alias = "SNDLVL_NORM")]
+	#[doc(alias("SNDLVL_NORM"))]
 	pub const NORM: Self = Self::from_header(sys::soundlevel_t_SNDLVL_NORM);
 
 	/// `SNDLVL_STATIC`: 66 dB.
-	#[doc(alias = "SNDLVL_STATIC")]
+	#[doc(alias("SNDLVL_STATIC"))]
 	pub const STATIC: Self = Self::from_header(sys::soundlevel_t_SNDLVL_STATIC);
 
 	/// `SNDLVL_TALKING`: 80 dB.
-	#[doc(alias = "SNDLVL_TALKING")]
+	#[doc(alias("SNDLVL_TALKING"))]
 	pub const TALKING: Self = Self::from_header(sys::soundlevel_t_SNDLVL_TALKING);
 
 	/// A level in decibels, as the `SNDLVL_<n>dB` constants give them.
@@ -398,7 +398,7 @@ pub enum SoundSource<'a> {
 	Entity(Entity<'a>),
 
 	/// The world (`SOUND_FROM_WORLD`, 0), at the emission's origin.
-	#[doc(alias = "SOUND_FROM_WORLD")]
+	#[doc(alias("SOUND_FROM_WORLD"))]
 	World,
 }
 
@@ -423,7 +423,7 @@ pub struct Volume(f32);
 
 impl Volume {
 	/// `VOL_NORM`: the sample's own volume.
-	#[doc(alias = "VOL_NORM")]
+	#[doc(alias("VOL_NORM"))]
 	pub const NORM: Self = Self(VOL_NORM);
 
 	/// Validates a volume. Returns `None` unless it is from 0 to 1.
@@ -473,7 +473,7 @@ impl<'s> EngineSound<'s> {
 	/// player. Linux servers have not been tested.
 	///
 	/// [`NetworkStringTables::is_sound_precached`]: crate::interfaces::NetworkStringTables::is_sound_precached
-	#[doc(alias = "EmitSound")]
+	#[doc(alias("EmitSound"))]
 	pub fn emit_sound(
 		self,
 		recipients: &Recipients,
@@ -549,7 +549,7 @@ impl<'s> EngineSound<'s> {
 	/// not been tested.
 	///
 	/// [`NetworkStringTables::is_sound_precached`]: crate::interfaces::NetworkStringTables::is_sound_precached
-	#[doc(alias = "IsSoundPrecached")]
+	#[doc(alias("IsSoundPrecached"))]
 	pub fn is_sound_precached(self, sample: &CStr) -> bool {
 		// SAFETY: As for `precache_sound`.
 		unsafe { vcall!(self.as_ptr() => IEngineSound_IsSoundPrecached(sample.as_ptr())) }
@@ -557,7 +557,7 @@ impl<'s> EngineSound<'s> {
 
 	/// Adds a sound to the precache table, which clients load before playing
 	/// it. Returns whether the sound could be precached.
-	#[doc(alias = "PrecacheSound")]
+	#[doc(alias("PrecacheSound"))]
 	pub fn precache_sound(self, sample: &CStr, preload: bool) -> bool {
 		// SAFETY: `Server::new` guarantees the interface is live.
 		unsafe {
@@ -572,7 +572,7 @@ impl<'s> EngineSound<'s> {
 	/// The header notes that MP3 files are not supported, and TF2's 64-bit
 	/// Windows server has been observed to report no length for a precached
 	/// MP3, `vo/scout_thanks01.mp3`.
-	#[doc(alias = "GetSoundDuration")]
+	#[doc(alias("GetSoundDuration"))]
 	pub fn sound_duration(self, sample: &CStr) -> Option<f32> {
 		// SAFETY: As for `precache_sound`. The engine only reads the sample
 		// during the call.
@@ -588,7 +588,7 @@ impl<'s> EngineSound<'s> {
 	/// To stop it for only some clients, emit it to them with
 	/// [`SoundFlags::STOP`] instead. The engine ignores a sample that is not
 	/// precached.
-	#[doc(alias = "StopSound")]
+	#[doc(alias("StopSound"))]
 	pub fn stop_sound(
 		self,
 		source: SoundSource<'_>,

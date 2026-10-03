@@ -45,7 +45,7 @@ const NORMAL_RESOLUTION: f64 = 1.0 / NORMAL_DENOMINATOR as f64;
 ///
 /// Where `bf_read` sets an overflow flag, each read here returns [`Overflow`]
 /// when too few bits remain.
-#[doc(alias = "bf_read")]
+#[doc(alias("bf_read"))]
 #[derive(Debug, Clone)]
 pub struct BitReader<'a> {
 	/// The bits, as little-endian words.
@@ -73,13 +73,13 @@ impl<'a> BitReader<'a> {
 	}
 
 	/// The number of bits read.
-	#[doc(alias = "GetNumBitsRead")]
+	#[doc(alias("GetNumBitsRead"))]
 	pub const fn position(&self) -> usize {
 		self.position
 	}
 
 	/// One bit, as `ReadOneBit` reads it.
-	#[doc(alias = "ReadOneBit")]
+	#[doc(alias("ReadOneBit"))]
 	pub fn read_bit(&mut self) -> Result<bool, Overflow> {
 		Ok(self.read_ubits(1)? != 0)
 	}
@@ -90,7 +90,7 @@ impl<'a> BitReader<'a> {
 	/// # Panics
 	///
 	/// If `bits` exceeds 32.
-	#[doc(alias = "ReadBitAngle")]
+	#[doc(alias("ReadBitAngle"))]
 	pub fn read_bit_angle(&mut self, bits: u32) -> Result<f32, Overflow> {
 		let turn = (1u64 << bits) as f64;
 
@@ -99,7 +99,7 @@ impl<'a> BitReader<'a> {
 
 	/// A world coordinate: flags for its integer and fraction, a sign, then
 	/// each part present, as `ReadBitCoord` reads it.
-	#[doc(alias = "ReadBitCoord")]
+	#[doc(alias("ReadBitCoord"))]
 	pub fn read_bit_coord(&mut self) -> Result<f32, Overflow> {
 		let has_integer = self.read_bit()?;
 		let has_fraction = self.read_bit()?;
@@ -124,7 +124,7 @@ impl<'a> BitReader<'a> {
 
 	/// A component of a unit vector: a sign, then the magnitude in
 	/// [`NORMAL_FRACTIONAL_BITS`] bits, as `ReadBitNormal` reads it.
-	#[doc(alias = "ReadBitNormal")]
+	#[doc(alias("ReadBitNormal"))]
 	pub fn read_bit_normal(&mut self) -> Result<f32, Overflow> {
 		let negative = self.read_bit()?;
 		let fraction = f64::from(self.read_ubits(NORMAL_FRACTIONAL_BITS)?);
@@ -136,7 +136,7 @@ impl<'a> BitReader<'a> {
 	/// A flag for each component, then each flagged component as a
 	/// coordinate, as `ReadBitVec3Coord` reads them. Unflagged components are
 	/// zero.
-	#[doc(alias = "ReadBitVec3Coord")]
+	#[doc(alias("ReadBitVec3Coord"))]
 	pub fn read_bit_vec3_coord(&mut self) -> Result<Vector, Overflow> {
 		let present = [self.read_bit()?, self.read_bit()?, self.read_bit()?];
 		let mut components = [0.0; 3];
@@ -154,7 +154,7 @@ impl<'a> BitReader<'a> {
 	/// memory.
 	///
 	/// Reads nothing if fewer than `bits` bits remain.
-	#[doc(alias = "ReadBits")]
+	#[doc(alias("ReadBits"))]
 	pub fn read_bits(&mut self, bits: usize) -> Result<BitWriter, Overflow> {
 		if self.remaining() < bits {
 			return Err(Overflow);
@@ -175,7 +175,7 @@ impl<'a> BitReader<'a> {
 	/// Reads `len` bytes, at any bit offset, as `ReadBytes` does.
 	///
 	/// Reads nothing if fewer than `len` bytes remain.
-	#[doc(alias = "ReadBytes")]
+	#[doc(alias("ReadBytes"))]
 	pub fn read_bytes(&mut self, len: usize) -> Result<Vec<u8>, Overflow> {
 		if self.remaining() / 8 < len {
 			return Err(Overflow);
@@ -186,7 +186,7 @@ impl<'a> BitReader<'a> {
 
 	/// Reads up to and including a terminator, as `ReadString` does, without
 	/// a length limit. The terminator is not part of the string.
-	#[doc(alias = "ReadString")]
+	#[doc(alias("ReadString"))]
 	pub fn read_cstring(&mut self) -> Result<CString, Overflow> {
 		let mut bytes = Vec::new();
 
@@ -202,27 +202,26 @@ impl<'a> BitReader<'a> {
 	}
 
 	/// The raw bits of a float, as `ReadFloat` and `ReadBitFloat` read them.
-	#[doc(alias = "ReadFloat")]
-	#[doc(alias = "ReadBitFloat")]
+	#[doc(alias("ReadFloat", "ReadBitFloat"))]
 	pub fn read_f32(&mut self) -> Result<f32, Overflow> {
 		Ok(f32::from_bits(self.read_ubits(32)?))
 	}
 
 	/// An 8-bit two's complement integer, as `ReadChar` reads it.
-	#[doc(alias = "ReadChar")]
+	#[doc(alias("ReadChar"))]
 	pub fn read_i8(&mut self) -> Result<i8, Overflow> {
 		Ok(self.read_sbits(8)? as i8)
 	}
 
 	/// A 16-bit two's complement integer, as `ReadShort` reads it.
-	#[doc(alias = "ReadShort")]
+	#[doc(alias("ReadShort"))]
 	pub fn read_i16(&mut self) -> Result<i16, Overflow> {
 		Ok(self.read_sbits(16)? as i16)
 	}
 
 	/// A 32-bit two's complement integer, as `ReadLong` reads it where `long`
 	/// is 32 bits.
-	#[doc(alias = "ReadLong")]
+	#[doc(alias("ReadLong"))]
 	pub fn read_i32(&mut self) -> Result<i32, Overflow> {
 		Ok(self.read_ubits(32)? as i32)
 	}
@@ -233,7 +232,7 @@ impl<'a> BitReader<'a> {
 	/// # Panics
 	///
 	/// If `bits` is 0 or exceeds 32.
-	#[doc(alias = "ReadSBitLong")]
+	#[doc(alias("ReadSBitLong"))]
 	pub fn read_sbits(&mut self, bits: u32) -> Result<i32, Overflow> {
 		assert!((1..=32).contains(&bits), "cannot read {bits} signed bits");
 
@@ -243,13 +242,13 @@ impl<'a> BitReader<'a> {
 	}
 
 	/// An unsigned byte, as `ReadByte` reads it.
-	#[doc(alias = "ReadByte")]
+	#[doc(alias("ReadByte"))]
 	pub fn read_u8(&mut self) -> Result<u8, Overflow> {
 		Ok(self.read_ubits(8)? as u8)
 	}
 
 	/// An unsigned 16-bit integer, as `ReadWord` reads it.
-	#[doc(alias = "ReadWord")]
+	#[doc(alias("ReadWord"))]
 	pub fn read_u16(&mut self) -> Result<u16, Overflow> {
 		Ok(self.read_ubits(16)? as u16)
 	}
@@ -261,7 +260,7 @@ impl<'a> BitReader<'a> {
 
 	/// A two-bit length selector, then the value in 4, 8, 12, or 32 bits, as
 	/// `ReadUBitVar` reads it.
-	#[doc(alias = "ReadUBitVar")]
+	#[doc(alias("ReadUBitVar"))]
 	pub fn read_ubit_var(&mut self) -> Result<u32, Overflow> {
 		let bits = match self.read_ubits(2)? {
 			0 => 4,
@@ -278,7 +277,7 @@ impl<'a> BitReader<'a> {
 	/// # Panics
 	///
 	/// If `bits` exceeds 32.
-	#[doc(alias = "ReadUBitLong")]
+	#[doc(alias("ReadUBitLong"))]
 	pub fn read_ubits(&mut self, bits: u32) -> Result<u32, Overflow> {
 		assert!(bits <= 32, "cannot read {bits} bits at once");
 
@@ -305,7 +304,7 @@ impl<'a> BitReader<'a> {
 	/// Seven bits at a time, low first, each byte flagging whether more
 	/// follow, as `ReadVarInt32` reads it. Stops after five bytes, as the
 	/// engine does, even if the last flags more.
-	#[doc(alias = "ReadVarInt32")]
+	#[doc(alias("ReadVarInt32"))]
 	pub fn read_var_u32(&mut self) -> Result<u32, Overflow> {
 		let mut value = 0u32;
 
@@ -323,14 +322,14 @@ impl<'a> BitReader<'a> {
 	}
 
 	/// The number of bits left.
-	#[doc(alias = "GetNumBitsLeft")]
+	#[doc(alias("GetNumBitsLeft"))]
 	pub const fn remaining(&self) -> usize {
 		self.len - self.position
 	}
 }
 
 /// A growable buffer of bits, written the way `bf_write` writes them.
-#[doc(alias = "bf_write")]
+#[doc(alias("bf_write"))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct BitWriter {
 	/// Storage, whole words at a time. Bits past `len` are always zero.
@@ -379,7 +378,7 @@ impl BitWriter {
 	}
 
 	/// The number of bytes the bits written span.
-	#[doc(alias = "GetNumBytesWritten")]
+	#[doc(alias("GetNumBytesWritten"))]
 	pub const fn byte_len(&self) -> usize {
 		self.len.div_ceil(8)
 	}
@@ -396,7 +395,7 @@ impl BitWriter {
 	}
 
 	/// The number of bits written.
-	#[doc(alias = "GetNumBitsWritten")]
+	#[doc(alias("GetNumBitsWritten"))]
 	pub const fn len(&self) -> usize {
 		self.len
 	}
@@ -438,7 +437,7 @@ impl BitWriter {
 	}
 
 	/// One bit, as `WriteOneBit` writes it.
-	#[doc(alias = "WriteOneBit")]
+	#[doc(alias("WriteOneBit"))]
 	pub fn write_bit(&mut self, bit: bool) {
 		self.push(u32::from(bit), 1);
 	}
@@ -449,7 +448,7 @@ impl BitWriter {
 	/// # Panics
 	///
 	/// If `bits` is 0 or exceeds 32.
-	#[doc(alias = "WriteBitAngle")]
+	#[doc(alias("WriteBitAngle"))]
 	pub fn write_bit_angle(&mut self, degrees: f32, bits: u32) {
 		assert!(
 			(1..=32).contains(&bits),
@@ -463,14 +462,14 @@ impl BitWriter {
 	}
 
 	/// Angles as coordinates, as `WriteBitAngles` writes them.
-	#[doc(alias = "WriteBitAngles")]
+	#[doc(alias("WriteBitAngles"))]
 	pub fn write_bit_angles(&mut self, value: QAngle) {
 		self.write_bit_vec3_coord(Vector::new(value.pitch, value.yaw, value.roll));
 	}
 
 	/// A world coordinate: flags for its integer and fraction, a sign, then
 	/// each part present, as `WriteBitCoord` writes it.
-	#[doc(alias = "WriteBitCoord")]
+	#[doc(alias("WriteBitCoord"))]
 	pub fn write_bit_coord(&mut self, value: f32) {
 		let negative = value <= -COORD_RESOLUTION;
 		let integer = value.abs() as u32;
@@ -496,7 +495,7 @@ impl BitWriter {
 
 	/// A component of a unit vector: a sign, then the magnitude in
 	/// [`NORMAL_FRACTIONAL_BITS`] bits, as `WriteBitNormal` writes it.
-	#[doc(alias = "WriteBitNormal")]
+	#[doc(alias("WriteBitNormal"))]
 	pub fn write_bit_normal(&mut self, value: f32) {
 		let negative = f64::from(value) <= -NORMAL_RESOLUTION;
 		let fraction = ((value * NORMAL_DENOMINATOR as f32) as i32)
@@ -509,7 +508,7 @@ impl BitWriter {
 
 	/// A flag for each nonzero component, then each such component as a
 	/// coordinate, as `WriteBitVec3Coord` writes them.
-	#[doc(alias = "WriteBitVec3Coord")]
+	#[doc(alias("WriteBitVec3Coord"))]
 	pub fn write_bit_vec3_coord(&mut self, value: Vector) {
 		let components = [value.x, value.y, value.z];
 		let present = components.map(|component| component.abs() >= COORD_RESOLUTION);
@@ -527,7 +526,7 @@ impl BitWriter {
 
 	/// A unit vector: its x and y components when nonzero, then the sign of z,
 	/// as `WriteBitVec3Normal` writes it.
-	#[doc(alias = "WriteBitVec3Normal")]
+	#[doc(alias("WriteBitVec3Normal"))]
 	pub fn write_bit_vec3_normal(&mut self, value: Vector) {
 		let x = f64::from(value.x.abs()) >= NORMAL_RESOLUTION;
 		let y = f64::from(value.y.abs()) >= NORMAL_RESOLUTION;
@@ -548,13 +547,13 @@ impl BitWriter {
 
 	/// Appends everything written to `other`, as `WriteBits` appends bits
 	/// from memory.
-	#[doc(alias = "WriteBits")]
+	#[doc(alias("WriteBits"))]
 	pub fn write_bits(&mut self, other: &BitWriter) {
 		self.write_words(&other.words, other.len);
 	}
 
 	/// Bytes, at any bit offset, as `WriteBytes` writes them.
-	#[doc(alias = "WriteBytes")]
+	#[doc(alias("WriteBytes"))]
 	pub fn write_bytes(&mut self, bytes: &[u8]) {
 		for &byte in bytes {
 			self.push(byte.into(), 8);
@@ -562,33 +561,32 @@ impl BitWriter {
 	}
 
 	/// A string and its terminator, as `WriteString` writes them.
-	#[doc(alias = "WriteString")]
+	#[doc(alias("WriteString"))]
 	pub fn write_cstr(&mut self, value: &CStr) {
 		self.write_bytes(value.to_bytes_with_nul());
 	}
 
 	/// The raw bits of a float, as `WriteFloat` and `WriteBitFloat` write them.
-	#[doc(alias = "WriteFloat")]
-	#[doc(alias = "WriteBitFloat")]
+	#[doc(alias("WriteFloat", "WriteBitFloat"))]
 	pub fn write_f32(&mut self, value: f32) {
 		self.push(value.to_bits(), 32);
 	}
 
 	/// An 8-bit two's complement integer, as `WriteChar` writes it.
-	#[doc(alias = "WriteChar")]
+	#[doc(alias("WriteChar"))]
 	pub fn write_i8(&mut self, value: i8) {
 		self.write_sbits(value.into(), 8);
 	}
 
 	/// A 16-bit two's complement integer, as `WriteShort` writes it.
-	#[doc(alias = "WriteShort")]
+	#[doc(alias("WriteShort"))]
 	pub fn write_i16(&mut self, value: i16) {
 		self.write_sbits(value.into(), 16);
 	}
 
 	/// A 32-bit two's complement integer, as `WriteLong` writes it where
 	/// `long` is 32 bits.
-	#[doc(alias = "WriteLong")]
+	#[doc(alias("WriteLong"))]
 	pub fn write_i32(&mut self, value: i32) {
 		self.push(value as u32, 32);
 	}
@@ -599,7 +597,7 @@ impl BitWriter {
 	/// # Panics
 	///
 	/// If `bits` is 0 or exceeds 32, or `value` does not fit in `bits` bits.
-	#[doc(alias = "WriteSBitLong")]
+	#[doc(alias("WriteSBitLong"))]
 	pub fn write_sbits(&mut self, value: i32, bits: u32) {
 		assert!((1..=32).contains(&bits), "cannot write {bits} signed bits");
 
@@ -614,13 +612,13 @@ impl BitWriter {
 	}
 
 	/// An unsigned byte, as `WriteByte` writes it.
-	#[doc(alias = "WriteByte")]
+	#[doc(alias("WriteByte"))]
 	pub fn write_u8(&mut self, value: u8) {
 		self.push(value.into(), 8);
 	}
 
 	/// An unsigned 16-bit integer, as `WriteWord` writes it.
-	#[doc(alias = "WriteWord")]
+	#[doc(alias("WriteWord"))]
 	pub fn write_u16(&mut self, value: u16) {
 		self.push(value.into(), 16);
 	}
@@ -633,7 +631,7 @@ impl BitWriter {
 
 	/// A two-bit length selector, then the value in 4, 8, 12, or 32 bits, as
 	/// `WriteUBitVar` writes it.
-	#[doc(alias = "WriteUBitVar")]
+	#[doc(alias("WriteUBitVar"))]
 	pub fn write_ubit_var(&mut self, value: u32) {
 		let (selector, bits) = match value {
 			0..0x10 => (0, 4),
@@ -651,7 +649,7 @@ impl BitWriter {
 	/// # Panics
 	///
 	/// If `bits` exceeds 32, or `value` does not fit in `bits` bits.
-	#[doc(alias = "WriteUBitLong")]
+	#[doc(alias("WriteUBitLong"))]
 	pub fn write_ubits(&mut self, value: u32, bits: u32) {
 		assert!(bits <= 32, "cannot write {bits} bits at once");
 		assert!(
@@ -664,7 +662,7 @@ impl BitWriter {
 
 	/// Seven bits at a time, low first, each byte flagging whether more
 	/// follow, as `WriteVarInt32` writes it.
-	#[doc(alias = "WriteVarInt32")]
+	#[doc(alias("WriteVarInt32"))]
 	pub fn write_var_u32(&mut self, mut value: u32) {
 		while value > 0x7f {
 			self.push((value & 0x7f) | 0x80, 8);

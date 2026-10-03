@@ -92,8 +92,7 @@ impl InterfaceError {
 ///
 /// Holding a factory grants nothing on its own; [`Server::new`] is where the
 /// caller vouches that it belongs to the running server.
-#[doc(alias = "CreateInterface")]
-#[doc(alias = "CreateInterfaceFn")]
+#[doc(alias("CreateInterface", "CreateInterfaceFn"))]
 #[derive(Debug, Clone, Copy)]
 pub struct InterfaceFactory(CreateInterfaceFn);
 
@@ -216,7 +215,7 @@ impl<'s> Server<'s> {
 	/// This goes through tier0's `Msg`, as the game's own console commands do.
 	/// If tier0 cannot be found, it falls back to `ICvar::ConsolePrintf`, which
 	/// only listen servers display.
-	#[doc(alias = "Msg")]
+	#[doc(alias("Msg"))]
 	pub fn console_print(&self, message: &CStr) {
 		if tier0_print(message) {
 			return;

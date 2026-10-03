@@ -24,7 +24,7 @@ pub use sdk_raw::edicts::MAX_EDICTS;
 /// the scope that produced it, and its slot may have become
 /// [free](Self::is_free) or been reassigned by the time it is used. Handles
 /// compare equal when they refer to the same slot.
-#[doc(alias = "edict_t")]
+#[doc(alias("edict_t"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Edict<'s> {
 	pointer: NonNull<sys::edict_t>,
@@ -53,7 +53,7 @@ impl<'s> Edict<'s> {
 	}
 
 	/// The class name of the slot's entity, if it has one.
-	#[doc(alias = "GetClassName")]
+	#[doc(alias("GetClassName"))]
 	pub fn class_name(self) -> Option<&'s CStr> {
 		if self.is_free() {
 			return None;
@@ -69,8 +69,7 @@ impl<'s> Edict<'s> {
 	}
 
 	/// The entity occupying the slot, if any.
-	#[doc(alias = "GetBaseEntity")]
-	#[doc(alias = "GetUnknown")]
+	#[doc(alias("GetBaseEntity", "GetUnknown"))]
 	pub fn entity(self) -> Option<Entity<'s>> {
 		if self.is_free() {
 			return None;
@@ -91,7 +90,7 @@ impl<'s> Edict<'s> {
 	/// of its networked variables.
 	///
 	/// This is `CBaseEdict::StateChanged()`.
-	#[doc(alias = "StateChanged")]
+	#[doc(alias("StateChanged"))]
 	pub fn full_state_changed(self, engine: ValveEngine<'_>) {
 		let accessor = engine.change_accessor(self);
 
@@ -102,9 +101,7 @@ impl<'s> Edict<'s> {
 	}
 
 	/// The slot's position in the edict table, which is also its entity's index.
-	#[doc(alias = "ENTINDEX")]
-	#[doc(alias = "IndexOfEdict")]
-	#[doc(alias = "m_EdictIndex")]
+	#[doc(alias("ENTINDEX", "IndexOfEdict", "m_EdictIndex"))]
 	pub fn index(self) -> c_int {
 		// SAFETY: The table outlives `'s`. The engine caches every slot's index
 		// in the slot itself, which is what the game's `ENTINDEX` reads. Fields
@@ -116,8 +113,7 @@ impl<'s> Edict<'s> {
 	}
 
 	/// Whether the engine has freed the slot for reuse.
-	#[doc(alias = "FL_EDICT_FREE")]
-	#[doc(alias = "IsFree")]
+	#[doc(alias("FL_EDICT_FREE", "IsFree"))]
 	pub fn is_free(self) -> bool {
 		self.state_flags() & FL_EDICT_FREE != 0
 	}
@@ -129,7 +125,7 @@ impl<'s> Edict<'s> {
 	/// network variable wrappers call on assignment. The engine keeps a
 	/// limited number of offsets per frame, past which the whole entity is
 	/// compared instead.
-	#[doc(alias = "StateChanged")]
+	#[doc(alias("StateChanged"))]
 	pub fn state_changed(self, engine: ValveEngine<'_>, offset: u16) {
 		// SAFETY: As for `full_state_changed`, and the shared change info is the
 		// engine's.

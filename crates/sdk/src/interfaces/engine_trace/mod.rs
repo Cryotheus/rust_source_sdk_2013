@@ -7,14 +7,14 @@ use std::ptr;
 
 interface! {
 	/// Traces rays and queries what the world contains (`IEngineTrace`).
-	#[doc(alias = "IEngineTrace")]
+	#[doc(alias("IEngineTrace"))]
 	pub struct EngineTrace(sys::IEngineTrace) = Engine sdk_raw::interfaces::engine_trace::VERSION;
 }
 
 impl<'s> EngineTrace<'s> {
 	/// The `CONTENTS_*` flags of the world and entities at a point, as defined
 	/// in `public/bspflags.h`.
-	#[doc(alias = "GetPointContents")]
+	#[doc(alias("GetPointContents"))]
 	pub fn point_contents(self, position: Vector) -> c_int {
 		let position = sys::Vector::from(position);
 

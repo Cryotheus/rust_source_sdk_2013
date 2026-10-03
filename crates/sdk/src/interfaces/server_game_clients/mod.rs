@@ -10,8 +10,7 @@ interface! {
 	/// [`CLIENT_COMMAND_SLOT`](sdk_raw::interfaces::server_game_clients::CLIENT_COMMAND_SLOT),
 	/// to run clients' commands through
 	/// [`route_client_command`](crate::commands::route_client_command).
-	#[doc(alias = "IServerGameClients")]
-	#[doc(alias = "CServerGameClients")]
+	#[doc(alias("IServerGameClients", "CServerGameClients"))]
 	pub struct ServerGameClients(sys::IServerGameClients) = GameServer sdk_raw::interfaces::server_game_clients::VERSION;
 }
 
@@ -30,7 +29,7 @@ pub struct PlayerLimits {
 
 impl<'s> ServerGameClients<'s> {
 	/// The player counts the game supports for `maxplayers`.
-	#[doc(alias = "GetPlayerLimits")]
+	#[doc(alias("GetPlayerLimits"))]
 	pub fn player_limits(self) -> PlayerLimits {
 		let (mut minimum, mut maximum, mut default) = (0, 0, 0);
 

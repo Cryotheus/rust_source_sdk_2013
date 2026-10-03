@@ -134,7 +134,7 @@ impl CommandHeader {
 /// A command is `Sync` when its handler is: everything the engine or Rust
 /// writes after construction is only touched on the server's main thread,
 /// either by the engine or through a [`Server`], which only exists there.
-#[doc(alias = "ConCommand")]
+#[doc(alias("ConCommand"))]
 #[repr(C)]
 pub struct ConsoleCommand<H> {
 	header: CommandHeader,
@@ -291,7 +291,7 @@ impl<H> ConsoleCommand<H> {
 	}
 
 	/// The name the command is registered under.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub const fn name(&self) -> &'static CStr {
 		self.header.name
 	}

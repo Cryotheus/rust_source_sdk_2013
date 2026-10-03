@@ -66,7 +66,7 @@ static HOOKS: ConVarHooks = ConVarHooks {
 ///
 /// A variable is `Sync`: everything the engine or Rust writes after
 /// construction is only touched on the server's main thread.
-#[doc(alias = "ConVar")]
+#[doc(alias("ConVar"))]
 #[repr(C)]
 pub struct ConsoleVariable {
 	/// The engine-visible `ConVar`, created with [`HOOKS`], which also holds
@@ -129,7 +129,7 @@ impl ConsoleVariable {
 	}
 
 	/// The value as a boolean: whether its integer is not 0.
-	#[doc(alias = "GetBool")]
+	#[doc(alias("GetBool"))]
 	pub fn bool(&self, server: Server<'_>) -> bool {
 		self.int(server) != 0
 	}
@@ -193,7 +193,7 @@ impl ConsoleVariable {
 	}
 
 	/// The value the variable reverts to.
-	#[doc(alias = "GetDefault")]
+	#[doc(alias("GetDefault"))]
 	pub const fn default_value(&self) -> &'static CStr {
 		self.object.default()
 	}
@@ -206,7 +206,7 @@ impl ConsoleVariable {
 	}
 
 	/// The value as a float.
-	#[doc(alias = "GetFloat")]
+	#[doc(alias("GetFloat"))]
 	pub fn float(&self, _server: Server<'_>) -> f32 {
 		self.object.float()
 	}
@@ -219,7 +219,7 @@ impl ConsoleVariable {
 
 	/// The value as an integer, which follows the float unless it was set from
 	/// an integer.
-	#[doc(alias = "GetInt")]
+	#[doc(alias("GetInt"))]
 	pub fn int(&self, _server: Server<'_>) -> c_int {
 		self.object.int()
 	}
@@ -237,7 +237,7 @@ impl ConsoleVariable {
 	}
 
 	/// The name the variable is registered under.
-	#[doc(alias = "GetName")]
+	#[doc(alias("GetName"))]
 	pub const fn name(&self) -> &'static CStr {
 		self.name
 	}
@@ -327,7 +327,7 @@ impl ConsoleVariable {
 	}
 
 	/// Sets the value back to the default.
-	#[doc(alias = "Revert")]
+	#[doc(alias("Revert"))]
 	pub fn revert(&self, server: Server<'_>) {
 		self.set_string(server, self.default_value());
 	}
@@ -335,7 +335,7 @@ impl ConsoleVariable {
 	/// Sets the value from a float, which the string then shows with six
 	/// decimals, as the console does for `SetValue(float)`. Nothing happens if
 	/// the float value is unchanged.
-	#[doc(alias = "SetValue")]
+	#[doc(alias("SetValue"))]
 	pub fn set_float(&self, server: Server<'_>, value: f32) {
 		self.set_float_value(self.change_callbacks(Some(server)), value, false);
 	}
@@ -354,7 +354,7 @@ impl ConsoleVariable {
 
 	/// Sets the value from an integer, as the console does for
 	/// `SetValue(int)`. Nothing happens if the integer value is unchanged.
-	#[doc(alias = "SetValue")]
+	#[doc(alias("SetValue"))]
 	pub fn set_int(&self, server: Server<'_>, value: c_int) {
 		self.set_int_value(self.change_callbacks(Some(server)), value);
 	}
@@ -377,7 +377,7 @@ impl ConsoleVariable {
 
 	/// Sets the value from a string, as the console does. The float is parsed
 	/// as C's `atof` parses decimal numbers, and the integer follows it.
-	#[doc(alias = "SetValue")]
+	#[doc(alias("SetValue"))]
 	pub fn set_string(&self, server: Server<'_>, value: &CStr) {
 		self.set_string_value(self.change_callbacks(Some(server)), Some(value));
 	}
@@ -416,7 +416,7 @@ impl ConsoleVariable {
 	}
 
 	/// The value as a string.
-	#[doc(alias = "GetString")]
+	#[doc(alias("GetString"))]
 	pub fn string(&self, _server: Server<'_>) -> CString {
 		self.object.string()
 	}

@@ -8,7 +8,7 @@ use std::ops::{Deref, DerefMut};
 pub use glam;
 
 /// A color with 8-bit red, green, blue, and alpha components (`color32`).
-#[doc(alias = "color32")]
+#[doc(alias("color32"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Color32 {
 	/// The red component.
@@ -46,15 +46,15 @@ impl From<sys::color32> for Color32 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct QAngle {
 	/// Rotation up or down, in degrees (`PITCH`).
-	#[doc(alias = "x")]
+	#[doc(alias("x"))]
 	pub pitch: f32,
 
 	/// Rotation left or right, in degrees (`YAW`).
-	#[doc(alias = "y")]
+	#[doc(alias("y"))]
 	pub yaw: f32,
 
 	/// Rotation about the facing direction, in degrees (`ROLL`).
-	#[doc(alias = "z")]
+	#[doc(alias("z"))]
 	pub roll: f32,
 }
 

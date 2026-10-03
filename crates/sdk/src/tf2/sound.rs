@@ -195,8 +195,7 @@ impl From<BindingError> for PrecacheError {
 /// [`BroadcastError::Encode`] for a sound longer than [`MAX_SOUND_LEN`] bytes,
 /// and with [`BroadcastError::NotNetworked`] for a `voice_of` without an
 /// edict.
-#[doc(alias = "BroadcastSound")]
-#[doc(alias = "teamplay_broadcast_audio")]
+#[doc(alias("BroadcastSound", "teamplay_broadcast_audio"))]
 pub fn broadcast(
 	server: Server<'_>,
 	recipients: &Recipients,
@@ -285,7 +284,7 @@ pub fn broadcast(
 /// window, so a late call still precaches each sample, but the game warns
 /// `Late precache of ...` for each one the engine reports as not precached
 /// yet (`CBaseEntity::PrecacheSound`).
-#[doc(alias = "PrecacheScriptSound")]
+#[doc(alias("PrecacheScriptSound"))]
 pub fn precache_script_sound(server: Server<'_>, name: &CStr) -> Result<(), PrecacheError> {
 	if server.game() != Game::TeamFortress2 {
 		return Err(PrecacheError::NotTf2);

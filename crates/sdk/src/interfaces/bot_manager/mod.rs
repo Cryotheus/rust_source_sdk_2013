@@ -7,8 +7,7 @@ use std::ptr::NonNull;
 
 interface! {
 	/// Creates and controls bots (`IBotManager`).
-	#[doc(alias = "IBotManager")]
-	#[doc(alias = "CPluginBotManager")]
+	#[doc(alias("IBotManager", "CPluginBotManager"))]
 	pub struct BotManager(sys::IBotManager) = GameServer sdk_raw::interfaces::bot_manager::VERSION;
 }
 
@@ -17,7 +16,7 @@ impl<'s> BotManager<'s> {
 	///
 	/// The bot's player spawns through the game's usual connection path, which
 	/// runs game code and fires game events synchronously.
-	#[doc(alias = "CreateBot")]
+	#[doc(alias("CreateBot"))]
 	pub fn create_bot(self, name: &CStr) -> Option<Edict<'s>> {
 		// SAFETY: `Server::new` guarantees the interface is live.
 		let edict = unsafe { vcall!(self.as_ptr() => IBotManager_CreateBot(name.as_ptr())) };

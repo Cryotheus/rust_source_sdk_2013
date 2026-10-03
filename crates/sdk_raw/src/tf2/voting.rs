@@ -12,7 +12,7 @@ use std::ptr::NonNull;
 /// player with entity index `caller`, or [`DEDICATED_SERVER`], may call a
 /// vote on the issue with `details`, writing why not and for how long to
 /// `failure` and `time` when it may not.
-#[doc(alias = "RequestCallVote")]
+#[doc(alias("RequestCallVote"))]
 pub type RequestCallVoteFn = unsafe extern "C" fn(
 	this: *mut sys::CBaseIssue,
 	caller: c_int,
@@ -34,7 +34,7 @@ pub const MAX_VOTE_OPTIONS: usize = 5;
 
 /// The slot of `CBaseIssue::RequestCallVote` in an issue's primary vtable,
 /// from the generated binding.
-#[doc(alias = "RequestCallVote")]
+#[doc(alias("RequestCallVote"))]
 pub const REQUEST_CALL_VOTE_SLOT: usize =
 	vtable_slot!(sys::CBaseIssue__bindgen_vtable, CBaseIssue_RequestCallVote);
 

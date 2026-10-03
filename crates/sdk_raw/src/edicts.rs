@@ -76,7 +76,7 @@ const fn array_len<T, const N: usize>(_array: *const [T; N]) -> usize {
 /// if any, to the engine's change accessor for that slot
 /// (`IVEngineServer::GetChangeAccessor`). The call must be made on the
 /// server's main thread, the only one that accesses them.
-#[doc(alias = "StateChanged")]
+#[doc(alias("StateChanged"))]
 pub unsafe fn full_state_changed(
 	edict: *mut sys::edict_t,
 	accessor: Option<NonNull<sys::IChangeInfoAccessor>>,
@@ -116,7 +116,7 @@ pub unsafe fn full_state_changed(
 /// that slot (`IVEngineServer::GetChangeAccessor`) and its shared change info
 /// (`IVEngineServer::GetSharedEdictChangeInfo`). The call must be made on the
 /// server's main thread, the only one that accesses them.
-#[doc(alias = "StateChanged")]
+#[doc(alias("StateChanged"))]
 pub unsafe fn state_changed(
 	edict: *mut sys::edict_t,
 	offset: u16,

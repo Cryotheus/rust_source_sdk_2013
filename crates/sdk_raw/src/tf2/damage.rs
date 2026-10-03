@@ -13,8 +13,7 @@ use std::ffi::c_int;
 
 /// The signature of `CTFPlayer::OnTakeDamage` and `OnTakeDamage_Alive`,
 /// `int (const CTakeDamageInfo &)`, with the player as its receiver.
-#[doc(alias = "OnTakeDamage")]
-#[doc(alias = "OnTakeDamage_Alive")]
+#[doc(alias("OnTakeDamage", "OnTakeDamage_Alive"))]
 pub type TakeDamageFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::CTakeDamageInfo) -> c_int;
 
@@ -113,12 +112,12 @@ pub const NO_AMMO_TYPE: c_int = -1;
 /// The generated method takes a `CTFPlayer` receiver. It is the player's
 /// primary base, `CBaseEntity`, at the same address, so the method can be
 /// called and hooked as a [`TakeDamageFn`].
-#[doc(alias = "OnTakeDamage_Alive")]
+#[doc(alias("OnTakeDamage_Alive"))]
 pub const ON_TAKE_DAMAGE_ALIVE_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage_Alive);
 
 /// The slot of `CTFPlayer::OnTakeDamage` in a TF2 player's primary vtable,
 /// from the generated binding.
-#[doc(alias = "OnTakeDamage")]
+#[doc(alias("OnTakeDamage"))]
 pub const ON_TAKE_DAMAGE_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage);
