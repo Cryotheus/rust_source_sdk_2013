@@ -51,7 +51,6 @@ pub mod net;
 pub mod players;
 pub mod server;
 pub mod soundscapes;
-mod tier0;
 pub mod user_messages;
 
 #[cfg(feature = "tf2")]

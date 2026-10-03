@@ -31,16 +31,13 @@
 use crate::NotThreadSafe;
 use crate::datatables::{NetProp, NetPropError, ServerClass, ServerClasses, StandardSendProxies};
 use crate::entities::Entity;
+use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::{buffer_from_cstr, copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, VaList, c_char, c_int};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
-
-/// `MAX_PATH` from `public/tier0/platform.h`, which sizes map name and match
-/// name buffers.
-const MAX_PATH: usize = 260;
 
 /// The most user messages [`ServerGameDll::user_messages`] asks for, far more
 /// than games register.

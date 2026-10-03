@@ -16,11 +16,9 @@
 //! game does.
 
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
+use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::{CString, c_int};
-
-/// `MAX_PATH`, the length of the sound file name `CAmbientGeneric` keeps.
-const MAX_PATH: usize = 260;
 
 /// An `ambient_generic` entity.
 #[doc(alias = "CAmbientGeneric")]

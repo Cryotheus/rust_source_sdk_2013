@@ -217,7 +217,7 @@ impl<'s> Server<'s> {
 	/// only listen servers display.
 	#[doc(alias = "Msg")]
 	pub fn console_print(&self, message: &CStr) {
-		if crate::tier0::print(message) {
+		if tier0_print(message) {
 			return;
 		}
 
@@ -349,6 +349,12 @@ impl<'s> Server<'s> {
 	}
 }
 
+#[cfg(test)]
+thread_local! {
+	/// Stands in for tier0's `Msg` on this thread, since tests load no tier0.
+	pub(crate) static TEST_MSG: std::cell::Cell<Option<sdk_raw::tier0::MsgFn>> = const { std::cell::Cell::new(None) };
+}
+
 /// The running server's interface factories, kept between the engine's calls
 /// into a plugin.
 ///
@@ -403,6 +409,19 @@ impl ServerBinding {
 		// 3.
 		unsafe { Server::new(self.engine, self.game_server, self.game, scope) }
 	}
+}
+
+/// Prints through tier0's `Msg`, or in tests through the stand-in in
+/// [`TEST_MSG`] if there is one. Returns `false` if tier0 is not loaded.
+fn tier0_print(message: &CStr) -> bool {
+	#[cfg(test)]
+	if let Some(msg) = TEST_MSG.get() {
+		// SAFETY: Tests install a `printf`-style stand-in.
+		unsafe { sdk_raw::tier0::print_through(msg, message) };
+		return true;
+	}
+
+	sdk_raw::tier0::print(message)
 }
 
 #[cfg(test)]

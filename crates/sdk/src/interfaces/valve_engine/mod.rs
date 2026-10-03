@@ -3,14 +3,12 @@
 use crate::edicts::{Edict, MAX_EDICTS};
 use crate::net::NetChannel;
 use crate::players::{ABSOLUTE_PLAYER_LIMIT, UserId};
+use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_char, c_int};
 use std::mem::{offset_of, size_of};
 use std::ptr::{self, NonNull};
-
-/// `MAX_PATH` from `public/tier0/platform.h`.
-const MAX_PATH: usize = 260;
 
 interface! {
 	/// The engine's services for the game server (`IVEngineServer`).

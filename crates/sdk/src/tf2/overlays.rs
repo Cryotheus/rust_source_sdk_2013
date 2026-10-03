@@ -83,7 +83,7 @@ use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 
 // The overlay name is a `char[MAX_PATH]` on both targets.
-const _: () = assert!(MAX_MATERIAL_LEN == 259);
+const _: () = assert!(MAX_MATERIAL_LEN == sdk_raw::tier0::MAX_PATH - 1);
 
 /// The extension material names omit, compared ignoring ASCII case, and
 /// which [`OverlayMaterial::vmt_path`] appends.

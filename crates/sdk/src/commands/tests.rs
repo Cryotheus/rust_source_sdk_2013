@@ -503,7 +503,7 @@ fn mock_engine() {
 	let cheats = Box::leak(Box::new(unsafe { std::mem::zeroed::<sys::ConVar>() }));
 
 	CHEATS.set(cheats);
-	crate::tier0::TEST_MSG.set(Some(msg));
+	crate::server::TEST_MSG.set(Some(msg));
 	export(Module::Engine, Cvar::VERSION, cvar);
 	export(Module::Engine, ValveEngine::VERSION, engine);
 }
@@ -1315,7 +1315,7 @@ fn replies_are_terminated_lines_without_nul() {
 #[test]
 fn server_replies_use_the_console_display_functions_without_tier0() {
 	mock_engine();
-	crate::tier0::TEST_MSG.set(None);
+	crate::server::TEST_MSG.set(None);
 
 	let command = leak(ConsoleCommand::new(c"sb_ping", record));
 
