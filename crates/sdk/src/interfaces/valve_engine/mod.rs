@@ -47,6 +47,12 @@ const _: () = {
 			IVEngineServer_ServerCommand
 		) == slot * 36
 	);
+	assert!(
+		offset_of!(
+			sys::IVEngineServer__bindgen_vtable,
+			IVEngineServer_LockNetworkStringTables
+		) == slot * 53
+	);
 };
 
 impl<'s> ValveEngine<'s> {
@@ -167,6 +173,20 @@ impl<'s> ValveEngine<'s> {
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_IsMapValid(file.as_ptr())) != 0 }
 	}
 
+	/// Locks or unlocks the network string tables, and returns whether they
+	/// were locked before.
+	///
+	/// While a level runs, the game unlocks the tables around code that adds
+	/// strings, such as spawning a player, and then restores the state this
+	/// returned, as the engine's interface asks of every caller.
+	/// [`Self::with_unlocked_string_tables`] does both.
+	#[doc(alias = "LockNetworkStringTables")]
+	pub fn lock_network_string_tables(self, lock: bool) -> bool {
+		// SAFETY: As for `change_level`. The game itself sets both states during
+		// ordinary play, such as around a player's first spawn.
+		unsafe { vcall!(self.as_ptr() => IVEngineServer_LockNetworkStringTables(lock)) }
+	}
+
 	/// Writes a line to the server log, as the `log` command does.
 	#[doc(alias = "LogPrint")]
 	pub fn log_print(self, message: &CStr) {
@@ -250,6 +270,36 @@ impl<'s> ValveEngine<'s> {
 			vcall!(self.as_ptr() => IVEngineServer_GetPlayerUserId(edict.as_ptr()))
 		})
 		.ok()
+	}
+
+	/// Runs `f` with the network string tables unlocked, then restores the lock
+	/// state they had before, even if `f` panics.
+	///
+	/// Wrap additions made while a level runs, such as
+	/// [`NetworkStringTable::add`], in this, as the game does around its own
+	/// additions.
+	///
+	/// [`NetworkStringTable::add`]: crate::interfaces::network_string_tables::NetworkStringTable::add
+	#[doc(alias = "LockNetworkStringTables")]
+	pub fn with_unlocked_string_tables<R>(self, f: impl FnOnce() -> R) -> R {
+		/// Restores the tables' previous lock state when dropped.
+		struct Restore<'s> {
+			engine: ValveEngine<'s>,
+			locked: bool,
+		}
+
+		impl Drop for Restore<'_> {
+			fn drop(&mut self) {
+				self.engine.lock_network_string_tables(self.locked);
+			}
+		}
+
+		let _restore = Restore {
+			engine: self,
+			locked: self.lock_network_string_tables(false),
+		};
+
+		f()
 	}
 }
 
@@ -518,6 +568,119 @@ mod tests {
 					.iter()
 					.all(|index| (0..=ABSOLUTE_PLAYER_LIMIT).contains(index))
 			);
+		}
+	}
+
+	mod string_table_lock {
+		use super::*;
+		use std::cell::RefCell;
+		use std::panic::{AssertUnwindSafe, catch_unwind};
+
+		thread_local! {
+			/// Whether the mock engine's string tables are locked.
+			static LOCKED: Cell<bool> = const { Cell::new(true) };
+
+			/// Every interface and state passed to `LockNetworkStringTables`, in
+			/// order.
+			static REQUESTS: RefCell<Vec<(*mut sys::IVEngineServer, bool)>> =
+				const { RefCell::new(Vec::new()) };
+		}
+
+		fn engine(interface: &mut sys::IVEngineServer) -> ValveEngine<'_> {
+			unsafe { ValveEngine::from_raw(NonNull::from(interface)) }
+		}
+
+		unsafe extern "C" fn lock(this: *mut sys::IVEngineServer, lock: bool) -> bool {
+			REQUESTS.with_borrow_mut(|requests| requests.push((this, lock)));
+			LOCKED.replace(lock)
+		}
+
+		#[test]
+		fn locking_forwards_the_state_and_returns_the_previous_one() {
+			let (_vtable, mut interface) = mock_engine();
+			let pointer = &raw mut *interface;
+			let engine = engine(&mut interface);
+
+			assert!(engine.lock_network_string_tables(false));
+			assert!(!engine.lock_network_string_tables(false));
+			assert!(!engine.lock_network_string_tables(true));
+			assert!(LOCKED.get());
+			assert_eq!(
+				requests(),
+				[(pointer, false), (pointer, false), (pointer, true)]
+			);
+		}
+
+		fn mock_engine() -> (
+			Box<sys::IVEngineServer__bindgen_vtable>,
+			Box<sys::IVEngineServer>,
+		) {
+			let vtable = unsafe {
+				mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
+					unexpected_call as *const (),
+					|vtable| {
+						(&raw mut (*vtable).IVEngineServer_LockNetworkStringTables).write(lock);
+					},
+				)
+			};
+
+			let interface = Box::new(sys::IVEngineServer {
+				vtable_: &raw const *vtable,
+			});
+
+			(vtable, interface)
+		}
+
+		fn requests() -> Vec<(*mut sys::IVEngineServer, bool)> {
+			REQUESTS.with_borrow(Clone::clone)
+		}
+
+		#[test]
+		fn unlocked_scopes_leave_unlocked_tables_unlocked() {
+			let (_vtable, mut interface) = mock_engine();
+			let pointer = &raw mut *interface;
+			let engine = engine(&mut interface);
+			LOCKED.set(false);
+
+			engine.with_unlocked_string_tables(|| assert!(!LOCKED.get()));
+
+			assert!(!LOCKED.get());
+			assert_eq!(requests(), [(pointer, false), (pointer, false)]);
+		}
+
+		#[test]
+		fn unlocked_scopes_restore_the_lock() {
+			let (_vtable, mut interface) = mock_engine();
+			let pointer = &raw mut *interface;
+			let engine = engine(&mut interface);
+
+			let value = engine.with_unlocked_string_tables(|| {
+				assert!(!LOCKED.get());
+				7
+			});
+
+			assert_eq!(value, 7);
+			assert!(LOCKED.get());
+			assert_eq!(requests(), [(pointer, false), (pointer, true)]);
+		}
+
+		#[test]
+		fn unlocked_scopes_restore_the_lock_when_they_panic() {
+			let (_vtable, mut interface) = mock_engine();
+			let pointer = &raw mut *interface;
+			let engine = engine(&mut interface);
+
+			let outcome = catch_unwind(AssertUnwindSafe(|| {
+				engine.with_unlocked_string_tables(|| {
+					if !LOCKED.get() {
+						panic!("the scope panicked");
+					}
+				});
+			}));
+
+			assert!(outcome.is_err());
+			assert!(LOCKED.get());
+			assert_eq!(requests(), [(pointer, false), (pointer, true)]);
 		}
 	}
 }

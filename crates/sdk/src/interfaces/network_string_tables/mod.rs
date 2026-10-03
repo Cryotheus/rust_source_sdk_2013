@@ -1,9 +1,26 @@
 //! `INetworkStringTableContainer`, the string tables the server replicates to clients.
+//!
+//! # Adding strings
+//!
+//! The engine recreates its tables for every level, so strings a plugin adds
+//! last only until the level ends, and the plugin must add them again for the
+//! next level, such as when it initializes. While a level runs, the game
+//! unlocks the tables around its own additions and then restores their
+//! previous state: wrap additions in
+//! [`ValveEngine::with_unlocked_string_tables`], which does the same.
+//! [`add_downloadable`] does so for the [`DOWNLOADABLES`] table.
+//!
+//! [`ValveEngine::with_unlocked_string_tables`]: crate::interfaces::ValveEngine::with_unlocked_string_tables
 
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
+use crate::server::{InterfaceError, Server};
 use std::ffi::{CStr, CString, c_int};
 use std::marker::PhantomData;
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
+
+/// The name of the table listing the files clients download while they
+/// connect.
+pub const DOWNLOADABLES: &CStr = c"downloadables";
 
 /// `INVALID_STRING_INDEX` from `public/networkstringtabledefs.h`.
 const INVALID_STRING_INDEX: c_int = u16::MAX as c_int;
@@ -13,6 +30,31 @@ interface! {
 	#[doc(alias = "INetworkStringTableContainer")]
 	pub struct NetworkStringTables(sys::INetworkStringTableContainer) = Engine c"VEngineServerStringTable001";
 }
+
+/// A file could not be added to the [`DOWNLOADABLES`] table, as
+/// [`add_downloadable`] reports.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AddDownloadableError {
+	/// The engine does not export an interface this needs.
+	#[error(transparent)]
+	Interface(#[from] InterfaceError),
+
+	/// The engine has no table by that name, as before a level loads.
+	#[error("the engine has no `downloadables` string table")]
+	MissingTable,
+
+	/// The table refused the file, as it does once it is full.
+	#[error("the `downloadables` string table refused the file")]
+	Refused,
+}
+
+/// A string table refused a string, as [`NetworkStringTable::add`] reports.
+///
+/// The engine refuses new strings, such as once a table holds as many as it
+/// was created for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the string table refused the string")]
+pub struct AddStringError;
 
 /// One of the server's network string tables (`INetworkStringTable`).
 ///
@@ -44,6 +86,46 @@ impl<'s> NetworkStringTable<'s> {
 	/// Returns the native pointer for low-level interop.
 	pub const fn as_ptr(self) -> *mut sys::INetworkStringTable {
 		self.raw.as_ptr()
+	}
+
+	/// Adds a string to the table and returns its index, which is the index it
+	/// already had if the table contains it.
+	///
+	/// The engine copies the string and replicates it to clients. A new string
+	/// gets no user data, and a string the table already contains keeps its
+	/// own. Fails if the engine refuses the string, as it does once the table
+	/// is full.
+	///
+	/// The string lasts only until the level ends, so add it again for each
+	/// level. While a level runs, add strings inside
+	/// [`ValveEngine::with_unlocked_string_tables`], as the game unlocks the
+	/// tables around its own additions.
+	///
+	/// Tables the engine fills itself, such as `modelprecache`,
+	/// `soundprecache`, `userinfo`, and `instancebaseline`, keep records beside
+	/// their strings that this bypasses, so prefer the engine's own ways of
+	/// adding to those. Clients act on some tables' strings as they arrive, so
+	/// add only strings a table's readers expect.
+	///
+	/// [`ValveEngine::with_unlocked_string_tables`]: crate::interfaces::ValveEngine::with_unlocked_string_tables
+	#[doc(alias = "AddString")]
+	#[expect(
+		clippy::should_implement_trait,
+		reason = "adds to the table, unlike `Add::add`"
+	)]
+	pub fn add(self, string: &CStr) -> Result<usize, AddStringError> {
+		// SAFETY: As for `name`. The engine copies the string, which only needs
+		// to live for the call. As in the game's own additions, such as
+		// `PrecacheMaterial`, the length is -1 and no user data is passed, so
+		// there is no buffer for the engine to read.
+		let index = unsafe {
+			vcall!(self.as_ptr() => INetworkStringTable_AddString(true, string.as_ptr(), -1, ptr::null()))
+		};
+
+		usize::try_from(index)
+			.ok()
+			.filter(|_| index != INVALID_STRING_INDEX)
+			.ok_or(AddStringError)
 	}
 
 	/// The index of a string in the table, or `None` if the table does not
@@ -106,7 +188,7 @@ impl<'s> NetworkStringTables<'s> {
 		unsafe { vcall!(self.as_ptr() => INetworkStringTableContainer_GetNumTables()) }
 	}
 
-	/// Finds a table by name, such as `modelprecache` or `downloadables`, or
+	/// Finds a table by name, such as `modelprecache` or [`DOWNLOADABLES`], or
 	/// returns `None` if no table has that name.
 	#[doc(alias = "FindTable")]
 	pub fn find(self, name: &CStr) -> Option<NetworkStringTable<'s>> {
@@ -143,5 +225,318 @@ impl<'s> NetworkStringTables<'s> {
 	#[doc(alias = "GetNumTables")]
 	pub fn len(self) -> usize {
 		usize::try_from(self.count()).unwrap_or(0)
+	}
+}
+
+/// Adds a file, such as `materials/example/overlay.vmt`, to the files clients
+/// download while they connect, and returns its index in the
+/// [`DOWNLOADABLES`] table.
+///
+/// The path is relative to the game's search paths, such as the game
+/// directory. A client downloads a file only if it lacks it, the server
+/// offers it, which depends on settings such as `sv_allowdownload` and
+/// `sv_downloadurl`, and the client's own download settings, such as
+/// `cl_allowdownload`, allow it. Each file is listed on its own, so a
+/// material's textures need adding too.
+///
+/// Clients only download files while they connect, so add files for each
+/// level before clients connect to it, such as when it initializes; a file
+/// added later only reaches clients that connect afterwards. The tables are
+/// unlocked for the addition, then returned to their previous state.
+///
+/// Fails if the engine does not export an interface this needs, has no
+/// `downloadables` table, or the table refuses the file.
+pub fn add_downloadable(server: Server<'_>, path: &CStr) -> Result<usize, AddDownloadableError> {
+	let engine = server.valve_engine()?;
+
+	let table = server
+		.network_string_tables()?
+		.find(DOWNLOADABLES)
+		.ok_or(AddDownloadableError::MissingTable)?;
+
+	engine
+		.with_unlocked_string_tables(|| table.add(path))
+		.map_err(|AddStringError| AddDownloadableError::Refused)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use crate::interfaces::ValveEngine;
+	use crate::server::Module;
+	use crate::server::test_support::{export, mock_server};
+	use std::cell::{Cell, RefCell};
+	use std::ffi::{c_char, c_void};
+	use std::ptr::null_mut;
+
+	/// A call to the mock table's `AddString`.
+	#[derive(Debug, Clone, PartialEq, Eq)]
+	struct Addition {
+		this: *mut sys::INetworkStringTable,
+		is_server: bool,
+		string: *const c_char,
+		length: c_int,
+		user_data: *const c_void,
+		/// Whether the mock engine's tables were locked during the call.
+		locked: bool,
+	}
+
+	/// A mock engine, string table container, and table, kept alive together.
+	struct Mocks {
+		_container_vtable: Box<sys::INetworkStringTableContainer__bindgen_vtable>,
+		_engine_vtable: Box<sys::IVEngineServer__bindgen_vtable>,
+		_table_vtable: Box<sys::INetworkStringTable__bindgen_vtable>,
+		container: Box<sys::INetworkStringTableContainer>,
+		engine: Box<sys::IVEngineServer>,
+		table: Box<sys::INetworkStringTable>,
+	}
+
+	impl Mocks {
+		/// Builds the mocks and exports the engine and container from the
+		/// engine factory of [`mock_server`].
+		fn exported() -> Self {
+			let container_vtable = unsafe {
+				mock_vtable::<sys::INetworkStringTableContainer__bindgen_vtable>(
+					unexpected_call as *const (),
+					|vtable| {
+						(&raw mut (*vtable).INetworkStringTableContainer_FindTable)
+							.write(find_table);
+					},
+				)
+			};
+
+			let engine_vtable = unsafe {
+				mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
+					unexpected_call as *const (),
+					|vtable| {
+						(&raw mut (*vtable).IVEngineServer_LockNetworkStringTables).write(lock);
+					},
+				)
+			};
+
+			let (table_vtable, table) = mock_table();
+
+			let mut mocks = Self {
+				container: Box::new(sys::INetworkStringTableContainer {
+					vtable_: &raw const *container_vtable,
+				}),
+				engine: Box::new(sys::IVEngineServer {
+					vtable_: &raw const *engine_vtable,
+				}),
+				table,
+				_container_vtable: container_vtable,
+				_engine_vtable: engine_vtable,
+				_table_vtable: table_vtable,
+			};
+
+			export(
+				Module::Engine,
+				NetworkStringTables::VERSION,
+				&raw mut *mocks.container,
+			);
+			export(Module::Engine, ValveEngine::VERSION, &raw mut *mocks.engine);
+
+			mocks
+		}
+	}
+
+	thread_local! {
+		/// Every call to the mock table's `AddString`, in order.
+		static ADDITIONS: RefCell<Vec<Addition>> = const { RefCell::new(Vec::new()) };
+
+		/// What the mock table's `AddString` returns.
+		static ADD_RESULT: Cell<c_int> = const { Cell::new(0) };
+
+		/// Every container and name passed to the mock container's `FindTable`,
+		/// in order.
+		static FIND_REQUESTS: RefCell<Vec<(*const sys::INetworkStringTableContainer, CString)>> =
+			const { RefCell::new(Vec::new()) };
+
+		/// What the mock container's `FindTable` returns.
+		static FOUND_TABLE: Cell<*mut sys::INetworkStringTable> = const { Cell::new(null_mut()) };
+
+		/// Every engine and state passed to the mock engine's
+		/// `LockNetworkStringTables`, in order.
+		static LOCK_REQUESTS: RefCell<Vec<(*mut sys::IVEngineServer, bool)>> =
+			const { RefCell::new(Vec::new()) };
+
+		/// Whether the mock engine's string tables are locked.
+		static LOCKED: Cell<bool> = const { Cell::new(true) };
+	}
+
+	unsafe extern "C" fn add_string(
+		this: *mut sys::INetworkStringTable,
+		is_server: bool,
+		string: *const c_char,
+		length: c_int,
+		user_data: *const c_void,
+	) -> c_int {
+		ADDITIONS.with_borrow_mut(|additions| {
+			additions.push(Addition {
+				this,
+				is_server,
+				string,
+				length,
+				user_data,
+				locked: LOCKED.get(),
+			});
+		});
+
+		ADD_RESULT.get()
+	}
+
+	fn additions() -> Vec<Addition> {
+		ADDITIONS.with_borrow(Clone::clone)
+	}
+
+	#[test]
+	fn additions_are_server_additions_without_user_data() {
+		let (_vtable, mut raw) = mock_table();
+		let raw_pointer = &raw mut *raw;
+		let table = unsafe { NetworkStringTable::from_raw(NonNull::new(raw_pointer).unwrap()) };
+		let string = c"materials/example/overlay.vmt";
+		ADD_RESULT.set(3);
+
+		assert_eq!(table.add(string), Ok(3));
+		assert_eq!(
+			additions(),
+			[Addition {
+				this: raw_pointer,
+				is_server: true,
+				string: string.as_ptr(),
+				length: -1,
+				user_data: ptr::null(),
+				locked: true,
+			}]
+		);
+	}
+
+	#[test]
+	fn downloadables_are_added_while_the_tables_are_unlocked() {
+		let mut mocks = Mocks::exported();
+		let scope = ();
+		let path = c"materials/example/overlay.vtf";
+		FOUND_TABLE.set(&raw mut *mocks.table);
+		ADD_RESULT.set(5);
+
+		assert_eq!(add_downloadable(mock_server(&scope), path), Ok(5));
+		assert_eq!(
+			find_requests(),
+			[(&raw const *mocks.container, DOWNLOADABLES.to_owned())]
+		);
+
+		let engine = &raw mut *mocks.engine;
+
+		assert_eq!(lock_requests(), [(engine, false), (engine, true)]);
+		assert!(LOCKED.get());
+
+		let additions = additions();
+
+		assert_eq!(additions.len(), 1);
+		assert_eq!(additions[0].this, &raw mut *mocks.table);
+		assert_eq!(additions[0].string, path.as_ptr());
+		assert!(!additions[0].locked);
+	}
+
+	fn find_requests() -> Vec<(*const sys::INetworkStringTableContainer, CString)> {
+		FIND_REQUESTS.with_borrow(Clone::clone)
+	}
+
+	unsafe extern "C" fn find_table(
+		this: *const sys::INetworkStringTableContainer,
+		name: *const c_char,
+	) -> *mut sys::INetworkStringTable {
+		let name = unsafe { CStr::from_ptr(name) }.to_owned();
+
+		FIND_REQUESTS.with_borrow_mut(|requests| requests.push((this, name)));
+		FOUND_TABLE.get()
+	}
+
+	#[test]
+	fn full_downloadables_tables_still_restore_the_lock() {
+		let mut mocks = Mocks::exported();
+		let scope = ();
+		FOUND_TABLE.set(&raw mut *mocks.table);
+		ADD_RESULT.set(INVALID_STRING_INDEX);
+
+		assert_eq!(
+			add_downloadable(mock_server(&scope), c"sound/example.wav"),
+			Err(AddDownloadableError::Refused)
+		);
+
+		let engine = &raw mut *mocks.engine;
+
+		assert_eq!(lock_requests(), [(engine, false), (engine, true)]);
+		assert!(LOCKED.get());
+	}
+
+	unsafe extern "C" fn lock(this: *mut sys::IVEngineServer, lock: bool) -> bool {
+		LOCK_REQUESTS.with_borrow_mut(|requests| requests.push((this, lock)));
+		LOCKED.replace(lock)
+	}
+
+	fn lock_requests() -> Vec<(*mut sys::IVEngineServer, bool)> {
+		LOCK_REQUESTS.with_borrow(Clone::clone)
+	}
+
+	#[test]
+	fn missing_downloadables_tables_leave_the_lock_alone() {
+		let scope = ();
+
+		// Nothing is looked up without the engine's interfaces.
+		assert!(matches!(
+			add_downloadable(mock_server(&scope), c"sound/example.wav"),
+			Err(AddDownloadableError::Interface(_))
+		));
+
+		let mocks = Mocks::exported();
+
+		assert_eq!(
+			add_downloadable(mock_server(&scope), c"sound/example.wav"),
+			Err(AddDownloadableError::MissingTable)
+		);
+		assert_eq!(
+			find_requests(),
+			[(&raw const *mocks.container, DOWNLOADABLES.to_owned())]
+		);
+		assert!(lock_requests().is_empty());
+		assert!(additions().is_empty());
+	}
+
+	fn mock_table() -> (
+		Box<sys::INetworkStringTable__bindgen_vtable>,
+		Box<sys::INetworkStringTable>,
+	) {
+		let vtable = unsafe {
+			mock_vtable::<sys::INetworkStringTable__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).INetworkStringTable_AddString).write(add_string);
+				},
+			)
+		};
+
+		let table = Box::new(sys::INetworkStringTable {
+			vtable_: &raw const *vtable,
+		});
+
+		(vtable, table)
+	}
+
+	#[test]
+	fn refused_strings_are_errors() {
+		let (_vtable, mut raw) = mock_table();
+		let table = unsafe { NetworkStringTable::from_raw(NonNull::from(&mut *raw)) };
+
+		for refusal in [INVALID_STRING_INDEX, -1] {
+			ADD_RESULT.set(refusal);
+
+			assert_eq!(table.add(c"example"), Err(AddStringError));
+		}
+
+		ADD_RESULT.set(0);
+
+		assert_eq!(table.add(c"example"), Ok(0));
 	}
 }
