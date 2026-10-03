@@ -138,12 +138,12 @@ pub unsafe fn state_changed(
 	// SAFETY: As above.
 	unsafe { flags.write(state | FL_EDICT_CHANGED) };
 
-	let Some((accessor, shared)) = change_info() else {
+	let Some((tracking, shared)) = change_info() else {
 		// SAFETY: The caller upholds the contract.
 		return unsafe { full_state_changed(edict, None) };
 	};
 
-	let accessor = accessor.as_ptr();
+	let accessor = tracking.as_ptr();
 	let shared = shared.as_ptr();
 
 	// SAFETY: Both structures are the engine's, accessed by no other thread.
@@ -152,7 +152,7 @@ pub unsafe fn state_changed(
 	unsafe {
 		let serial_number = (&raw const (*shared).m_iSerialNumber).read();
 		let infos = (&raw mut (*shared).m_ChangeInfos).cast::<sys::CEdictChangeInfo>();
-		let fully_changed = || full_state_changed(edict, NonNull::new(accessor));
+		let fully_changed = || full_state_changed(edict, Some(tracking));
 
 		if (&raw const (*accessor).m_iChangeInfoSerialNumber).read() == serial_number {
 			// The entity already has change info this frame, so add the offset.
