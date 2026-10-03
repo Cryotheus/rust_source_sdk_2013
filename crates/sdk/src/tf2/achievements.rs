@@ -61,7 +61,11 @@
 //! The achievement manager's latch is in the SDK's public client code, cited
 //! above. That the client applies `sv_cheats` from the server, and runs that
 //! frame between the lease's messages and the restore, is behaviour of the
-//! closed-source engine, observed or reported but not verified.
+//! closed-source engine, observed on TF2's 64-bit Windows server at
+//! `sv_cheats 0` with a retail client: the lock is confirmed, the client's
+//! `sv_cheats` returns to 0, and its next achievement event prints the
+//! message above. Linux GNU servers, and delayed or lost packets, are
+//! untested.
 //!
 //! [`GameEventId::PlayerActivate`]: crate::tf2::game_events::GameEventId::PlayerActivate
 

@@ -100,15 +100,21 @@
 //!   client keeps `sv_cheats 1` until the server next sends it the value.
 //!
 //! The engine's handling of these messages is closed source, and the SDK holds
-//! none of it. That clients apply `sv_cheats` from `net_SetConVar`, revert
-//! their cheat-flagged variables as soon as it turns off and before the rest
-//! of the restore applies, answer queries in order with the rest of their
-//! reliable stream, and send the answer only after the frame in which they
-//! processed the query, is observed or reported behaviour, not verified
-//! against the engine. The SDK only declares the revert itself
+//! none of it. The SDK only declares the revert of cheat-flagged variables
 //! (`ICvar::RevertFlaggedConVars`, `public/icvar.h:95`), which TF2's client
 //! also calls by hand before offline practice
 //! (`game/client/tf/vgui/tf_training_ui.cpp:2032-2037`).
+//!
+//! On TF2's 64-bit Windows server at `sv_cheats 0`, a retail client is
+//! observed to apply `sv_cheats 1` from `net_SetConVar` and answer the lease's
+//! query with it set, then, on the restore, to revert its cheat-flagged
+//! variables and return to `sv_cheats 0`. A confirmed [`Purpose::Observe`]
+//! lease turns the client's achievements off there. That the revert precedes
+//! the rest of the restore, and that clients answer queries in order with the
+//! rest of their reliable stream, and only after the frame in which they
+//! processed the query, is reported behaviour, consistent with this but not
+//! verified against the engine. [`Purpose::Commands`] leases, Linux GNU
+//! servers, and delayed or lost packets are untested.
 //!
 //! [`IncomingHandler`]: super::incoming::IncomingHandler
 
