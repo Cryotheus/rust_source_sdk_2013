@@ -15,10 +15,6 @@ pub mod rtti;
 pub mod signature;
 pub mod vtable;
 
-#[cfg(any(test, feature = "test-support"))]
-#[doc(hidden)]
-pub mod mock;
-
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;

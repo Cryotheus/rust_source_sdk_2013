@@ -29,22 +29,3 @@ pub fn word_at(bytes: &[u8], offset: usize) -> Option<usize> {
 		bytes.get(offset..offset.checked_add(8)?)?.try_into().ok()?,
 	))
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn relative_operands_are_signed_checked_and_bounded() {
-		assert_eq!(
-			relative(0x1000, &[0xe8, 0xf0, 0xff, 0xff, 0xff], 1),
-			Some(0xff5)
-		);
-		assert_eq!(relative(0, &[0xe8, 0xf0, 0xff, 0xff, 0xff], 1), None);
-		assert_eq!(relative(0x1000, &[0xe8, 0, 0], 1), None);
-		assert_eq!(relative(usize::MAX, &[0; 4], 0), None);
-		assert_eq!(u16_at(&[0; 8], usize::MAX), None);
-		assert_eq!(u32_at(&[0; 8], usize::MAX), None);
-		assert_eq!(word_at(&[0; 7], 0), None);
-	}
-}

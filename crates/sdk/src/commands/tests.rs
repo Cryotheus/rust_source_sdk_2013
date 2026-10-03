@@ -7,7 +7,7 @@ use crate::interfaces::{Cvar, ValveEngine};
 use crate::server::Module;
 use crate::server::test_support::{export, mock_binding, mock_server};
 use sdk_raw::commands::ConVarObject;
-use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use sdk_raw::vcall;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_char;
@@ -693,7 +693,7 @@ fn tokenized(line: &str) -> Box<sys::CCommand> {
 	let args = line.split(' ').collect::<Vec<_>>();
 	let args_start = if args.len() > 1 { args[0].len() + 1 } else { 0 };
 
-	sdk_raw::commands::tokenized(line, &args, args_start)
+	sdk_raw::test_support::commands::tokenized(line, &args, args_start)
 }
 
 #[test]

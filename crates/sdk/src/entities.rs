@@ -492,7 +492,7 @@ pub enum TeleportError {
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
-	use sdk_raw::util::mock::unexpected_call;
+	use sdk_raw::test_support::unexpected_call;
 	use std::cell::{Cell, RefCell};
 	use std::ffi::CString;
 	use std::mem::offset_of;

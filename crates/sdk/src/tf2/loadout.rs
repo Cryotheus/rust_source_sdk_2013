@@ -748,7 +748,7 @@ mod tests {
 	use crate::tf2::attributes::{Multiplier, catalog, trust_shipped_schema};
 	use crate::tf2::weapons::WeaponSlot;
 	use crate::{InterfaceFactory, Module};
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::ffi::{c_char, c_void};
 	use std::ptr::{NonNull, null_mut};
 

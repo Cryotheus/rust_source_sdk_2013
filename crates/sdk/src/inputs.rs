@@ -476,7 +476,7 @@ mod tests {
 	use crate::interfaces::ServerTools;
 	use crate::server::Game;
 	use sdk_raw::entities::datamap::FTYPEDESC_KEY;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char};
 	use std::ptr::{NonNull, null_mut};

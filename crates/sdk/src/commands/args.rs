@@ -130,7 +130,7 @@ impl std::fmt::Debug for CommandArgs<'_> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sdk_raw::commands::tokenized;
+	use sdk_raw::test_support::commands::tokenized;
 	use std::ptr::NonNull;
 
 	#[test]

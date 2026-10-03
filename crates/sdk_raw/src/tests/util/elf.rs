@@ -1,0 +1,41 @@
+//! Tests of resolving the symbols of a loaded ELF module, against its memory.
+#![cfg(target_os = "linux")]
+
+use super::*;
+
+#[test]
+fn loaded_function_requires_matching_file_and_memory() {
+	let anchor = source_sdk_raw_loaded_elf_test_anchor as *const () as usize;
+	// SAFETY: The test executable remains loaded throughout this test.
+	let mut loaded = unsafe { LoadedElf::at(anchor) }.unwrap();
+	let (address, body) = loaded
+		.resolve(b"source_sdk_raw_loaded_elf_test_anchor")
+		.unwrap();
+	assert_eq!(address, anchor);
+	assert_eq!(loaded.read(address, body.len()).unwrap(), body);
+	assert!(!loaded.contains(address, 1, true, true));
+	assert!(loaded.read(usize::MAX, 8).is_none());
+	let (offset, _) = Elf::new(&loaded.bytes)
+		.unwrap()
+		.symbol(b"source_sdk_raw_loaded_elf_test_anchor")
+		.unwrap();
+	let elf = Elf::new(&loaded.bytes).unwrap();
+	let (_, body) = elf
+		.symbol(b"source_sdk_raw_loaded_elf_test_anchor")
+		.unwrap();
+	let file_offset = body.as_ptr() as usize - loaded.bytes.as_ptr() as usize;
+	assert_eq!(loaded.module.base() + offset, anchor);
+	loaded.bytes[file_offset] ^= 1;
+	assert!(
+		loaded
+			.resolve(b"source_sdk_raw_loaded_elf_test_anchor")
+			.is_none()
+	);
+}
+
+/// A function of the test executable, which the test finds by its symbol.
+#[unsafe(no_mangle)]
+#[inline(never)]
+extern "C" fn source_sdk_raw_loaded_elf_test_anchor(value: u64) -> u64 {
+	value.wrapping_add(7)
+}

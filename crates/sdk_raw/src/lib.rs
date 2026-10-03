@@ -56,6 +56,11 @@ pub mod tier0;
 pub mod user_messages;
 pub mod util;
 
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+#[path = "tests/support/mod.rs"]
+pub mod test_support;
+
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod tf2;

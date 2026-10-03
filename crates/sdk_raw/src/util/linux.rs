@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "../tests/util/linux.rs"]
+mod tests;
+
 use super::{Error, Image, MAX_IMAGE_BYTES, Section, u16_at, u32_at, word_at};
 use std::ffi::{CStr, OsStr, c_char, c_int, c_void};
 use std::fs::File;
@@ -252,68 +256,4 @@ pub(super) fn program_headers(
 		base.checked_add(offset).ok_or(Error::InvalidImage)?,
 		entry_size * count,
 	)
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn memory_reader_copies_owned_bytes_and_rejects_invalid_ranges() {
-		let memory = MemoryReader::open().unwrap();
-		let bytes = [1_u8, 2, 3, 4];
-		assert_eq!(
-			memory.copy(bytes.as_ptr() as usize, bytes.len()).unwrap(),
-			bytes
-		);
-		assert!(matches!(
-			memory.copy(usize::MAX, 2),
-			Err(Error::InvalidImage)
-		));
-		assert!(matches!(
-			memory.copy(1, MAX_IMAGE_BYTES + 1),
-			Err(Error::InvalidImage)
-		));
-		assert!(memory.copy(0, 8).is_err());
-	}
-
-	#[test]
-	fn rejects_overflowing_or_excessive_load_segments() {
-		let mut program = [0_u8; 56];
-		program[..4].copy_from_slice(&1_u32.to_le_bytes());
-		program[4..8].copy_from_slice(&5_u32.to_le_bytes());
-		program[16..24].copy_from_slice(&usize::MAX.to_le_bytes());
-		program[40..48].copy_from_slice(&1_usize.to_le_bytes());
-		assert!(load_segments(1, &program).is_err());
-		program[16..24].copy_from_slice(&0_usize.to_le_bytes());
-		program[40..48].copy_from_slice(&(MAX_IMAGE_BYTES + 1).to_le_bytes());
-		assert!(load_segments(0, &program).is_err());
-	}
-
-	#[test]
-	fn snapshots_code_and_data_with_load_permissions() {
-		let anchor = snapshots_code_and_data_with_load_permissions as *const () as usize;
-		// SAFETY: The test executable stays loaded throughout this test.
-		let module = unsafe { Module::at(anchor) }.unwrap();
-		assert!(module.path().is_file());
-		assert!(is_executable(anchor));
-		// SAFETY: The test executable stays loaded throughout this snapshot.
-		let image = unsafe { load(anchor) }.unwrap();
-		assert_eq!(image.base, module.base());
-		assert!(
-			image
-				.sections
-				.iter()
-				.any(|section| section.executable && !section.bytes.is_empty())
-		);
-		assert!(image.sections.iter().any(|section| section.writable));
-		assert!(image.sections.iter().any(|section| !section.executable));
-	}
-
-	#[test]
-	fn symbols_are_found_only_in_loaded_libraries() {
-		assert!(loaded_symbol(c"libc.so.6", c"getpid").is_some());
-		assert!(loaded_symbol(c"libc.so.6", c"source_sdk_2013_raw_absent").is_none());
-		assert!(loaded_symbol(c"libsource_sdk_2013_raw_absent.so", c"Msg").is_none());
-	}
 }

@@ -1531,7 +1531,7 @@ mod tests {
 	use super::test_support::*;
 	use super::*;
 	use crate::entities::test_support::{MockEntity, set_networking};
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::mem::zeroed;
 	use std::ptr::null_mut;
 

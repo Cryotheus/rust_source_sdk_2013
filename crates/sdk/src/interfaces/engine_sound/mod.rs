@@ -593,7 +593,7 @@ mod tests {
 	use crate::entities::test_support::{MockEntity, set_networking};
 	use crate::user_messages::test_support::recipients;
 	use sdk_raw::interfaces::engine_sound::{CHAN_REPLACE, CHAN_USER_BASE, CHAN_VOICE_BASE};
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char};
 	use std::ptr::NonNull;

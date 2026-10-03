@@ -589,7 +589,7 @@ fn steam_id_of(steam_id: u64) -> sys::CSteamID {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 
 	unsafe extern "C" fn can_provide_level(
 		_: *mut sys::IServerGameDLL,

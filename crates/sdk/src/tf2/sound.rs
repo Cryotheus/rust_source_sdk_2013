@@ -326,8 +326,8 @@ mod tests {
 	use crate::server::test_support::{export, mock_server};
 	use crate::user_messages::test_support::recipients;
 	use sdk_raw::bitbuf::BfWrite;
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use sdk_raw::tf2::script_binding::SF_MEMBER_FUNC;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char, c_void};
 	use std::marker::PhantomData;

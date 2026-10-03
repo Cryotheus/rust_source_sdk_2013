@@ -606,7 +606,7 @@ pub struct SequenceData {
 pub(crate) mod test_support {
 	use super::*;
 	use sdk_raw::bitbuf::BfWrite;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 
 	thread_local! {

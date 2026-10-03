@@ -440,7 +440,7 @@ impl<'s> Cvar<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::ptr::null_mut;
 
 	/// A registry whose `GetCommands` returns `head`.

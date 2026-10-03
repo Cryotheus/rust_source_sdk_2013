@@ -13,7 +13,7 @@ use crate::net::MESSAGE_TYPE_BITS;
 use crate::server::Module;
 use crate::server::test_support::{export, mock_server};
 use sdk_raw::bitbuf::BfWrite;
-use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_char;
 use std::ptr::{NonNull, null_mut};

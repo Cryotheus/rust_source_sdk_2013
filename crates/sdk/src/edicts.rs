@@ -170,7 +170,7 @@ mod tests {
 	use super::test_support::mock_edict;
 	use super::*;
 	use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::ptr::null_mut;
 

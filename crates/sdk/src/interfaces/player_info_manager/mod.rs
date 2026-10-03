@@ -196,7 +196,7 @@ impl<'s> GlobalVars<'s> {
 mod tests {
 	use super::*;
 	use crate::edicts::test_support::mock_edict;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::mem::MaybeUninit;
 	use std::ptr::null_mut;

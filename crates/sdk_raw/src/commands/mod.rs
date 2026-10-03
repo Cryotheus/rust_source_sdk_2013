@@ -28,10 +28,6 @@ mod variable;
 use std::ffi::c_int;
 use std::ptr::NonNull;
 
-#[cfg(any(test, feature = "test-support"))]
-#[doc(hidden)]
-pub use args::tokenized;
-
 pub use args::{CommandLine, CommandLineError};
 pub use object::{ConCommandHooks, ConCommandObject};
 

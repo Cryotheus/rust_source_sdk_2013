@@ -372,7 +372,7 @@ mod tests {
 	use crate::interfaces::{PlayerInfoManager, ValveEngine};
 	use crate::server::Module;
 	use crate::server::test_support::{export, mock_server};
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::mem::MaybeUninit;
 	use std::ptr::null_mut;

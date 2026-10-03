@@ -813,7 +813,7 @@ mod tests {
 	use crate::InterfaceFactory;
 	use crate::entities::test_support::{base_entity_fields, data_map, field};
 	use crate::tf2::attributes::{Multiplier, catalog, trust_shipped_schema};
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::ffi::{c_char, c_void};
 	use std::mem::{offset_of, size_of};

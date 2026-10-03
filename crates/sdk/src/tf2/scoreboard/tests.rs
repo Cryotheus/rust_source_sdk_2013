@@ -12,7 +12,7 @@ use crate::server::test_support::{export, mock_server};
 use crate::{InterfaceFactory, Module};
 use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
 use sdk_raw::entities::NUM_SERIAL_NUM_SHIFT_BITS;
-use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CString, c_char, c_void};
 use std::mem::{offset_of, zeroed};

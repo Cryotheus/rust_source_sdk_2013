@@ -632,8 +632,8 @@ pub unsafe fn route_incoming(
 pub(crate) mod test_support {
 	use super::*;
 	use sdk_raw::net::incoming::{RespondCvarValueFields, SMALLEST_MESSAGE_BASE};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use sdk_raw::util::cstr::buffer_from_cstr;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::ffi::CStr;
 	use std::ptr::null_mut;
 

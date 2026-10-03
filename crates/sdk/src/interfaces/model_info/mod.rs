@@ -93,7 +93,7 @@ impl<'s> ModelInfo<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::mem::zeroed;
 	use std::ptr::{NonNull, null};
