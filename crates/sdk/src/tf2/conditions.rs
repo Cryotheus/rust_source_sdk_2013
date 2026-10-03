@@ -6,15 +6,16 @@
 //! game runs its normal add/remove notifications, durations and cleanup.
 
 use crate::entities::Entity;
-use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
+use sdk_raw::tf2::conditions as raw;
+use sdk_raw::tf2::script_binding::BindingError;
+use std::ptr::NonNull;
 
 /// A valid `ETFCond` identifier from TF2's `tf_shareddefs.h`.
 /// All identifiers, including less common conditions, are available through
 /// [`crate::sys`] as `ETFCond_TF_COND_*` constants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[doc(alias = "ETFCond")]
-#[repr(transparent)]
 pub struct Condition(i32);
 
 impl Condition {
@@ -82,7 +83,7 @@ pub struct ConditionDuration(f32);
 impl ConditionDuration {
 	/// No expiry: TF2's `PERMANENT_CONDITION`, passed as -1 seconds.
 	#[doc(alias = "PERMANENT_CONDITION")]
-	pub const PERMANENT: Self = Self(-1.0);
+	pub const PERMANENT: Self = Self(raw::PERMANENT_CONDITION);
 
 	/// A finite, nonnegative number of seconds. Zero expires on a subsequent
 	/// game update; it does not mean permanent.
@@ -154,46 +155,39 @@ impl<'s> PlayerConditions<'s> {
 		condition: Condition,
 		duration: ConditionDuration,
 	) -> Result<bool, ConditionError> {
-		// SAFETY: The checked native CTFPlayer method only adds a validated
-		// condition on this live player; null means no provider. Its condition
-		// effects respect the callback's deferred entity-deletion contract.
+		// SAFETY: A TF2 `player` is a CTFPlayer, live on the main thread for
+		// this callback, whose game module stays loaded. The checked native
+		// method only adds a validated condition; null means no provider. Its
+		// condition effects respect the callback's deferred entity-deletion
+		// contract.
 		unsafe {
-			binding::call(
-				self.player,
-				c"CTFPlayer",
-				c"AddCondEx",
-				&mut [
-					binding::int(condition.0),
-					binding::float(duration.0),
-					binding::handle(std::ptr::null_mut()),
-				],
-				binding::VOID,
-			)?;
-		}
+			raw::add_cond_ex(
+				self.raw_player(),
+				condition.0,
+				duration.0,
+				std::ptr::null_mut(),
+			)
+		}?;
 		self.in_cond(condition)
 	}
 
 	/// Checks both the object-backed condition list and all extended bitfields.
 	#[doc(alias = "InCond")]
 	pub fn in_cond(self, condition: Condition) -> Result<bool, ConditionError> {
-		// SAFETY: This is the native read-only query on a validated player and
-		// condition. The binding verifies FIELD_BOOLEAN before returning.
-		let result = unsafe {
-			binding::call(
-				self.player,
-				c"CTFPlayer",
-				c"InCond",
-				&mut [binding::int(condition.0)],
-				binding::BOOL,
-			)?
-		};
-		// SAFETY: The checked return type selects the bool union member.
-		Ok(unsafe { result.__bindgen_anon_1.m_bool })
+		// SAFETY: As for `add`. This is the native read-only query on a
+		// validated player and condition.
+		Ok(unsafe { raw::in_cond(self.raw_player(), condition.0) }?)
 	}
 
 	/// The player whose conditions these are.
 	pub const fn player(self) -> Entity<'s> {
 		self.player
+	}
+
+	/// The player's pointer, for the native condition methods.
+	fn raw_player(self) -> NonNull<sys::CBaseEntity> {
+		// SAFETY: An entity's pointer is never null.
+		unsafe { NonNull::new_unchecked(self.player.as_ptr()) }
 	}
 
 	/// Removes a condition. `ignore_duration` bypasses conditions' minimum
@@ -205,34 +199,18 @@ impl<'s> PlayerConditions<'s> {
 		condition: Condition,
 		ignore_duration: bool,
 	) -> Result<bool, ConditionError> {
-		// SAFETY: This checked native method runs TF2's ordinary removal path
-		// with a valid condition identifier on a live player.
-		unsafe {
-			binding::call(
-				self.player,
-				c"CTFPlayer",
-				c"RemoveCondEx",
-				&mut [binding::int(condition.0), binding::boolean(ignore_duration)],
-				binding::VOID,
-			)?;
-		}
+		// SAFETY: As for `add`. This checked native method runs TF2's ordinary
+		// removal path with a valid condition identifier.
+		unsafe { raw::remove_cond_ex(self.raw_player(), condition.0, ignore_duration) }?;
 		Ok(!self.in_cond(condition)?)
 	}
 
 	/// Runs TF2's full `RemoveAllCond` cleanup, including its object list.
 	#[doc(alias = "RemoveAllCond")]
 	pub fn remove_all(self) -> Result<(), ConditionError> {
-		// SAFETY: The native method performs normal condition cleanup on a
-		// live player without immediately deleting entities.
-		unsafe {
-			binding::call(
-				self.player,
-				c"CTFPlayer",
-				c"RemoveAllCond",
-				&mut [],
-				binding::VOID,
-			)?;
-		}
+		// SAFETY: As for `add`. The native method performs normal condition
+		// cleanup without immediately deleting entities.
+		unsafe { raw::remove_all_cond(self.raw_player()) }?;
 		Ok(())
 	}
 }
