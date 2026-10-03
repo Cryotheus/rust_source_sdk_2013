@@ -13,6 +13,10 @@ pub mod cheats;
 pub mod incoming;
 pub mod messages;
 
+#[cfg(test)]
+#[path = "../tests/net.rs"]
+mod tests;
+
 use crate::NotThreadSafe;
 use crate::bitbuf::BitWriter;
 use sdk_raw::bitbuf::BfWrite;
@@ -600,77 +604,4 @@ pub struct SequenceData {
 
 	/// The last outgoing sequence number the client acknowledged.
 	pub outgoing_acknowledged: c_int,
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use crate::net::messages::{Print, Raw};
-	use crate::test_support::net::MockChannel;
-
-	#[test]
-	fn a_full_stream_is_an_error() {
-		let mock = MockChannel::new();
-		let mut body = BitWriter::new();
-
-		body.write_bit(true);
-		mock.refuse();
-
-		let raw = Raw {
-			id: MessageId::NOP,
-			body: &body,
-		};
-
-		assert_eq!(
-			mock.channel().send(&raw),
-			Err(SendError::TooLarge { bits: 7 })
-		);
-	}
-
-	#[test]
-	fn encode_errors_are_reported_once() {
-		let error = SendError::from(EncodeError::OutOfRange {
-			field: "entity",
-			value: 2048,
-			max: 2047,
-		});
-
-		assert_eq!(
-			error.to_string(),
-			"entity is 2048, which exceeds its maximum of 2047"
-		);
-		assert!(std::error::Error::source(&error).is_none());
-	}
-
-	#[test]
-	fn messages_are_sent_as_their_type_then_fields() {
-		let mock = MockChannel::new();
-		let channel = mock.channel();
-
-		channel.send(&Print { text: c"hello" }).unwrap();
-		channel
-			.send_with(&Print { text: c"" }, Reliability::Unreliable)
-			.unwrap();
-
-		let sent = mock.take_sent();
-
-		assert_eq!(sent.len(), 2);
-
-		let (bits, reliable) = &sent[0];
-		let mut reader = bits.reader();
-
-		assert!(*reliable);
-		assert_eq!(reader.read_ubits(MESSAGE_TYPE_BITS), Ok(7));
-		assert_eq!(reader.read_cstring().as_deref(), Ok(c"hello"));
-		assert_eq!(reader.remaining(), 0);
-		assert!(!sent[1].1);
-	}
-
-	#[test]
-	fn types_fit_in_six_bits() {
-		assert_eq!(MessageId::new(63).map(MessageId::get), Some(63));
-		assert_eq!(MessageId::new(64), None);
-		assert_eq!(MessageId::SET_CONVAR.to_string(), "net_SetConVar");
-		assert_eq!(MessageId::new(40).unwrap().to_string(), "message 40");
-	}
 }

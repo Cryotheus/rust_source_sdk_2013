@@ -119,6 +119,7 @@
 //! [`IncomingHandler`]: super::incoming::IncomingHandler
 
 #[cfg(test)]
+#[path = "../../tests/net/cheats.rs"]
 mod tests;
 
 use crate::bitbuf::BitWriter;

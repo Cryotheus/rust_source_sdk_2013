@@ -1,43 +1,17 @@
+//! Tests of `ClientCheats`' leases: the blocks clients are sent, how their
+//! answers are read, timeouts and retries, restores, and clients coming and
+//! going, mostly over a fake engine link with injected time.
+
 use super::*;
 use crate::net::incoming::mock_incoming_message;
 
 use crate::test_support::net::cheats::{
-	Decoded, MockClient, MockEngine, MockVar, decode, query_cookie, response,
+	Decoded, MockClient, MockEngine, decode, query_cookie, response,
 };
 
 use crate::test_support::net::incoming::{respond_cvar_value, unreadable};
+use crate::test_support::net_leases::{cheats, confirm, spoof};
 use crate::test_support::players::user;
-
-/// Variables a mock registry lists after `sv_cheats`.
-const VARS: [MockVar; 7] = [
-	MockVar::var(
-		c"host_timescale",
-		c"1.0",
-		c"0.5",
-		CommandFlags::REPLICATED.union(CommandFlags::CHEAT),
-	),
-	MockVar::command(c"status"),
-	MockVar::var(
-		c"tf_grapplinghook_move_speed",
-		c"750",
-		c"750",
-		CommandFlags::REPLICATED.union(CommandFlags::CHEAT),
-	),
-	MockVar::var(c"mp_timelimit", c"0", c"30", CommandFlags::NOTIFY),
-	MockVar::var(
-		c"sv_gravity",
-		c"800",
-		c"400",
-		CommandFlags::REPLICATED.union(CommandFlags::NOTIFY),
-	),
-	MockVar::var(c"r_drawothermodels", c"1", c"2", CommandFlags::CHEAT),
-	MockVar::var(
-		c"tf_avoidteammates",
-		c"1",
-		c"0",
-		CommandFlags::REPLICATED.union(CommandFlags::CHEAT),
-	),
-];
 
 /// The engine as a test describes it, recording what is sent.
 struct FakeLink {
@@ -345,22 +319,7 @@ fn a_spoof_that_does_not_fit_is_refused_without_trace() {
 		Err(CheatsError::Send(SendError::TooLarge { .. }))
 	));
 	assert_eq!(cheats.client(user(2)), None);
-
-	let long = CString::new(vec![b'a'; 2000]).unwrap();
-
-	link.room = usize::MAX;
-
-	assert!(matches!(
-		cheats.begin_with(&mut link, user(2), Purpose::Commands(vec![long]), now),
-		Err(CheatsError::Send(SendError::Encode(
-			EncodeError::TooLong { .. }
-		)))
-	));
 	assert!(link.take_sent().is_empty());
-	assert_eq!(
-		cheats.begin_with(&mut link, user(9), Purpose::Observe, now),
-		Err(CheatsError::NoClient(user(9)))
-	);
 }
 
 #[test]
@@ -524,56 +483,6 @@ fn at(start: Instant, seconds: u64) -> Instant {
 }
 
 #[test]
-fn begin_refuses_clients_without_their_own_sv_cheats() {
-	let bot = MockClient {
-		fake: true,
-		..MockClient::active(3)
-	};
-	let tv = MockClient {
-		hltv: true,
-		..MockClient::active(4)
-	};
-	let host = MockClient {
-		loopback: true,
-		..MockClient::active(5)
-	};
-	let unreachable = MockClient {
-		no_channel: true,
-		..MockClient::active(6)
-	};
-	let mock = MockEngine::new(
-		&[MockClient::default(), bot, tv, host, unreachable],
-		c"0",
-		&[],
-	);
-	let mut cheats = cheats();
-
-	for (id, error) in [
-		(3, CheatsError::FakeClient),
-		(4, CheatsError::FakeClient),
-		(5, CheatsError::Loopback),
-		(6, CheatsError::NoChannel),
-		(9, CheatsError::NoClient(user(9))),
-	] {
-		assert_eq!(
-			cheats.begin(mock.server(), user(id), Purpose::Observe),
-			Err(error)
-		);
-	}
-
-	for slot in 1..5 {
-		assert!(mock.take_sent(slot).is_empty());
-	}
-
-	assert_eq!(cheats.client(user(3)), None);
-}
-
-/// A coordinator with the default options.
-fn cheats() -> ClientCheats {
-	ClientCheats::new(CheatsOptions::DEFAULT)
-}
-
-#[test]
 fn clients_that_leave_cancel_their_leases() {
 	let now = Instant::now();
 	let mut cheats = cheats();
@@ -594,144 +503,6 @@ fn clients_that_leave_cancel_their_leases() {
 	assert!(link.take_sent().is_empty());
 	assert_eq!(cheats.client(user(2)), None);
 	assert_eq!(cheats.lease(kept), Some(LeaseStatus::Sent));
-}
-
-/// A client's answer that its `sv_cheats` is set.
-fn confirm(cheats: &mut ClientCheats, user_id: UserId, cookie: c_int) -> Verdict {
-	cheats.on_response(user_id, &response(cookie, 0, c"1"))
-}
-
-#[test]
-fn cookies_are_private_and_never_shared_by_outstanding_queries() {
-	let mut cheats = cheats();
-	let mut seen = Vec::new();
-
-	for _ in 0..3 {
-		let cookie = cheats.next_cookie();
-
-		assert!(COOKIES.contains(&cookie));
-		assert!(cookie < 0);
-		assert!(!seen.contains(&cookie));
-		seen.push(cookie);
-	}
-
-	// The counter skips cookies still in use, and wraps.
-	let mut link = FakeLink::new(&[user(2)]);
-
-	cheats.next_cookie = Some(10);
-
-	let (_, outstanding) = start(
-		&mut cheats,
-		&mut link,
-		user(2),
-		Purpose::Observe,
-		Instant::now(),
-	);
-
-	assert_eq!(outstanding, COOKIES.end() - 10);
-	cheats.next_cookie = Some(10);
-	assert_eq!(cheats.next_cookie(), COOKIES.end() - 11);
-
-	// Past the end of the range, the counter starts again.
-	cheats.next_cookie = Some(COOKIES.end() - COOKIES.start());
-	assert_eq!(cheats.next_cookie(), *COOKIES.start());
-	assert_eq!(cheats.next_cookie(), *COOKIES.end());
-	assert_eq!(*COOKIES.end() - *COOKIES.start() + 1, 1 << 16);
-}
-
-#[test]
-fn engine_leases_wait_for_activity_and_restore_all_reaches_open_clients() {
-	let connecting = MockClient {
-		active: false,
-		..MockClient::active(2)
-	};
-	let mock = MockEngine::new(&[connecting, MockClient::active(3)], c"0", &[]);
-	let mut cheats = cheats();
-	let Ok(Begun::Lease(waiting)) = cheats.begin(mock.server(), user(2), Purpose::Observe) else {
-		panic!("a lease");
-	};
-	let Ok(Begun::Lease(sent)) = cheats.begin(mock.server(), user(3), Purpose::Observe) else {
-		panic!("a lease");
-	};
-
-	assert!(mock.take_sent(0).is_empty());
-	assert_eq!(mock.take_sent(1).len(), 1);
-	assert_eq!(cheats.on_game_frame(mock.server()), Ok(Vec::new()));
-	assert!(mock.take_sent(0).is_empty());
-
-	mock.set_client(0, MockClient::active(2));
-	assert_eq!(cheats.on_game_frame(mock.server()), Ok(Vec::new()));
-	assert_eq!(mock.take_sent(0).len(), 1);
-	assert_eq!(cheats.lease(waiting), Some(LeaseStatus::Sent));
-
-	// The second client left before restoring.
-	mock.set_client(1, MockClient::default());
-
-	assert_eq!(
-		cheats.restore_all(mock.server()),
-		Ok(vec![
-			CheatsEvent::Finished {
-				user_id: user(2),
-				lease: waiting,
-				outcome: LeaseOutcome::Cancelled,
-			},
-			CheatsEvent::Finished {
-				user_id: user(3),
-				lease: sent,
-				outcome: LeaseOutcome::Cancelled,
-			},
-		])
-	);
-	assert_eq!(
-		mock.take_sent(0),
-		[vec![Decoded::SetConVar(vec![(
-			c"sv_cheats".into(),
-			c"0".into()
-		)])]]
-	);
-	assert!(mock.take_sent(1).is_empty());
-	assert_eq!(cheats.client(user(3)), None);
-	assert!(cheats.forget(user(2)));
-}
-
-#[test]
-fn engine_restores_that_do_not_fit_fall_back_to_sv_cheats() {
-	let mock = MockEngine::new(&[MockClient::active(2)], c"0", &VARS);
-	let mut cheats = cheats();
-	let Ok(Begun::Lease(lease)) = cheats.begin(mock.server(), user(2), Purpose::Observe) else {
-		panic!("a lease");
-	};
-	let cookie = query_cookie(&mock.take_sent(0)[0]);
-	let alone = restore_bits(&[(c"sv_cheats".into(), c"0".into())]).len();
-
-	assert_eq!(confirm(&mut cheats, user(2), cookie), Verdict::Block);
-	mock.room(0, alone);
-
-	let events = cheats.on_game_frame(mock.server()).unwrap();
-
-	assert!(matches!(
-		events[..],
-		[
-			CheatsEvent::RestoreFailed { .. },
-			CheatsEvent::Finished {
-				outcome: LeaseOutcome::Confirmed,
-				..
-			}
-		]
-	));
-	assert_eq!(
-		mock.take_sent(0),
-		[vec![Decoded::SetConVar(vec![(
-			c"sv_cheats".into(),
-			c"0".into()
-		)])]]
-	);
-	assert_eq!(cheats.lease(lease), None);
-
-	mock.room(0, usize::MAX);
-	assert_eq!(cheats.on_game_frame(mock.server()), Ok(Vec::new()));
-	assert_eq!(mock.take_sent(0).len(), 1);
-	assert!(!cheats.client(user(2)).unwrap().restore_pending);
 }
 
 #[test]
@@ -768,49 +539,6 @@ fn leases_of_one_client_share_its_restore() {
 		]
 	);
 	assert_eq!(link.take_sent(), [(user(2), restore())]);
-}
-
-#[test]
-fn leases_reach_the_engine_and_restore_from_its_registry() {
-	let player = MockClient::active(2);
-	let mock = MockEngine::new(&[MockClient::default(), player], c"0", &VARS);
-	let mut cheats = cheats();
-	let Ok(Begun::Lease(lease)) = cheats.begin(mock.server(), user(2), Purpose::Observe) else {
-		panic!("a lease");
-	};
-	let sent = mock.take_sent(1);
-	let cookie = query_cookie(&sent[0]);
-
-	assert_eq!(sent, [spoof(cookie, &[])]);
-	assert_eq!(confirm(&mut cheats, user(2), cookie), Verdict::Block);
-
-	// The server's sv_cheats changed meanwhile: the restore sends it as it is.
-	mock.set_cheats(c"2");
-
-	assert_eq!(
-		cheats.on_game_frame(mock.server()),
-		Ok(vec![CheatsEvent::Finished {
-			user_id: user(2),
-			lease,
-			outcome: LeaseOutcome::Confirmed,
-		}])
-	);
-	assert_eq!(
-		mock.take_sent(1),
-		[vec![Decoded::SetConVar(vec![
-			(c"sv_cheats".into(), c"2".into()),
-			(c"host_timescale".into(), c"0.5".into()),
-			(c"tf_avoidteammates".into(), c"0".into()),
-		])]]
-	);
-
-	// Server cheats: nothing is sent.
-	assert_eq!(
-		cheats.begin(mock.server(), user(2), Purpose::Observe),
-		Ok(Begun::ServerCheats)
-	);
-	assert!(mock.take_sent(1).is_empty());
-	assert_eq!(cheats.on_game_frame(mock.server()), Ok(Vec::new()));
 }
 
 #[test]
@@ -1072,24 +800,6 @@ fn restores_missed_at_level_shutdown_are_sent_once_active_on_the_next_level() {
 }
 
 #[test]
-fn restores_resend_replicated_cheat_variables_that_are_not_default() {
-	let mock = MockEngine::new(&[], c"0", &VARS);
-	let cvar = mock.server().cvar().unwrap();
-
-	assert_eq!(
-		restore_values(cvar).unwrap(),
-		[
-			(c"sv_cheats".into(), c"0".into()),
-			(c"host_timescale".into(), c"0.5".into()),
-			(c"tf_avoidteammates".into(), c"0".into()),
-		]
-	);
-
-	mock.set_cheats(c"1");
-	assert_eq!(restore_values(cvar).unwrap()[0].1.as_c_str(), c"1");
-}
-
-#[test]
 fn restores_split_into_messages_of_255_and_skip_what_does_not_fit() {
 	let names: Vec<CString> = (0..300)
 		.map(|index| CString::new(format!("tf_var_{index}")).unwrap())
@@ -1114,17 +824,6 @@ fn restores_split_into_messages_of_255_and_skip_what_does_not_fit() {
 	assert_eq!(first[0], (c"sv_cheats".into(), c"0".into()));
 	assert_eq!(first[1].0.as_c_str(), c"tf_var_0");
 	assert_eq!(second.last().unwrap().0.as_c_str(), c"tf_var_299");
-}
-
-#[test]
-fn retry_delays_double() {
-	let now = Instant::now();
-	let options = CheatsOptions::DEFAULT;
-
-	assert_eq!(options.retry_at(now, 1), at(now, 1));
-	assert_eq!(options.retry_at(now, 2), at(now, 2));
-	assert_eq!(options.retry_at(now, 3), at(now, 4));
-	assert_eq!(ClientCheats::default().options(), CheatsOptions::default());
 }
 
 #[test]
@@ -1156,19 +855,6 @@ fn server_cheats_need_no_lease() {
 		)]
 	);
 	assert_eq!(cheats.client(user(2)), None);
-}
-
-/// What a lease for `purpose` with `cookie` sends.
-fn spoof(cookie: c_int, commands: &[&CStr]) -> Vec<Decoded> {
-	let mut messages = vec![Decoded::SetConVar(vec![(c"sv_cheats".into(), c"1".into())])];
-
-	messages.extend(
-		commands
-			.iter()
-			.map(|&command| Decoded::StringCmd(command.into())),
-	);
-	messages.push(Decoded::Query(cookie, c"sv_cheats".into()));
-	messages
 }
 
 /// Begins a lease for `user_id`, returning its ID and the cookie it sent.

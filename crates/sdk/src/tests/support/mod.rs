@@ -17,6 +17,7 @@ pub mod edicts;
 pub mod entities;
 pub mod interfaces;
 pub mod net;
+pub mod net_leases;
 pub mod players;
 pub mod server;
 pub mod user_messages;

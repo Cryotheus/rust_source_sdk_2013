@@ -651,22 +651,3 @@ pub unsafe fn route_incoming(
 	catch_unwind(AssertUnwindSafe(|| handler.incoming(server, message)))
 		.unwrap_or(Verdict::Continue)
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn kinds_map_to_indices() {
-		assert_eq!(IncomingKind::from_index(1), Some(IncomingKind::StringCmd));
-		assert_eq!(IncomingKind::from_index(14), None);
-		assert_eq!(IncomingKind::from_index(-1), None);
-	}
-
-	#[test]
-	fn kinds_map_to_their_classes() {
-		for (kind, class) in IncomingKind::ALL.into_iter().zip(MessageClass::ALL) {
-			assert_eq!(kind.raw(), class);
-		}
-	}
-}
