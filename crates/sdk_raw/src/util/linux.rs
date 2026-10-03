@@ -45,6 +45,7 @@ pub struct MemoryReader {
 }
 
 impl MemoryReader {
+	/// A reader of this process's memory, through `/proc/self/mem`.
 	pub fn open() -> Result<Self, Error> {
 		Ok(Self {
 			memory: File::open("/proc/self/mem")?,
@@ -95,10 +96,12 @@ impl Module {
 		})
 	}
 
+	/// The module's load address.
 	pub fn base(&self) -> usize {
 		self.base
 	}
 
+	/// The file the loader mapped the module from.
 	pub fn path(&self) -> &Path {
 		&self.path
 	}

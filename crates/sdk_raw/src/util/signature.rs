@@ -4,7 +4,10 @@
 /// One byte of a signature, either unconstrained or matched exactly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SignaturePattern {
+	/// Matches any byte (`?`).
 	Any,
+
+	/// Matches this byte only.
 	Exact(u8),
 }
 

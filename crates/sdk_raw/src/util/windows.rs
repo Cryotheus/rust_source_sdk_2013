@@ -26,6 +26,7 @@ struct MemoryInformation {
 pub struct MemoryReader;
 
 impl MemoryReader {
+	/// A reader of this process's memory.
 	pub fn open() -> Result<Self, Error> {
 		Ok(Self)
 	}

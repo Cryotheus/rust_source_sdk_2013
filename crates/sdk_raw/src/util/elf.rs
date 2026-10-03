@@ -14,6 +14,8 @@ pub struct Elf<'a> {
 }
 
 impl<'a> Elf<'a> {
+	/// Checks that `bytes` is a little-endian x86-64 ET_DYN file whose section
+	/// headers lie within it, or returns `None`.
 	pub fn new(bytes: &'a [u8]) -> Option<Self> {
 		if bytes.get(..7)? != b"\x7fELF\x02\x01\x01"
 			|| u16_at(bytes, 18)? != 62
@@ -160,6 +162,7 @@ impl LoadedElf {
 			.any(|segment| segment.contains(address, len, executable, writable))
 	}
 
+	/// The loaded module this file was checked against.
 	pub fn module(&self) -> &Module {
 		&self.module
 	}

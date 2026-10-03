@@ -29,6 +29,7 @@
 //! thread". Higher-level crates discharge them from their own guarantees.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 #[cfg(not(any(
 	all(target_os = "windows", target_arch = "x86_64", target_env = "msvc"),

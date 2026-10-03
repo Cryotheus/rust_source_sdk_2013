@@ -6,7 +6,10 @@ use super::{Error, SignaturePattern, pattern, platform, relative};
 /// An owned snapshot of a module's readable image regions.
 #[derive(Debug, Clone)]
 pub struct Image {
+	/// The module's load address.
 	pub base: usize,
+
+	/// The module's readable regions, each copied whole.
 	pub sections: Vec<Section>,
 }
 
@@ -132,9 +135,16 @@ impl Image {
 /// Owned bytes and permissions for one readable image region.
 #[derive(Debug, Clone)]
 pub struct Section {
+	/// The region's address in the process.
 	pub address: usize,
+
+	/// A copy of the region's bytes.
 	pub bytes: Vec<u8>,
+
+	/// Whether the region was mapped executable.
 	pub executable: bool,
+
+	/// Whether the region was mapped writable.
 	pub writable: bool,
 }
 

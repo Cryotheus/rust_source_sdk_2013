@@ -39,9 +39,12 @@ pub const MAX_IMAGE_BYTES: usize = 0x40000000;
 /// Failure to read or validate an executable image.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+	/// The image is not a supported 64-bit module, or its headers or regions
+	/// are inconsistent.
 	#[error("unsupported or malformed executable image")]
 	InvalidImage,
 
+	/// The OS refused to describe or read the module.
 	#[error("could not inspect executable image: {0}")]
 	Io(#[from] std::io::Error),
 }
