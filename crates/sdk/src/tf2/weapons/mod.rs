@@ -8,12 +8,15 @@
 //! changes a weapon's attributes afterwards, through [`ItemAttributes`].
 
 use crate::entities::{Entity, EntityHandle};
+use crate::math::Vector;
 use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
 use crate::{Game, InterfaceError, Server};
-use sdk_raw::tf2::item_generation::WeaponCreationFailed;
+use sdk_raw::tf2::item_generation::ItemGeneration;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
+
+pub use sdk_raw::tf2::item_generation::ItemGenerationError;
 
 /// A native weapon slot: a [`WeaponSlot`], or a raw slot number for the less
 /// common slots it does not name.
@@ -83,7 +86,8 @@ impl<'s> PlayerWeapons<'s> {
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified CTFPlayer's zero-offset primary entity base.
+		// SAFETY: `new` verified a CTFPlayer and `Weapon::new` a CTFWeaponBase,
+		// whose entity bases `sdk_raw::tf2::weapons` asserts are at offset zero.
 		// The player owns this live weapon. RemovePlayerItem detaches and
 		// holsters it without immediately deleting either entity.
 		let removed = unsafe {
@@ -127,9 +131,10 @@ impl<'s> PlayerWeapons<'s> {
 		}
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
-		// SAFETY: Both checked classes have CBaseEntity at primary offset zero.
-		// The live weapon is not in an inventory. Native equip updates inventory,
-		// ownership, and attribute providers through the generated TF2 vtable.
+		// SAFETY: Both checked classes have CBaseEntity at primary offset zero,
+		// as `sdk_raw::tf2::weapons` asserts. The live weapon is not in an
+		// inventory. Native equip updates inventory, ownership, and attribute
+		// providers through the generated TF2 vtable.
 		unsafe {
 			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_Weapon_Equip(
 				weapon.entity.as_ptr().cast(),
@@ -155,9 +160,11 @@ impl<'s> PlayerWeapons<'s> {
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified the zero-offset CTFPlayer primary base. The
-		// generated virtual method scans its own inventory and returns a live
-		// weapon or null. The slot is a comparison value.
+		// SAFETY: `new` verified a CTFPlayer, whose entity base
+		// `sdk_raw::tf2::weapons` asserts is at offset zero. The generated
+		// virtual method scans its own inventory and returns a live weapon or
+		// null, whose entity base is likewise at offset zero. The slot is a
+		// comparison value.
 		let raw = unsafe {
 			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_Weapon_GetSlot(
 				slot.into_weapon_slot(),
@@ -187,7 +194,8 @@ impl<'s> PlayerWeapons<'s> {
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified the primary CTFPlayer base. This generated
+		// SAFETY: `new` verified a CTFPlayer, whose entity base
+		// `sdk_raw::tf2::weapons` asserts is at offset zero. This generated
 		// overload takes a nullable CEconItemView and a force flag. Null requests
 		// native stock-item generation; force keeps the
 		// exact classname instead of translating it for the player's class. The
@@ -218,8 +226,10 @@ impl<'s> PlayerWeapons<'s> {
 	///
 	/// Definitions whose schema uses a generic classname such as
 	/// `tf_weapon_shotgun` need [`Self::give_item_as`] with a concrete classname.
-	/// Native generation failures, such as a missing definition, return
-	/// `CreationFailedNative`; cosmetics return `NotWeapon`.
+	/// Native generation failures, such as a definition the running schema
+	/// lacks ([`ItemGenerationError::UnknownDefinition`]), return
+	/// [`WeaponError::CreationFailedNative`]; cosmetics return
+	/// [`WeaponError::NotWeapon`].
 	///
 	/// # Safety
 	/// The definition's constructor, spawn, activation and equipment callbacks
@@ -476,20 +486,16 @@ impl<'s> PlayerWeapons<'s> {
 
 		let origin = self.player.position().ok_or(WeaponError::MissingOrigin)?;
 
-		// SAFETY: The caller vouches for the native creation path. The generator
-		// initializes CEconItemView before Spawn/Activate and returns a fresh
-		// callback-live entity; it must not be passed through DispatchSpawn again.
+		// SAFETY: The caller vouches for the native creation path and the
+		// classname. The generator initializes CEconItemView before
+		// Spawn/Activate and returns a fresh callback-live entity; it must not be
+		// passed through DispatchSpawn again.
 		unsafe {
 			self.give_with(
 				classname,
 				|| {
-					sdk_raw::tf2::item_generation::spawn(
-						self.server.game_server_factory().as_raw(),
-						definition.get(),
-						origin.into(),
-						classname,
-					)
-					.map_err(WeaponError::CreationFailedNative)
+					generate_item(self.server, definition, origin, classname)
+						.map_err(WeaponError::CreationFailedNative)
 				},
 				finish,
 			)
@@ -595,8 +601,9 @@ impl<'s> Weapon<'s> {
 
 		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
 
-		// SAFETY: `new` established CTFWeaponBase's zero-offset primary entity
-		// base. The generated GetSlot entry leaves the weapon alive.
+		// SAFETY: `new` verified a CTFWeaponBase, whose entity base
+		// `sdk_raw::tf2::weapons` asserts is at offset zero. The generated
+		// GetSlot entry leaves the weapon alive.
 		Ok(unsafe {
 			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetSlot())
 		})
@@ -617,9 +624,10 @@ pub enum WeaponError {
 	#[error("the game could not create the weapon (including an existing weapon of the same type)")]
 	CreationFailed,
 
-	/// Native item generation, used by `give_item` and its variants, failed.
+	/// Native item generation, used by `give_item` and its variants, failed,
+	/// as the [`ItemGenerationError`] tells.
 	#[error(transparent)]
-	CreationFailedNative(#[from] WeaponCreationFailed),
+	CreationFailedNative(#[from] ItemGenerationError),
 
 	/// The weapon's combat owner is not this player: another entity owns it,
 	/// or [`PlayerWeapons::detach`] was given an unowned weapon.
@@ -756,6 +764,32 @@ fn check_live(entity: Entity<'_>) -> Result<(), WeaponError> {
 	} else {
 		Ok(())
 	}
+}
+
+/// Creates the economy item `definition` at `origin` through native item
+/// generation, at level 1 and with Unique quality, optionally as the entity
+/// class `classname`, as [`ItemGeneration::spawn`] describes. The entity is
+/// newly created and spawned, and must not be spawned again.
+///
+/// # Safety
+///
+/// The item's constructor, spawn and activation, and everything they reach,
+/// must uphold [`Server::new`]'s no-immediate-deletion contract. `classname`,
+/// if given, must name an entity class compatible with `definition`.
+pub(crate) unsafe fn generate_item(
+	server: Server<'_>,
+	definition: ItemDefinitionIndex,
+	origin: Vector,
+	classname: Option<&CStr>,
+) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
+	// SAFETY: `Server::new` guarantees that the game server module, whose
+	// factory this is, stays loaded through the callback.
+	let generation = unsafe { ItemGeneration::resolve(server.game_server_factory().as_raw()) }?;
+
+	// SAFETY: As above, the module stays loaded, and this runs on the main
+	// thread, inside the engine's callback. The caller vouches for the game
+	// code the generation runs, and for the classname.
+	unsafe { generation.spawn(definition.get(), origin.into(), classname) }
 }
 
 #[cfg(test)]

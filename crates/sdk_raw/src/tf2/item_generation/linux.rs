@@ -1,40 +1,61 @@
-use super::Targets;
-use crate::util::{elf::LoadedElf, relative};
+//! Resolution in retail TF2's 64-bit Linux `server_srv.so`, through the
+//! mangled symbols of an unstripped build.
 
-/// Resolves the item generation functions from the game module's symbols.
+use super::{Addresses, ITEM_GENERATION_GETTER, ITEM_GENERATION_GETTER_OPERAND, SINGLETON_LEN};
+use crate::util::elf::LoadedElf;
+use crate::util::{pattern, relative};
+
+/// `CEconItemSchema::GetItemDefinition(int)`.
+const GET_ITEM_DEFINITION: &[u8] = b"_ZN15CEconItemSchema17GetItemDefinitionEi";
+
+/// `GetItemSchema()`, which returns the item schema itself.
+const GET_ITEM_SCHEMA: &[u8] = b"_Z13GetItemSchemav";
+
+/// `ItemGeneration()`, which returns the `CItemGeneration` singleton.
+const ITEM_GENERATION: &[u8] = b"_Z14ItemGenerationv";
+
+/// How far into the object `GetItemSchema()` returns, the schema itself, the
+/// item schema lies.
+pub(super) const SCHEMA_OFFSET: usize = 0;
+
+/// Retail's seven-argument `CItemGeneration::SpawnItem`.
+const SPAWN_ITEM: &[u8] = b"_ZN15CItemGeneration9SpawnItemEiRK6VectorRK6QAngleiiPKc";
+
+/// Resolves the item generation functions from the symbols of the module
+/// containing `address`.
 ///
 /// # Safety
 ///
-/// The caller keeps the factory's game module loaded for all resolution and
-/// subsequent native calls.
-pub(super) unsafe fn resolve(factory: usize) -> Option<Targets> {
-	// SAFETY: The caller guarantees the factory module remains loaded and its
-	// image mappings remain valid throughout this snapshot and the calls.
-	let elf = unsafe { LoadedElf::at(factory) }.ok()?;
-	let (spawn, _) = elf.resolve(b"_ZN15CItemGeneration9SpawnItemEiRK6VectorRK6QAngleiiPKc")?;
-	let (getter, body) = elf.resolve(b"_Z14ItemGenerationv")?;
+/// The module containing `address` stays loaded, with its image mappings
+/// unchanged, throughout this call.
+pub(super) unsafe fn resolve(address: usize) -> Option<Addresses> {
+	// SAFETY: The caller guarantees the module remains loaded and its image
+	// mappings remain valid throughout this snapshot.
+	let elf = unsafe { LoadedElf::at(address) }.ok()?;
+	let (spawn_item, _) = elf.resolve(SPAWN_ITEM)?;
+	let (getter, body) = elf.resolve(ITEM_GENERATION)?;
 
-	if body.len() != 8 || body[..3] != [0x48, 0x8d, 0x05] || body[7] != 0xc3 {
+	if body.len() != ITEM_GENERATION_GETTER.len() || !pattern(body, ITEM_GENERATION_GETTER) {
 		return None;
 	}
 
-	let singleton = relative(getter, body, 3)?;
+	let singleton = relative(getter, body, ITEM_GENERATION_GETTER_OPERAND)?;
 
-	if !elf.contains(singleton, 16, false, true) {
+	if !elf.contains(singleton, SINGLETON_LEN, false, true) {
 		return None;
 	}
 
-	elf.read(singleton, 16)?;
+	// The singleton must also be readable now, not only mapped by the file.
+	elf.read(singleton, SINGLETON_LEN)?;
 
-	let (schema, _) = elf.resolve(b"_Z13GetItemSchemav")?;
-	let (definition, _) = elf.resolve(b"_ZN15CEconItemSchema17GetItemDefinitionEi")?;
+	let (schema_getter, _) = elf.resolve(GET_ITEM_SCHEMA)?;
+	let (get_item_definition, _) = elf.resolve(GET_ITEM_DEFINITION)?;
 
-	Some(Targets {
-		spawn,
+	Some(Addresses {
+		get_item_definition,
+		schema_getter,
 		singleton,
-		schema,
-		schema_offset: 0,
-		definition,
+		spawn_item,
 	})
 }
 
@@ -50,20 +71,15 @@ mod tests {
 			std::fs::read(std::env::var_os("TF2_SERVER_IMAGE").expect("TF2_SERVER_IMAGE")).unwrap();
 		let elf = Elf::new(&bytes).unwrap();
 
-		for name in [
-			b"_ZN15CItemGeneration9SpawnItemEiRK6VectorRK6QAngleiiPKc".as_slice(),
-			b"_Z13GetItemSchemav",
-			b"_ZN15CEconItemSchema17GetItemDefinitionEi",
-		] {
+		for name in [SPAWN_ITEM, GET_ITEM_SCHEMA, GET_ITEM_DEFINITION] {
 			assert!(elf.symbol(name).is_some());
 		}
 
-		let (getter, body) = elf.symbol(b"_Z14ItemGenerationv").unwrap();
+		let (getter, body) = elf.symbol(ITEM_GENERATION).unwrap();
 
-		assert_eq!(body.len(), 8);
-		assert_eq!(&body[..3], &[0x48, 0x8d, 0x05]);
-		assert_eq!(body[7], 0xc3);
-		assert!(relative(getter, body, 3).is_some());
+		assert_eq!(body.len(), ITEM_GENERATION_GETTER.len());
+		assert!(pattern(body, ITEM_GENERATION_GETTER));
+		assert!(relative(getter, body, ITEM_GENERATION_GETTER_OPERAND).is_some());
 		assert!(
 			elf.symbol(b"_ZN15CItemGeneration9SpawnItemEiRK6VectorRK6QAngleiiPKci")
 				.is_none(),

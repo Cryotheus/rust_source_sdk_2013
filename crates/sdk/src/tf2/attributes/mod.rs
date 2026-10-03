@@ -73,6 +73,7 @@ use crate::tf2::attributes::layout::ItemLayout;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::tf2::weapons::ItemDefinitionIndex;
 use crate::{Game, Server};
+use sdk_raw::tf2::attributes::DEFAULT_CUSTOM_ATTRIBUTE_DURATION;
 use std::ffi::CStr;
 use std::marker::PhantomData;
 
@@ -87,11 +88,7 @@ pub(crate) use layout::item_definition;
 /// (`MAX_ATTRIBUTES_PER_ITEM`). The game applies further entries on the
 /// server but silently does not send them, so clients mispredict the item.
 #[doc(alias = "MAX_ATTRIBUTES_PER_ITEM")]
-pub const MAX_RUNTIME_ATTRIBUTES: usize = 20;
-
-/// `AddCustomAttribute`'s default duration. TF2 never expires a player
-/// attribute added with a non-positive duration; items ignore durations.
-const PERMANENT_DURATION: f32 = -1.0;
+pub const MAX_RUNTIME_ATTRIBUTES: usize = sdk_raw::tf2::attributes::MAX_ATTRIBUTES_PER_ITEM;
 
 /// An attribute operation could not be performed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -428,7 +425,7 @@ impl<'s> ItemAttributes<'s> {
 				&mut [
 					binding::string(name),
 					binding::float(value),
-					binding::float(PERMANENT_DURATION),
+					binding::float(DEFAULT_CUSTOM_ATTRIBUTE_DURATION),
 				],
 				binding::VOID,
 			)
@@ -1018,7 +1015,7 @@ impl<'s> PlayerAttributes<'s> {
 				&mut [
 					binding::string(name),
 					binding::float(value),
-					binding::float(duration.unwrap_or(PERMANENT_DURATION)),
+					binding::float(duration.unwrap_or(DEFAULT_CUSTOM_ATTRIBUTE_DURATION)),
 				],
 				binding::VOID,
 			)

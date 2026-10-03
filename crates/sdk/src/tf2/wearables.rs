@@ -87,27 +87,11 @@ use crate::datatables::{NetProp, NetPropError, NetValue, PropKind};
 use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::ServerTools;
 use crate::math::Vector;
-use crate::tf2::weapons::ItemDefinitionIndex;
+use crate::tf2::weapons::{self, ItemDefinitionIndex, ItemGenerationError};
 use crate::{Game, InterfaceError, Server};
-use sdk_raw::tf2::item_generation::WeaponCreationFailed;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
-use std::mem::{offset_of, size_of};
 use std::ptr::NonNull;
-
-// The entity pointer of a wearable is passed as the `CEconWearable *` that
-// `EquipWearable` and `RemoveWearable` take, which needs every class from
-// `CTFWearable` down to `CBaseEntity` to start with its primary base. The
-// Itanium bindings describe `CEconWearable` and `CBaseAnimating` as opaque
-// blobs, whose single, polymorphic primary bases that ABI also places first.
-const _: () = {
-	assert!(offset_of!(sys::CTFWearable, _base) == 0 && offset_of!(sys::CEconEntity, _base) == 0);
-
-	#[cfg(target_os = "windows")]
-	assert!(
-		offset_of!(sys::CEconWearable, _base) == 0 && offset_of!(sys::CBaseAnimating, _base) == 0
-	);
-};
 
 /// The names `SendPropUtlVector` gives the networked elements of
 /// `m_hMyWearables`, in order (`DT_ArrayElementNameForIdx`).
@@ -126,7 +110,7 @@ const INVALID_NETWORKED_HANDLE: u32 = (1 << (NETWORKED_INDEX_BITS + NETWORKED_SE
 /// most entries of a player's wearable list the game networks.
 #[doc(alias = "MAX_WEARABLES_SENT_FROM_SERVER")]
 #[doc(alias = "LOADOUT_MAX_WEARABLES_COUNT")]
-pub const MAX_NETWORKED_WEARABLES: usize = 8;
+pub const MAX_NETWORKED_WEARABLES: usize = sdk_raw::tf2::wearables::MAX_WEARABLES_SENT_FROM_SERVER;
 
 /// How far up the move hierarchy a wearable's player is looked for: a view
 /// model wearable follows the player's view model, which follows the player.
@@ -336,12 +320,13 @@ impl<'s> PlayerWearables<'s> {
 	unsafe fn equip_native(self, wearable: Wearable<'s>) {
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
 
-		// SAFETY: `new` verified `CTFPlayer`, whose entity base is at offset zero,
-		// and `Wearable::new` verified `CTFWearable`, whose `CEconWearable` base
-		// is at offset zero, as asserted above. Both are live. `EquipWearable`
-		// adds the wearable to the head of the list, which the caller guarantees
-		// the game is not iterating, and runs its `Equip`, which deletes only
-		// through `UTIL_Remove`.
+		// SAFETY: `new` verified `CTFPlayer`, whose entity base
+		// `sdk_raw::tf2::weapons` asserts is at offset zero, and `Wearable::new`
+		// verified `CTFWearable`, whose entity and `CEconWearable` bases
+		// `sdk_raw::tf2::wearables` asserts are at offset zero. Both are live.
+		// `EquipWearable` adds the wearable to the head of the list, which the
+		// caller guarantees the game is not iterating, and runs its `Equip`,
+		// which deletes only through `UTIL_Remove`.
 		unsafe {
 			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_EquipWearable(
 				wearable.entity.as_ptr().cast(),
@@ -358,12 +343,12 @@ impl<'s> PlayerWearables<'s> {
 	/// Fails before creating anything with [`WearableError::PlayerNotPlaying`]
 	/// for a dead player or one not on a playing team, and with
 	/// [`WearableError::Full`] if the player's list is full. A definition that
-	/// native generation cannot create, such as a missing one, fails with
-	/// [`WearableError::CreationFailedNative`], and one that creates no TF2
-	/// wearable, such as a weapon, with [`WearableError::NotWearable`]. The
-	/// game refuses items restricted to a holiday outside it, which fails with
-	/// [`WearableError::Rejected`]. An item the player's class has no model
-	/// for, such as an item restricted to other classes, fails with
+	/// native generation cannot create, such as one the running schema lacks,
+	/// fails with [`WearableError::CreationFailedNative`], and one that creates
+	/// no TF2 wearable, such as a weapon, with [`WearableError::NotWearable`].
+	/// The game refuses items restricted to a holiday outside it, which fails
+	/// with [`WearableError::Rejected`]. An item the player's class has no
+	/// model for, such as an item restricted to other classes, fails with
 	/// [`WearableError::MissingModel`]: equipped on TF2's 64-bit Windows
 	/// server, such an item was observed to draw nothing on its owner's retail
 	/// client while still hiding parts of the player's model. Whatever was
@@ -394,13 +379,8 @@ impl<'s> PlayerWearables<'s> {
 		// fresh callback-live entity, which must not be spawned again.
 		let wearable = unsafe {
 			self.give_with(|origin| {
-				sdk_raw::tf2::item_generation::spawn(
-					self.server.game_server_factory().as_raw(),
-					definition.get(),
-					origin.into(),
-					None,
-				)
-				.map_err(WearableError::CreationFailedNative)
+				weapons::generate_item(self.server, definition, origin, None)
+					.map_err(WearableError::CreationFailedNative)
 			})
 		}?;
 
@@ -870,9 +850,10 @@ impl<'s> Wearable<'s> {
 #[derive(Debug, thiserror::Error)]
 pub enum WearableError {
 	/// Native item generation, used by [`PlayerWearables::give`], failed, for
-	/// example because the definition does not exist.
+	/// example because the definition does not exist
+	/// ([`ItemGenerationError::UnknownDefinition`]).
 	#[error(transparent)]
-	CreationFailedNative(#[from] WeaponCreationFailed),
+	CreationFailedNative(#[from] ItemGenerationError),
 
 	/// Another entity owns the wearable.
 	#[error("the wearable is owned by another entity")]
@@ -1091,7 +1072,7 @@ mod tests {
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{c_char, c_void};
-	use std::mem::MaybeUninit;
+	use std::mem::{MaybeUninit, offset_of};
 	use std::ptr::null_mut;
 
 	const EQUIP: usize =

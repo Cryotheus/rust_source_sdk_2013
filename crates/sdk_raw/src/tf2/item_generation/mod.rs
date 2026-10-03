@@ -1,7 +1,20 @@
-//! Retail TF2 item generation. Resolve only the supported seven-argument
-//! CItemGeneration::SpawnItem ABI; newer SDK headers add a class argument.
-//! All inspection uses owned snapshots. Missing/ambiguous signatures, stripped
-//! ELF symbols, or a changed file fail closed before calling native code.
+//! TF2's native item generation, `CItemGeneration::SpawnItem`, which creates
+//! an economy item from its definition, initializes its item view, and spawns
+//! it.
+//!
+//! The game exports none of the functions involved, so
+//! [`ItemGeneration::resolve`] finds them in the game server module: on
+//! Windows through signatures whose independent native callers must agree, and
+//! on Linux through their mangled symbols, which need an unstripped
+//! `server_srv.so`. Only retail's seven-argument `SpawnItem` is supported;
+//! newer SDK headers add a class argument. All inspection uses owned
+//! snapshots. Missing or ambiguous signatures, stripped ELF symbols, or a file
+//! that differs from the loaded module fail closed before any native code is
+//! called.
+//!
+//! The functions are C++ member functions, called as `extern "C"`: on both
+//! supported x86-64 targets that is their calling convention, with `this`
+//! passed as the first argument.
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
@@ -12,102 +25,246 @@ mod platform;
 mod platform;
 
 use crate::interfaces::CreateInterfaceFn;
-use std::ffi::{CStr, c_char, c_void};
-use std::ptr::NonNull;
+use crate::sig;
+use crate::util::SignaturePattern;
+use std::ffi::{CStr, c_char, c_int, c_void};
+use std::mem::transmute;
+use std::ptr::{self, NonNull};
 
-struct Targets {
-	spawn: usize,
+/// `CEconItemSchema::GetItemDefinition(int)`.
+type GetItemDefinitionFn = unsafe extern "C" fn(
+	this: *mut sys::CEconItemSchema,
+	index: c_int,
+) -> *mut sys::CEconItemDefinition;
+
+/// The getter of the item schema: `ItemSystem()` on Windows, whose
+/// `CEconItemSystem` holds the schema `platform::SCHEMA_OFFSET` bytes in, and
+/// `GetItemSchema()`, which returns the schema itself, on Linux.
+type SchemaGetterFn = unsafe extern "C" fn() -> *mut c_void;
+
+/// Retail's `CItemGeneration::SpawnItem(int, const Vector &, const QAngle &,
+/// int, entityquality_t, const char *)`.
+type SpawnItemFn = unsafe extern "C" fn(
+	this: *mut sys::CItemGeneration,
+	definition: c_int,
+	origin: *const sys::Vector,
+	angles: *const sys::QAngle,
+	level: c_int,
+	quality: sys::entityquality_t,
+	classname: *const c_char,
+) -> *mut sys::CBaseEntity;
+
+/// The body of `ItemGeneration()`, which returns the `CItemGeneration`
+/// singleton: `lea rax, [rip + singleton]; ret`.
+const ITEM_GENERATION_GETTER: &[SignaturePattern] = &sig![0x48 0x8d 0x05 ? ? ? ? 0xc3];
+
+/// Where the `rip`-relative displacement of [`ITEM_GENERATION_GETTER`]'s
+/// `lea` starts.
+const ITEM_GENERATION_GETTER_OPERAND: usize = 3;
+
+/// The level `CItemGeneration::GenerateItemFromDefIndex` gives the items it
+/// creates.
+const ITEM_LEVEL: c_int = 1;
+
+/// The quality `CItemGeneration::GenerateItemFromDefIndex` gives the items it
+/// creates: Unique.
+const ITEM_QUALITY: sys::entityquality_t = sys::EEconItemQuality_AE_UNIQUE;
+
+/// An index no item definition has, since the item schema rejects negative
+/// indices when it loads. `GetItemDefinition` returns the schema's default
+/// definition for it, as for every unknown index.
+const NO_DEFINITION: c_int = -1;
+
+/// How many bytes of the `CItemGeneration` singleton must lie in a writable
+/// section of the module.
+const SINGLETON_LEN: usize = 16;
+
+/// The addresses of the item generation functions and singleton in a module,
+/// as the platform's resolver verified them.
+struct Addresses {
+	/// `CEconItemSchema::GetItemDefinition`, a [`GetItemDefinitionFn`].
+	get_item_definition: usize,
+
+	/// The getter of the item schema, a [`SchemaGetterFn`].
+	schema_getter: usize,
+
+	/// The `CItemGeneration` singleton.
 	singleton: usize,
-	schema: usize,
-	schema_offset: usize,
-	definition: usize,
+
+	/// `CItemGeneration::SpawnItem`, a [`SpawnItemFn`].
+	spawn_item: usize,
 }
 
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("Failed to create weapon")]
-pub struct WeaponCreationFailed(());
-
-/// Creates the economy item `definition` at `origin` through the game's
-/// `CItemGeneration::SpawnItem`, as level 1 and Unique quality, optionally
-/// with another entity `classname`.
+/// TF2's item generation functions, resolved in a game server module.
 ///
-/// # Safety
-///
-/// - `factory` is the `CreateInterface` export of the loaded TF2 game server
-///   module, which stays loaded, with its image mappings unchanged, for the
-///   whole call.
-/// - The call is made on the server's main thread, from a callback in which
-///   the game may create and spawn entities.
-/// - The game code the call runs, such as the item's constructor, `Spawn`, and
-///   `Activate` and everything they reach, frees entities only through the
-///   engine's deferred deletion.
-pub unsafe fn spawn(
-	factory: CreateInterfaceFn,
-	definition: u16,
-	origin: sys::Vector,
-	classname: Option<&CStr>,
-) -> Result<NonNull<sys::CBaseEntity>, WeaponCreationFailed> {
-	// SAFETY: The caller keeps the factory's game module loaded for this call,
-	// including loader metadata inspected during resolution.
-	let targets = unsafe { platform::resolve(factory as usize) }.expect("Failed to find ");
+/// Holding one does not keep that module loaded: its functions may only be
+/// called while the module [`Self::resolve`] inspected stays loaded. It is
+/// neither `Send` nor `Sync`, since the game generates items on its main
+/// thread.
+#[doc(alias = "CItemGeneration")]
+#[derive(Debug, Clone, Copy)]
+pub struct ItemGeneration {
+	get_item_definition: GetItemDefinitionFn,
+	schema_getter: SchemaGetterFn,
+	singleton: NonNull<sys::CItemGeneration>,
+	spawn_item: SpawnItemFn,
+}
 
-	type Schema = unsafe extern "C" fn() -> *mut c_void;
-	type Definition = unsafe extern "C" fn(*mut c_void, i32) -> *mut c_void;
-	type Spawn = unsafe extern "C" fn(
-		*mut c_void,
-		i32,
-		*const sys::Vector,
-		*const sys::QAngle,
-		i32,
-		i32,
-		*const c_char,
-	) -> *mut sys::CBaseEntity;
+impl ItemGeneration {
+	/// Finds TF2's item generation in the module whose `CreateInterface`
+	/// export is `factory`.
+	///
+	/// Fails with [`ItemGenerationError::Unresolved`] unless that module is a
+	/// game server module whose functions match retail TF2's, as the
+	/// [module documentation](crate::tf2::item_generation) describes. Nothing
+	/// is cached: each call inspects the module again.
+	///
+	/// # Safety
+	///
+	/// `factory` must be the `CreateInterface` export of a module that stays
+	/// loaded, with its image mappings unchanged, for the whole call.
+	pub unsafe fn resolve(factory: CreateInterfaceFn) -> Result<Self, ItemGenerationError> {
+		// SAFETY: The caller keeps the factory's module loaded, with its image
+		// mappings unchanged, for this call, including the loader metadata the
+		// resolver inspects.
+		let addresses = unsafe { platform::resolve(factory as usize) }
+			.ok_or(ItemGenerationError::Unresolved)?;
 
-	// SAFETY: The resolver verifies these functions in the callback's game
-	// module. Linux uses exact mangled signatures and identical live/file code;
-	// Windows verifies the native call chain and the argument setup at its
-	// schema lookup. No item-view or schema layout is manufactured by Rust.
-	let get_schema: Schema = unsafe { std::mem::transmute(targets.schema) };
-	let get_definition: Definition = unsafe { std::mem::transmute(targets.definition) };
-	let generate: Spawn = unsafe { std::mem::transmute(targets.spawn) };
-	let schema = unsafe { get_schema() };
+		let singleton = NonNull::new(ptr::with_exposed_provenance_mut(addresses.singleton))
+			.ok_or(ItemGenerationError::Unresolved)?;
 
-	assert!(!schema.is_null(), "");
-
-	// Windows' validated SpawnItem callsite adds eight bytes to ItemSystem's
-	// result; Linux resolves GetItemSchema itself, whose adjustment is zero.
-	let schema = unsafe { schema.byte_add(targets.schema_offset) };
-	let fallback = unsafe { get_definition(schema, -1) };
-	let item = unsafe { get_definition(schema, i32::from(definition)) };
-
-	// Unknown indices return the default item, which could otherwise create
-	// an unrelated entity. Schema loading excludes all negative indices.
-	if item.is_null() || item == fallback {
-		return Err(WeaponCreationFailed(()));
+		// SAFETY: The resolver verified each address as the entry of the function
+		// its type describes, in the module's executable code: on Windows through
+		// the native call chain and the argument setup of its calls, on Linux
+		// through exact mangled symbols whose live code matches the file.
+		unsafe {
+			Ok(Self {
+				get_item_definition: transmute::<*const (), GetItemDefinitionFn>(
+					ptr::with_exposed_provenance(addresses.get_item_definition),
+				),
+				schema_getter: transmute::<*const (), SchemaGetterFn>(
+					ptr::with_exposed_provenance(addresses.schema_getter),
+				),
+				singleton,
+				spawn_item: transmute::<*const (), SpawnItemFn>(ptr::with_exposed_provenance(
+					addresses.spawn_item,
+				)),
+			})
+		}
 	}
 
-	let angles = sys::QAngle {
-		x: 0.0,
-		y: 0.0,
-		z: 0.0,
-	};
+	/// Creates the economy item `definition` at `origin` through
+	/// `CItemGeneration::SpawnItem`, as `GenerateItemFromDefIndex` does: at
+	/// level 1, with Unique quality, and without rotation. With `classname`,
+	/// the item is created as that entity class instead of the definition's
+	/// own, unless no entity factory has that name, in which case `SpawnItem`
+	/// falls back to the definition's class.
+	///
+	/// The entity returned is newly created, spawned, and activated. It must
+	/// not be spawned again.
+	///
+	/// Fails with [`ItemGenerationError::NoSchema`] before the game has an item
+	/// schema, with [`ItemGenerationError::UnknownDefinition`] if the schema
+	/// has no definition with that index, for which `SpawnItem` would create
+	/// the schema's default item instead, and with
+	/// [`ItemGenerationError::NotCreated`] if `SpawnItem` creates no entity.
+	///
+	/// # Safety
+	///
+	/// - The module that [`Self::resolve`] inspected is still loaded, with its
+	///   image mappings unchanged, for the whole call.
+	/// - The call is made on the server's main thread, from a callback in which
+	///   the game may create and spawn entities.
+	/// - The game code the call runs, such as the item's constructor, `Spawn`,
+	///   and `Activate` and everything they reach, frees entities only through
+	///   the engine's deferred deletion.
+	/// - `classname`, if given, names an entity class compatible with
+	///   `definition`, since `SpawnItem` initializes the item of whatever entity
+	///   it creates from `definition` without checking.
+	#[doc(alias = "SpawnItem")]
+	#[doc(alias = "GenerateItemFromDefIndex")]
+	pub unsafe fn spawn(
+		&self,
+		definition: u16,
+		origin: sys::Vector,
+		classname: Option<&CStr>,
+	) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
+		// SAFETY: The caller keeps the resolved module loaded and calls on the
+		// main thread. The getter takes no arguments, and returns the game's
+		// item system or schema, or null before the game created it.
+		let system = unsafe { (self.schema_getter)() };
 
-	// SAFETY: Native generation initializes the embedded CEconItemView and
-	// invokes Spawn/Activate. The caller guarantees those callbacks free
-	// entities only through deferred deletion. Level one / unique quality
-	// match the native GenerateItemFromDefIndex wrapper. Inputs live through
-	// this call.
-	let entity = unsafe {
-		generate(
-			targets.singleton as *mut c_void,
-			i32::from(definition),
-			&origin,
-			&angles,
-			1,
-			6,
-			classname.map_or(std::ptr::null(), CStr::as_ptr),
-		)
-	};
+		if system.is_null() {
+			return Err(ItemGenerationError::NoSchema);
+		}
 
-	NonNull::new(entity).ok_or(WeaponCreationFailed(()))
+		// SAFETY: The schema lies `SCHEMA_OFFSET` bytes into the object the
+		// getter returns, which on Windows is the item system holding it, as
+		// `SpawnItem`'s own call to `GetItemDefinition` passes it.
+		let schema = unsafe { system.byte_add(platform::SCHEMA_OFFSET) }.cast();
+
+		// SAFETY: `schema` points to the game's live item schema.
+		// `GetItemDefinition` only looks the index up, returning the default
+		// definition for an index it does not have.
+		let (fallback, item) = unsafe {
+			(
+				(self.get_item_definition)(schema, NO_DEFINITION),
+				(self.get_item_definition)(schema, c_int::from(definition)),
+			)
+		};
+
+		// An unknown index gives the default item, which could otherwise create
+		// an unrelated entity.
+		if item.is_null() || item == fallback {
+			return Err(ItemGenerationError::UnknownDefinition);
+		}
+
+		let angles = sys::QAngle {
+			x: 0.0,
+			y: 0.0,
+			z: 0.0,
+		};
+
+		// SAFETY: The singleton is the game's live `CItemGeneration`. Native
+		// generation creates the entity, initializes its item view, and runs its
+		// `Spawn` and `Activate`, whose game code the caller vouches for, as for
+		// the classname. The definition exists, and the arguments live through
+		// this call.
+		let entity = unsafe {
+			(self.spawn_item)(
+				self.singleton.as_ptr(),
+				c_int::from(definition),
+				&origin,
+				&angles,
+				ITEM_LEVEL,
+				ITEM_QUALITY,
+				classname.map_or(ptr::null(), CStr::as_ptr),
+			)
+		};
+
+		NonNull::new(entity).ok_or(ItemGenerationError::NotCreated)
+	}
+}
+
+/// Why TF2's item generation could not create an item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum ItemGenerationError {
+	/// `CItemGeneration::SpawnItem` created no entity, such as for a
+	/// definition without an entity class.
+	#[error("the game's item generation created no entity")]
+	NotCreated,
+
+	/// The game has no item schema yet.
+	#[error("the game's item schema is not available")]
+	NoSchema,
+
+	/// The item schema has no definition with the index.
+	#[error("the item schema has no such item definition")]
+	UnknownDefinition,
+
+	/// The game server module's item generation functions were not found, or
+	/// did not match retail TF2's, as the
+	/// [module documentation](crate::tf2::item_generation) describes.
+	#[error("the game's item generation functions could not be found")]
+	Unresolved,
 }
