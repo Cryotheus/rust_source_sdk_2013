@@ -1,6 +1,7 @@
 //! Run-time type information that C++ compilers emit for polymorphic
-//! classes: discovery of primary vtables in owned image snapshots, and checks
-//! of a live object's class.
+//! classes: discovery of primary vtables in owned image snapshots, checks of
+//! a live object's class, and the records that describe classes Rust
+//! implements for the engine.
 //!
 //! The live readers check a polymorphic object's class before code relies on
 //! a layout of the engine's that no public header declares.
@@ -24,10 +25,101 @@ const _: () = {
 	assert!(offset_of!(CompleteObjectLocator, this) == 20);
 };
 
+#[cfg(target_os = "windows")]
+const _: () = {
+	use std::mem::offset_of;
+
+	assert!(size_of::<BaseClassDescriptor>() == 28);
+	assert!(size_of::<ClassHierarchyDescriptor>() == 16);
+	assert!(offset_of!(TypeDescriptor<1>, name) == TYPE_DESCRIPTOR_NAME_OFFSET);
+};
+
 /// Where an MSVC `_TypeDescriptor`'s decorated name starts: after its vtable
 /// pointer and the undecorated name the runtime caches.
 #[cfg(any(target_os = "windows", test))]
 const TYPE_DESCRIPTOR_NAME_OFFSET: usize = 2 * size_of::<*const c_void>();
+
+/// MSVC's `_RTTIBaseClassDescriptor` for 64-bit images, which describes one
+/// class of a hierarchy, the class itself included. Its references are
+/// relative to the image's base.
+#[doc(alias = "_RTTIBaseClassDescriptor")]
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct BaseClassDescriptor {
+	/// The image offset of the class's [`TypeDescriptor`].
+	pub type_descriptor: u32,
+
+	/// How many bases the class has in turn.
+	pub contained_bases: u32,
+
+	/// `PMD::mdisp`, the class's offset in the object the hierarchy describes.
+	pub member_displacement: i32,
+
+	/// `PMD::pdisp`, -1 for a class that is not a virtual base.
+	pub vbtable_displacement: i32,
+
+	/// `PMD::vdisp`, the offset into the virtual base table.
+	pub vbtable_offset: i32,
+
+	/// `BCD_*` flags, such as [`Self::HAS_HIERARCHY`].
+	pub attributes: u32,
+
+	/// The image offset of the class's own [`ClassHierarchyDescriptor`], if
+	/// [`Self::HAS_HIERARCHY`] is set.
+	pub class_descriptor: u32,
+}
+
+#[cfg(target_os = "windows")]
+impl BaseClassDescriptor {
+	/// `BCD_HASPCHD`: [`class_descriptor`](Self::class_descriptor) refers to
+	/// the class's hierarchy.
+	#[doc(alias = "BCD_HASPCHD")]
+	pub const HAS_HIERARCHY: u32 = 0x40;
+}
+
+/// MSVC's `_RTTIClassHierarchyDescriptor` for 64-bit images, which lists a
+/// class and its bases. Its references are relative to the image's base.
+#[doc(alias = "_RTTIClassHierarchyDescriptor")]
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct ClassHierarchyDescriptor {
+	/// Always 0.
+	pub signature: u32,
+
+	/// `CHD_MULTINH` (1) for multiple inheritance and `CHD_VIRTINH` (2) for
+	/// virtual inheritance.
+	pub attributes: u32,
+
+	/// The number of entries in the base class array: the class itself, then
+	/// its bases.
+	pub base_classes: u32,
+
+	/// The image offset of the base class array, whose entries are the image
+	/// offsets of [`BaseClassDescriptor`]s.
+	pub base_class_array: u32,
+}
+
+/// The Itanium ABI's `std::type_info` for a class without bases,
+/// `__cxxabiv1::__class_type_info`: its vtable and mangled name.
+#[doc(alias = "__class_type_info")]
+#[cfg(not(target_os = "windows"))]
+#[derive(Debug)]
+#[repr(C)]
+pub struct ClassTypeInfo {
+	/// The address point of the C++ runtime's vtable for the class's type
+	/// information, such as [`class_type_info_vtable`].
+	pub vtable: *const *const c_void,
+
+	/// The mangled name: the class name's length, then the name.
+	pub name: *const c_char,
+}
+
+// SAFETY: A `ClassTypeInfo` only holds addresses, and gives no access to what
+// they point to.
+#[cfg(not(target_os = "windows"))]
+unsafe impl Sync for ClassTypeInfo {}
 
 /// MSVC's `_RTTICompleteObjectLocator` for 64-bit images, whose references
 /// are relative to the image's base.
@@ -79,6 +171,24 @@ impl CompleteObjectLocator {
 			this: u32_at(bytes, offset_of!(Self, this))?,
 		})
 	}
+}
+
+/// MSVC's `_TypeDescriptor`, laid out as its `std::type_info`: its vtable,
+/// the undecorated name the runtime caches when asked for it, and the
+/// decorated name, `N` bytes with its terminator, which casts compare.
+#[doc(alias = "_TypeDescriptor")]
+#[cfg(target_os = "windows")]
+#[derive(Debug)]
+#[repr(C)]
+pub struct TypeDescriptor<const N: usize> {
+	/// The `std::type_info` vtable, which casts do not read.
+	pub vtable: *const c_void,
+
+	/// The undecorated name the runtime caches, null until it is asked for.
+	pub undecorated_name: *mut c_void,
+
+	/// The decorated name, such as `.?AVName@@`, with its terminator.
+	pub name: [u8; N],
 }
 
 impl Image {
@@ -227,6 +337,28 @@ impl Image {
 		// the original table. Do not require its function to be inside the image.
 		self.executable(function) || is_executable(function)
 	}
+}
+
+#[cfg(not(target_os = "windows"))]
+#[link(name = "stdc++")]
+unsafe extern "C" {
+	/// libstdc++'s vtable of `__cxxabiv1::__class_type_info`, the type
+	/// information of a class without bases, whose `__do_dyncast` a cast
+	/// calls.
+	#[link_name = "_ZTVN10__cxxabiv117__class_type_infoE"]
+	static CLASS_TYPE_INFO_VTABLE: [*const c_void; 0];
+}
+
+/// The address point of libstdc++'s vtable for `__cxxabiv1::__class_type_info`,
+/// for the [`ClassTypeInfo`] of a class without bases. This crate links
+/// libstdc++ on Linux for it.
+#[cfg(not(target_os = "windows"))]
+pub const fn class_type_info_vtable() -> *const *const c_void {
+	// An object's vtable pointer skips the offset to the top and the type
+	// information before the first slot.
+	(&raw const CLASS_TYPE_INFO_VTABLE)
+		.cast::<*const c_void>()
+		.wrapping_add(2)
 }
 
 /// The offset of the subobject `object` points to in its complete object,

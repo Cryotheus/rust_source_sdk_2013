@@ -1,18 +1,16 @@
 //! Commands against mocks that behave like the engine's registry (`CCvar`)
 //! and dispatch.
 
-use super::args::CommandLine;
-use super::variable::test_support::interface_of;
-use super::variable::{parse_float, parse_int};
 use super::*;
 use crate::edicts::test_support::mock_edict;
 use crate::interfaces::{Cvar, ValveEngine};
 use crate::server::Module;
 use crate::server::test_support::{export, mock_binding, mock_server};
+use sdk_raw::commands::ConVarObject;
 use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use sdk_raw::vcall;
 use std::cell::{Cell, RefCell};
-use std::ffi::{c_char, c_void};
+use std::ffi::c_char;
 use std::pin::Pin;
 use std::ptr::{self, NonNull, null_mut};
 
@@ -276,49 +274,6 @@ unsafe extern "C" fn console_printf(
 	let message = unsafe { printed(format, arguments.next_arg::<*const c_char>()) };
 
 	DISPLAY_FUNCS.with_borrow_mut(|display| display.push(message));
-}
-
-#[test]
-fn destructors_and_completion_leave_the_command_intact() {
-	mock_engine();
-
-	let command = leak(ConsoleCommand::new(c"sb_ping", record));
-
-	register(command).unwrap();
-
-	let vtable = engine_vtable(command.get_ref());
-	let this = base_of(command.get_ref()).cast::<sys::ConCommand>();
-
-	unsafe {
-		#[cfg(windows)]
-		{
-			(vtable.ConCommand_destructor)(this, 0);
-			(vtable.ConCommand_destructor)(this, 1);
-		}
-
-		#[cfg(target_os = "linux")]
-		{
-			(vtable.ConCommand_complete_destructor)(this);
-			(vtable.ConCommand_deleting_destructor)(this);
-		}
-
-		(vtable.ConCommand_CreateBase)(
-			this,
-			c"other".as_ptr(),
-			c"".as_ptr(),
-			CommandFlags::GAME_DLL.bits(),
-		);
-		(vtable.ConCommand_Init)(this);
-		assert_eq!(
-			(vtable.ConCommand_AutoCompleteSuggest)(this, c"sb".as_ptr(), null_mut()),
-			0
-		);
-		assert!(!(vtable.ConCommand_CanAutoComplete)(this));
-	}
-
-	engine_dispatch(command.get_ref(), &*tokenized("sb_ping"));
-	assert_eq!(seen().len(), 1);
-	assert_eq!(listed(), ["sb_ping"]);
 }
 
 /// Runs a command as the engine does for server-side invokers.
@@ -738,7 +693,7 @@ fn tokenized(line: &str) -> Box<sys::CCommand> {
 	let args = line.split(' ').collect::<Vec<_>>();
 	let args_start = if args.len() > 1 { args[0].len() + 1 } else { 0 };
 
-	CommandLine::tokenized(line, &args, args_start)
+	sdk_raw::commands::tokenized(line, &args, args_start)
 }
 
 #[test]
@@ -793,171 +748,6 @@ thread_local! {
 
 static SELF_REMOVING: ConsoleCommand<CommandFn> =
 	ConsoleCommand::new(c"sb_once", remove_self as CommandFn).access(CommandAccess::Everyone);
-
-/// As the Windows version, for libstdc++.
-#[cfg(target_os = "linux")]
-#[test]
-fn casts_to_the_engines_classes_fail() {
-	use super::variable::test_support::{class_type_info_vtable, type_info};
-
-	#[repr(C)]
-	struct TypeInfo {
-		vtable: *const *const c_void,
-		name: *const c_char,
-	}
-
-	unsafe extern "C" {
-		/// libstdc++'s runtime for `dynamic_cast` to a pointer.
-		fn __dynamic_cast(
-			object: *const c_void,
-			source: *const c_void,
-			target: *const c_void,
-			source_to_target: isize,
-		) -> *mut c_void;
-	}
-
-	let class = |name: &'static CStr| TypeInfo {
-		vtable: class_type_info_vtable(),
-		name: name.as_ptr(),
-	};
-	let convar = class(c"6ConVar");
-	let iconvar = class(c"7IConVar");
-	let bounded = class(c"20ConVar_ServerBounded");
-
-	mock_engine();
-
-	let variable = leak_variable(ConsoleVariable::new(c"sb_cast", c"0"));
-
-	register_variable(variable).unwrap();
-
-	let object = variable_base(variable.get_ref()).cast::<c_void>();
-	let interface = interface_of(variable.get_ref()).cast::<c_void>();
-	let cast = |from, source: *const c_void, target: *const c_void, hint| unsafe {
-		__dynamic_cast(from, source, target, hint)
-	};
-
-	// As `ConVar_PrintDescription`'s cast, whose target derives from `ConVar`
-	// at offset 0.
-	assert!(
-		cast(
-			object,
-			(&raw const convar).cast(),
-			(&raw const bounded).cast(),
-			0
-		)
-		.is_null()
-	);
-	assert!(
-		cast(
-			interface,
-			(&raw const iconvar).cast(),
-			(&raw const bounded).cast(),
-			-1
-		)
-		.is_null()
-	);
-
-	// Every cast fails, since the class claims no bases, but the type
-	// information describes the whole variable from either table.
-	assert!(cast(object, (&raw const convar).cast(), type_info(), 0).is_null());
-	assert_eq!(
-		unsafe { sdk_raw::util::rtti::subobject_offset(object, "RustConsoleVariable") },
-		Some(0)
-	);
-	assert_eq!(
-		unsafe { sdk_raw::util::rtti::subobject_offset(interface, "RustConsoleVariable") },
-		Some(48)
-	);
-}
-
-/// The engine `dynamic_cast`s every variable it describes, as `help` does, to
-/// a class of its own, which must fail rather than crash.
-#[cfg(target_os = "windows")]
-#[test]
-fn casts_to_the_engines_classes_fail() {
-	#[repr(C)]
-	struct TypeDescriptor<const N: usize> {
-		vtable: *const c_void,
-		undecorated_name: *mut c_void,
-		name: [u8; N],
-	}
-
-	unsafe extern "C" {
-		/// MSVC's runtime for `dynamic_cast` to a pointer.
-		fn __RTDynamicCast(
-			object: *mut c_void,
-			vfptr_offset: c_int,
-			source: *const c_void,
-			target: *const c_void,
-			is_reference: c_int,
-		) -> *mut c_void;
-
-		/// MSVC's runtime for `typeid`, returning the complete object's
-		/// `std::type_info`.
-		fn __RTtypeid(object: *mut c_void) -> *mut c_void;
-	}
-
-	fn descriptor<const N: usize>(name: [u8; N]) -> TypeDescriptor<N> {
-		TypeDescriptor {
-			vtable: ptr::null(),
-			undecorated_name: null_mut(),
-			name,
-		}
-	}
-
-	let convar = descriptor(*b".?AVConVar@@\0");
-	let iconvar = descriptor(*b".?AVIConVar@@\0");
-	let bounded = descriptor(*b".?AVConVar_ServerBounded@@\0");
-	let own = descriptor(*b".?AVRustConsoleVariable@@\0");
-
-	mock_engine();
-
-	let variable = leak_variable(ConsoleVariable::new(c"sb_cast", c"0"));
-
-	register_variable(variable).unwrap();
-
-	let object = variable_base(variable.get_ref()).cast::<c_void>();
-	let interface = interface_of(variable.get_ref()).cast::<c_void>();
-	let cast = |from, source: *const c_void, target: *const c_void| unsafe {
-		__RTDynamicCast(from, 0, source, target, 0)
-	};
-
-	assert!(
-		cast(
-			object,
-			(&raw const convar).cast(),
-			(&raw const bounded).cast()
-		)
-		.is_null()
-	);
-	assert!(
-		cast(
-			interface,
-			(&raw const iconvar).cast(),
-			(&raw const bounded).cast()
-		)
-		.is_null()
-	);
-
-	// Every cast fails, since the class claims no bases, but the type
-	// information describes the whole variable from either table.
-	assert!(cast(object, (&raw const convar).cast(), (&raw const own).cast()).is_null());
-
-	for from in [object, interface] {
-		let name = unsafe { CStr::from_ptr(__RTtypeid(from).cast::<c_char>().add(16)) };
-
-		assert_eq!(name, c".?AVRustConsoleVariable@@");
-	}
-
-	assert_eq!(
-		unsafe { sdk_raw::util::rtti::subobject_offset(object, "RustConsoleVariable") },
-		Some(0)
-	);
-	assert_eq!(
-		unsafe { sdk_raw::util::rtti::subobject_offset(interface, "RustConsoleVariable") },
-		Some(48)
-	);
-}
 
 #[test]
 fn change_callbacks_get_the_interface_and_the_old_value() {
@@ -1094,6 +884,11 @@ fn handlers_with_state_dispatch_through_the_whole_command() {
 
 	assert_eq!(route, ClientRoute::Handled);
 	assert_eq!(client_prints(), [(1, "hello\n".to_owned())]);
+}
+
+/// Where the engine sees a variable's `IConVar`.
+fn interface_of(variable: &ConsoleVariable) -> *mut sys::IConVar {
+	unsafe { ConVarObject::interface(NonNull::from(variable).cast()) }.as_ptr()
 }
 
 #[test]
@@ -1385,114 +1180,8 @@ fn the_engine_sets_variables_through_their_interface() {
 	assert_eq!(changes(), [change("1.000000", 1.0, "10")]);
 }
 
-/// The Itanium ABI also calls `SetValue` through the primary vtable, for
-/// callers holding a `ConVar *`.
-#[cfg(target_os = "linux")]
-#[test]
-fn the_primary_vtable_sets_values_without_adjusting_this() {
-	mock_engine();
-
-	let variable = leak_variable(ConsoleVariable::new(c"sb_primary", c"1"));
-	let scope = ();
-	let server = mock_server(&scope);
-
-	register_variable(variable).unwrap();
-
-	let raw = variable_base(variable.get_ref()).cast::<sys::ConVar>();
-	let slot = |index: usize| unsafe {
-		(&raw const (*raw)._base.vtable_)
-			.read()
-			.cast::<*const c_void>()
-			.add(index)
-			.read()
-	};
-
-	unsafe {
-		let set_string: unsafe extern "C" fn(*mut sys::ConVar, *const c_char) =
-			std::mem::transmute(slot(11));
-		let set_float: unsafe extern "C" fn(*mut sys::ConVar, f32) = std::mem::transmute(slot(12));
-		let set_int: unsafe extern "C" fn(*mut sys::ConVar, c_int) = std::mem::transmute(slot(13));
-
-		set_string(raw, c"4".as_ptr());
-		assert_eq!(variable.int(server), 4);
-		set_float(raw, 2.5);
-		assert_eq!(variable.string(server).as_c_str(), c"2.500000");
-		set_int(raw, 9);
-		assert_eq!(variable.string(server).as_c_str(), c"9");
-	}
-
-	assert_eq!(changes().len(), 3);
-}
-
-#[test]
-fn the_vtable_fills_its_page() {
-	mock_engine();
-
-	let command = leak(ConsoleCommand::new(c"sb_ping", record));
-
-	register(command).unwrap();
-	assert_eq!(
-		ptr::from_ref(engine_vtable(command.get_ref())).addr() % 4096,
-		0
-	);
-}
-
-#[test]
-fn values_parse_as_c_does() {
-	assert_eq!(parse_float(b"3.0"), 3.0);
-	assert_eq!(parse_float(b" \t-1.5e1x"), -15.0);
-	assert_eq!(parse_float(b"+2E-1"), 0.2);
-	assert_eq!(parse_float(b".5"), 0.5);
-	assert_eq!(parse_float(b"5."), 5.0);
-	assert_eq!(parse_float(b"1e"), 1.0);
-	assert_eq!(parse_float(b"1e+"), 1.0);
-	assert_eq!(parse_float(b"e5"), 0.0);
-	assert_eq!(parse_float(b"."), 0.0);
-	assert_eq!(parse_float(b""), 0.0);
-	assert_eq!(parse_float(b"1e999"), f64::INFINITY);
-	assert_eq!(parse_float(b"0.01e-99999999999999999999"), 0.0);
-	assert_eq!(
-		parse_float(b"100000000000000000000e99999999999999999999"),
-		f64::INFINITY
-	);
-	assert_eq!(parse_float(b"0e309"), 0.0);
-	assert!(parse_float(b"-0e400").is_sign_negative());
-	assert_eq!(
-		parse_float(b"123456789012345678901234") as f32,
-		1.234_567_9e23
-	);
-
-	assert_eq!(parse_int(b" 42 bots"), 42);
-	assert_eq!(parse_int(b"-7"), -7);
-	assert_eq!(parse_int(b"3.9"), 3);
-	assert_eq!(parse_int(b"x"), 0);
-	assert_eq!(parse_int(b"99999999999"), c_int::MAX);
-	assert_eq!(parse_int(b"-99999999999"), c_int::MIN);
-}
-
 fn variable_base(variable: &ConsoleVariable) -> *mut sys::ConCommandBase {
 	ptr::from_ref(variable).cast_mut().cast()
-}
-
-#[test]
-fn variable_vtables_share_their_page() {
-	mock_engine();
-
-	let variable = leak_variable(ConsoleVariable::new(c"sb_page", c"0"));
-
-	register_variable(variable).unwrap();
-
-	let base = variable_base(variable.get_ref());
-	let primary = unsafe { (&raw const (*base).vtable_).read() }.addr();
-	let secondary =
-		unsafe { (&raw const (*interface_of(variable.get_ref())).vtable_).read() }.addr();
-
-	// Both tables, and the type information before each, fill one page.
-	assert_eq!(primary / 4096, secondary / 4096);
-	assert_eq!(
-		primary % 4096,
-		if cfg!(windows) { 1 } else { 2 } * size_of::<usize>()
-	);
 }
 
 #[test]

@@ -1,27 +1,9 @@
 //! Registration errors and command name validation.
 
 use crate::server::InterfaceError;
+use sdk_raw::commands::ENGINE_CLIENT_COMMANDS;
 use std::ffi::CStr;
 use std::fmt::{self, Display, Formatter};
-
-/// Names the engine runs for clients itself, through `Dispatch` as though the
-/// server had run them, before the game or any hook sees them: the list
-/// `CGameClient::ExecuteStringCommand` checks in TF2's 64-bit engine. The
-/// `rpt` names are not registered, so the registry cannot report them taken.
-const ENGINE_CLIENT_COMMANDS: [&[u8]; 12] = [
-	b"status",
-	b"pause",
-	b"setpause",
-	b"unpause",
-	b"ping",
-	b"rpt",
-	b"rpt_server_enable",
-	b"rpt_client_enable",
-	b"rpt_connect",
-	b"rpt_password",
-	b"rpt_screenshot",
-	b"rpt_download_log",
-];
 
 /// The longest command name [`validate_name`] accepts, in bytes.
 const MAX_NAME_LENGTH: usize = 63;

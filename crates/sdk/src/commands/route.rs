@@ -1,11 +1,12 @@
 //! Running commands for the engine and for clients.
 
-use super::args::{CommandArgs, CommandLine};
+use super::args::CommandArgs;
 use super::object::{CommandHeader, RegisteredCommand};
 use super::{Client, CommandContext, CommandError, CommandFlags, Invoker, line_from};
 use crate::edicts::Edict;
 use crate::interfaces::Cvar;
 use crate::server::{Server, ServerBinding};
+use sdk_raw::commands::CommandLine;
 use sdk_raw::players::ABSOLUTE_PLAYER_LIMIT;
 use std::any::Any;
 use std::mem;
@@ -43,15 +44,14 @@ fn cheats_allowed(cvar: Cvar<'_>) -> bool {
 ///
 /// # Safety
 ///
-/// `command` must be null or the live command the engine is running, and this
-/// must run inside the engine's call on the main thread.
+/// `command` must be the live command the engine is running, and this must
+/// run inside the engine's call on the main thread.
 pub(super) unsafe fn dispatch_from_engine(
 	header: RegisteredCommand,
-	command: *const sys::CCommand,
+	command: NonNull<sys::CCommand>,
 ) {
 	let outcome = catch_unwind(AssertUnwindSafe(|| {
-		let (Some(binding), Some(command)) = (header.binding(), NonNull::new(command.cast_mut()))
-		else {
+		let Some(binding) = header.binding() else {
 			return;
 		};
 
@@ -165,7 +165,7 @@ unsafe fn route(
 	);
 
 	// The engine checks this itself only for commands it dispatches directly.
-	if header.current_flags() & CommandFlags::CHEAT.bits() != 0 && !cheats_allowed(cvar) {
+	if header.current_flags().contains(CommandFlags::CHEAT) && !cheats_allowed(cvar) {
 		let _ = context.reply(format_args!(
 			"Can't use cheat command {} in multiplayer, unless the server has sv_cheats set to 1.",
 			header.name().to_string_lossy(),

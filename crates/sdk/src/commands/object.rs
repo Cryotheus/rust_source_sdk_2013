@@ -7,86 +7,38 @@ use super::error::{
 
 use super::registrar::{CommandRegistrar, UnlinksBeforeUnload};
 use super::{CommandAccess, CommandContext, CommandFlags, CommandHandler, CommandResult, route};
-use crate::NotThreadSafe;
 use crate::server::{Server, ServerBinding};
-use sdk_raw::abi::{CppDestructors, VtablePage};
+use sdk_raw::commands::{ConCommandHooks, ConCommandObject, is_registered};
 use sdk_raw::vcall;
-use std::cell::{Cell, UnsafeCell};
-use std::ffi::{CStr, c_char, c_int, c_void};
-use std::marker::{PhantomData, PhantomPinned};
-use std::mem::{MaybeUninit, offset_of, size_of};
+use std::cell::Cell;
+use std::ffi::CStr;
+use std::mem::offset_of;
 use std::pin::Pin;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 
 /// Runs the handler of the command a type-erased header starts: a
 /// [`dispatch_erased`] for the command's handler type.
 type DispatchFn = unsafe fn(NonNull<CommandHeader>, &CommandContext<'_>) -> CommandResult;
 
 const _: () = {
-	assert!(offset_of!(CommandHeader, raw) == 0);
+	assert!(offset_of!(CommandHeader, object) == 0);
 	assert!(offset_of!(ConsoleCommand<()>, header) == 0);
-	assert!(offset_of!(sys::ConCommand, _base) == 0);
 };
 
-// Every slot must line up with the engine's declaration under each ABI.
-const _: () = {
-	use sys::ConCommand__bindgen_vtable as Engine;
-
-	assert!(size_of::<ConCommandVtable>() == size_of::<Engine>());
-	assert!(offset_of!(ConCommandVtable, is_command) == offset_of!(Engine, ConCommand_IsCommand));
-	assert!(offset_of!(ConCommandVtable, is_flag_set) == offset_of!(Engine, ConCommand_IsFlagSet));
-	assert!(offset_of!(ConCommandVtable, add_flags) == offset_of!(Engine, ConCommand_AddFlags));
-	assert!(offset_of!(ConCommandVtable, get_name) == offset_of!(Engine, ConCommand_GetName));
-	assert!(
-		offset_of!(ConCommandVtable, get_help_text) == offset_of!(Engine, ConCommand_GetHelpText)
-	);
-	assert!(
-		offset_of!(ConCommandVtable, is_registered) == offset_of!(Engine, ConCommand_IsRegistered)
-	);
-	assert!(
-		offset_of!(ConCommandVtable, get_dll_identifier)
-			== offset_of!(Engine, ConCommand_GetDLLIdentifier)
-	);
-	assert!(offset_of!(ConCommandVtable, create_base) == offset_of!(Engine, ConCommand_CreateBase));
-	assert!(offset_of!(ConCommandVtable, init) == offset_of!(Engine, ConCommand_Init));
-	assert!(
-		offset_of!(ConCommandVtable, auto_complete_suggest)
-			== offset_of!(Engine, ConCommand_AutoCompleteSuggest)
-	);
-	assert!(
-		offset_of!(ConCommandVtable, can_auto_complete)
-			== offset_of!(Engine, ConCommand_CanAutoComplete)
-	);
-	assert!(offset_of!(ConCommandVtable, dispatch) == offset_of!(Engine, ConCommand_Dispatch));
+/// What the engine's calls to every [`ConsoleCommand`] run. Only
+/// [`ConsoleCommand::new`] creates objects with these hooks, so their address
+/// tells this crate's commands apart.
+static HOOKS: ConCommandHooks = ConCommandHooks {
+	dispatch: engine_dispatch,
 };
-
-/// The vtable every [`ConsoleCommand`] points at, alone on its page, since
-/// other plugins hook a command by overwriting entries of its vtable in place.
-/// Rust never reads the table; the engine only gets its address.
-static VTABLE: VtablePage<ConCommandVtable> = VtablePage::new(ConCommandVtable {
-	destructors: CppDestructors::new_noop(),
-	is_command,
-	is_flag_set,
-	add_flags,
-	get_name,
-	get_help_text,
-	is_registered,
-	get_dll_identifier,
-	create_base,
-	init,
-	auto_complete_suggest,
-	can_auto_complete,
-	dispatch,
-});
 
 /// The type-erased start of every [`ConsoleCommand`]. `ConCommand *`,
 /// `CommandHeader *`, and `ConsoleCommand<H> *` share an address.
 #[repr(C)]
 pub(super) struct CommandHeader {
-	/// The engine-visible `ConCommand`. C++ writes its list link, registered
-	/// flag, and flags at any time, including while Rust holds a reference to
-	/// the command, so Rust never forms a reference into it.
-	raw: UnsafeCell<sys::ConCommand>,
+	/// The engine-visible `ConCommand`, created with [`HOOKS`]. It makes the
+	/// command neither `Send`, `Sync`, nor `Unpin`.
+	object: ConCommandObject,
 
 	/// Runs the handler of the `ConsoleCommand<H>` this header starts.
 	dispatch: DispatchFn,
@@ -99,16 +51,10 @@ pub(super) struct CommandHeader {
 	/// The server the command was last registered with, for calls from the
 	/// engine.
 	binding: Cell<Option<ServerBinding>>,
-
-	/// Returned from `GetDLLIdentifier`; allocated at registration.
-	dll_identifier: Cell<sys::CVarDLLIdentifier_t>,
-
-	_pinned: PhantomPinned,
-	_not_thread_safe: NotThreadSafe,
 }
 
 impl CommandHeader {
-	/// Recognizes a command this copy of the crate registered, by its vtable.
+	/// Recognizes a command this copy of the crate registered.
 	///
 	/// # Safety
 	///
@@ -118,21 +64,13 @@ impl CommandHeader {
 		base: NonNull<sys::ConCommandBase>,
 	) -> Option<RegisteredCommand> {
 		// SAFETY: The caller guarantees the object is live.
-		let vtable_pointer = unsafe { (&raw const (*base.as_ptr()).vtable_).read() };
+		let object = unsafe { ConCommandObject::from_registered(base, &HOOKS) }?;
 
-		// Only `prepare` stores this vtable, for a command `register` took
+		// Only `ConsoleCommand::new` creates objects with `HOOKS`, each the start
+		// of a header, and only `register` prepares one, taking the command
 		// pinned and `'static`. The pointer came from the engine, which was
 		// given one to the whole command.
-		(vtable_pointer.cast::<c_void>() == vtable().cast()).then(|| RegisteredCommand(base.cast()))
-	}
-
-	/// # Safety
-	///
-	/// `this` must be a pointer the engine passes to a slot of [`VTABLE`].
-	unsafe fn from_this(this: *const sys::ConCommand) -> RegisteredCommand {
-		// SAFETY: Only prepared commands use the vtable, and the engine passes
-		// back the pointer it was given, to the whole command.
-		RegisteredCommand(unsafe { NonNull::new_unchecked(this.cast_mut().cast()) })
+		Some(RegisteredCommand(object.cast()))
 	}
 
 	pub(super) const fn access(&self) -> CommandAccess {
@@ -144,9 +82,8 @@ impl CommandHeader {
 	}
 
 	/// The flags the engine currently sees, which other plugins may change.
-	pub(super) fn current_flags(&self) -> c_int {
-		// SAFETY: Fields are read through the cell without forming references.
-		unsafe { (&raw const (*self.raw.get())._base.m_nFlags).read() }
+	pub(super) fn current_flags(&self) -> CommandFlags {
+		CommandFlags::from_bits_retain(self.object.flags())
 	}
 
 	pub(super) const fn name(&self) -> &'static CStr {
@@ -154,56 +91,21 @@ impl CommandHeader {
 	}
 
 	/// Fills in the engine-visible fields before linking.
-	fn prepare(&self, binding: ServerBinding, dll_identifier: sys::CVarDLLIdentifier_t) {
-		let base = self.raw.get().cast::<sys::ConCommandBase>();
-
-		// The engine also reads the field directly, not only through
-		// `is_flag_set`.
-		let flags = self.flags.bits() & !CommandFlags::GAME_DLL.bits();
-
-		// SAFETY: The command is not registered, so nothing else accesses these
-		// fields, and they are written through the cell without forming
-		// references. The callbacks and completion fields stay zero; only
-		// tier1's own `ConCommand::Dispatch` reads them.
+	///
+	/// # Safety
+	///
+	/// The command must be pinned, `'static`, and not registered.
+	unsafe fn prepare(&self, binding: ServerBinding, dll_identifier: sys::CVarDLLIdentifier_t) {
+		// SAFETY: The caller guarantees the command is not registered and stays
+		// where it is, and it is only linked through a registrar, on the main
+		// thread, and unlinked before its code is unloaded.
 		unsafe {
-			(&raw mut (*base).vtable_).write(vtable().cast());
-			(&raw mut (*base).m_pNext).write(ptr::null_mut());
-			(&raw mut (*base).m_pszName).write(self.name.as_ptr());
-			(&raw mut (*base).m_pszHelpString).write(self.help.as_ptr());
-			(&raw mut (*base).m_nFlags).write(flags);
-		}
+			self.object
+				.prepare(self.name, self.help, self.flags.bits(), dll_identifier)
+		};
 
 		self.binding.set(Some(binding));
-		self.dll_identifier.set(dll_identifier);
 	}
-}
-
-/// The `ConCommand` vtable, in the order of `public/tier1/convar.h`.
-#[repr(C)]
-struct ConCommandVtable {
-	destructors: CppDestructors,
-	is_command: unsafe extern "C" fn(this: *const sys::ConCommand) -> bool,
-	is_flag_set: unsafe extern "C" fn(this: *const sys::ConCommand, flag: c_int) -> bool,
-	add_flags: unsafe extern "C" fn(this: *mut sys::ConCommand, flags: c_int),
-	get_name: unsafe extern "C" fn(this: *const sys::ConCommand) -> *const c_char,
-	get_help_text: unsafe extern "C" fn(this: *const sys::ConCommand) -> *const c_char,
-	is_registered: unsafe extern "C" fn(this: *const sys::ConCommand) -> bool,
-	get_dll_identifier:
-		unsafe extern "C" fn(this: *const sys::ConCommand) -> sys::CVarDLLIdentifier_t,
-	create_base: unsafe extern "C" fn(
-		this: *mut sys::ConCommand,
-		name: *const c_char,
-		help: *const c_char,
-		flags: c_int,
-	),
-	init: unsafe extern "C" fn(this: *mut sys::ConCommand),
-	auto_complete_suggest: unsafe extern "C" fn(
-		this: *mut sys::ConCommand,
-		partial: *const c_char,
-		commands: *mut c_void,
-	) -> c_int,
-	can_auto_complete: unsafe extern "C" fn(this: *mut sys::ConCommand) -> bool,
-	dispatch: unsafe extern "C" fn(this: *mut sys::ConCommand, command: *const sys::CCommand),
 }
 
 /// A console command implemented in Rust, laid out so the engine sees a
@@ -266,19 +168,13 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 
 		Self {
 			header: CommandHeader {
-				// SAFETY: Zero is valid for every field of `ConCommand`: null
-				// pointers, absent callbacks, `false`, and 0. The engine only sees
-				// the object once registration has filled it in.
-				raw: UnsafeCell::new(unsafe { MaybeUninit::zeroed().assume_init() }),
+				object: ConCommandObject::new(&HOOKS),
 				dispatch: dispatch_erased::<H>,
 				name,
 				help: c"",
 				access: CommandAccess::Server,
 				flags: CommandFlags::NONE,
 				binding: Cell::new(None),
-				dll_identifier: Cell::new(0),
-				_pinned: PhantomPinned,
-				_not_thread_safe: PhantomData,
 			},
 			handler,
 		}
@@ -342,6 +238,10 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 	) -> Result<(), RegisterCommandError> {
 		let header = &self.get_ref().header;
 
+		// SAFETY: `register_base` only prepares the command once it found it
+		// unregistered, and the command is pinned and `'static`.
+		let prepare = |dll_identifier| unsafe { header.prepare(binding, dll_identifier) };
+
 		// SAFETY: The command is pinned and `'static`, `prepare` fills in every
 		// field the engine reads, and the caller unregisters it in time.
 		unsafe {
@@ -351,7 +251,7 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 				CommandBaseKind::Command,
 				server,
 				registrar,
-				|dll_identifier| header.prepare(binding, dll_identifier),
+				prepare,
 			)
 		}
 	}
@@ -382,7 +282,7 @@ impl<H> ConsoleCommand<H> {
 	/// A pointer to the whole object, which the engine passes back to every
 	/// vtable slot.
 	fn as_base(&self) -> NonNull<sys::ConCommandBase> {
-		NonNull::from(self).cast()
+		ConCommandObject::as_base(NonNull::from(self).cast())
 	}
 
 	/// The handler that runs each invocation.
@@ -441,60 +341,6 @@ impl std::ops::Deref for RegisteredCommand {
 	}
 }
 
-unsafe extern "C" fn add_flags(this: *mut sys::ConCommand, flags: c_int) {
-	// SAFETY: See above.
-	unsafe {
-		let field = &raw mut (*this)._base.m_nFlags;
-
-		field.write(field.read() | (flags & !CommandFlags::GAME_DLL.bits()));
-	}
-}
-
-/// Suggestions go into a `CUtlVector` that grows through tier0's allocator,
-/// which Rust does not use, so commands offer none.
-unsafe extern "C" fn auto_complete_suggest(
-	_this: *mut sys::ConCommand,
-	_partial: *const c_char,
-	_commands: *mut c_void,
-) -> c_int {
-	0
-}
-
-/// Whether the engine has marked a command or variable registered.
-///
-/// # Safety
-///
-/// `base` must point to a live `ConCommandBase`.
-pub(super) unsafe fn base_is_registered(base: NonNull<sys::ConCommandBase>) -> bool {
-	// SAFETY: The caller guarantees the object is live. The field is read
-	// without forming a reference, since C++ writes it too.
-	unsafe { (&raw const (*base.as_ptr()).m_bRegistered).read() }
-}
-
-unsafe extern "C" fn can_auto_complete(_this: *mut sys::ConCommand) -> bool {
-	false
-}
-
-/// Only the tier1 constructors of the module owning a command call this.
-unsafe extern "C" fn create_base(
-	_this: *mut sys::ConCommand,
-	_name: *const c_char,
-	_help: *const c_char,
-	_flags: c_int,
-) {
-}
-
-/// The engine calls this for every invocation that is not a client's string
-/// command.
-unsafe extern "C" fn dispatch(this: *mut sys::ConCommand, command: *const sys::CCommand) {
-	// SAFETY: See above.
-	let registered = unsafe { CommandHeader::from_this(this) };
-
-	// SAFETY: The engine passes the command being run for this call, on the
-	// main thread.
-	unsafe { route::dispatch_from_engine(registered, command) };
-}
-
 /// Runs the handler of the `ConsoleCommand<H>` that `header` starts.
 ///
 /// # Safety
@@ -511,46 +357,23 @@ unsafe fn dispatch_erased<H: CommandHandler>(
 	command.handler.dispatch(context)
 }
 
-unsafe extern "C" fn get_dll_identifier(this: *const sys::ConCommand) -> sys::CVarDLLIdentifier_t {
-	// SAFETY: See above.
-	unsafe { CommandHeader::from_this(this) }
-		.dll_identifier
-		.get()
-}
+/// Runs a command for the engine's call to its `Dispatch`, which the engine
+/// makes for every invocation that is not a client's string command.
+///
+/// # Safety
+///
+/// As [`ConCommandHooks::dispatch`] promises: `object` is the pointer the
+/// engine was given to a command created with [`HOOKS`], and `command` is the
+/// command the engine runs, live for the call, on the main thread.
+unsafe fn engine_dispatch(object: NonNull<ConCommandObject>, command: NonNull<sys::CCommand>) {
+	// Only `ConsoleCommand::new` creates objects with `HOOKS`, each the start of
+	// a header, and the engine passes back the pointer it was given, to the
+	// whole command, which `register` took pinned and `'static`.
+	let registered = RegisteredCommand(object.cast());
 
-unsafe extern "C" fn get_help_text(this: *const sys::ConCommand) -> *const c_char {
-	// SAFETY: See above.
-	unsafe { (&raw const (*this)._base.m_pszHelpString).read() }
-}
-
-unsafe extern "C" fn get_name(this: *const sys::ConCommand) -> *const c_char {
-	// SAFETY: See above.
-	unsafe { (&raw const (*this)._base.m_pszName).read() }
-}
-
-/// Only tier1's registration of the module owning a command calls this.
-unsafe extern "C" fn init(_this: *mut sys::ConCommand) {}
-
-// The slots below are only called by the engine and other plugins, on the
-// server's main thread, with `this` pointing to a prepared command. They read
-// the C++ fields without forming references, since C++ writes them too.
-
-unsafe extern "C" fn is_command(_this: *const sys::ConCommand) -> bool {
-	true
-}
-
-/// Never reports `FCVAR_GAMEDLL`, even if another plugin writes it into the
-/// flags, so the engine never dispatches a client's invocation directly.
-unsafe extern "C" fn is_flag_set(this: *const sys::ConCommand, flag: c_int) -> bool {
-	// SAFETY: See above.
-	let flags = unsafe { (&raw const (*this)._base.m_nFlags).read() };
-
-	flags & flag & !CommandFlags::GAME_DLL.bits() != 0
-}
-
-unsafe extern "C" fn is_registered(this: *const sys::ConCommand) -> bool {
-	// SAFETY: See above.
-	unsafe { (&raw const (*this)._base.m_bRegistered).read() }
+	// SAFETY: The engine passes the command being run for this call, on the
+	// main thread.
+	unsafe { route::dispatch_from_engine(registered, command) };
 }
 
 /// Links a command or variable, after checking that it is not registered
@@ -580,7 +403,7 @@ pub(super) unsafe fn register_base(
 	// Metamod clears the list link before linking, so linking a listed
 	// command again would cut off every command after it.
 	// SAFETY: The caller guarantees the object is live.
-	if unsafe { base_is_registered(base) } {
+	if unsafe { is_registered(base) } {
 		return Err(error(RegisterCommandErrorKind::AlreadyRegistered));
 	}
 
@@ -605,7 +428,7 @@ pub(super) unsafe fn register_base(
 	unsafe { registrar.link(base) };
 
 	// SAFETY: As above.
-	if unsafe { base_is_registered(base) } && cvar.find_command_base(name) == Some(base) {
+	if unsafe { is_registered(base) } && cvar.find_command_base(name) == Some(base) {
 		return Ok(());
 	}
 
@@ -632,7 +455,7 @@ pub(super) unsafe fn unregister_base(
 	let error = |error| UnregisterCommandError::new(name, kind, error);
 
 	// SAFETY: The caller guarantees the object is live.
-	if !unsafe { base_is_registered(base) } {
+	if !unsafe { is_registered(base) } {
 		return Err(error(UnregisterCommandErrorKind::NotRegistered));
 	}
 
@@ -643,15 +466,9 @@ pub(super) unsafe fn unregister_base(
 	unsafe { registrar.unlink(base) };
 
 	// SAFETY: As above.
-	if unsafe { base_is_registered(base) } || cvar.find_command_base(name) == Some(base) {
+	if unsafe { is_registered(base) } || cvar.find_command_base(name) == Some(base) {
 		return Err(error(UnregisterCommandErrorKind::StillLinked));
 	}
 
 	Ok(())
-}
-
-/// The address of the table in [`VTABLE`], which every prepared command points
-/// at.
-fn vtable() -> *const ConCommandVtable {
-	VTABLE.get()
 }
