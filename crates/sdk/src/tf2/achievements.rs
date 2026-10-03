@@ -287,11 +287,11 @@ enum Request {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::net::cheats::test_support::{MockClient, MockEngine, query_cookie, response};
 	use crate::net::cheats::{CheatsEvent, CheatsOptions, LeaseOutcome};
 	use crate::net::incoming::Verdict;
-	use crate::server::InterfaceFactory;
-	use std::ffi::{c_char, c_int, c_void};
+	use crate::test_support::net::cheats::{MockClient, MockEngine, query_cookie, response};
+	use crate::test_support::players::user;
+	use crate::test_support::server::null_server;
 	use std::num::NonZero;
 	use std::time::Duration;
 
@@ -329,15 +329,8 @@ mod tests {
 		);
 		assert_eq!(lock.state(&cheats, user(3)), None);
 
-		unsafe extern "C" fn no_interfaces(_: *const c_char, _: *mut c_int) -> *mut c_void {
-			std::ptr::null_mut()
-		}
-
-		let factory = InterfaceFactory::new(no_interfaces);
 		let scope = ();
-
-		// SAFETY: The factories export nothing, and nothing is looked up.
-		let server = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
+		let server = null_server(Game::SourceSdk2013, &scope);
 
 		assert_eq!(
 			lock.lock(&mut cheats, server, user(3)),
@@ -568,9 +561,5 @@ mod tests {
 			Ok(LockState::Pending)
 		);
 		assert_eq!(mock.take_sent(0).len(), 1);
-	}
-
-	fn user(id: u16) -> UserId {
-		UserId::new(id).unwrap()
 	}
 }

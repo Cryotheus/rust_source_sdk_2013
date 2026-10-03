@@ -11,9 +11,6 @@ use std::ptr::NonNull;
 
 pub(crate) use raw::{BindingError, FLOAT, VOID, float, string};
 
-#[cfg(test)]
-pub(crate) use raw::{INT, STRING};
-
 /// Finds and invokes a native member on a named declaring class, as
 /// [`sdk_raw::tf2::script_binding::call`] does.
 ///

@@ -477,22 +477,23 @@ const fn check_name(name: &CStr) -> Result<(), MaterialNameError> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::InterfaceFactory;
-	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, base_entity_fields, data_map};
-	use crate::server::test_support::mock_server;
-	use sdk_raw::tf2::script_binding::{SF_MEMBER_FUNC, SV_FREE};
+	use crate::test_support::entities::{MOCK_EFLAGS_OFFSET, base_entity_fields};
+	use crate::test_support::leak;
+	use crate::test_support::server::{mock_server, null_server};
+
+	use crate::test_support::tf2::script_binding::{
+		SCRIPT_DESCRIPTION_SLOT, class_description, member_binding,
+	};
+
+	use sdk_raw::test_support::entities::data_map;
+	use sdk_raw::tf2::script_binding::{INT, STRING, SV_FREE};
 	use std::cell::Cell;
 	use std::ffi::{c_char, c_int, c_void};
-	use std::mem::{offset_of, zeroed};
+	use std::mem::offset_of;
 	use std::ptr::{NonNull, null, null_mut};
 
 	/// The function [`get_overlay`] implements.
 	const GET: isize = 1;
-
-	/// The vtable slot of `CBaseEntity::GetScriptDesc`, which [`description`]
-	/// takes.
-	const SCRIPT_DESCRIPTION: usize =
-		sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc);
 
 	/// The function [`set_overlay`] implements.
 	const SET: isize = 0;
@@ -559,7 +560,7 @@ mod tests {
 
 		// The getter matches, then the setter's signature differs, so the
 		// clear never reaches the adapter.
-		unsafe { mock.parameters.write(binding::INT) };
+		unsafe { mock.parameters.write(INT) };
 		assert_eq!(
 			overlay.clear_if(&OverlayMaterial::JARATE),
 			Err(OverlayError::UnsupportedMethod)
@@ -610,12 +611,12 @@ mod tests {
 		assert_eq!(overlay.get(), Ok(None));
 		mock.state().returns_null.set(false);
 
-		unsafe { mock.parameters.write(binding::INT) };
+		unsafe { mock.parameters.write(INT) };
 		assert_eq!(
 			overlay.set(&OverlayMaterial::JARATE),
 			Err(OverlayError::UnsupportedMethod)
 		);
-		unsafe { mock.parameters.write(binding::STRING) };
+		unsafe { mock.parameters.write(STRING) };
 
 		unsafe { (*mock.bindings.add(1)).m_desc.m_pszScriptName = c"Other".as_ptr() };
 		assert_eq!(overlay.get(), Err(OverlayError::UnsupportedMethod));
@@ -628,10 +629,6 @@ mod tests {
 
 	unsafe extern "C" fn description(entity: *mut sys::CBaseEntity) -> *mut sys::ScriptClassDesc_t {
 		unsafe { (*entity.cast::<FakeEntity>()).description }
-	}
-
-	unsafe extern "C" fn factory(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		null_mut()
 	}
 
 	/// `const char *CBasePlayer::GetScriptOverlayMaterial()`, returning the
@@ -741,41 +738,35 @@ mod tests {
 	/// A leaked TF2 player, or another entity, whose script descriptors
 	/// declare both native overlay methods on `CBasePlayer`.
 	fn mock_player(player: bool) -> Mock {
-		let parameters = Box::leak(Box::new([binding::STRING]));
-		let bindings = Box::leak(Box::new(unsafe {
-			zeroed::<[sys::ScriptFunctionBinding_t; 2]>()
-		}));
+		let parameters = Box::leak(Box::new([STRING]));
+		let bindings = Box::leak(Box::new([
+			member_binding(
+				c"SetScriptOverlayMaterial",
+				binding::VOID,
+				parameters,
+				Some(set_overlay),
+			),
+			member_binding(
+				c"GetScriptOverlayMaterial",
+				STRING,
+				&mut [],
+				Some(get_overlay),
+			),
+		]));
 
-		for (binding, (name, function, returns)) in bindings.iter_mut().zip([
-			(c"SetScriptOverlayMaterial", SET, binding::VOID),
-			(c"GetScriptOverlayMaterial", GET, binding::STRING),
-		]) {
-			binding.m_desc.m_pszScriptName = name.as_ptr();
-			binding.m_desc.m_ReturnType = returns;
-			binding.m_flags = SF_MEMBER_FUNC;
-			binding.m_pfnBinding = Some(if function == SET {
-				set_overlay
-			} else {
-				get_overlay
-			});
-			binding.m_pFunction.val_0 = function;
-		}
+		bindings[0].m_pFunction.val_0 = SET;
+		bindings[1].m_pFunction.val_0 = GET;
 
-		bindings[0].m_desc.m_Parameters = vector(parameters);
-
-		let base = Box::leak(Box::new(unsafe { zeroed::<sys::ScriptClassDesc_t>() }));
-
-		base.m_pszClassname = c"CBasePlayer".as_ptr();
-		base.m_FunctionBindings = vector(bindings);
+		let base = leak(class_description(c"CBasePlayer", bindings, null_mut()));
 
 		// Changed later only through the pointers `call` reads them by, since
 		// writing through the leaked references would invalidate those.
-		let bindings = base.m_FunctionBindings.m_Memory.m_pMemory;
+		// SAFETY: The descriptor is leaked, and nothing refers to it yet.
+		let bindings = unsafe { (*base).m_FunctionBindings.m_Memory.m_pMemory };
+		// SAFETY: The descriptor's first binding is the setter, which views the
+		// leaked parameters.
 		let parameters = unsafe { (*bindings).m_desc.m_Parameters.m_Memory.m_pMemory };
-		let derived = Box::leak(Box::new(unsafe { zeroed::<sys::ScriptClassDesc_t>() }));
-
-		derived.m_pszClassname = c"CTFPlayer".as_ptr();
-		derived.m_pBaseDesc = base;
+		let derived = leak(class_description(c"CTFPlayer", &mut [], base));
 
 		let mut chain = data_map(c"CBaseEntity", Vec::from(base_entity_fields()), null_mut());
 		let classes: &[&'static CStr] = if player {
@@ -788,10 +779,10 @@ mod tests {
 			chain = data_map(class, vec![], chain);
 		}
 
-		let vtable = Box::leak(Box::new([null::<()>(); SCRIPT_DESCRIPTION + 1]));
+		let vtable = Box::leak(Box::new([null::<()>(); SCRIPT_DESCRIPTION_SLOT + 1]));
 
 		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = map as *const ();
-		vtable[SCRIPT_DESCRIPTION] = description as *const ();
+		vtable[SCRIPT_DESCRIPTION_SLOT] = description as *const ();
 
 		let object = NonNull::from(Box::leak(Box::new(FakeEntity {
 			vtable: vtable.as_ptr(),
@@ -824,8 +815,7 @@ mod tests {
 		let player = unsafe { Entity::from_raw(player.object.cast()) };
 		let wearable = mock_player(false);
 		let wearable = unsafe { Entity::from_raw(wearable.object.cast()) };
-		let factory = InterfaceFactory::new(factory);
-		let mod_server = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
+		let mod_server = null_server(Game::SourceSdk2013, &scope);
 
 		assert_eq!(
 			ScreenOverlay::new(mod_server, player).err(),
@@ -912,25 +902,5 @@ mod tests {
 		}
 
 		object.set_accepts.get()
-	}
-
-	/// A vector over `values`. Both element pointers come from one
-	/// `as_mut_ptr` call, since a second call would invalidate the first.
-	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
-		let len = c_int::try_from(values.len()).unwrap();
-		let elements = values.as_mut_ptr();
-
-		sys::CUtlVector {
-			_phantom_0: Default::default(),
-			_phantom_1: Default::default(),
-			m_Memory: sys::CUtlMemory {
-				_phantom_0: Default::default(),
-				m_pMemory: elements,
-				m_nAllocationCount: len,
-				m_nGrowSize: 0,
-			},
-			m_Size: len,
-			m_pElements: elements,
-		}
 	}
 }

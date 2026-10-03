@@ -1,0 +1,168 @@
+//! Console commands and variables as other modules declare them, and a mock
+//! `ICvar` registry listing them.
+
+use crate::commands::{CommandBaseKind, CommandFlags};
+use sdk_raw::test_support::{mock_vtable, unexpected_call};
+use std::ffi::{CStr, c_char};
+use std::ptr::null_mut;
+
+/// A registry whose `GetCommands` returns its head, and whose `FindVar` finds
+/// its variables.
+#[repr(C)]
+struct MockCvar {
+	interface: sys::ICvar,
+	head: *mut sys::ConCommandBase,
+	vars: Vec<*mut sys::ConVar>,
+}
+
+/// `ICvar::FindVar`, which finds a variable of the registry by name,
+/// ignoring ASCII case, as `CCvar` does.
+unsafe extern "C" fn find_var(this: *mut sys::ICvar, name: *const c_char) -> *mut sys::ConVar {
+	// SAFETY: The wrappers pass NUL-terminated names, and every registry is a
+	// `MockCvar`, which `mock_cvar` leaked.
+	let (name, cvar) = unsafe { (CStr::from_ptr(name), &*this.cast::<MockCvar>()) };
+
+	cvar.vars
+		.iter()
+		.copied()
+		.find(|&var| {
+			// SAFETY: The registry's variables are leaked, and named by string
+			// literals.
+			let listed = unsafe { CStr::from_ptr((*var)._base.m_pszName) };
+
+			listed.to_bytes().eq_ignore_ascii_case(name.to_bytes())
+		})
+		.unwrap_or(null_mut())
+}
+
+/// `ICvar::GetCommands`, which returns the head of the registry's list.
+unsafe extern "C" fn get_commands(this: *mut sys::ICvar) -> *mut sys::ConCommandBase {
+	// SAFETY: As for `find_var`.
+	unsafe { (*this.cast::<MockCvar>()).head }
+}
+
+/// `ConCommandBase::GetName`, which returns the name it was declared with.
+unsafe extern "C" fn get_name(this: *const sys::ConCommandBase) -> *const c_char {
+	// SAFETY: Every mock command or variable is a live `ConCommandBase`.
+	unsafe { (&raw const (*this).m_pszName).read() }
+}
+
+/// `ConCommandBase::IsCommand` of a command.
+///
+/// # Safety
+///
+/// None: it reads no argument. It is `unsafe` to fit the vtable slot.
+pub unsafe extern "C" fn is_command(_: *const sys::ConCommandBase) -> bool {
+	true
+}
+
+/// `ConCommandBase::IsRegistered`, which reads `m_bRegistered`.
+unsafe extern "C" fn is_registered(this: *const sys::ConCommandBase) -> bool {
+	// SAFETY: As for `get_name`.
+	unsafe { (&raw const (*this).m_bRegistered).read() }
+}
+
+/// `ConCommandBase::IsCommand` of a variable.
+///
+/// # Safety
+///
+/// None: it reads no argument. It is `unsafe` to fit the vtable slot.
+pub unsafe extern "C" fn is_variable(_: *const sys::ConCommandBase) -> bool {
+	false
+}
+
+/// A registered `ConCommandBase` another module declared, of `kind`, linked
+/// to `next`, whose vtable answers `IsCommand`, `GetName` and
+/// `IsRegistered`.
+///
+/// For tests only.
+pub fn mock_base(
+	name: &'static CStr,
+	kind: CommandBaseKind,
+	flags: CommandFlags,
+	next: *mut sys::ConCommandBase,
+) -> sys::ConCommandBase {
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes slots of the vtable
+	// being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::ConCommandBase__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).ConCommandBase_IsCommand).write(match kind {
+				CommandBaseKind::Command => is_command,
+				CommandBaseKind::Variable => is_variable,
+			});
+			(&raw mut (*vtable).ConCommandBase_GetName).write(get_name);
+			(&raw mut (*vtable).ConCommandBase_IsRegistered).write(is_registered);
+		})
+	};
+
+	sys::ConCommandBase {
+		vtable_: Box::leak(vtable),
+		m_pNext: next,
+		m_bRegistered: true,
+		m_pszName: name.as_ptr(),
+		m_pszHelpString: c"".as_ptr(),
+		m_nFlags: flags.bits(),
+	}
+}
+
+/// A leaked command another module declared, linked to `next`.
+///
+/// For tests only.
+pub fn mock_command(
+	name: &'static CStr,
+	next: *mut sys::ConCommandBase,
+) -> *mut sys::ConCommandBase {
+	let base = mock_base(name, CommandBaseKind::Command, CommandFlags::NONE, next);
+
+	Box::into_raw(Box::new(base))
+}
+
+/// A leaked registry whose list starts at `head`, and whose `FindVar` finds
+/// `vars`.
+///
+/// For tests only. The list and the variables must stay alive while the
+/// registry is used.
+pub fn mock_cvar(head: *mut sys::ConCommandBase, vars: Vec<*mut sys::ConVar>) -> *mut sys::ICvar {
+	// SAFETY: As for `mock_base`.
+	let vtable = unsafe {
+		mock_vtable::<sys::ICvar__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).ICvar_FindVar).write(find_var);
+			(&raw mut (*vtable).ICvar_GetCommands).write(get_commands);
+		})
+	};
+
+	Box::into_raw(Box::new(MockCvar {
+		interface: sys::ICvar {
+			vtable_: Box::leak(vtable),
+		},
+		head,
+		vars,
+	}))
+	.cast()
+}
+
+/// A leaked variable another module declared, which is its own parent,
+/// linked to `next`.
+///
+/// For tests only.
+pub fn mock_var(
+	name: &'static CStr,
+	default: &'static CStr,
+	value: &'static CStr,
+	flags: CommandFlags,
+	next: *mut sys::ConCommandBase,
+) -> *mut sys::ConVar {
+	// SAFETY: Zero is valid for every field of `ConVar`.
+	let var = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<sys::ConVar>() }));
+
+	// SAFETY: `var` is the box just leaked, and nothing else refers to it yet.
+	unsafe {
+		(*var)._base = mock_base(name, CommandBaseKind::Variable, flags, next);
+		(*var).m_pParent = var;
+		(*var).m_pszDefaultValue = default.as_ptr();
+		(*var).m_pszString = value.as_ptr().cast_mut();
+	}
+
+	var
+}

@@ -315,23 +315,26 @@ pub fn precache_script_sound(server: Server<'_>, name: &CStr) -> Result<(), Prec
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::InterfaceFactory;
 	use crate::bitbuf::BitWriter;
-	use crate::edicts::test_support::mock_edict;
-	use crate::entities::test_support::{MockEntity, set_networking};
 	use crate::interfaces::{GameEventManager, ServerTools, ValveEngine};
 	use crate::net::MESSAGE_TYPE_BITS;
-	use crate::net::test_support::MockChannel;
 	use crate::server::Module;
-	use crate::server::test_support::{export, mock_server};
-	use crate::user_messages::test_support::recipients;
+	use crate::test_support::edicts::{edict_of_index, edict_table, serve_edicts};
+	use crate::test_support::entities::{MockEntity, set_networking};
+	use crate::test_support::net::MockChannel;
+	use crate::test_support::server::{export, mock_server, null_server};
+
+	use crate::test_support::tf2::script_binding::{
+		SCRIPT_DESCRIPTION_SLOT, class_description, member_binding, script_description,
+		set_script_description,
+	};
+
+	use crate::test_support::user_messages::recipients;
 	use sdk_raw::bitbuf::BfWrite;
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
-	use sdk_raw::tf2::script_binding::SF_MEMBER_FUNC;
+	use sdk_raw::tf2::script_binding::STRING;
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char, c_void};
-	use std::marker::PhantomData;
-	use std::mem::zeroed;
 	use std::ptr::{NonNull, null_mut};
 
 	/// The ID the mock manager encodes the event with.
@@ -342,8 +345,6 @@ mod tests {
 		static CHANNELS: Cell<(*mut sys::INetChannel, u32)> = const { Cell::new((null_mut(), 0)) };
 		static CREATE_FAILS: Cell<bool> = const { Cell::new(false) };
 		static CREATED: Cell<usize> = const { Cell::new(0) };
-		static DESCRIPTION: Cell<*mut sys::ScriptClassDesc_t> = const { Cell::new(null_mut()) };
-		static EDICTS: Cell<(*mut sys::edict_t, usize)> = const { Cell::new((null_mut(), 0)) };
 		static EVENT_VTABLE: Box<sys::IGameEvent__bindgen_vtable> = unsafe {
 			mock_vtable::<sys::IGameEvent__bindgen_vtable>(unexpected_call as *const (), |vtable| {
 				(&raw mut (*vtable).IGameEvent_IsReliable).write(event_is_reliable);
@@ -389,7 +390,7 @@ mod tests {
 		// recording channel. Slot 2 is a bot, which has a player but no
 		// channel, and slot 4 a client still connecting, which has a channel
 		// but no player yet.
-		let mut table = [0, 1, 2, 3, 4].map(|index| mock_edict(index, false));
+		let mut table = edict_table(5, |_| false);
 
 		for slot in [1, 2, 3] {
 			table[slot]._base.m_pUnk = &raw mut unknown;
@@ -397,7 +398,7 @@ mod tests {
 
 		let edicts = table.as_mut_ptr();
 
-		EDICTS.set((edicts, table.len()));
+		serve_edicts(edicts, table.len());
 		CHANNELS.set((mock.channel().as_ptr(), 0b11010));
 		export(Module::Engine, ValveEngine::VERSION, &raw mut engine);
 		export(Module::Engine, GameEventManager::VERSION, &raw mut manager);
@@ -514,7 +515,7 @@ mod tests {
 			Err(BroadcastError::NotNetworked)
 		);
 		assert_eq!(CREATED.get(), 0);
-		EDICTS.set((null_mut(), 0));
+		serve_edicts(null_mut(), 0);
 		CHANNELS.set((null_mut(), 0));
 	}
 
@@ -524,10 +525,10 @@ mod tests {
 		let (_manager_vtable, mut manager) = mock_manager();
 		let mock = MockChannel::new();
 		let mut unknown = player_unknown();
-		let mut table = [0, 1].map(|index| mock_edict(index, false));
+		let mut table = edict_table(2, |_| false);
 
 		table[1]._base.m_pUnk = &raw mut unknown;
-		EDICTS.set((table.as_mut_ptr(), table.len()));
+		serve_edicts(table.as_mut_ptr(), table.len());
 		CHANNELS.set((mock.channel().as_ptr(), 0b10));
 		export(Module::Engine, ValveEngine::VERSION, &raw mut engine);
 		export(Module::Engine, GameEventManager::VERSION, &raw mut manager);
@@ -557,7 +558,7 @@ mod tests {
 		assert_eq!((CREATED.get(), FREED.get()), (1, 1));
 		SERIALIZE_FAILS.set(false);
 		assert!(mock.take_sent().is_empty());
-		EDICTS.set((null_mut(), 0));
+		serve_edicts(null_mut(), 0);
 		CHANNELS.set((null_mut(), 0));
 	}
 
@@ -568,11 +569,11 @@ mod tests {
 		let mock = MockChannel::new();
 		let mut unknown = player_unknown();
 		// Slot 1 is a client in the game, and slot 2 a bot.
-		let mut table = [0, 1, 2].map(|index| mock_edict(index, false));
+		let mut table = edict_table(3, |_| false);
 
 		table[1]._base.m_pUnk = &raw mut unknown;
 		table[2]._base.m_pUnk = &raw mut unknown;
-		EDICTS.set((table.as_mut_ptr(), table.len()));
+		serve_edicts(table.as_mut_ptr(), table.len());
 		CHANNELS.set((mock.channel().as_ptr(), 0b10));
 		export(Module::Engine, ValveEngine::VERSION, &raw mut engine);
 		export(Module::Engine, GameEventManager::VERSION, &raw mut manager);
@@ -621,7 +622,7 @@ mod tests {
 
 		assert_eq!((CREATED.get(), FREED.get()), (0, 0));
 		assert!(mock.take_sent().is_empty());
-		EDICTS.set((null_mut(), 0));
+		serve_edicts(null_mut(), 0);
 		CHANNELS.set((null_mut(), 0));
 	}
 
@@ -665,18 +666,6 @@ mod tests {
 
 		assert_eq!(reader.remaining(), 0);
 		decoded
-	}
-
-	unsafe extern "C" fn edict_of_index(
-		_: *mut sys::IVEngineServer,
-		index: c_int,
-	) -> *mut sys::edict_t {
-		let (table, len) = EDICTS.get();
-
-		match usize::try_from(index) {
-			Ok(slot) if slot < len => unsafe { table.add(slot) },
-			_ => null_mut(),
-		}
 	}
 
 	unsafe extern "C" fn event_is_reliable(_: *const sys::IGameEvent) -> bool {
@@ -777,15 +766,10 @@ mod tests {
 		}
 	}
 
-	unsafe extern "C" fn no_interface(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		null_mut()
-	}
-
 	#[test]
 	fn other_games_are_refused() {
 		let scope = ();
-		let factory = InterfaceFactory::new(no_interface);
-		let server = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
+		let server = null_server(Game::SourceSdk2013, &scope);
 
 		assert_eq!(
 			broadcast(server, &Recipients::new(), c"x", SoundFlags::NONE, None),
@@ -834,12 +818,6 @@ mod tests {
 		STRINGS.take();
 	}
 
-	unsafe extern "C" fn script_description(
-		_: *mut sys::CBaseEntity,
-	) -> *mut sys::ScriptClassDesc_t {
-		DESCRIPTION.get()
-	}
-
 	#[test]
 	fn script_sounds_are_precached_through_the_worlds_native_member() {
 		let tools_vtable = unsafe {
@@ -867,26 +845,20 @@ mod tests {
 		);
 
 		// A world whose script class is `CBaseEntity`, with the one binding.
-		let mut parameters = [binding::STRING];
-		let mut bindings: [sys::ScriptFunctionBinding_t; 1] = unsafe { zeroed() };
-
-		bindings[0].m_desc.m_pszScriptName = c"PrecacheScriptSound".as_ptr();
-		bindings[0].m_desc.m_ReturnType = binding::VOID;
-		bindings[0].m_desc.m_Parameters = vector(&mut parameters);
-		bindings[0].m_flags = SF_MEMBER_FUNC;
-		bindings[0].m_pfnBinding = Some(precache_adapter);
-
-		let mut description: sys::ScriptClassDesc_t = unsafe { zeroed() };
-
-		description.m_pszClassname = c"CBaseEntity".as_ptr();
-		description.m_FunctionBindings = vector(&mut bindings);
+		let mut parameters = [STRING];
+		let mut bindings = [member_binding(
+			c"PrecacheScriptSound",
+			binding::VOID,
+			&mut parameters,
+			Some(precache_adapter),
+		)];
+		let mut description = class_description(c"CBaseEntity", &mut bindings, null_mut());
 
 		// Changed below only through the pointer `call` reads it by.
 		let binding = description.m_FunctionBindings.m_Memory.m_pMemory;
 		let mut world = MockEntity::new(0);
 		let world_ptr = world.as_ptr();
-		let get_description =
-			sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc);
+		let get_description = SCRIPT_DESCRIPTION_SLOT;
 		let mut vtable = vec![unexpected_call as *const (); get_description + 1];
 
 		// The mock's own vtable answers every slot before the descriptor's,
@@ -901,7 +873,7 @@ mod tests {
 
 		vtable[get_description] = script_description as *const ();
 		unsafe { world_ptr.cast::<*const *const ()>().write(vtable.as_ptr()) };
-		DESCRIPTION.set(&raw mut description);
+		set_script_description(&raw mut description);
 		WORLD.set(world_ptr);
 		PRECACHED.take();
 
@@ -932,7 +904,7 @@ mod tests {
 		);
 		assert!(PRECACHED.take().is_empty());
 		WORLD.set(null_mut());
-		DESCRIPTION.set(null_mut());
+		set_script_description(null_mut());
 	}
 
 	/// Encodes the event's ID, then its fields as TF2 describes them, from what
@@ -976,25 +948,5 @@ mod tests {
 		unknown: *mut sys::IServerUnknown,
 	) -> *mut sys::CBaseEntity {
 		unknown.cast()
-	}
-
-	/// A vector over `values`. Both element pointers come from one
-	/// `as_mut_ptr` call, since a second call would invalidate the first.
-	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
-		let len = c_int::try_from(values.len()).unwrap();
-		let elements = values.as_mut_ptr();
-
-		sys::CUtlVector {
-			_phantom_0: PhantomData,
-			_phantom_1: PhantomData,
-			m_Memory: sys::CUtlMemory {
-				_phantom_0: PhantomData,
-				m_pMemory: elements,
-				m_nAllocationCount: len,
-				m_nGrowSize: 0,
-			},
-			m_Size: len,
-			m_pElements: elements,
-		}
 	}
 }

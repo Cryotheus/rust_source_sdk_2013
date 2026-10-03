@@ -404,6 +404,7 @@ fn fade_time(seconds: f32) -> u16 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::test_support::user_messages::payload;
 
 	#[test]
 	fn fade_times_clamp_to_their_range() {
@@ -437,13 +438,6 @@ mod tests {
 		};
 
 		assert_eq!(payload(&shake).byte_len(), 13);
-	}
-
-	fn payload(message: &impl UserMessage) -> BitWriter {
-		let mut out = BitWriter::new();
-
-		message.write(&mut out).unwrap();
-		out
 	}
 
 	#[test]

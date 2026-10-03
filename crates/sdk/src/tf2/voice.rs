@@ -470,27 +470,31 @@ fn scene_length(seconds: f32) -> Result<Duration, VoiceError> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::InterfaceFactory;
-	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, base_entity_fields, data_map, field};
-	use crate::server::test_support::mock_server;
+
+	use crate::test_support::entities::{
+		MOCK_EFLAGS_OFFSET, base_entity_fields, get_datamap, set_datamap,
+	};
+
+	use crate::test_support::server::{mock_server, null_server};
+
+	use crate::test_support::tf2::script_binding::{
+		SCRIPT_DESCRIPTION_SLOT, class_description, member_binding, script_description,
+		set_script_description,
+	};
+
 	use sdk_raw::players::{LIFE_DEAD, LIFE_DYING};
-	use sdk_raw::tf2::script_binding::SF_MEMBER_FUNC;
+	use sdk_raw::test_support::entities::{data_map, field};
+	use sdk_raw::tf2::script_binding::STRING;
 	use std::cell::{Cell, RefCell};
 	use std::ffi::c_int;
 	use std::ffi::{c_char, c_void};
-	use std::marker::PhantomData;
-	use std::mem::{offset_of, zeroed};
+	use std::mem::offset_of;
 	use std::ptr::NonNull;
 
 	const PLAY_SCENE: usize =
 		sdk_raw::vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PlayScene);
 
-	const SCRIPT_DESCRIPTION: usize =
-		sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc);
-
 	thread_local! {
-		static DATA_MAP: Cell<*mut sys::datamap_t> = const { Cell::new(null_mut()) };
-		static DESCRIPTION: Cell<*mut sys::ScriptClassDesc_t> = const { Cell::new(null_mut()) };
 		static LENGTH: Cell<f32> = const { Cell::new(0.0) };
 		static PLAYED: RefCell<Vec<(*mut c_void, CString, f32)>> = const { RefCell::new(Vec::new()) };
 		static REJECT: Cell<bool> = const { Cell::new(false) };
@@ -518,17 +522,14 @@ mod tests {
 		}
 	}
 
-	unsafe extern "C" fn datamap(_: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
-		DATA_MAP.get()
-	}
-
 	/// The `m_lifeState` declaration of [`FakePlayer`].
 	fn life_state_field() -> sys::typedescription_t {
-		let mut life_state = field();
+		let mut life_state = field(
+			c"m_lifeState",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			offset_of!(FakePlayer, life_state),
+		);
 
-		life_state.fieldType = sys::_fieldtypes_FIELD_CHARACTER;
-		life_state.fieldName = c"m_lifeState".as_ptr();
-		life_state.fieldOffset[0] = offset_of!(FakePlayer, life_state) as c_int;
 		life_state.fieldSize = 1;
 		life_state.fieldSizeInBytes = 1;
 		life_state
@@ -540,7 +541,7 @@ mod tests {
 
 		let mut vtable = vec![std::ptr::null(); PLAY_SCENE + 1];
 
-		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = get_datamap as *const ();
 		vtable[PLAY_SCENE] = play_scene as *const ();
 
 		let player = Box::into_raw(FakePlayer::new(&vtable));
@@ -548,7 +549,7 @@ mod tests {
 		let scope = ();
 		let server = mock_server(&scope);
 
-		DATA_MAP.set(maps(c"CTFPlayer", Some(life_state_field())));
+		set_datamap(maps(c"CTFPlayer", Some(life_state_field())));
 		PLAYED.take();
 
 		let speaker = Speaker::new(server, entity).unwrap();
@@ -606,10 +607,6 @@ mod tests {
 		let base = data_map(c"CBaseEntity", fields, null_mut());
 
 		data_map(class, vec![], base)
-	}
-
-	unsafe extern "C" fn no_interface(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		null_mut()
 	}
 
 	unsafe extern "C" fn play_scene(
@@ -694,40 +691,26 @@ mod tests {
 		}
 	}
 
-	unsafe extern "C" fn script_description(
-		_: *mut sys::CBaseEntity,
-	) -> *mut sys::ScriptClassDesc_t {
-		DESCRIPTION.get()
-	}
-
 	#[test]
 	fn scripted_scenes_use_the_checked_cbaseflex_member() {
-		let mut parameters = [binding::STRING, binding::FLOAT];
-		let mut bindings: [sys::ScriptFunctionBinding_t; 1] = unsafe { zeroed() };
-
-		bindings[0].m_desc.m_pszScriptName = c"PlayScene".as_ptr();
-		bindings[0].m_desc.m_ReturnType = binding::FLOAT;
-		bindings[0].m_desc.m_Parameters = vector(&mut parameters);
-		bindings[0].m_flags = SF_MEMBER_FUNC;
-		bindings[0].m_pfnBinding = Some(play_scene_adapter);
-
-		let mut flex: sys::ScriptClassDesc_t = unsafe { zeroed() };
-
-		flex.m_pszClassname = c"CBaseFlex".as_ptr();
-		flex.m_FunctionBindings = vector(&mut bindings);
+		let mut parameters = [STRING, binding::FLOAT];
+		let mut bindings = [member_binding(
+			c"PlayScene",
+			binding::FLOAT,
+			&mut parameters,
+			Some(play_scene_adapter),
+		)];
+		let mut flex = class_description(c"CBaseFlex", &mut bindings, null_mut());
 
 		// Changed below only through the pointer `call` reads it by.
 		let binding = flex.m_FunctionBindings.m_Memory.m_pMemory;
-		let mut player_description: sys::ScriptClassDesc_t = unsafe { zeroed() };
-
-		player_description.m_pszClassname = c"CTFPlayer".as_ptr();
-		player_description.m_pBaseDesc = &raw mut flex;
+		let mut player_description = class_description(c"CTFPlayer", &mut [], &raw mut flex);
 
 		// The vtable slot `play_scene` would call fails the test if reached.
 		let mut vtable = vec![std::ptr::null(); PLAY_SCENE + 1];
 
-		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
-		vtable[SCRIPT_DESCRIPTION] = script_description as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = get_datamap as *const ();
+		vtable[SCRIPT_DESCRIPTION_SLOT] = script_description as *const ();
 		vtable[PLAY_SCENE] = sdk_raw::test_support::unexpected_call as *const ();
 
 		let player = Box::into_raw(FakePlayer::new(&vtable));
@@ -735,8 +718,8 @@ mod tests {
 		let scope = ();
 		let server = mock_server(&scope);
 
-		DATA_MAP.set(maps(c"CTFPlayer", Some(life_state_field())));
-		DESCRIPTION.set(&raw mut player_description);
+		set_datamap(maps(c"CTFPlayer", Some(life_state_field())));
+		set_script_description(&raw mut player_description);
 		PLAYED.take();
 
 		let speaker = Speaker::new(server, entity).unwrap();
@@ -782,7 +765,7 @@ mod tests {
 			speaker.play_scene_scripted(&line),
 			Err(VoiceError::UnsupportedMethod)
 		);
-		DESCRIPTION.set(null_mut());
+		set_script_description(null_mut());
 		assert_eq!(
 			speaker.play_scene_scripted(&line),
 			Err(VoiceError::UnsupportedMethod)
@@ -795,17 +778,16 @@ mod tests {
 	fn speakers_require_tf_players_with_a_life_state() {
 		let mut vtable = vec![std::ptr::null(); PLAY_SCENE + 1];
 
-		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = get_datamap as *const ();
 
 		let player = Box::into_raw(FakePlayer::new(&vtable));
 		let entity = unsafe { Entity::from_raw(NonNull::new(player.cast()).unwrap()) };
 		let scope = ();
 		let server = mock_server(&scope);
 
-		DATA_MAP.set(maps(c"CTFPlayer", Some(life_state_field())));
+		set_datamap(maps(c"CTFPlayer", Some(life_state_field())));
 
-		let factory = InterfaceFactory::new(no_interface);
-		let other_game = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
+		let other_game = null_server(Game::SourceSdk2013, &scope);
 
 		assert!(matches!(
 			Speaker::new(other_game, entity),
@@ -814,20 +796,20 @@ mod tests {
 		assert_eq!(Speaker::new(server, entity).unwrap().player(), entity);
 
 		// TF2's bots derive from `CTFPlayer`, and speak as players do.
-		DATA_MAP.set(data_map(
+		set_datamap(data_map(
 			c"CTFBot",
 			vec![],
 			maps(c"CTFPlayer", Some(life_state_field())),
 		));
 		assert!(Speaker::new(server, entity).is_ok());
 
-		DATA_MAP.set(maps(c"CBaseCombatCharacter", Some(life_state_field())));
+		set_datamap(maps(c"CBaseCombatCharacter", Some(life_state_field())));
 		assert!(matches!(
 			Speaker::new(server, entity),
 			Err(VoiceError::NotTfPlayer)
 		));
 
-		DATA_MAP.set(maps(c"CTFPlayer", None));
+		set_datamap(maps(c"CTFPlayer", None));
 		assert!(matches!(
 			Speaker::new(server, entity),
 			Err(VoiceError::UnsupportedLayout)
@@ -850,7 +832,7 @@ mod tests {
 		far.fieldOffset[0] = BASE_ENTITY_FIELD_OFFSET_LIMIT as c_int;
 
 		for life_state in [wide, array, integer, far] {
-			DATA_MAP.set(maps(c"CTFPlayer", Some(life_state)));
+			set_datamap(maps(c"CTFPlayer", Some(life_state)));
 			assert!(matches!(
 				Speaker::new(server, entity),
 				Err(VoiceError::UnsupportedLayout)
@@ -858,26 +840,6 @@ mod tests {
 		}
 
 		unsafe { drop(Box::from_raw(player)) };
-	}
-
-	/// A vector over `values`. Both element pointers come from one
-	/// `as_mut_ptr` call, since a second call would invalidate the first.
-	fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
-		let len = c_int::try_from(values.len()).unwrap();
-		let elements = values.as_mut_ptr();
-
-		sys::CUtlVector {
-			_phantom_0: PhantomData,
-			_phantom_1: PhantomData,
-			m_Memory: sys::CUtlMemory {
-				_phantom_0: PhantomData,
-				m_pMemory: elements,
-				m_nAllocationCount: len,
-				m_nGrowSize: 0,
-			},
-			m_Size: len,
-			m_pElements: elements,
-		}
 	}
 
 	#[test]

@@ -742,14 +742,15 @@ unsafe fn give_missing(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::Module;
 	use crate::interfaces::ValveEngine;
-	use crate::net::cheats::test_support::{MockClient, MockEngine};
-	use crate::server::test_support::{export, mock_server};
+	use crate::test_support::net::cheats::{MockClient, MockEngine};
+	use crate::test_support::players::user;
+	use crate::test_support::server::{export, mock_server, null_server};
 	use crate::tf2::attributes::{Multiplier, catalog, trust_shipped_schema};
 	use crate::tf2::weapons::WeaponSlot;
-	use crate::{InterfaceFactory, Module};
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
-	use std::ffi::{c_char, c_void};
+	use std::ffi::c_char;
 	use std::ptr::{NonNull, null_mut};
 
 	/// A game event with a name and, optionally, a `userid`.
@@ -813,8 +814,7 @@ mod tests {
 		// Another game.
 		reapplier.set(user(2), loadout);
 
-		let factory = InterfaceFactory::new(no_interfaces);
-		let other = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
+		let other = null_server(Game::SourceSdk2013, &scope);
 		let other_token = unsafe { trust_shipped_schema(other) };
 
 		assert!(matches!(
@@ -1022,10 +1022,6 @@ mod tests {
 		null_mut()
 	}
 
-	unsafe extern "C" fn no_interfaces(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		null_mut()
-	}
-
 	#[test]
 	fn only_post_inventory_application_for_known_players_is_handled() {
 		let scope = ();
@@ -1171,9 +1167,5 @@ mod tests {
 		assert_eq!(reapplier.get(user(3)), None);
 		assert_eq!(reapplier.iter().count(), 0);
 		assert!(!reapplier.is_applying());
-	}
-
-	fn user(id: u16) -> UserId {
-		UserId::new(id).unwrap()
 	}
 }

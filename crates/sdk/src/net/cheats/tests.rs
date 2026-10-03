@@ -1,9 +1,12 @@
-use super::test_support::{
+use super::*;
+use crate::net::incoming::mock_incoming_message;
+
+use crate::test_support::net::cheats::{
 	Decoded, MockClient, MockEngine, MockVar, decode, query_cookie, response,
 };
 
-use super::*;
-use crate::net::incoming::test_support::{message, respond_cvar_value, unreadable};
+use crate::test_support::net::incoming::{respond_cvar_value, unreadable};
+use crate::test_support::players::user;
 
 /// Variables a mock registry lists after `sv_cheats`.
 const VARS: [MockVar; 7] = [
@@ -468,7 +471,7 @@ fn answers_reach_leases_through_the_incoming_hook() {
 	let client = mock.game_client(0);
 	// SAFETY: The mock messages are leaked, and answer the only virtual call
 	// `on_incoming` makes of them.
-	let incoming = |kind, raw| unsafe { message(kind, raw, client) };
+	let incoming = |kind, raw| unsafe { mock_incoming_message(kind, raw, client) };
 	let foreign = respond_cvar_value(7, QUERY_CVAR_VALUE_INTACT, c"sv_cheats", c"1");
 
 	// No answer is expected yet.
@@ -1320,7 +1323,8 @@ fn unreadable_answers_end_waiting_leases_unverified_at_once() {
 
 	// SAFETY: The mock message is leaked, and answers the only virtual call
 	// `on_incoming` makes of it.
-	let garbled = unsafe { message(IncomingKind::RespondCvarValue, unreadable(), client) };
+	let garbled =
+		unsafe { mock_incoming_message(IncomingKind::RespondCvarValue, unreadable(), client) };
 
 	// It may answer another query, so it passes, but the client's waiting
 	// lease can no longer be confirmed.
@@ -1358,10 +1362,6 @@ fn unreadable_answers_end_waiting_leases_unverified_at_once() {
 	// A readable answer to its query, late, is blocked and changes nothing.
 	assert_eq!(confirm(&mut cheats, user(2), cookie), Verdict::Block);
 	assert!(!cheats.client(user(2)).unwrap().confirmed);
-}
-
-fn user(id: u16) -> UserId {
-	UserId::new(id).unwrap()
 }
 
 #[test]

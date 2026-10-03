@@ -2,19 +2,19 @@
 //! engine that records changes as the real one does.
 
 use super::*;
-
-use crate::datatables::test_support::{
-	direct_table, int32_proxy, prop, proxies, table, table_prop,
-};
-
-use crate::entities::test_support::{data_map, field, leak};
-use crate::server::test_support::{export, mock_server};
-use crate::{InterfaceFactory, Module};
+use crate::Module;
+use crate::test_support::datatables::{direct_table, int32_proxy, prop, table, table_prop};
+use crate::test_support::edicts::{edict_of_index, edict_table, serve_edicts};
+use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
+use crate::test_support::leak;
+use crate::test_support::players::user;
+use crate::test_support::server::{export, mock_server, null_server};
 use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
 use sdk_raw::entities::NUM_SERIAL_NUM_SHIFT_BITS;
+use sdk_raw::test_support::entities::{data_map, field};
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
-use std::ffi::{CString, c_char, c_void};
+use std::ffi::{CString, c_char};
 use std::mem::{offset_of, zeroed};
 use std::ptr::{NonNull, null_mut};
 
@@ -84,7 +84,6 @@ thread_local! {
 	static BY_CLASS: RefCell<Vec<(&'static CStr, *mut sys::CBaseEntity)>> = const { RefCell::new(Vec::new()) };
 	static EDICTS: Cell<*mut sys::edict_t> = const { Cell::new(null_mut()) };
 	static LIST: Cell<*mut sys::CGlobalEntityList> = const { Cell::new(null_mut()) };
-	static PROXIES: Cell<*mut sys::CStandardSendProxies> = const { Cell::new(null_mut()) };
 	static SHARED: Cell<*mut sys::CSharedEdictChangeInfo> = const { Cell::new(null_mut()) };
 	static USER_IDS: RefCell<[c_int; EDICT_COUNT]> = const { RefCell::new([-1; EDICT_COUNT]) };
 }
@@ -166,15 +165,6 @@ impl World {
 				},
 			)
 		};
-		let dll_vtable = unsafe {
-			mock_vtable::<sys::IServerGameDLL__bindgen_vtable>(
-				unexpected_call as *const (),
-				|vtable| {
-					(&raw mut (*vtable).IServerGameDLL_GetStandardSendProxies)
-						.write(standard_send_proxies);
-				},
-			)
-		};
 
 		export(
 			Module::Engine,
@@ -190,21 +180,12 @@ impl World {
 				vtable_: Box::leak(tools_vtable),
 			}),
 		);
-		export(
-			Module::GameServer,
-			ServerGameDll::VERSION,
-			leak(sys::IServerGameDLL {
-				vtable_: Box::leak(dll_vtable),
-			}),
-		);
-
-		PROXIES.set(leak(proxies(null_mut())));
+		export_standard_proxies();
 
 		// The engine's edicts and change tracking.
-		let edicts = (0..EDICT_COUNT)
-			.map(|index| crate::edicts::test_support::mock_edict(index as c_int, false))
-			.collect::<Vec<_>>();
-		EDICTS.set(Box::leak(edicts.into_boxed_slice()).as_mut_ptr());
+		let edicts = Box::leak(edict_table(EDICT_COUNT, |_| false)).as_mut_ptr();
+		EDICTS.set(edicts);
+		serve_edicts(edicts, EDICT_COUNT);
 
 		let accessors = (0..EDICT_COUNT)
 			.map(|_| unsafe { zeroed::<sys::IChangeInfoAccessor>() })
@@ -354,11 +335,12 @@ impl World {
 
 		// Players declare their frags and deaths in `CBasePlayer`'s datamap.
 		let declare = |name: &'static CStr, word: usize| {
-			let mut field = field();
+			let mut field = field(
+				name,
+				sys::_fieldtypes_FIELD_INTEGER,
+				DATA + word * ELEMENT_SIZE,
+			);
 
-			field.fieldType = sys::_fieldtypes_FIELD_INTEGER;
-			field.fieldName = name.as_ptr();
-			field.fieldOffset[0] = (DATA + word * ELEMENT_SIZE) as c_int;
 			field.fieldSizeInBytes = ELEMENT_SIZE as c_int;
 			field
 		};
@@ -714,7 +696,7 @@ fn an_after_frame_without_interfaces_leaves_the_repair_to_before_frame() {
 	// The game's value is written back without a mark, and the `after_frame`
 	// that would apply the override again cannot reach the interfaces.
 	board.before_frame(server);
-	board.after_frame(unreachable_server(&scope));
+	board.after_frame(null_server(Game::TeamFortress2, &scope));
 	assert_eq!(board.phase, Phase::Restored { unflagged: true });
 	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
 	end_snapshot();
@@ -1029,16 +1011,6 @@ fn edict_at(index: usize) -> Edict<'static> {
 	unsafe { Edict::from_raw(NonNull::new(EDICTS.get().add(index)).unwrap()) }
 }
 
-unsafe extern "C" fn edict_of_index(
-	_: *mut sys::IVEngineServer,
-	index: c_int,
-) -> *mut sys::edict_t {
-	match usize::try_from(index) {
-		Ok(index) if index < EDICT_COUNT => unsafe { EDICTS.get().add(index) },
-		_ => null_mut(),
-	}
-}
-
 /// A leaked name for element `index` of an array, as `SendPropArray3` names
 /// them.
 fn element_name(index: usize) -> &'static CStr {
@@ -1204,11 +1176,7 @@ fn frags_and_deaths_are_written_through_the_player_datamap() {
 	);
 
 	// A misaligned field is not trusted.
-	let mut misaligned = field();
-
-	misaligned.fieldType = sys::_fieldtypes_FIELD_INTEGER;
-	misaligned.fieldName = c"m_iFrags".as_ptr();
-	misaligned.fieldOffset[0] = (DATA + 2) as c_int;
+	let misaligned = field(c"m_iFrags", sys::_fieldtypes_FIELD_INTEGER, DATA + 2);
 
 	let base = data_map(c"CBasePlayer", vec![misaligned], null_mut());
 
@@ -1779,12 +1747,6 @@ unsafe extern "C" fn shared_change_info(
 	SHARED.get()
 }
 
-unsafe extern "C" fn standard_send_proxies(
-	_: *mut sys::IServerGameDLL,
-) -> *mut sys::CStandardSendProxies {
-	PROXIES.get()
-}
-
 #[test]
 fn streaks_must_be_grouped_by_player_slot() {
 	// Long enough for slot 1, but not 4 streaks for each of the 8 slots.
@@ -1937,26 +1899,6 @@ fn the_game_changes_values_between_the_callbacks() {
 	// The game marked both; an offset follows the game's value, so it changed
 	// for clients anyway.
 	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score, damage]));
-}
-
-/// A server whose factories export no interface at all.
-fn unreachable_server<S: ?Sized>(scope: &S) -> Server<'_> {
-	unsafe extern "C" fn no_interface(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		null_mut()
-	}
-
-	unsafe {
-		Server::new(
-			InterfaceFactory::new(no_interface),
-			InterfaceFactory::new(no_interface),
-			Game::TeamFortress2,
-			scope,
-		)
-	}
-}
-
-fn user(id: u16) -> UserId {
-	UserId::new(id).unwrap()
 }
 
 #[test]

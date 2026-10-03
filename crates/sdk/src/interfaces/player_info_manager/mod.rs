@@ -195,19 +195,13 @@ impl<'s> GlobalVars<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::edicts::test_support::mock_edict;
+	use crate::test_support::edicts::edict_table;
+	use crate::test_support::interfaces::player_info_manager::{global_vars, serve_global_vars};
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
-	use std::cell::{Cell, RefCell};
-	use std::mem::MaybeUninit;
-	use std::ptr::null_mut;
+	use std::cell::RefCell;
 
 	thread_local! {
-		static GLOBALS: Cell<*mut sys::CGlobalVars> = const { Cell::new(null_mut()) };
 		static QUERIED: RefCell<Vec<*mut sys::edict_t>> = const { RefCell::new(Vec::new()) };
-	}
-
-	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
-		GLOBALS.get()
 	}
 
 	unsafe extern "C" fn player_info(
@@ -222,10 +216,7 @@ mod tests {
 	/// slots may reach `GetPlayerInfo`.
 	#[test]
 	fn player_info_asks_only_for_occupied_player_slots() {
-		let mut globals = MaybeUninit::<sys::CGlobalVars>::zeroed();
-
-		unsafe { (&raw mut (*globals.as_mut_ptr())._base.maxClients).write(2) };
-		GLOBALS.set(globals.as_mut_ptr());
+		serve_global_vars(2);
 
 		let vtable = unsafe {
 			mock_vtable::<sys::IPlayerInfoManager__bindgen_vtable>(
@@ -243,12 +234,7 @@ mod tests {
 		let manager =
 			unsafe { PlayerInfoManager::from_raw(NonNull::new(&raw mut interface).unwrap()) };
 
-		let mut table = [
-			mock_edict(0, false),
-			mock_edict(1, true),
-			mock_edict(2, false),
-			mock_edict(3, false),
-		];
+		let mut table = edict_table(4, |slot| slot == 1);
 		let base = table.as_mut_ptr();
 		let edict = |slot: usize| unsafe { Edict::from_raw(NonNull::new(base.add(slot)).unwrap()) };
 

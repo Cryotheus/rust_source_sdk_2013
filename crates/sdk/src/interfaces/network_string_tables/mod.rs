@@ -284,7 +284,12 @@ mod tests {
 	use super::*;
 	use crate::interfaces::ValveEngine;
 	use crate::server::Module;
-	use crate::server::test_support::{export, mock_server};
+
+	use crate::test_support::interfaces::valve_engine::{
+		lock_network_string_tables, lock_requests, tables_locked,
+	};
+
+	use crate::test_support::server::{export, mock_server};
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{c_char, c_void};
@@ -330,7 +335,8 @@ mod tests {
 				mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
 					unexpected_call as *const (),
 					|vtable| {
-						(&raw mut (*vtable).IVEngineServer_LockNetworkStringTables).write(lock);
+						(&raw mut (*vtable).IVEngineServer_LockNetworkStringTables)
+							.write(lock_network_string_tables);
 					},
 				)
 			};
@@ -379,13 +385,6 @@ mod tests {
 		/// The strings the mock table's `FindStringIndex` finds, by index.
 		static KNOWN_STRINGS: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
 
-		/// Every engine and state passed to the mock engine's
-		/// `LockNetworkStringTables`, in order.
-		static LOCK_REQUESTS: RefCell<Vec<(*mut sys::IVEngineServer, bool)>> =
-			const { RefCell::new(Vec::new()) };
-
-		/// Whether the mock engine's string tables are locked.
-		static LOCKED: Cell<bool> = const { Cell::new(true) };
 	}
 
 	unsafe extern "C" fn add_string(
@@ -402,7 +401,7 @@ mod tests {
 				string,
 				length,
 				user_data,
-				locked: LOCKED.get(),
+				locked: tables_locked(),
 			});
 		});
 
@@ -452,7 +451,7 @@ mod tests {
 		let engine = &raw mut *mocks.engine;
 
 		assert_eq!(lock_requests(), [(engine, false), (engine, true)]);
-		assert!(LOCKED.get());
+		assert!(tables_locked());
 
 		let additions = additions();
 
@@ -505,16 +504,7 @@ mod tests {
 		let engine = &raw mut *mocks.engine;
 
 		assert_eq!(lock_requests(), [(engine, false), (engine, true)]);
-		assert!(LOCKED.get());
-	}
-
-	unsafe extern "C" fn lock(this: *mut sys::IVEngineServer, lock: bool) -> bool {
-		LOCK_REQUESTS.with_borrow_mut(|requests| requests.push((this, lock)));
-		LOCKED.replace(lock)
-	}
-
-	fn lock_requests() -> Vec<(*mut sys::IVEngineServer, bool)> {
-		LOCK_REQUESTS.with_borrow(Clone::clone)
+		assert!(tables_locked());
 	}
 
 	#[test]

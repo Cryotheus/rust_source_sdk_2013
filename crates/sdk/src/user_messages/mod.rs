@@ -353,33 +353,18 @@ pub fn send_entity_message(
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-	use super::*;
-
-	/// Recipients with exactly these player indices, in order.
-	pub(crate) fn recipients(players: &[c_int], reliable: bool) -> Recipients {
-		Recipients {
-			players: players.to_vec(),
-			reliable,
-		}
-	}
-}
-
-#[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::edicts::test_support::mock_edict;
 	use crate::interfaces::{PlayerInfoManager, ValveEngine};
 	use crate::server::Module;
-	use crate::server::test_support::{export, mock_server};
+	use crate::test_support::edicts::{edict_of_index, edict_table, serve_edicts};
+	use crate::test_support::interfaces::player_info_manager::{global_vars, serve_global_vars};
+	use crate::test_support::server::{export, mock_server};
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
-	use std::mem::MaybeUninit;
 	use std::ptr::null_mut;
 
 	thread_local! {
-		static GLOBALS: Cell<*mut sys::CGlobalVars> = const { Cell::new(null_mut()) };
-		static TABLE: Cell<(*mut sys::edict_t, usize)> = const { Cell::new((null_mut(), 0)) };
 		static PLAYERS: Cell<*const [*mut MockPlayer]> =
 			const { Cell::new(std::ptr::slice_from_raw_parts(std::ptr::null(), 0)) };
 	}
@@ -393,11 +378,7 @@ mod tests {
 
 	#[test]
 	fn clients_are_added_and_removed_once() {
-		let mut table = [
-			mock_edict(0, false),
-			mock_edict(1, false),
-			mock_edict(2, false),
-		];
+		let mut table = edict_table(3, |_| false);
 		let base = table.as_mut_ptr();
 		// SAFETY: The table outlives every handle.
 		let edict = |slot: usize| unsafe { Edict::from_raw(NonNull::new(base.add(slot)).unwrap()) };
@@ -418,24 +399,6 @@ mod tests {
 		recipients.remove(edict(1));
 		assert!(recipients.is_empty());
 		assert_eq!(Recipients::player(edict(1)).players(), [1]);
-	}
-
-	unsafe extern "C" fn edict_of_index(
-		_: *mut sys::IVEngineServer,
-		index: c_int,
-	) -> *mut sys::edict_t {
-		let (table, len) = TABLE.get();
-
-		match usize::try_from(index) {
-			// SAFETY: The slot lies within the table.
-			Ok(slot) if slot < len => unsafe { table.add(slot) },
-
-			_ => null_mut(),
-		}
-	}
-
-	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
-		GLOBALS.get()
 	}
 
 	unsafe extern "C" fn player_info(
@@ -503,13 +466,10 @@ mod tests {
 			player(2),
 			player(2),
 		];
-		let mut table = [0, 1, 2, 3, 4, 5, 6].map(|index| mock_edict(index, index == 5));
-		let mut globals = MaybeUninit::<sys::CGlobalVars>::zeroed();
+		let mut table = edict_table(7, |slot| slot == 5);
 
-		// SAFETY: The globals are zeroed, which is valid for every field.
-		unsafe { (&raw mut (*globals.as_mut_ptr())._base.maxClients).write(5) };
-		GLOBALS.set(globals.as_mut_ptr());
-		TABLE.set((table.as_mut_ptr(), table.len()));
+		serve_global_vars(5);
+		serve_edicts(table.as_mut_ptr(), table.len());
 		PLAYERS.set(Vec::leak(players));
 
 		let mut engine = sys::IVEngineServer {

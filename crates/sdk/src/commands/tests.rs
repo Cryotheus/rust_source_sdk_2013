@@ -2,10 +2,11 @@
 //! and dispatch.
 
 use super::*;
-use crate::edicts::test_support::mock_edict;
 use crate::interfaces::{Cvar, ValveEngine};
 use crate::server::Module;
-use crate::server::test_support::{export, mock_binding, mock_server};
+use crate::test_support::edicts::edict_table;
+use crate::test_support::interfaces::cvar::mock_base;
+use crate::test_support::server::{export, mock_binding, mock_server};
 use sdk_raw::commands::ConVarObject;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use sdk_raw::vcall;
@@ -161,7 +162,7 @@ fn clients_need_cheats_for_cheat_commands() {
 
 	register(command).unwrap();
 
-	let mut table = [mock_edict(0, false), mock_edict(1, false)];
+	let mut table = edict_table(2, |_| false);
 	let binding = mock_binding();
 	let mut route = || unsafe {
 		route_client_command(
@@ -190,7 +191,7 @@ fn clients_need_cheats_for_cheat_commands() {
 #[test]
 fn clients_reach_only_commands_they_may_run() {
 	mock_engine();
-	list_foreign(c"status", true);
+	list_foreign(c"status", CommandBaseKind::Command);
 
 	let everyone = leak(ConsoleCommand::new(c"sb_ping", record).access(CommandAccess::Everyone));
 	let clients = leak(ConsoleCommand::new(c"sb_whoami", record).access(CommandAccess::Clients));
@@ -200,12 +201,7 @@ fn clients_reach_only_commands_they_may_run() {
 	register(clients).unwrap();
 	register(server_only).unwrap();
 
-	let mut table = [
-		mock_edict(0, false),
-		mock_edict(1, false),
-		mock_edict(2, false),
-		mock_edict(3, true),
-	];
+	let mut table = edict_table(4, |slot| slot == 3);
 	let binding = mock_binding();
 	let mut route = |slot: usize, line: &str| unsafe {
 		route_client_command(
@@ -324,7 +320,7 @@ fn errors_and_panics_are_reported_to_the_invoker() {
 	);
 
 	// A panic triggered by a client is logged, and the client is told.
-	let mut table = [mock_edict(0, false), mock_edict(1, false)];
+	let mut table = edict_table(2, |_| false);
 	let route = unsafe {
 		route_client_command(
 			&mock_binding(),
@@ -381,10 +377,6 @@ unsafe extern "C" fn find_var(_: *mut sys::ICvar, name: *const c_char) -> *mut s
 	})
 }
 
-unsafe extern "C" fn foreign_name(this: *const sys::ConCommandBase) -> *const c_char {
-	unsafe { (&raw const (*this).m_pszName).read() }
-}
-
 /// The most recently listed entry, whose `m_pNext` leads through the rest.
 unsafe extern "C" fn get_commands(_: *mut sys::ICvar) -> *mut sys::ConCommandBase {
 	REGISTRY.with_borrow(|registry| registry.first().copied().unwrap_or(null_mut()))
@@ -395,23 +387,9 @@ fn leak<H: CommandHandler>(command: ConsoleCommand<H>) -> Pin<&'static ConsoleCo
 }
 
 /// Lists a command or variable another module declared.
-fn list_foreign(name: &'static CStr, is_command: bool) -> *mut sys::ConCommandBase {
-	let vtable = unsafe {
-		mock_vtable::<sys::ConCommandBase__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).ConCommandBase_GetName).write(foreign_name);
-			(&raw mut (*vtable).ConCommandBase_IsCommand).write(if is_command { yes } else { no });
-			(&raw mut (*vtable).ConCommandBase_IsRegistered).write(yes);
-		})
-	};
+fn list_foreign(name: &'static CStr, kind: CommandBaseKind) -> *mut sys::ConCommandBase {
 	let next = REGISTRY.with_borrow(|registry| registry.first().copied().unwrap_or(null_mut()));
-	let base = Box::leak(Box::new(sys::ConCommandBase {
-		vtable_: Box::leak(vtable),
-		m_pNext: next,
-		m_bRegistered: true,
-		m_pszName: name.as_ptr(),
-		m_pszHelpString: c"".as_ptr(),
-		m_nFlags: 0,
-	}));
+	let base = Box::leak(Box::new(mock_base(name, kind, CommandFlags::NONE, next)));
 
 	REGISTRY.with_borrow_mut(|registry| registry.insert(0, &raw mut *base));
 	base
@@ -476,8 +454,8 @@ unsafe fn name_of(base: *mut sys::ConCommandBase) -> &'static CStr {
 #[test]
 fn names_in_use_are_refused() {
 	mock_engine();
-	list_foreign(c"changelevel", true);
-	list_foreign(c"sv_cheats", false);
+	list_foreign(c"changelevel", CommandBaseKind::Command);
+	list_foreign(c"sv_cheats", CommandBaseKind::Variable);
 
 	let command = |name| leak(ConsoleCommand::new(name, record));
 	let kind = |result: Result<(), RegisterCommandError>| result.unwrap_err().kind().clone();
@@ -497,10 +475,6 @@ fn names_in_use_are_refused() {
 		RegisterCommandErrorKind::NameTaken(CommandBaseKind::Command)
 	);
 	assert_eq!(listed(), ["sb_ping", "sv_cheats", "changelevel"]);
-}
-
-unsafe extern "C" fn no(_: *const sys::ConCommandBase) -> bool {
-	false
 }
 
 /// Reads a `printf("%s", message)` call, or reports another format, which
@@ -737,10 +711,6 @@ unsafe extern "C" fn unregister_con_command(_: *mut sys::ICvar, base: *mut sys::
 	});
 }
 
-unsafe extern "C" fn yes(_: *const sys::ConCommandBase) -> bool {
-	true
-}
-
 thread_local! {
 	static RAW_COMMAND: Cell<*mut sys::CCommand> = const { Cell::new(null_mut()) };
 	static CLIENT_EDICT: Cell<*mut sys::edict_t> = const { Cell::new(null_mut()) };
@@ -819,7 +789,7 @@ fn handlers_can_leave_client_invocations_to_the_game() {
 
 	register(command).unwrap();
 
-	let mut table = [mock_edict(0, false), mock_edict(1, false)];
+	let mut table = edict_table(2, |_| false);
 	let binding = mock_binding();
 	let mut route = |line: &str| unsafe {
 		route_client_command(
@@ -873,7 +843,7 @@ fn handlers_with_state_dispatch_through_the_whole_command() {
 	engine_dispatch(command.get_ref(), &*tokenized("sb_greet"));
 	assert_eq!(console(), ["hello\n"]);
 
-	let mut table = [mock_edict(0, false), mock_edict(1, false)];
+	let mut table = edict_table(2, |_| false);
 	let route = unsafe {
 		route_client_command(
 			&mock_binding(),
@@ -971,7 +941,7 @@ fn nested_invocations_keep_their_own_invoker_and_arguments() {
 	register(inner).unwrap();
 	register(outer).unwrap();
 
-	let mut table = [mock_edict(0, false), mock_edict(1, false)];
+	let mut table = edict_table(2, |_| false);
 	let raw = Box::into_raw(tokenized("sb_outer a b"));
 
 	CLIENT_EDICT.set(&raw mut table[1]);

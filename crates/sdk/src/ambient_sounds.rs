@@ -118,12 +118,9 @@ impl<'s> AmbientSound<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	use crate::entities::test_support::{
-		MockEntity, base_entity_fields, data_map, field, set_datamap,
-	};
-
-	use std::ffi::{CStr, c_int};
+	use crate::test_support::entities::{MockEntity, base_entity_fields, set_datamap};
+	use sdk_raw::test_support::entities::{data_map, field};
+	use std::ffi::c_int;
 
 	const PLAYING: usize = 200;
 	const SOUND: usize = SOURCE_NAME + 16;
@@ -131,19 +128,6 @@ mod tests {
 	/// After the two flags at `PLAYING`, the `MAX_PATH` characters of the file
 	/// name, then padding to the next string.
 	const SOURCE_NAME: usize = 464;
-
-	fn ambient_field(
-		name: &'static CStr,
-		field_type: sys::fieldtype_t,
-		offset: usize,
-	) -> sys::typedescription_t {
-		let mut field = field();
-
-		field.fieldType = field_type;
-		field.fieldName = name.as_ptr();
-		field.fieldOffset[0] = c_int::try_from(offset).unwrap();
-		field
-	}
 
 	/// The layout's refusals are tested in `sdk_raw::ambient_sounds`; this
 	/// checks that the fields are reached through it.
@@ -210,15 +194,15 @@ mod tests {
 		let ambient = data_map(
 			c"CAmbientGeneric",
 			vec![
-				ambient_field(c"m_iszSound", sys::_fieldtypes_FIELD_SOUNDNAME, SOUND),
-				ambient_field(c"m_radius", sys::_fieldtypes_FIELD_FLOAT, PLAYING - 120),
-				ambient_field(
+				field(c"m_iszSound", sys::_fieldtypes_FIELD_SOUNDNAME, SOUND),
+				field(c"m_radius", sys::_fieldtypes_FIELD_FLOAT, PLAYING - 120),
+				field(
 					c"m_sSourceEntName",
 					sys::_fieldtypes_FIELD_STRING,
 					SOURCE_NAME,
 				),
-				ambient_field(c"m_fActive", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING),
-				ambient_field(c"m_fLooping", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING + 1),
+				field(c"m_fActive", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING),
+				field(c"m_fLooping", sys::_fieldtypes_FIELD_BOOLEAN, PLAYING + 1),
 			],
 			base,
 		);

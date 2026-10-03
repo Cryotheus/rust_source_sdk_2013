@@ -261,10 +261,8 @@ pub fn set_player_soundscape<'s>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	use crate::entities::test_support::{
-		MockEntity, base_entity_fields, data_map, field, set_datamap,
-	};
+	use crate::test_support::entities::{MockEntity, base_entity_fields, set_datamap};
+	use sdk_raw::test_support::entities::{data_map, field};
 
 	const NAME: usize = 200;
 
@@ -319,37 +317,24 @@ mod tests {
 		let soundscape = data_map(
 			c"CEnvSoundscape",
 			vec![
-				soundscape_field(c"m_flRadius", sys::_fieldtypes_FIELD_FLOAT, NAME - 8),
-				soundscape_field(c"m_soundscapeName", sys::_fieldtypes_FIELD_STRING, NAME),
-				soundscape_field(
+				field(c"m_flRadius", sys::_fieldtypes_FIELD_FLOAT, NAME - 8),
+				field(c"m_soundscapeName", sys::_fieldtypes_FIELD_STRING, NAME),
+				field(
 					c"m_hProxySoundscape",
 					sys::_fieldtypes_FIELD_EHANDLE,
 					NAME + 80,
 				),
-				soundscape_field(
+				field(
 					c"m_positionNames[0]",
 					sys::_fieldtypes_FIELD_STRING,
 					NAME + 16,
 				),
-				soundscape_field(c"m_bDisabled", sys::_fieldtypes_FIELD_BOOLEAN, NAME + 84),
+				field(c"m_bDisabled", sys::_fieldtypes_FIELD_BOOLEAN, NAME + 84),
 			],
 			base,
 		);
 
 		set_datamap(soundscape);
-	}
-
-	fn soundscape_field(
-		name: &'static CStr,
-		field_type: sys::fieldtype_t,
-		offset: usize,
-	) -> sys::typedescription_t {
-		let mut field = field();
-
-		field.fieldType = field_type;
-		field.fieldName = name.as_ptr();
-		field.fieldOffset[0] = c_int::try_from(offset).unwrap();
-		field
 	}
 
 	#[test]

@@ -582,6 +582,30 @@ pub fn hook_target(server: Server<'_>) -> Result<HookTarget, HookTargetError> {
 	})
 }
 
+/// A message of `kind` from `client`, as [`route_incoming`] passes one.
+///
+/// A test seam: the message's fields are private, so the shared test
+/// support cannot build one.
+///
+/// # Safety
+///
+/// `raw` must answer every virtual call the test makes, and stay alive for
+/// `'s`, as the test support's mock messages do.
+#[cfg(test)]
+pub(crate) const unsafe fn mock_incoming_message<'s>(
+	kind: IncomingKind,
+	raw: NonNull<sys::INetMessage>,
+	client: GameClient<'s>,
+) -> IncomingMessage<'s> {
+	IncomingMessage {
+		kind,
+		raw,
+		client,
+		_scope: PhantomData,
+		_not_thread_safe: PhantomData,
+	}
+}
+
 /// Passes a message to `handler`, returning what it decided.
 ///
 /// # Safety
@@ -626,113 +650,6 @@ pub unsafe fn route_incoming(
 
 	catch_unwind(AssertUnwindSafe(|| handler.incoming(server, message)))
 		.unwrap_or(Verdict::Continue)
-}
-
-#[cfg(test)]
-pub(crate) mod test_support {
-	use super::*;
-	use sdk_raw::net::incoming::{RespondCvarValueFields, SMALLEST_MESSAGE_BASE};
-	use sdk_raw::test_support::{mock_vtable, unexpected_call};
-	use sdk_raw::util::cstr::buffer_from_cstr;
-	use std::ffi::CStr;
-	use std::ptr::null_mut;
-
-	/// The size of `CNetMessage` in mock messages. Every mock that decodes
-	/// shares it, since the first message decoded fixes the size the engine's
-	/// messages are read with for the process.
-	const BASE: usize = SMALLEST_MESSAGE_BASE;
-
-	unsafe extern "C" fn get_size(this: *const sys::INetMessage) -> usize {
-		// SAFETY: Every mock message is at least `BASE` bytes, and keeps its
-		// reported size in `CNetMessage`'s fields, after its vtable pointer.
-		unsafe { this.add(1).cast::<usize>().read() }
-	}
-
-	/// A message of `kind` from `client`, as [`route_incoming`] passes one.
-	///
-	/// # Safety
-	///
-	/// `raw` must answer every virtual call the test makes, and stay alive
-	/// for `'s`, as this module's mocks do.
-	pub(crate) const unsafe fn message<'s>(
-		kind: IncomingKind,
-		raw: NonNull<sys::INetMessage>,
-		client: GameClient<'s>,
-	) -> IncomingMessage<'s> {
-		IncomingMessage {
-			kind,
-			raw,
-			client,
-			_scope: PhantomData,
-			_not_thread_safe: PhantomData,
-		}
-	}
-
-	/// A leaked, zeroed message object of `size` bytes, aligned for pointers,
-	/// which reports that size and answers no other virtual call.
-	fn mock_message(size: usize) -> NonNull<sys::INetMessage> {
-		assert!(size >= BASE);
-
-		// SAFETY: The vtable holds only function pointers, `unexpected_call`
-		// aborts whichever slot reaches it, and the patch only writes a slot
-		// of the vtable being built.
-		let vtable = Box::leak(unsafe {
-			mock_vtable::<sys::INetMessage__bindgen_vtable>(
-				unexpected_call as *const (),
-				|vtable| {
-					(&raw mut (*vtable).INetMessage_GetSize).write(get_size);
-				},
-			)
-		});
-		let object = Box::leak(vec![0_u64; size.div_ceil(8)].into_boxed_slice());
-		let this = object.as_mut_ptr().cast::<sys::INetMessage>();
-
-		// SAFETY: The object is at least `BASE` bytes and aligned for pointers,
-		// so the vtable pointer and the size fit before its fields.
-		unsafe {
-			this.write(sys::INetMessage { vtable_: vtable });
-			this.add(1).cast::<usize>().write(size);
-		}
-
-		NonNull::new(this).unwrap()
-	}
-
-	/// A `clc_RespondCvarValue` laid out as [`IncomingMessage::decode`]
-	/// expects, answering the query carrying `cookie`.
-	pub(crate) fn respond_cvar_value(
-		cookie: c_int,
-		status: c_int,
-		name: &CStr,
-		value: &CStr,
-	) -> NonNull<sys::INetMessage> {
-		let message = mock_message(BASE + size_of::<RespondCvarValueFields>());
-		let fields = message
-			.as_ptr()
-			.wrapping_byte_add(BASE)
-			.cast::<RespondCvarValueFields>();
-
-		// SAFETY: The object holds the fields past `BASE`, aligned for them.
-		// The engine points the name and value at their buffers.
-		unsafe {
-			fields.write(RespondCvarValueFields {
-				handler: null_mut(),
-				cookie,
-				name: (&raw const (*fields).name_buffer).cast(),
-				value: (&raw const (*fields).value_buffer).cast(),
-				status,
-				name_buffer: buffer_from_cstr(name).expect("the name fits"),
-				value_buffer: buffer_from_cstr(value).expect("the value fits"),
-			});
-		}
-
-		message
-	}
-
-	/// A message whose reported size is too small for any kind's fields, as
-	/// an engine laid out otherwise might report, which nothing can decode.
-	pub(crate) fn unreadable() -> NonNull<sys::INetMessage> {
-		mock_message(BASE)
-	}
 }
 
 #[cfg(test)]

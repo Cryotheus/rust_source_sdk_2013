@@ -810,12 +810,15 @@ pub(crate) unsafe fn generate_item(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::InterfaceFactory;
-	use crate::entities::test_support::{base_entity_fields, data_map, field};
+	use crate::Module;
+	use crate::interfaces::ServerTools;
+	use crate::test_support::entities::{MOCK_EFLAGS_OFFSET, base_entity_fields};
+	use crate::test_support::server::{export, mock_server};
 	use crate::tf2::attributes::{Multiplier, catalog, trust_shipped_schema};
+	use sdk_raw::test_support::entities::{data_map, field};
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
-	use std::ffi::{c_char, c_void};
+	use std::ffi::c_char;
 	use std::mem::{offset_of, size_of};
 	use std::ptr::null_mut;
 
@@ -850,7 +853,6 @@ mod tests {
 	}
 
 	thread_local! {
-		static TOOLS: Cell<*mut c_void> = const { Cell::new(null_mut()) };
 		static GIVE_RESULT: Cell<*mut sys::CBaseEntity> = const { Cell::new(null_mut()) };
 		static INVENTORY_FULL: Cell<bool> = const { Cell::new(false) };
 		static REJECT_DETACH: Cell<bool> = const { Cell::new(false) };
@@ -902,14 +904,6 @@ mod tests {
 			}
 			(*weapon.cast::<FakeEntity>()).owner = (*player).handle;
 			(*weapon.cast::<FakeEntity>()).owner_entity = (*player).handle;
-		}
-	}
-
-	unsafe extern "C" fn factory(name: *const c_char, _: *mut i32) -> *mut c_void {
-		if unsafe { CStr::from_ptr(name) } == c"VSERVERTOOLS003" {
-			TOOLS.get()
-		} else {
-			null_mut()
 		}
 	}
 
@@ -1003,11 +997,10 @@ mod tests {
 		let mut tools = sys::IServerTools {
 			vtable_: &*tools_vtable,
 		};
-		TOOLS.set((&raw mut tools).cast());
+		export(Module::GameServer, ServerTools::VERSION, &raw mut tools);
 		GIVE_RESULT.set(null_mut());
 		let scope = ();
-		let factory = InterfaceFactory::new(factory);
-		let server = unsafe { Server::new(factory, factory, Game::TeamFortress2, &scope) };
+		let server = mock_server(&scope);
 		let entity = unsafe { Entity::from_raw(NonNull::from(&mut player).cast()) };
 		let inventory = PlayerWeapons::new(server, entity).unwrap();
 		let weapon = inventory.get_slot(WeaponSlot::Melee).unwrap().unwrap();
@@ -1322,7 +1315,6 @@ mod tests {
 		assert_eq!(given.entity().as_ptr(), fresh_ptr.as_ptr());
 		assert_eq!(player.weapon, fresh_ptr.as_ptr());
 		assert_eq!(fresh.flags, 0);
-		TOOLS.set(null_mut());
 		GIVE_RESULT.set(null_mut());
 		NETWORKABLE.set(null_mut());
 	}
@@ -1367,10 +1359,7 @@ mod tests {
 
 	#[test]
 	fn native_inventory_slots_use_validated_classes_and_refuse_deleted_entities() {
-		assert_eq!(
-			std::mem::offset_of!(FakeEntity, flags),
-			crate::entities::test_support::MOCK_EFLAGS_OFFSET
-		);
+		assert_eq!(std::mem::offset_of!(FakeEntity, flags), MOCK_EFLAGS_OFFSET);
 		let base = data_map(c"CBaseEntity", Vec::from(base_entity_fields()), null_mut());
 		let player_map = data_map(c"CTFPlayer", vec![], base);
 		let weapon_map = weapon_map(base);
@@ -1408,8 +1397,7 @@ mod tests {
 			equip_calls: 0,
 		};
 		let scope = ();
-		let factory = InterfaceFactory::new(factory);
-		let server = unsafe { Server::new(factory, factory, Game::TeamFortress2, &scope) };
+		let server = mock_server(&scope);
 		let entity = unsafe { Entity::from_raw(NonNull::from(&mut player).cast()) };
 		let inventory = PlayerWeapons::new(server, entity).unwrap();
 		let found = inventory.get_slot(WeaponSlot::Melee).unwrap().unwrap();
@@ -1448,10 +1436,11 @@ mod tests {
 	}
 
 	fn weapon_map(base: *mut sys::datamap_t) -> *mut sys::datamap_t {
-		let mut owner = field();
-		owner.fieldName = c"m_hOwner".as_ptr();
-		owner.fieldType = sys::_fieldtypes_FIELD_EHANDLE;
-		owner.fieldOffset[0] = offset_of!(FakeEntity, owner) as i32;
+		let mut owner = field(
+			c"m_hOwner",
+			sys::_fieldtypes_FIELD_EHANDLE,
+			offset_of!(FakeEntity, owner),
+		);
 		owner.fieldSize = 1;
 		owner.fieldSizeInBytes = 4;
 		let combat = data_map(c"CBaseCombatWeapon", vec![owner], base);

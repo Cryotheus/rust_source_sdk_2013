@@ -589,10 +589,11 @@ fn finite_vector(vector: Option<Vector>) -> Result<Option<sys::Vector>, SoundErr
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::edicts::test_support::mock_edict;
-	use crate::entities::test_support::{MockEntity, set_networking};
-	use crate::user_messages::test_support::recipients;
+	use crate::test_support::entities::{MockEntity, set_networking};
+	use crate::test_support::leak;
+	use crate::test_support::user_messages::recipients;
 	use sdk_raw::interfaces::engine_sound::{CHAN_REPLACE, CHAN_USER_BASE, CHAN_VOICE_BASE};
+	use sdk_raw::test_support::edicts::mock_edict;
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char};
@@ -696,7 +697,7 @@ mod tests {
 
 	/// A leaked edict at `index`, for mock entities to report.
 	fn edict(index: c_int) -> *mut sys::edict_t {
-		Box::into_raw(Box::new(mock_edict(index, false)))
+		leak(mock_edict(index, false))
 	}
 
 	#[test]

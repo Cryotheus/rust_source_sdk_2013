@@ -467,15 +467,17 @@ pub(crate) fn to_variant(
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	use crate::entities::test_support::{
-		MOCK_NAME_OFFSET, MockEntity, ReceivedInput, base_entity_fields, data_map as map, field,
-		leak, set_accepts, set_datamap, take_inputs,
-	};
-
 	use crate::interfaces::ServerTools;
 	use crate::server::Game;
+
+	use crate::test_support::entities::{
+		MOCK_NAME_OFFSET, MockEntity, ReceivedInput, base_entity_fields, set_accepts, set_datamap,
+		take_inputs,
+	};
+
+	use crate::test_support::leak;
 	use sdk_raw::entities::datamap::FTYPEDESC_KEY;
+	use sdk_raw::test_support::entities::data_map as map;
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char};
@@ -597,7 +599,8 @@ mod tests {
 	}
 
 	fn input(name: &'static CStr, field_type: sys::fieldtype_t) -> sys::typedescription_t {
-		let mut input = field();
+		// SAFETY: Zero is valid for every field of `typedescription_t`.
+		let mut input: sys::typedescription_t = unsafe { std::mem::zeroed() };
 
 		input.fieldType = field_type;
 		input.externalName = name.as_ptr();
@@ -831,7 +834,8 @@ mod tests {
 		let mut base_fields = base_entity_fields().to_vec();
 
 		// A key the map sets, which is not an input.
-		let mut key = field();
+		// SAFETY: Zero is valid for every field of `typedescription_t`.
+		let mut key: sys::typedescription_t = unsafe { std::mem::zeroed() };
 
 		key.fieldType = STRING;
 		key.externalName = c"targetname".as_ptr();

@@ -427,72 +427,9 @@ fn tier0_print(message: &CStr) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-	use super::*;
-	use std::cell::RefCell;
-	use std::ffi::{c_char, c_int, c_void};
-
-	thread_local! {
-		static INTERFACES: RefCell<Vec<(Module, CString, *mut c_void)>> = const { RefCell::new(Vec::new()) };
-	}
-
-	unsafe extern "C" fn engine_factory(
-		name: *const c_char,
-		_return_code: *mut c_int,
-	) -> *mut c_void {
-		find(Module::Engine, name)
-	}
-
-	/// Makes the mock factories of [`mock_server`] export an interface.
-	pub(crate) fn export<T>(module: Module, version: &CStr, interface: *mut T) {
-		INTERFACES.with_borrow_mut(|interfaces| {
-			interfaces.push((module, version.to_owned(), interface.cast()));
-		});
-	}
-
-	/// The interface [`export`] registered for `module` under `name`, or null.
-	fn find(module: Module, name: *const c_char) -> *mut c_void {
-		// SAFETY: Factories are called with NUL-terminated names.
-		let name = unsafe { CStr::from_ptr(name) };
-
-		INTERFACES.with_borrow(|interfaces| {
-			interfaces
-				.iter()
-				.find(|(owner, version, _)| *owner == module && version.as_c_str() == name)
-				.map_or(std::ptr::null_mut(), |&(_, _, interface)| interface)
-		})
-	}
-
-	unsafe extern "C" fn game_server_factory(
-		name: *const c_char,
-		_return_code: *mut c_int,
-	) -> *mut c_void {
-		find(Module::GameServer, name)
-	}
-
-	/// A binding to the factories of [`mock_server`].
-	pub(crate) fn mock_binding() -> ServerBinding {
-		// SAFETY: Tests only export objects that outlive their use of the binding.
-		unsafe {
-			ServerBinding::new(
-				InterfaceFactory::new(engine_factory),
-				InterfaceFactory::new(game_server_factory),
-				Game::TeamFortress2,
-			)
-		}
-	}
-
-	/// A server whose factories export only what [`export`] registered on this thread.
-	pub(crate) fn mock_server<S: ?Sized>(scope: &S) -> Server<'_> {
-		// SAFETY: Tests only export objects that outlive the scope they pass.
-		unsafe { mock_binding().server(scope) }
-	}
-}
-
-#[cfg(test)]
 mod tests {
-	use super::test_support::{export, mock_server};
 	use super::*;
+	use crate::test_support::server::{export, mock_server};
 
 	#[test]
 	fn interfaces_resolve_by_exact_version_from_their_own_module() {

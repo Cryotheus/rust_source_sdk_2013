@@ -146,41 +146,22 @@ impl<'s> Edict<'s> {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-	use super::*;
-	use std::ptr::null_mut;
-
-	/// Builds an edict as the engine lays out slot `index` of its table.
-	pub(crate) fn mock_edict(index: c_int, free: bool) -> sys::edict_t {
-		sys::edict_t {
-			_base: sys::CBaseEdict {
-				m_fStateFlags: if free { FL_EDICT_FREE } else { 0 },
-				m_NetworkSerialNumber: 0,
-				m_EdictIndex: index.try_into().unwrap(),
-				m_pNetworkable: null_mut(),
-				m_pUnk: null_mut(),
-			},
-			freetime: 0.0,
-		}
-	}
-}
-
-#[cfg(test)]
 mod tests {
-	use super::test_support::mock_edict;
 	use super::*;
+
+	use crate::test_support::edicts::{
+		change_accessor, edict_table, set_change_accessor, set_shared_change_info,
+		shared_change_info,
+	};
+
 	use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
+	use sdk_raw::test_support::edicts::mock_edict;
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
-	use std::cell::Cell;
 	use std::ptr::null_mut;
 
 	#[test]
 	fn reads_the_cached_index_and_free_flag() {
-		let mut table = [
-			mock_edict(0, false),
-			mock_edict(1, true),
-			mock_edict(2, false),
-		];
+		let mut table = edict_table(3, |slot| slot == 1);
 		let base = table.as_mut_ptr();
 		let edict = |slot: usize| unsafe { Edict::from_raw(NonNull::new(base.add(slot)).unwrap()) };
 
@@ -193,24 +174,6 @@ mod tests {
 		assert_eq!(edict(2).as_ptr(), unsafe { base.add(2) });
 		assert_eq!(edict(1).entity(), None);
 		assert_eq!(edict(0).class_name(), None);
-	}
-
-	thread_local! {
-		static ACCESSOR: Cell<*mut sys::IChangeInfoAccessor> = const { Cell::new(null_mut()) };
-		static SHARED: Cell<*mut sys::CSharedEdictChangeInfo> = const { Cell::new(null_mut()) };
-	}
-
-	unsafe extern "C" fn change_accessor(
-		_: *mut sys::IVEngineServer,
-		_: *const sys::edict_t,
-	) -> *mut sys::IChangeInfoAccessor {
-		ACCESSOR.get()
-	}
-
-	unsafe extern "C" fn shared_change_info(
-		_: *mut sys::IVEngineServer,
-	) -> *mut sys::CSharedEdictChangeInfo {
-		SHARED.get()
 	}
 
 	/// The algorithm itself is tested in `sdk_raw::edicts`; this checks that
@@ -240,8 +203,8 @@ mod tests {
 
 		shared.m_iSerialNumber = 7;
 		shared.m_nChangeInfos = 3;
-		ACCESSOR.set(&raw mut accessor);
-		SHARED.set(&raw mut *shared);
+		set_change_accessor(&raw mut accessor);
+		set_shared_change_info(&raw mut *shared);
 
 		let mut slot = mock_edict(4, false);
 		let edict = unsafe { Edict::from_raw(NonNull::from(&mut slot)) };
@@ -272,8 +235,8 @@ mod tests {
 		assert_eq!(accessor.m_iChangeInfoSerialNumber, 0);
 
 		// Without the engine's change tracking, every change is a full one.
-		ACCESSOR.set(null_mut());
-		SHARED.set(null_mut());
+		set_change_accessor(null_mut());
+		set_shared_change_info(null_mut());
 
 		let mut slot = mock_edict(5, false);
 		let edict = unsafe { Edict::from_raw(NonNull::from(&mut slot)) };

@@ -1,21 +1,20 @@
 use super::*;
 use crate::datatables::PropFlags;
 
-use crate::datatables::test_support::{
-	custom_proxy, direct_table, int16_proxy, int32_proxy, pointer_table, prop, proxies, table,
-	table_prop,
+use crate::test_support::datatables::{
+	custom_proxy, direct_table, int16_proxy, int32_proxy, pointer_table, prop, table, table_prop,
 };
 
-use crate::entities::test_support::{
-	MOCK_EFLAGS_OFFSET, base_entity_fields, data_map, field, leak,
-};
-
-use crate::server::test_support::{export, mock_server};
+use crate::test_support::entities::{MOCK_EFLAGS_OFFSET, base_entity_fields};
+use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
+use crate::test_support::leak;
+use crate::test_support::server::{mock_server, null_server};
+use crate::test_support::tf2::script_binding::{class_description, member_binding};
 use crate::tf2::weapons::{Weapon, WeaponError};
-use crate::{InterfaceFactory, Module};
 use sdk_raw::datatables::SendPropExtraUtlVector;
+use sdk_raw::test_support::entities::{data_map, field};
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
-use sdk_raw::tf2::script_binding::SF_MEMBER_FUNC;
+use sdk_raw::tf2::script_binding::STRING;
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, c_int, c_void};
 use std::mem::{offset_of, size_of, zeroed};
@@ -65,7 +64,6 @@ thread_local! {
 	static IGNORE_REMOVE: Cell<bool> = const { Cell::new(false) };
 	/// Calls of the containers' `OnAttributeValuesChanged`.
 	static NOTIFIES: Cell<usize> = const { Cell::new(0) };
-	static PROXIES: Cell<*mut sys::CStandardSendProxies> = const { Cell::new(null_mut()) };
 	/// The running schema's attribute names and indices.
 	static SCHEMA: RefCell<Vec<(&'static CStr, u16)>> = const { RefCell::new(Vec::new()) };
 	/// Added to every value native `AddAttribute` stores.
@@ -613,29 +611,9 @@ unsafe fn entries(list: *mut sys::CAttributeList) -> Vec<(u16, f32)> {
 /// Exports a game DLL whose standard send proxies the mock tables use, once
 /// per thread.
 fn export_game_dll() {
-	unsafe extern "C" fn standard_send_proxies(
-		_: *mut sys::IServerGameDLL,
-	) -> *mut sys::CStandardSendProxies {
-		PROXIES.get()
+	if !EXPORTED.replace(true) {
+		export_standard_proxies();
 	}
-
-	if EXPORTED.replace(true) {
-		return;
-	}
-
-	PROXIES.set(leak(proxies(null_mut())));
-
-	let vtable = Box::leak(unsafe {
-		mock_vtable::<sys::IServerGameDLL__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).IServerGameDLL_GetStandardSendProxies).write(standard_send_proxies);
-		})
-	});
-
-	export(
-		Module::GameServer,
-		c"ServerGameDLL012",
-		leak(sys::IServerGameDLL { vtable_: vtable }),
-	);
 }
 
 unsafe extern "C" fn handle(entity: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
@@ -745,8 +723,7 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 	assert_eq!(attributes.runtime(), Err(AttributeError::UnsupportedLayout));
 	item.clear();
 
-	let factory = InterfaceFactory::new(no_interfaces);
-	let other_game = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
+	let other_game = null_server(Game::SourceSdk2013, &scope);
 
 	assert_eq!(
 		ItemAttributes::new(other_game, item.entity()).err(),
@@ -754,7 +731,7 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 	);
 
 	// Without the game DLL's interface, the layout cannot be checked.
-	let bare = unsafe { Server::new(factory, factory, Game::TeamFortress2, &scope) };
+	let bare = null_server(Game::TeamFortress2, &scope);
 
 	assert_eq!(
 		ItemAttributes::new(bare, item.entity()).err(),
@@ -788,10 +765,6 @@ unsafe extern "C" fn networkable(entity: *mut sys::IServerUnknown) -> *mut sys::
 			.add(NETWORKABLE_WORD)
 			.read()
 	}
-}
-
-unsafe extern "C" fn no_interfaces(_: *const c_char, _: *mut c_int) -> *mut c_void {
-	null_mut()
 }
 
 unsafe extern "C" fn notify(_: *mut sys::CAttributeContainer) {
@@ -853,29 +826,23 @@ fn player_attributes_dispatch_typed_methods_and_reject_invalid_values() {
 		c"RemoveCustomAttribute",
 	];
 	let mut parameters = [
-		vec![binding::STRING, binding::FLOAT],
-		vec![binding::STRING, binding::FLOAT, binding::FLOAT],
-		vec![binding::STRING],
+		vec![STRING, binding::FLOAT],
+		vec![STRING, binding::FLOAT, binding::FLOAT],
+		vec![STRING],
 	];
-	let mut functions: [sys::ScriptFunctionBinding_t; 3] = unsafe { zeroed() };
-
-	for (i, function) in functions.iter_mut().enumerate() {
-		function.m_desc.m_pszScriptName = names[i].as_ptr();
-		function.m_desc.m_ReturnType = if i == 0 {
+	let mut functions = [0, 1, 2].map(|i| {
+		let returns = if i == 0 {
 			binding::FLOAT
 		} else {
 			binding::VOID
 		};
-		function.m_desc.m_Parameters = vector(&mut parameters[i]);
-		function.m_flags = SF_MEMBER_FUNC;
-		function.m_pfnBinding = Some(player_adapter);
+		let mut function =
+			member_binding(names[i], returns, &mut parameters[i], Some(player_adapter));
+
 		function.m_pFunction.val_0 = i as isize;
-	}
-
-	let mut description: sys::ScriptClassDesc_t = unsafe { zeroed() };
-
-	description.m_pszClassname = c"CTFPlayer".as_ptr();
-	description.m_FunctionBindings = vector(&mut functions);
+		function
+	});
+	let mut description = class_description(c"CTFPlayer", &mut functions, null_mut());
 
 	let base = data_map(c"CBaseEntity", Vec::from(base_entity_fields()), null_mut());
 	let map = data_map(c"CTFPlayer", vec![], base);
@@ -1185,31 +1152,27 @@ fn script_description() -> *mut sys::ScriptClassDesc_t {
 		c"ReapplyProvision",
 	];
 	let parameters = [
-		vec![binding::STRING, binding::FLOAT, binding::FLOAT],
-		vec![binding::STRING],
-		vec![binding::STRING, binding::FLOAT],
+		vec![STRING, binding::FLOAT, binding::FLOAT],
+		vec![STRING],
+		vec![STRING, binding::FLOAT],
 		vec![],
 	];
 	let returns = [binding::VOID, binding::VOID, binding::FLOAT, binding::VOID];
 	let functions = (0..names.len())
 		.map(|i| {
-			let mut function: sys::ScriptFunctionBinding_t = unsafe { zeroed() };
+			let parameters = parameters[i].clone().leak();
+			let mut function = member_binding(names[i], returns[i], parameters, Some(adapter));
 
-			function.m_desc.m_pszScriptName = names[i].as_ptr();
-			function.m_desc.m_ReturnType = returns[i];
-			function.m_desc.m_Parameters = vector(parameters[i].clone().leak());
-			function.m_flags = SF_MEMBER_FUNC;
-			function.m_pfnBinding = Some(adapter);
 			function.m_pFunction.val_0 = i as isize;
 			function
 		})
 		.collect::<Vec<_>>();
 
-	let mut description: sys::ScriptClassDesc_t = unsafe { zeroed() };
-
-	description.m_pszClassname = c"CEconEntity".as_ptr();
-	description.m_FunctionBindings = vector(functions.leak());
-	leak(description)
+	leak(class_description(
+		c"CEconEntity",
+		functions.leak(),
+		null_mut(),
+	))
 }
 
 /// Leaks the send table of a mock item class laid out as `spec` says.
@@ -1464,32 +1427,10 @@ fn unexpected_list_changes_are_reported_and_left_alone() {
 	DISTURB.set(None);
 }
 
-/// A vector over `values`, which must stay in place while it is used.
-fn vector<T>(values: &mut [T]) -> sys::CUtlVector<T, sys::CUtlMemory<T>> {
-	let len = c_int::try_from(values.len()).unwrap();
-	let elements = values.as_mut_ptr();
-
-	sys::CUtlVector {
-		_phantom_0: Default::default(),
-		_phantom_1: Default::default(),
-		m_Memory: sys::CUtlMemory {
-			_phantom_0: Default::default(),
-			m_pMemory: elements,
-			m_nAllocationCount: len,
-			m_nGrowSize: 0,
-		},
-		m_Size: len,
-		m_pElements: elements,
-	}
-}
-
 /// A datamap chain declaring a TF2 weapon with an `m_hOwner`.
 fn weapon_map() -> *mut sys::datamap_t {
-	let mut owner = field();
+	let mut owner = field(c"m_hOwner", sys::_fieldtypes_FIELD_EHANDLE, OWNER_OFFSET);
 
-	owner.fieldName = c"m_hOwner".as_ptr();
-	owner.fieldType = sys::_fieldtypes_FIELD_EHANDLE;
-	owner.fieldOffset[0] = c_int::try_from(OWNER_OFFSET).unwrap();
 	owner.fieldSize = 1;
 	owner.fieldSizeInBytes = 4;
 
@@ -1520,11 +1461,7 @@ fn weapons_reach_their_item_attributes() {
 		.unwrap();
 	assert_eq!(item.entries(), [(2, 2.0)]);
 
-	let mut owner = field();
-
-	owner.fieldName = c"m_hOwner".as_ptr();
-	owner.fieldType = sys::_fieldtypes_FIELD_EHANDLE;
-	owner.fieldOffset[0] = c_int::try_from(OWNER_OFFSET).unwrap();
+	let owner = field(c"m_hOwner", sys::_fieldtypes_FIELD_EHANDLE, OWNER_OFFSET);
 
 	let base = data_map(c"CBaseEntity", Vec::from(base_entity_fields()), null_mut());
 	let combat = data_map(c"CBaseCombatWeapon", vec![owner], base);
@@ -1580,8 +1517,7 @@ fn weapons_reach_their_item_attributes() {
 		Err(WeaponError::UnsupportedLayout)
 	));
 
-	let factory = InterfaceFactory::new(no_interfaces);
-	let bare = unsafe { Server::new(factory, factory, Game::TeamFortress2, &scope) };
+	let bare = null_server(Game::TeamFortress2, &scope);
 
 	assert!(matches!(
 		Weapon::new(bare, item.entity()).unwrap().definition(),

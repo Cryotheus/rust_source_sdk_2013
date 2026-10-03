@@ -1047,19 +1047,24 @@ mod tests {
 	use super::*;
 	use crate::Module;
 	use crate::datatables::PropFlags;
+	use crate::interfaces::{PlayerInfoManager, ValveEngine};
 
-	use crate::datatables::test_support::{
-		direct_table, int8_proxy, int16_proxy, pointer_table, prop, proxies, table, table_prop,
+	use crate::test_support::datatables::{
+		direct_table, int8_proxy, int16_proxy, pointer_table, prop, table, table_prop,
 	};
 
-	use crate::edicts::test_support::mock_edict;
-	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, data_map, field, leak};
-	use crate::interfaces::{PlayerInfoManager, ServerGameDll, ValveEngine};
-	use crate::server::test_support::{export, mock_server};
+	use crate::test_support::edicts::{change_accessor, shared_change_info};
+	use crate::test_support::entities::MOCK_EFLAGS_OFFSET;
+	use crate::test_support::interfaces::player_info_manager::{global_vars, serve_global_vars};
+	use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
+	use crate::test_support::leak;
+	use crate::test_support::server::{export, mock_server};
+	use sdk_raw::test_support::edicts::mock_edict;
+	use sdk_raw::test_support::entities::{data_map, field};
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{c_char, c_void};
-	use std::mem::{MaybeUninit, offset_of};
+	use std::mem::offset_of;
 	use std::ptr::null_mut;
 
 	const EQUIP: usize =
@@ -1105,12 +1110,10 @@ mod tests {
 		static ENTITY_LIST: Cell<*mut sys::CGlobalEntityList> = const { Cell::new(null_mut()) };
 		/// What `EquipWearable` makes wearables follow instead of the player.
 		static FOLLOW: Cell<Option<u32>> = const { Cell::new(None) };
-		static GLOBALS: Cell<*mut sys::CGlobalVars> = const { Cell::new(null_mut()) };
 		/// Makes `RemoveWearable` leave the list alone, as if another plugin
 		/// intercepted it.
 		static IGNORE_REMOVE: Cell<bool> = const { Cell::new(false) };
 		static PLAYER_INFO: Cell<*mut sys::IPlayerInfo> = const { Cell::new(null_mut()) };
-		static PROXIES: Cell<*mut sys::CStandardSendProxies> = const { Cell::new(null_mut()) };
 		/// Makes `EquipWearable` emulate `CanEquip` refusing the wearable.
 		static REFUSE_EQUIP: Cell<bool> = const { Cell::new(false) };
 		static TEAM: Cell<c_int> = const { Cell::new(FIRST_GAME_TEAM) };
@@ -1308,12 +1311,7 @@ mod tests {
 
 		/// Exports the engine and game interfaces the module uses.
 		fn export_interfaces() {
-			PROXIES.set(leak(proxies(null_mut())));
-
-			let globals =
-				leak(MaybeUninit::<sys::CGlobalVars>::zeroed()).cast::<sys::CGlobalVars>();
-			unsafe { (&raw mut (*globals)._base.maxClients).write(8) };
-			GLOBALS.set(globals);
+			serve_global_vars(8);
 
 			let info = Box::leak(unsafe {
 				mock_vtable::<sys::IPlayerInfo__bindgen_vtable>(
@@ -1341,20 +1339,7 @@ mod tests {
 				leak(sys::IPlayerInfoManager { vtable_: manager }),
 			);
 
-			let dll = Box::leak(unsafe {
-				mock_vtable::<sys::IServerGameDLL__bindgen_vtable>(
-					unexpected_call as *const (),
-					|vtable| {
-						(&raw mut (*vtable).IServerGameDLL_GetStandardSendProxies)
-							.write(standard_proxies);
-					},
-				)
-			});
-			export(
-				Module::GameServer,
-				ServerGameDll::VERSION,
-				leak(sys::IServerGameDLL { vtable_: dll }),
-			);
+			export_standard_proxies();
 
 			ENTITY_LIST.set(Box::leak(Box::<sys::CGlobalEntityList>::new_zeroed()).as_mut_ptr());
 
@@ -1458,13 +1443,6 @@ mod tests {
 				c"tf_wearable",
 			)
 		}
-	}
-
-	unsafe extern "C" fn change_accessor(
-		_: *mut sys::IVEngineServer,
-		_: *const sys::edict_t,
-	) -> *mut sys::IChangeInfoAccessor {
-		null_mut()
 	}
 
 	unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const c_char {
@@ -1679,11 +1657,12 @@ mod tests {
 
 	/// The `m_iEFlags` field of `CBaseEntity`'s datamap.
 	fn flags_field() -> sys::typedescription_t {
-		let mut flags = field();
+		let mut flags = field(
+			c"m_iEFlags",
+			sys::_fieldtypes_FIELD_INTEGER,
+			MOCK_EFLAGS_OFFSET,
+		);
 
-		flags.fieldType = sys::_fieldtypes_FIELD_INTEGER;
-		flags.fieldName = c"m_iEFlags".as_ptr();
-		flags.fieldOffset[0] = MOCK_EFLAGS_OFFSET as c_int;
 		flags.fieldSizeInBytes = size_of::<c_int>() as c_int;
 		flags
 	}
@@ -1794,21 +1773,14 @@ mod tests {
 		));
 	}
 
-	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
-		GLOBALS.get()
-	}
-
 	unsafe extern "C" fn handle(entity: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
 		unsafe { (&raw const (*entity.cast::<FakeEntity>()).handle).cast() }
 	}
 
 	/// An `EHANDLE` field of `CBaseEntity`'s datamap.
 	fn handle_field(name: &'static CStr, offset: usize) -> sys::typedescription_t {
-		let mut handle = field();
+		let mut handle = field(name, sys::_fieldtypes_FIELD_EHANDLE, offset);
 
-		handle.fieldType = sys::_fieldtypes_FIELD_EHANDLE;
-		handle.fieldName = name.as_ptr();
-		handle.fieldOffset[0] = offset as c_int;
 		handle.fieldSize = 1;
 		handle.fieldSizeInBytes = size_of::<u32>() as c_int;
 		handle
@@ -2145,18 +2117,6 @@ mod tests {
 
 	unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
 		unsafe { (*fake_of(this, offset_of!(FakeEntity, networkable))).class }
-	}
-
-	unsafe extern "C" fn shared_change_info(
-		_: *mut sys::IVEngineServer,
-	) -> *mut sys::CSharedEdictChangeInfo {
-		null_mut()
-	}
-
-	unsafe extern "C" fn standard_proxies(
-		_: *mut sys::IServerGameDLL,
-	) -> *mut sys::CStandardSendProxies {
-		PROXIES.get()
 	}
 
 	unsafe extern "C" fn team_index(_: *mut sys::IPlayerInfo) -> c_int {

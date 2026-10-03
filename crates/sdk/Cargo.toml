@@ -18,6 +18,8 @@ tf2 = ["sdk_raw/tf2"]
 ## Gives plugin-chosen wearables and weapon attributes again whenever TF2
 ## rebuilds a player's loadout, in the `tf2::loadout` module.
 tf2_loadout = ["tf2"]
+## Doc-hidden mock helpers for tests of this crate and of crates built on it.
+test-support = ["sdk_raw/test-support"]
 
 [dependencies]
 bitflags.workspace = true
@@ -29,6 +31,8 @@ thiserror.workspace = true
 
 [dev-dependencies]
 sdk_raw = { path = "../sdk_raw", version = "0.1.0-alpha.4", package = "source_sdk_2013_raw", features = ["test-support"] }
+# Gives this crate's own integration tests the `test-support` helpers.
+source_sdk_2013 = { path = ".", features = ["test-support"] }
 
 [package.metadata.docs.rs]
 all-features = true

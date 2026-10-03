@@ -440,27 +440,8 @@ impl<'s> Cvar<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sdk_raw::test_support::{mock_vtable, unexpected_call};
+	use crate::test_support::interfaces::cvar::{mock_command, mock_var};
 	use std::ptr::null_mut;
-
-	/// A registry whose `GetCommands` returns `head`.
-	#[repr(C)]
-	struct MockCvar {
-		interface: sys::ICvar,
-		head: *mut sys::ConCommandBase,
-	}
-
-	unsafe extern "C" fn get_commands(this: *mut sys::ICvar) -> *mut sys::ConCommandBase {
-		unsafe { (*this.cast::<MockCvar>()).head }
-	}
-
-	unsafe extern "C" fn is_command(_: *const sys::ConCommandBase) -> bool {
-		true
-	}
-
-	unsafe extern "C" fn is_variable(_: *const sys::ConCommandBase) -> bool {
-		false
-	}
 
 	#[test]
 	fn listing_ends_at_the_last_entry_or_the_limit() {
@@ -478,79 +459,12 @@ mod tests {
 		assert!(listed.all(|base| base.as_ptr() == looped));
 	}
 
-	/// A `ConCommandBase` whose `IsCommand` reports `kind`, linked to `next`.
-	fn mock_base(
-		name: &'static CStr,
-		kind: CommandBaseKind,
-		flags: CommandFlags,
-		next: *mut sys::ConCommandBase,
-	) -> sys::ConCommandBase {
-		let vtable = unsafe {
-			mock_vtable::<sys::ConCommandBase__bindgen_vtable>(
-				unexpected_call as *const (),
-				|vtable| {
-					(&raw mut (*vtable).ConCommandBase_IsCommand).write(match kind {
-						CommandBaseKind::Command => is_command,
-						CommandBaseKind::Variable => is_variable,
-					});
-				},
-			)
-		};
-
-		sys::ConCommandBase {
-			vtable_: Box::leak(vtable),
-			m_pNext: next,
-			m_bRegistered: true,
-			m_pszName: name.as_ptr(),
-			m_pszHelpString: c"".as_ptr(),
-			m_nFlags: flags.bits(),
-		}
-	}
-
-	fn mock_command(
-		name: &'static CStr,
-		next: *mut sys::ConCommandBase,
-	) -> *mut sys::ConCommandBase {
-		let base = mock_base(name, CommandBaseKind::Command, CommandFlags::NONE, next);
-
-		Box::into_raw(Box::new(base))
-	}
-
+	/// A registry listing from `head`, as the wrappers see it.
 	fn mock_cvar(head: *mut sys::ConCommandBase) -> Cvar<'static> {
-		let vtable = unsafe {
-			mock_vtable::<sys::ICvar__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-				(&raw mut (*vtable).ICvar_GetCommands).write(get_commands);
-			})
-		};
-		let cvar = Box::leak(Box::new(MockCvar {
-			interface: sys::ICvar {
-				vtable_: Box::leak(vtable),
-			},
-			head,
-		}));
+		let cvar = crate::test_support::interfaces::cvar::mock_cvar(head, Vec::new());
 
-		unsafe { Cvar::from_raw(NonNull::from(cvar).cast()) }
-	}
-
-	/// A variable that is its own parent, linked to `next`.
-	fn mock_var(
-		name: &'static CStr,
-		default: &'static CStr,
-		value: &'static CStr,
-		flags: CommandFlags,
-		next: *mut sys::ConCommandBase,
-	) -> *mut sys::ConVar {
-		// SAFETY: Zero is valid for every field of `ConVar`.
-		let var = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<sys::ConVar>() }));
-
-		unsafe {
-			(*var)._base = mock_base(name, CommandBaseKind::Variable, flags, next);
-			(*var).m_pParent = var;
-			(*var).m_pszDefaultValue = default.as_ptr();
-			(*var).m_pszString = value.as_ptr().cast_mut();
-		}
-
-		var
+		// SAFETY: The registry is leaked, and its vtable answers `GetCommands`.
+		unsafe { Cvar::from_raw(NonNull::new(cvar).unwrap()) }
 	}
 
 	#[test]

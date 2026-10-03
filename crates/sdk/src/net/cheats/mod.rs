@@ -119,9 +119,6 @@
 //! [`IncomingHandler`]: super::incoming::IncomingHandler
 
 #[cfg(test)]
-pub(crate) mod test_support;
-
-#[cfg(test)]
 mod tests;
 
 use crate::bitbuf::BitWriter;

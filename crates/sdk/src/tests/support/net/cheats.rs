@@ -6,16 +6,18 @@
 //! process. What tests change afterwards sits behind `Cell` or `RefCell`, so
 //! shared references to the objects never alias a mutation.
 
-use super::*;
+use super::super::interfaces::cvar::{mock_command, mock_cvar, mock_var};
+use super::super::server::{export, mock_server};
 use crate::bitbuf::BitWriter;
-use crate::interfaces::ValveEngine;
+use crate::commands::CommandFlags;
+use crate::interfaces::{Cvar, ValveEngine};
 use crate::net::MESSAGE_TYPE_BITS;
-use crate::server::Module;
-use crate::server::test_support::{export, mock_server};
+use crate::net::incoming::Incoming;
+use crate::server::{Module, Server};
 use sdk_raw::bitbuf::BfWrite;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
-use std::ffi::c_char;
+use std::ffi::{CStr, CString, c_int};
 use std::ptr::{NonNull, null_mut};
 
 #[repr(C)]
@@ -33,16 +35,9 @@ struct ClientObject {
 	spec: Cell<MockClient>,
 }
 
-#[repr(C)]
-struct CvarObject {
-	interface: sys::ICvar,
-	head: *mut sys::ConCommandBase,
-	vars: Vec<*mut sys::ConVar>,
-}
-
 /// A message a test decoded from what a channel was sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Decoded {
+pub enum Decoded {
 	/// `svc_GetCvarValue`: a cookie and a variable's name.
 	Query(c_int, CString),
 
@@ -61,19 +56,24 @@ struct EngineObject {
 
 /// One player slot of a [`MockEngine`]. A slot whose user ID is 0 is empty.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct MockClient {
-	pub(crate) user_id: c_int,
-	pub(crate) active: bool,
-	pub(crate) fake: bool,
-	pub(crate) hltv: bool,
-	pub(crate) loopback: bool,
+pub struct MockClient {
+	/// The client's user ID, or 0 for an empty slot.
+	pub user_id: c_int,
+	/// Whether the client is fully in the game.
+	pub active: bool,
+	/// Whether the client is a bot.
+	pub fake: bool,
+	/// Whether the client is SourceTV.
+	pub hltv: bool,
+	/// Whether the client's channel is the listen server's own.
+	pub loopback: bool,
 	/// Whether the client has no channel although it is a remote player.
-	pub(crate) no_channel: bool,
+	pub no_channel: bool,
 }
 
 impl MockClient {
 	/// A remote player, fully in the game.
-	pub(crate) const fn active(user_id: c_int) -> Self {
+	pub const fn active(user_id: c_int) -> Self {
 		Self {
 			user_id,
 			active: true,
@@ -85,10 +85,12 @@ impl MockClient {
 	}
 }
 
-/// An engine exported on the current thread, whose server has the clients
-/// it was made with, and whose registry has `sv_cheats` and the variables it
-/// was made with.
-pub(crate) struct MockEngine {
+/// An engine exported on the current thread, whose server has the clients it
+/// was made with, and whose registry has `sv_cheats` and the variables it was
+/// made with.
+///
+/// For tests only.
+pub struct MockEngine {
 	cheats: *mut sys::ConVar,
 	clients: Vec<*mut ClientObject>,
 }
@@ -96,7 +98,7 @@ pub(crate) struct MockEngine {
 impl MockEngine {
 	/// Exports the engine on this thread. `sv_cheats` is listed first in the
 	/// registry, then `vars`, and each variable is its own parent.
-	pub(crate) fn new(clients: &[MockClient], cheats: &'static CStr, vars: &[MockVar]) -> Self {
+	pub fn new(clients: &[MockClient], cheats: &'static CStr, vars: &[MockVar]) -> Self {
 		let mut next: *mut sys::ConCommandBase = null_mut();
 		let mut listed = Vec::new();
 
@@ -122,24 +124,11 @@ impl MockEngine {
 		unsafe { (*cheats_var).m_nValue = c_int::from(is_set(cheats)) };
 		listed.push(cheats_var);
 
+		let cvar = mock_cvar(cheats_var.cast(), listed);
+
 		// SAFETY: The vtable holds only function pointers, `unexpected_call`
 		// aborts whichever slot reaches it, and the patch only writes slots of
 		// the vtable being built.
-		let cvar_vtable = unsafe {
-			mock_vtable::<sys::ICvar__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-				(&raw mut (*vtable).ICvar_FindVar).write(find_var);
-				(&raw mut (*vtable).ICvar_GetCommands).write(get_commands);
-			})
-		};
-		let cvar = Box::into_raw(Box::new(CvarObject {
-			interface: sys::ICvar {
-				vtable_: Box::leak(cvar_vtable),
-			},
-			head: cheats_var.cast(),
-			vars: listed,
-		}));
-
-		// SAFETY: As for the registry's vtable.
 		let client_vtable: &'static _ = Box::leak(unsafe {
 			mock_vtable::<sys::IClient__bindgen_vtable>(unexpected_call as *const (), |vtable| {
 				(&raw mut (*vtable).IClient_GetNetChannel).write(get_net_channel);
@@ -150,7 +139,7 @@ impl MockEngine {
 				(&raw mut (*vtable).IClient_IsHLTV).write(is_hltv);
 			})
 		});
-		// SAFETY: As for the registry's vtable.
+		// SAFETY: As for the client's vtable.
 		let channel_vtable: &'static _ = Box::leak(unsafe {
 			mock_vtable::<sys::INetChannel__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -183,7 +172,7 @@ impl MockEngine {
 			})
 			.collect();
 
-		// SAFETY: As for the registry's vtable.
+		// SAFETY: As for the client's vtable.
 		let server_vtable = unsafe {
 			mock_vtable::<sys::IServer__bindgen_vtable>(unexpected_call as *const (), |vtable| {
 				(&raw mut (*vtable).IServer_GetClient).write(get_client);
@@ -197,7 +186,7 @@ impl MockEngine {
 			clients: clients.clone(),
 		}));
 
-		// SAFETY: As for the registry's vtable.
+		// SAFETY: As for the client's vtable.
 		let engine_vtable = unsafe {
 			mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -224,34 +213,35 @@ impl MockEngine {
 
 	/// The client in `slot`.
 	fn client(&self, slot: usize) -> &ClientObject {
-		// SAFETY: `new` leaked the client, and tests only change it through
-		// its `Cell`.
+		// SAFETY: `new` leaked the client, and tests only change it through its
+		// `Cell`.
 		unsafe { &*self.clients[slot] }
 	}
 
 	/// The client in `slot`, as the engine wrappers see it.
-	pub(crate) fn game_client(&self, slot: usize) -> GameClient<'_> {
+	#[cfg(test)]
+	pub(crate) fn game_client(&self, slot: usize) -> crate::interfaces::GameClient<'_> {
 		let client = NonNull::new(self.clients[slot].cast()).unwrap();
 
-		// SAFETY: `new` leaked the client, whose vtable answers every call
-		// the wrappers make of a lease's client, so it outlives the borrow.
-		unsafe { GameClient::from_raw(client) }
+		// SAFETY: `new` leaked the client, whose vtable answers every call the
+		// wrappers make of a lease's client, so it outlives the borrow.
+		unsafe { crate::interfaces::GameClient::from_raw(client) }
 	}
 
 	/// Makes `SendData` refuse data of more than `bits` bits for the client in
 	/// `slot`.
-	pub(crate) fn room(&self, slot: usize, bits: usize) {
+	pub fn room(&self, slot: usize, bits: usize) {
 		// SAFETY: `new` leaked the channel, and its room is a `Cell`.
 		unsafe { (*self.client(slot).channel).room.set(bits) };
 	}
 
 	/// A server scoped to the mock, whose factories export it.
-	pub(crate) fn server(&self) -> Server<'_> {
+	pub fn server(&self) -> Server<'_> {
 		mock_server(self)
 	}
 
 	/// Sets the server's own `sv_cheats`.
-	pub(crate) fn set_cheats(&self, value: &'static CStr) {
+	pub fn set_cheats(&self, value: &'static CStr) {
 		// SAFETY: `new` leaked the variable, and no reference to it is live:
 		// the wrappers only read it with raw reads during calls.
 		unsafe {
@@ -261,13 +251,13 @@ impl MockEngine {
 	}
 
 	/// Changes the client in `slot`.
-	pub(crate) fn set_client(&self, slot: usize, spec: MockClient) {
+	pub fn set_client(&self, slot: usize, spec: MockClient) {
 		self.client(slot).spec.set(spec);
 	}
 
 	/// Takes what the client in `slot` was sent, decoded, one entry per
 	/// `SendData` call.
-	pub(crate) fn take_sent(&self, slot: usize) -> Vec<Vec<Decoded>> {
+	pub fn take_sent(&self, slot: usize) -> Vec<Vec<Decoded>> {
 		// SAFETY: `new` leaked the channel, and what it was sent is in a
 		// `RefCell`.
 		let sent = unsafe { (*self.client(slot).channel).sent.take() };
@@ -278,17 +268,20 @@ impl MockEngine {
 
 /// A console variable or command a [`MockEngine`] registers.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct MockVar {
-	pub(crate) name: &'static CStr,
-	pub(crate) default: &'static CStr,
-	pub(crate) value: &'static CStr,
+pub struct MockVar {
+	/// The variable's or command's name.
+	pub name: &'static CStr,
+	/// The variable's default value.
+	pub default: &'static CStr,
+	/// The variable's value.
+	pub value: &'static CStr,
 	/// The variable's flags, or `None` for a command.
-	pub(crate) flags: Option<CommandFlags>,
+	pub flags: Option<CommandFlags>,
 }
 
 impl MockVar {
 	/// A command.
-	pub(crate) const fn command(name: &'static CStr) -> Self {
+	pub const fn command(name: &'static CStr) -> Self {
 		Self {
 			name,
 			default: c"",
@@ -298,7 +291,7 @@ impl MockVar {
 	}
 
 	/// A variable.
-	pub(crate) const fn var(
+	pub const fn var(
 		name: &'static CStr,
 		default: &'static CStr,
 		value: &'static CStr,
@@ -320,7 +313,14 @@ struct ServerObject {
 }
 
 /// Decodes the messages in what a channel was sent.
-pub(crate) fn decode(bits: &BitWriter) -> Vec<Decoded> {
+///
+/// For tests only.
+///
+/// # Panics
+///
+/// If the data holds a message other than those [`Decoded`] lists, or is
+/// truncated.
+pub fn decode(bits: &BitWriter) -> Vec<Decoded> {
 	let mut reader = bits.reader();
 	let mut messages = Vec::new();
 
@@ -356,24 +356,6 @@ pub(crate) fn decode(bits: &BitWriter) -> Vec<Decoded> {
 	messages
 }
 
-unsafe extern "C" fn find_var(this: *mut sys::ICvar, name: *const c_char) -> *mut sys::ConVar {
-	// SAFETY: The wrappers pass NUL-terminated names, and the only registry
-	// is a `CvarObject`, which `MockEngine::new` leaked.
-	let (name, cvar) = unsafe { (CStr::from_ptr(name), &*this.cast::<CvarObject>()) };
-
-	cvar.vars
-		.iter()
-		.copied()
-		.find(|&var| {
-			// SAFETY: The registry's variables are leaked, and named by
-			// string literals.
-			let listed = unsafe { CStr::from_ptr((*var)._base.m_pszName) };
-
-			listed.to_bytes().eq_ignore_ascii_case(name.to_bytes())
-		})
-		.unwrap_or(null_mut())
-}
-
 unsafe extern "C" fn get_client(this: *mut sys::IServer, slot: c_int) -> *mut sys::IClient {
 	// SAFETY: The only server is a `ServerObject`, which `MockEngine::new`
 	// leaked.
@@ -385,11 +367,6 @@ unsafe extern "C" fn get_client(this: *mut sys::IServer, slot: c_int) -> *mut sy
 unsafe extern "C" fn get_client_count(this: *const sys::IServer) -> c_int {
 	// SAFETY: As for `get_client`.
 	unsafe { (*this.cast::<ServerObject>()).clients.len() as c_int }
-}
-
-unsafe extern "C" fn get_commands(this: *mut sys::ICvar) -> *mut sys::ConCommandBase {
-	// SAFETY: As for `find_var`.
-	unsafe { (*this.cast::<CvarObject>()).head }
 }
 
 unsafe extern "C" fn get_iserver(this: *mut sys::IVEngineServer) -> *mut sys::IServer {
@@ -419,10 +396,6 @@ unsafe extern "C" fn is_active(this: *const sys::IClient) -> bool {
 	unsafe { spec(this) }.active
 }
 
-unsafe extern "C" fn is_command(_: *const sys::ConCommandBase) -> bool {
-	true
-}
-
 unsafe extern "C" fn is_connected(this: *const sys::IClient) -> bool {
 	// SAFETY: As for `get_user_id`.
 	unsafe { spec(this) }.user_id != 0
@@ -445,66 +418,24 @@ unsafe extern "C" fn is_loopback(this: *const sys::INetChannel) -> bool {
 	unsafe { (*this.cast::<ChannelObject>()).loopback }
 }
 
-unsafe extern "C" fn is_variable(_: *const sys::ConCommandBase) -> bool {
-	false
-}
-
-/// A `ConCommandBase` whose `IsCommand` returns `command`, linked to `next`.
-fn mock_base(
-	name: &'static CStr,
-	command: bool,
-	flags: CommandFlags,
-	next: *mut sys::ConCommandBase,
-) -> sys::ConCommandBase {
-	// SAFETY: As for the registry's vtable in `MockEngine::new`.
-	let vtable = unsafe {
-		mock_vtable::<sys::ConCommandBase__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).ConCommandBase_IsCommand).write(match command {
-				true => is_command,
-				false => is_variable,
-			});
-		})
-	};
-
-	sys::ConCommandBase {
-		vtable_: Box::leak(vtable),
-		m_pNext: next,
-		m_bRegistered: true,
-		m_pszName: name.as_ptr(),
-		m_pszHelpString: c"".as_ptr(),
-		m_nFlags: flags.bits(),
-	}
-}
-
-/// A command linked to `next`.
-fn mock_command(name: &'static CStr, next: *mut sys::ConCommandBase) -> *mut sys::ConCommandBase {
-	Box::into_raw(Box::new(mock_base(name, true, CommandFlags::NONE, next)))
-}
-
-/// A variable that is its own parent, linked to `next`.
-fn mock_var(
-	name: &'static CStr,
-	default: &'static CStr,
-	value: &'static CStr,
-	flags: CommandFlags,
-	next: *mut sys::ConCommandBase,
-) -> *mut sys::ConVar {
-	// SAFETY: Zero is valid for every field of `ConVar`.
-	let var = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<sys::ConVar>() }));
-
-	// SAFETY: `var` is the box just leaked, and nothing else refers to it yet.
-	unsafe {
-		(*var)._base = mock_base(name, false, flags, next);
-		(*var).m_pParent = var;
-		(*var).m_pszDefaultValue = default.as_ptr();
-		(*var).m_pszString = value.as_ptr().cast_mut();
-	}
-
-	var
+/// Whether the engine reads `value` as a set `sv_cheats`: a number whose
+/// integer part is not 0.
+fn is_set(value: &CStr) -> bool {
+	value
+		.to_str()
+		.ok()
+		.and_then(|value| value.trim().parse::<f64>().ok())
+		.is_some_and(|value| value.trunc() != 0.0)
 }
 
 /// The cookie of the only query in what a client was sent.
-pub(crate) fn query_cookie(sent: &[Decoded]) -> c_int {
+///
+/// For tests only.
+///
+/// # Panics
+///
+/// If there is no query, or more than one.
+pub fn query_cookie(sent: &[Decoded]) -> c_int {
 	let mut cookies = sent.iter().filter_map(|message| match message {
 		Decoded::Query(cookie, _) => Some(*cookie),
 		_ => None,
@@ -516,7 +447,9 @@ pub(crate) fn query_cookie(sent: &[Decoded]) -> c_int {
 }
 
 /// A client's answer to a query for `sv_cheats`.
-pub(crate) fn response(cookie: c_int, status: c_int, value: &CStr) -> Incoming {
+///
+/// For tests only.
+pub fn response(cookie: c_int, status: c_int, value: &CStr) -> Incoming {
 	Incoming::RespondCvarValue {
 		cookie,
 		status,

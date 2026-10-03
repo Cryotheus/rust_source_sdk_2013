@@ -1349,188 +1349,12 @@ fn lossy(string: &CStr) -> String {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-	use super::*;
-	use std::ffi::c_char;
-	use std::mem::zeroed;
-
-	/// A custom proxy, like `SendProxy_EHandleToInt`, that adds one to show it ran.
-	pub(crate) unsafe extern "C" fn custom_proxy(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe { (*out).__bindgen_anon_1.m_Int = data.cast::<c_int>().read() + 1 };
-	}
-
-	/// A table proxy that passes the data through, like
-	/// `SendProxy_DataTableToDataTable`.
-	pub(crate) unsafe extern "C" fn direct_table(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		_: *mut sys::CSendProxyRecipients,
-		_: c_int,
-	) -> *mut c_void {
-		data.cast_mut()
-	}
-
-	/// Stands in for `SendProxy_Int8ToInt32`.
-	pub(crate) unsafe extern "C" fn int8_proxy(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe { (*out).__bindgen_anon_1.m_Int = c_int::from(data.cast::<i8>().read()) };
-	}
-
-	/// Stands in for `SendProxy_Int16ToInt32`.
-	pub(crate) unsafe extern "C" fn int16_proxy(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe { (*out).__bindgen_anon_1.m_Int = c_int::from(data.cast::<i16>().read()) };
-	}
-
-	/// Stands in for `SendProxy_Int32ToInt32`, and for the unsigned and float
-	/// proxies a linker may fold into it.
-	pub(crate) unsafe extern "C" fn int32_proxy(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe { (*out).__bindgen_anon_1.m_Int = data.cast::<c_int>().read() };
-	}
-
-	/// A table proxy that follows a pointer, relocating the nested table's
-	/// data like `SendProxy_DataTablePtrToDataTable`.
-	pub(crate) unsafe extern "C" fn pointer_table(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		_: *mut sys::CSendProxyRecipients,
-		_: c_int,
-	) -> *mut c_void {
-		unsafe { data.cast::<*mut c_void>().read() }
-	}
-
-	/// A property of `kind` with one element and no nested table.
-	pub(crate) fn prop(
-		name: &'static CStr,
-		kind: sys::SendPropType,
-		offset: c_int,
-		flags: PropFlags,
-		proxy: sys::SendVarProxyFn,
-	) -> sys::SendProp {
-		// SAFETY: Properties are plain data apart from the vtable, which is never used.
-		let mut prop: sys::SendProp = unsafe { zeroed() };
-
-		prop.m_pVarName = name.as_ptr();
-		prop.m_Type = kind;
-		prop.m_Offset = offset;
-		prop.m_Flags = flags.bits();
-		prop.m_ProxyFn = proxy;
-		prop.m_nElements = 1;
-		prop
-	}
-
-	/// Standard proxies with `non_modified` as the list of registered
-	/// pointer-preserving table proxies.
-	pub(crate) fn proxies(
-		non_modified: *mut *mut sys::CNonModifiedPointerProxy,
-	) -> sys::CStandardSendProxies {
-		sys::CStandardSendProxies {
-			_base: sys::CStandardSendProxiesV1 {
-				m_Int8ToInt32: Some(int8_proxy),
-				m_Int16ToInt32: Some(int16_proxy),
-				m_Int32ToInt32: Some(int32_proxy),
-				// Linkers fold identical code, so unsigned proxies may share addresses.
-				m_UInt8ToInt32: Some(int8_proxy),
-				m_UInt16ToInt32: Some(int16_proxy),
-				m_UInt32ToInt32: Some(int32_proxy),
-				m_FloatToFloat: Some(int32_proxy),
-				m_VectorToVector: Some(vector_proxy),
-			},
-			m_DataTableToDataTable: Some(direct_table),
-			m_SendLocalDataTable: Some(direct_table),
-			m_ppNonModifiedPointerProxies: non_modified,
-		}
-	}
-
-	/// A pointer-preserving table proxy that is not a standard one, so it is
-	/// only recognized through the list of registered proxies.
-	pub(crate) unsafe extern "C" fn registered_table(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		_: *mut sys::CSendProxyRecipients,
-		_: c_int,
-	) -> *mut c_void {
-		data.cast_mut()
-	}
-
-	/// A table of `props`, which must stay in place while it is used.
-	pub(crate) fn table(name: &'static CStr, props: &mut [sys::SendProp]) -> sys::SendTable {
-		// SAFETY: Tables are plain data.
-		let mut table: sys::SendTable = unsafe { zeroed() };
-
-		table.m_pNetTableName = name.as_ptr().cast::<c_char>();
-		table.m_pProps = props.as_mut_ptr();
-		table.m_nProps = c_int::try_from(props.len()).expect("too many properties for a table");
-		table
-	}
-
-	/// A [`PropKind::DataTable`] property nesting `table` through `proxy`.
-	pub(crate) fn table_prop(
-		name: &'static CStr,
-		offset: c_int,
-		table: *mut sys::SendTable,
-		proxy: sys::SendTableProxyFn,
-	) -> sys::SendProp {
-		let mut prop = self::prop(
-			name,
-			sys::SendPropType_DPT_DataTable,
-			offset,
-			PropFlags::default(),
-			None,
-		);
-
-		prop.m_pDataTable = table;
-		prop.m_DataTableProxyFn = proxy;
-		prop
-	}
-
-	/// Stands in for `SendProxy_VectorToVector`.
-	pub(crate) unsafe extern "C" fn vector_proxy(
-		_: *const sys::SendProp,
-		_: *const c_void,
-		data: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe { (*out).__bindgen_anon_1.m_Vector = data.cast::<[f32; 3]>().read() };
-	}
-}
-
-#[cfg(test)]
 mod tests {
-	use super::test_support::*;
 	use super::*;
-	use crate::entities::test_support::{MockEntity, set_networking};
+	use crate::test_support::datatables::*;
+	use crate::test_support::edicts::{change_accessor, shared_change_info};
+	use crate::test_support::entities::{MockEntity, set_networking};
+	use sdk_raw::test_support::edicts::mock_edict;
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::mem::zeroed;
 	use std::ptr::null_mut;
@@ -1668,15 +1492,6 @@ mod tests {
 		}
 	}
 
-	/// Reports no change accessor, so `Edict::state_changed` marks the whole
-	/// edict changed.
-	unsafe extern "C" fn change_accessor(
-		_: *mut sys::IVEngineServer,
-		_: *const sys::edict_t,
-	) -> *mut sys::IChangeInfoAccessor {
-		null_mut()
-	}
-
 	/// A signed integer property.
 	fn int(name: &'static CStr, offset: c_int, proxy: sys::SendVarProxyFn) -> sys::SendProp {
 		prop(
@@ -1744,13 +1559,6 @@ mod tests {
 		);
 	}
 
-	/// Reports no shared change info, as [`change_accessor`] reports no accessor.
-	unsafe extern "C" fn shared_change_info(
-		_: *mut sys::IVEngineServer,
-	) -> *mut sys::CSharedEdictChangeInfo {
-		null_mut()
-	}
-
 	#[test]
 	fn variables_are_read_and_written_only_as_stored() {
 		let tables = Tables::new();
@@ -1766,7 +1574,7 @@ mod tests {
 			m_ClassID: 1,
 			m_InstanceBaselineIndex: 0,
 		};
-		let mut slot = crate::edicts::test_support::mock_edict(3, false);
+		let mut slot = mock_edict(3, false);
 		set_networking(&raw mut class, &raw mut slot);
 
 		let entity = mock.entity();
@@ -1809,7 +1617,8 @@ mod tests {
 			Err(NetPropError::UnknownStorage { .. })
 		));
 
-		// Writes land at the offset and mark the edict changed.
+		// Writes land at the offset and mark the edict changed. Without the
+		// engine's change tracking, the whole edict is marked changed.
 		let vtable = unsafe {
 			mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
 				unexpected_call as *const (),

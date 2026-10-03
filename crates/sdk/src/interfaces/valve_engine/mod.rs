@@ -326,7 +326,7 @@ mod tests {
 
 	mod edict_lookup {
 		use super::*;
-		use crate::edicts::test_support::mock_edict;
+		use crate::test_support::edicts::edict_table;
 		use std::cell::RefCell;
 
 		/// A stand-in for the engine's edict table and client list.
@@ -387,7 +387,7 @@ mod tests {
 		#[test]
 		fn invalid_user_ids_from_the_engine_are_rejected() {
 			// Slot 3 is a client slot nobody occupies, which the engine reports as 0.
-			let mut table = mock_table(5, |_| false);
+			let mut table = edict_table(5, |_| false);
 			serve(&mut table, &[(1, -5), (2, 70_000), (3, 0), (4, 1)], false);
 			let (_vtable, mut interface) = mock_engine();
 			let engine = engine(&mut interface);
@@ -401,7 +401,7 @@ mod tests {
 
 		#[test]
 		fn lookup_ignores_free_slots_even_if_the_engine_returns_them() {
-			let mut table = mock_table(8, |slot| slot == 2);
+			let mut table = edict_table(8, |slot| slot == 2);
 			serve(&mut table, &[(1, 2), (2, 4)], true);
 			let (_vtable, mut interface) = mock_engine();
 			let engine = engine(&mut interface);
@@ -436,16 +436,9 @@ mod tests {
 			(vtable, interface)
 		}
 
-		/// Builds an edict table whose slots are free wherever `free` says so.
-		fn mock_table(len: usize, free: impl Fn(usize) -> bool) -> Box<[sys::edict_t]> {
-			(0..len)
-				.map(|slot| mock_edict(slot as c_int, free(slot)))
-				.collect()
-		}
-
 		#[test]
 		fn out_of_range_indices_never_reach_the_engine() {
-			let mut table = mock_table(MAX_EDICTS as usize + 1, |_| false);
+			let mut table = edict_table(MAX_EDICTS as usize + 1, |_| false);
 			serve(&mut table, &[], false);
 			let (_vtable, mut interface) = mock_engine();
 			let engine = engine(&mut interface);
@@ -499,7 +492,7 @@ mod tests {
 			// Slot 2 is an empty player slot, slots 4 onwards hold other entities,
 			// and slot 256 would exceed the engine's player limit.
 			let clients = [(1, 2), (3, 7), (255, 9), (256, 11)];
-			let mut table = mock_table(300, |slot| slot == 2);
+			let mut table = edict_table(300, |slot| slot == 2);
 			serve(&mut table, &clients, false);
 			let (_vtable, mut interface) = mock_engine();
 			let engine = engine(&mut interface);
@@ -534,26 +527,15 @@ mod tests {
 
 	mod string_table_lock {
 		use super::*;
-		use std::cell::RefCell;
+
+		use crate::test_support::interfaces::valve_engine::{
+			lock_network_string_tables, lock_requests, set_tables_locked, tables_locked,
+		};
+
 		use std::panic::{AssertUnwindSafe, catch_unwind};
-
-		thread_local! {
-			/// Whether the mock engine's string tables are locked.
-			static LOCKED: Cell<bool> = const { Cell::new(true) };
-
-			/// Every interface and state passed to `LockNetworkStringTables`, in
-			/// order.
-			static REQUESTS: RefCell<Vec<(*mut sys::IVEngineServer, bool)>> =
-				const { RefCell::new(Vec::new()) };
-		}
 
 		fn engine(interface: &mut sys::IVEngineServer) -> ValveEngine<'_> {
 			unsafe { ValveEngine::from_raw(NonNull::from(interface)) }
-		}
-
-		unsafe extern "C" fn lock(this: *mut sys::IVEngineServer, lock: bool) -> bool {
-			REQUESTS.with_borrow_mut(|requests| requests.push((this, lock)));
-			LOCKED.replace(lock)
 		}
 
 		#[test]
@@ -565,9 +547,9 @@ mod tests {
 			assert!(engine.lock_network_string_tables(false));
 			assert!(!engine.lock_network_string_tables(false));
 			assert!(!engine.lock_network_string_tables(true));
-			assert!(LOCKED.get());
+			assert!(tables_locked());
 			assert_eq!(
-				requests(),
+				lock_requests(),
 				[(pointer, false), (pointer, false), (pointer, true)]
 			);
 		}
@@ -580,7 +562,8 @@ mod tests {
 				mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
 					unexpected_call as *const (),
 					|vtable| {
-						(&raw mut (*vtable).IVEngineServer_LockNetworkStringTables).write(lock);
+						(&raw mut (*vtable).IVEngineServer_LockNetworkStringTables)
+							.write(lock_network_string_tables);
 					},
 				)
 			};
@@ -592,21 +575,17 @@ mod tests {
 			(vtable, interface)
 		}
 
-		fn requests() -> Vec<(*mut sys::IVEngineServer, bool)> {
-			REQUESTS.with_borrow(Clone::clone)
-		}
-
 		#[test]
 		fn unlocked_scopes_leave_unlocked_tables_unlocked() {
 			let (_vtable, mut interface) = mock_engine();
 			let pointer = &raw mut *interface;
 			let engine = engine(&mut interface);
-			LOCKED.set(false);
+			set_tables_locked(false);
 
-			engine.with_unlocked_string_tables(|| assert!(!LOCKED.get()));
+			engine.with_unlocked_string_tables(|| assert!(!tables_locked()));
 
-			assert!(!LOCKED.get());
-			assert_eq!(requests(), [(pointer, false), (pointer, false)]);
+			assert!(!tables_locked());
+			assert_eq!(lock_requests(), [(pointer, false), (pointer, false)]);
 		}
 
 		#[test]
@@ -616,13 +595,13 @@ mod tests {
 			let engine = engine(&mut interface);
 
 			let value = engine.with_unlocked_string_tables(|| {
-				assert!(!LOCKED.get());
+				assert!(!tables_locked());
 				7
 			});
 
 			assert_eq!(value, 7);
-			assert!(LOCKED.get());
-			assert_eq!(requests(), [(pointer, false), (pointer, true)]);
+			assert!(tables_locked());
+			assert_eq!(lock_requests(), [(pointer, false), (pointer, true)]);
 		}
 
 		#[test]
@@ -633,15 +612,15 @@ mod tests {
 
 			let outcome = catch_unwind(AssertUnwindSafe(|| {
 				engine.with_unlocked_string_tables(|| {
-					if !LOCKED.get() {
+					if !tables_locked() {
 						panic!("the scope panicked");
 					}
 				});
 			}));
 
 			assert!(outcome.is_err());
-			assert!(LOCKED.get());
-			assert_eq!(requests(), [(pointer, false), (pointer, true)]);
+			assert!(tables_locked());
+			assert_eq!(lock_requests(), [(pointer, false), (pointer, true)]);
 		}
 	}
 }

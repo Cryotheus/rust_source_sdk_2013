@@ -513,11 +513,12 @@ unsafe impl<'s> Interface<'s> for ServerTools<'s> {
 mod tests {
 	use super::*;
 
-	use crate::entities::test_support::{
-		MockEntity, base_entity_fields, data_map, field, set_datamap,
+	use crate::test_support::entities::{
+		MOCK_EFLAGS_OFFSET, MockEntity, base_entity_fields, set_datamap,
 	};
 
 	use sdk_raw::entities::datamap::FTYPEDESC_KEY;
+	use sdk_raw::test_support::entities::data_map;
 	use sdk_raw::test_support::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ptr::null_mut;
@@ -530,7 +531,8 @@ mod tests {
 	}
 
 	fn embedded(map: *mut sys::datamap_t, offset: usize, count: u16) -> sys::typedescription_t {
-		let mut embedded = field();
+		// SAFETY: Zero is valid for every field of `typedescription_t`.
+		let mut embedded: sys::typedescription_t = unsafe { std::mem::zeroed() };
 
 		embedded.fieldType = sys::_fieldtypes_FIELD_EMBEDDED;
 		embedded.fieldOffset[0] = offset as c_int;
@@ -587,7 +589,8 @@ mod tests {
 		field_type: sys::fieldtype_t,
 		offset: usize,
 	) -> sys::typedescription_t {
-		let mut key = field();
+		// SAFETY: Zero is valid for every field of `typedescription_t`.
+		let mut key: sys::typedescription_t = unsafe { std::mem::zeroed() };
 
 		key.fieldType = field_type;
 		key.fieldOffset[0] = offset as c_int;
@@ -699,12 +702,7 @@ mod tests {
 	unsafe extern "C" fn remove_entity(_: *mut sys::IServerTools, entity: *mut sys::CBaseEntity) {
 		assert_eq!(entity, ENTITY.get());
 		REMOVALS.set(REMOVALS.get() + 1);
-		unsafe {
-			entity
-				.byte_add(crate::entities::test_support::MOCK_EFLAGS_OFFSET)
-				.cast::<c_int>()
-				.write(1)
-		};
+		unsafe { entity.byte_add(MOCK_EFLAGS_OFFSET).cast::<c_int>().write(1) };
 	}
 
 	#[test]

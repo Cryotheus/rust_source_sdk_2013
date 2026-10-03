@@ -603,82 +603,10 @@ pub struct SequenceData {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-	use super::*;
-	use sdk_raw::bitbuf::BfWrite;
-	use sdk_raw::test_support::{mock_vtable, unexpected_call};
-	use std::cell::{Cell, RefCell};
-
-	thread_local! {
-		static SENT: RefCell<Vec<(BitWriter, bool)>> = const { RefCell::new(Vec::new()) };
-		static ACCEPTS: Cell<bool> = const { Cell::new(true) };
-	}
-
-	/// A channel whose `SendData` records what it is given.
-	pub(crate) struct MockChannel {
-		channel: *mut sys::INetChannel,
-	}
-
-	impl MockChannel {
-		/// A channel that accepts what it is sent, forgetting what earlier
-		/// mocks on this thread recorded.
-		pub(crate) fn new() -> Self {
-			let vtable = unsafe {
-				mock_vtable::<sys::INetChannel__bindgen_vtable>(
-					unexpected_call as *const (),
-					|vtable| {
-						(&raw mut (*vtable).INetChannel_SendData).write(record_send_data);
-					},
-				)
-			};
-
-			// Leaked, so the raw pointers stay valid for the test.
-			let channel = Box::into_raw(Box::new(sys::INetChannel {
-				vtable_: Box::into_raw(vtable),
-			}));
-
-			SENT.set(Vec::new());
-			ACCEPTS.set(true);
-
-			Self { channel }
-		}
-
-		/// A handle to the mock, as the engine would return it.
-		pub(crate) fn channel(&self) -> NetChannel<'_> {
-			unsafe { NetChannel::from_raw(NonNull::new(self.channel).unwrap()) }
-		}
-
-		/// Makes `SendData` report that the stream had no room.
-		pub(crate) fn refuse(&self) {
-			ACCEPTS.set(false);
-		}
-
-		/// Takes the data `SendData` was given so far, in order, each with
-		/// whether it was reliable.
-		pub(crate) fn take_sent(&self) -> Vec<(BitWriter, bool)> {
-			SENT.take()
-		}
-	}
-
-	unsafe extern "C" fn record_send_data(
-		_: *mut sys::INetChannel,
-		buffer: *mut sys::bf_write,
-		reliable: bool,
-	) -> bool {
-		let bits = unsafe { BfWrite::read_back(NonNull::new(buffer.cast()).unwrap()) }
-			.map(BitWriter::from)
-			.expect("a readable buffer");
-
-		SENT.with_borrow_mut(|sent| sent.push((bits, reliable)));
-		ACCEPTS.get()
-	}
-}
-
-#[cfg(test)]
 mod tests {
-	use super::test_support::MockChannel;
 	use super::*;
 	use crate::net::messages::{Print, Raw};
+	use crate::test_support::net::MockChannel;
 
 	#[test]
 	fn a_full_stream_is_an_error() {

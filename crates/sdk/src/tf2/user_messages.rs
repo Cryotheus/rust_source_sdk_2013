@@ -63,13 +63,7 @@ impl UserMessage for HudNotification<'_> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	fn payload(message: &impl UserMessage) -> BitWriter {
-		let mut out = BitWriter::new();
-
-		message.write(&mut out).unwrap();
-		out
-	}
+	use crate::test_support::user_messages::payload;
 
 	#[test]
 	fn view_angles_are_coordinates() {
