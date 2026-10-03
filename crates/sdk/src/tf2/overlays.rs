@@ -16,6 +16,11 @@
 //! (`game/client/viewrender.cpp:1249-1297`). The overlay is therefore drawn on
 //! top of them, and neither replaces the other.
 //!
+//! Observed on TF2's 64-bit Windows server with a retail client and
+//! `sv_cheats` 0: the client draws [`OverlayMaterial::JARATE`] once
+//! [`ScreenOverlay::set`] sets it and stops once [`ScreenOverlay::clear`]
+//! clears it, and [`ScreenOverlay::get`] returns the networked name.
+//!
 //! A client draws the overlay of its own player, so a spectator sees their own
 //! overlay rather than that of the player they observe. Bots have no client
 //! to draw theirs, so setting it changes nothing visible.
@@ -58,6 +63,13 @@
 //! `InputSetScriptOverlayMaterial` function, which can skip the input and may
 //! set an overlay of its own (`game/server/baseentity.cpp:4421-4443`). A colour
 //! tint or flash needs no material: send the [`Fade`] user message instead.
+//!
+//! # Unverified
+//!
+//! Overlays have not been tested on Linux servers. The drawing order over a
+//! condition overlay, the error material for a missing material, downloaded
+//! custom materials, how long an overlay lasts and what spectators see follow
+//! from the SDK's source and have not been observed on a live server.
 //!
 //! [`add_downloadable`]: crate::interfaces::network_string_tables::add_downloadable
 //! [`Fade`]: crate::user_messages::messages::Fade
