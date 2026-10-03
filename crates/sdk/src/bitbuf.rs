@@ -7,11 +7,10 @@
 //! game events are all encoded this way.
 
 use crate::math::{QAngle, Vector};
-use sdk_raw::bitbuf::{BfWrite, Bits};
+use sdk_raw::bitbuf::Bits;
 use std::error::Error;
 use std::ffi::{CStr, CString};
 use std::fmt::{self, Display, Formatter};
-use std::ptr::NonNull;
 
 /// Steps per unit in a coordinate's fraction (`COORD_DENOMINATOR`).
 const COORD_DENOMINATOR: i32 = 1 << COORD_FRACTIONAL_BITS;
@@ -716,44 +715,6 @@ impl Display for Overflow {
 
 impl Error for Overflow {}
 
-/// Copies [`BitWriter`]s into and out of the engine's `bf_write` buffers,
-/// which [`BfWrite`] mirrors.
-pub(crate) enum RawBfWrite {}
-
-impl RawBfWrite {
-	/// Appends `bits` to the buffer at `raw`, as `WriteBits` would, or marks it
-	/// overflowed and returns false if they do not fit.
-	///
-	/// # Safety
-	///
-	/// As for [`BfWrite::append`].
-	pub(crate) unsafe fn append(raw: NonNull<BfWrite>, bits: &BitWriter) -> bool {
-		// SAFETY: As the caller promises. The writer's words hold its bits.
-		unsafe { BfWrite::append(raw, bits.as_words(), bits.len()) }
-	}
-
-	/// A buffer for the engine to write up to `words.len() * 32` bits into,
-	/// from the start, as [`BfWrite::empty`] makes.
-	///
-	/// # Panics
-	///
-	/// If the buffer holds more than `c_int::MAX` bits.
-	pub(crate) fn empty(words: &mut [u32]) -> BfWrite {
-		BfWrite::empty(words)
-	}
-
-	/// Copies what the engine wrote into `raw`, or `None` if it overflowed or
-	/// its fields are inconsistent.
-	///
-	/// # Safety
-	///
-	/// As for [`BfWrite::read_back`].
-	pub(crate) unsafe fn read_back(raw: NonNull<BfWrite>) -> Option<BitWriter> {
-		// SAFETY: As the caller promises.
-		unsafe { BfWrite::read_back(raw) }.map(BitWriter::from)
-	}
-}
-
 /// The low `bits` bits set.
 const fn mask(bits: u32) -> u32 {
 	match bits {
@@ -765,6 +726,8 @@ const fn mask(bits: u32) -> u32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sdk_raw::bitbuf::BfWrite;
+	use std::ptr::NonNull;
 
 	#[test]
 	fn angles_are_fractions_of_a_turn() {
@@ -982,7 +945,7 @@ mod tests {
 	#[test]
 	fn writers_round_trip_through_engine_buffers() {
 		let mut storage = [0u32; 2];
-		let mut buffer = RawBfWrite::empty(&mut storage);
+		let mut buffer = BfWrite::empty(&mut storage);
 		let raw = NonNull::from(&mut buffer);
 		let mut bits = BitWriter::new();
 
@@ -991,8 +954,8 @@ mod tests {
 
 		// SAFETY: The buffer describes `storage`, which only it accesses.
 		unsafe {
-			assert!(RawBfWrite::append(raw, &bits));
-			assert_eq!(RawBfWrite::read_back(raw), Some(bits));
+			assert!(BfWrite::append(raw, bits.as_words(), bits.len()));
+			assert_eq!(BfWrite::read_back(raw).map(BitWriter::from), Some(bits));
 		}
 	}
 }

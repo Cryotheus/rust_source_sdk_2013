@@ -47,7 +47,7 @@ impl<'s> CommandBase<'s> {
 
 			// SAFETY: The registry listed the variable, so condition 5 of
 			// `Server::new` keeps it allocated for `'s`. Its `ConCommandBase` is
-			// at its start, as `commands::variable` asserts, so the pointer to
+			// at its start, as `sdk_raw::commands::variable` asserts, so the pointer to
 			// one is a pointer to the other.
 			CommandBaseKind::Variable => Some(unsafe { ConVar::from_raw(self.raw.cast()) }),
 		}

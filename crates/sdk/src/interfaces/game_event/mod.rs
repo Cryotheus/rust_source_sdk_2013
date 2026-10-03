@@ -1,9 +1,10 @@
 //! `IGameEventManager2` and the game events it creates, fires, and delivers.
 
 use crate::NotThreadSafe;
-use crate::bitbuf::{BitWriter, RawBfWrite};
+use crate::bitbuf::BitWriter;
 use crate::players::UserId;
 use sdk_raw::abi::WChar;
+use sdk_raw::bitbuf::BfWrite;
 
 use sdk_raw::interfaces::game_event::{
 	MAX_EVENT_BYTES, OnFireGameEvent, RawEventValue, RawGameEventListener, for_event_data,
@@ -994,7 +995,7 @@ impl<'s> GameEventManager<'s> {
 	#[doc(alias = "SerializeEvent")]
 	pub fn serialize_event(self, event: GameEvent<'_>) -> Option<BitWriter> {
 		let mut storage = [0u32; MAX_EVENT_BYTES / size_of::<u32>()];
-		let mut buffer = RawBfWrite::empty(&mut storage);
+		let mut buffer = BfWrite::empty(&mut storage);
 
 		// SAFETY: As for `add_listener`, and the event is live. The engine writes
 		// through the buffer, within the bounds it describes, and marks it
@@ -1002,15 +1003,16 @@ impl<'s> GameEventManager<'s> {
 		let serialized = unsafe {
 			vcall!(self.as_ptr() => IGameEventManager2_SerializeEvent(
 				event.as_ptr(),
-				(&raw mut buffer).cast::<sys::bf_write>(),
+				buffer.as_sys(),
 			))
 		};
 
 		// SAFETY: The buffer describes `storage`, which the call has finished
 		// writing.
 		serialized
-			.then(|| unsafe { RawBfWrite::read_back(NonNull::from(&mut buffer)) })
+			.then(|| unsafe { BfWrite::read_back(NonNull::from(&mut buffer)) })
 			.flatten()
+			.map(BitWriter::from)
 	}
 }
 

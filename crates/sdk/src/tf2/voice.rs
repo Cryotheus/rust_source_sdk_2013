@@ -480,6 +480,7 @@ mod tests {
 	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, base_entity_fields, data_map, field};
 	use crate::server::test_support::mock_server;
 	use sdk_raw::players::{LIFE_DEAD, LIFE_DYING};
+	use sdk_raw::tf2::script_binding::SF_MEMBER_FUNC;
 	use std::cell::{Cell, RefCell};
 	use std::ffi::c_int;
 	use std::ffi::{c_char, c_void};
@@ -713,7 +714,7 @@ mod tests {
 		bindings[0].m_desc.m_pszScriptName = c"PlayScene".as_ptr();
 		bindings[0].m_desc.m_ReturnType = binding::FLOAT;
 		bindings[0].m_desc.m_Parameters = vector(&mut parameters);
-		bindings[0].m_flags = 0x01;
+		bindings[0].m_flags = SF_MEMBER_FUNC;
 		bindings[0].m_pfnBinding = Some(play_scene_adapter);
 
 		let mut flex: sys::ScriptClassDesc_t = unsafe { zeroed() };

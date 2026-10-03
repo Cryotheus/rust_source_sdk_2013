@@ -11,6 +11,7 @@ use crate::entities::test_support::{data_map, field, leak};
 use crate::server::test_support::{export, mock_server};
 use crate::{InterfaceFactory, Module};
 use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
+use sdk_raw::entities::NUM_SERIAL_NUM_SHIFT_BITS;
 use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CString, c_char, c_void};
@@ -429,7 +430,7 @@ impl World {
 			networkable: sys::IServerNetworkable {
 				vtable_: self.networkable_vtable,
 			},
-			handle: index as u32 | serial << 16,
+			handle: index as u32 | serial << NUM_SERIAL_NUM_SHIFT_BITS,
 			class,
 			edict: unsafe { EDICTS.get().add(index) },
 			class_name: class_name.as_ptr(),

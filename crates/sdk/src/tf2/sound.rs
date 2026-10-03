@@ -317,7 +317,7 @@ pub fn precache_script_sound(server: Server<'_>, name: &CStr) -> Result<(), Prec
 mod tests {
 	use super::*;
 	use crate::InterfaceFactory;
-	use crate::bitbuf::{BitWriter, RawBfWrite};
+	use crate::bitbuf::BitWriter;
 	use crate::edicts::test_support::mock_edict;
 	use crate::entities::test_support::{MockEntity, set_networking};
 	use crate::interfaces::{GameEventManager, ServerTools, ValveEngine};
@@ -326,6 +326,8 @@ mod tests {
 	use crate::server::Module;
 	use crate::server::test_support::{export, mock_server};
 	use crate::user_messages::test_support::recipients;
+	use sdk_raw::bitbuf::BfWrite;
+	use sdk_raw::tf2::script_binding::SF_MEMBER_FUNC;
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char, c_void};
@@ -872,7 +874,7 @@ mod tests {
 		bindings[0].m_desc.m_pszScriptName = c"PrecacheScriptSound".as_ptr();
 		bindings[0].m_desc.m_ReturnType = binding::VOID;
 		bindings[0].m_desc.m_Parameters = vector(&mut parameters);
-		bindings[0].m_flags = 0x01;
+		bindings[0].m_flags = SF_MEMBER_FUNC;
 		bindings[0].m_pfnBinding = Some(precache_adapter);
 
 		let mut description: sys::ScriptClassDesc_t = unsafe { zeroed() };
@@ -961,7 +963,13 @@ mod tests {
 		bits.write_i16(int(c"additional_flags") as i16);
 		bits.write_i16(int(c"player") as i16);
 
-		unsafe { RawBfWrite::append(NonNull::new(buffer.cast()).unwrap(), &bits) }
+		unsafe {
+			BfWrite::append(
+				NonNull::new(buffer.cast()).unwrap(),
+				bits.as_words(),
+				bits.len(),
+			)
+		}
 	}
 
 	/// Any entity, as the base entity of every [`player_unknown`].

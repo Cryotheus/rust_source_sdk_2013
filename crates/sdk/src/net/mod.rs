@@ -605,7 +605,7 @@ pub struct SequenceData {
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
-	use crate::bitbuf::RawBfWrite;
+	use sdk_raw::bitbuf::BfWrite;
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 
@@ -665,7 +665,8 @@ pub(crate) mod test_support {
 		buffer: *mut sys::bf_write,
 		reliable: bool,
 	) -> bool {
-		let bits = unsafe { RawBfWrite::read_back(NonNull::new(buffer.cast()).unwrap()) }
+		let bits = unsafe { BfWrite::read_back(NonNull::new(buffer.cast()).unwrap()) }
+			.map(BitWriter::from)
 			.expect("a readable buffer");
 
 		SENT.with_borrow_mut(|sent| sent.push((bits, reliable)));

@@ -478,6 +478,7 @@ mod tests {
 	use crate::InterfaceFactory;
 	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, base_entity_fields, data_map};
 	use crate::server::test_support::mock_server;
+	use sdk_raw::tf2::script_binding::{SF_MEMBER_FUNC, SV_FREE};
 	use std::cell::Cell;
 	use std::ffi::{c_char, c_int, c_void};
 	use std::mem::{offset_of, zeroed};
@@ -493,9 +494,6 @@ mod tests {
 
 	/// The function [`set_overlay`] implements.
 	const SET: isize = 0;
-
-	/// `SV_FREE` from `public/vscript/variant.h`.
-	const SV_FREE: u16 = 0x01;
 
 	/// A TF2 player with an overlay and its two native methods.
 	#[repr(C)]
@@ -752,7 +750,7 @@ mod tests {
 		]) {
 			binding.m_desc.m_pszScriptName = name.as_ptr();
 			binding.m_desc.m_ReturnType = returns;
-			binding.m_flags = 1;
+			binding.m_flags = SF_MEMBER_FUNC;
 			binding.m_pfnBinding = Some(if function == SET {
 				set_overlay
 			} else {

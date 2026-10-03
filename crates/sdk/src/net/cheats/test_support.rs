@@ -7,11 +7,12 @@
 //! shared references to the objects never alias a mutation.
 
 use super::*;
-use crate::bitbuf::RawBfWrite;
+use crate::bitbuf::BitWriter;
 use crate::interfaces::ValveEngine;
 use crate::net::MESSAGE_TYPE_BITS;
 use crate::server::Module;
 use crate::server::test_support::{export, mock_server};
+use sdk_raw::bitbuf::BfWrite;
 use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_char;
@@ -534,7 +535,7 @@ unsafe extern "C" fn send_data(
 	let (channel, bits) = unsafe {
 		(
 			&*this.cast::<ChannelObject>(),
-			RawBfWrite::read_back(NonNull::new(buffer.cast()).unwrap()),
+			BfWrite::read_back(NonNull::new(buffer.cast()).unwrap()).map(BitWriter::from),
 		)
 	};
 	let bits = bits.expect("a readable buffer");

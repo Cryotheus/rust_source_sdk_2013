@@ -89,6 +89,14 @@ use crate::interfaces::ServerTools;
 use crate::math::Vector;
 use crate::tf2::weapons::{self, ItemDefinitionIndex, ItemGenerationError};
 use crate::{Game, InterfaceError, Server};
+use sdk_raw::edicts::MAX_EDICT_BITS;
+
+use sdk_raw::entities::{
+	INVALID_NETWORKED_EHANDLE_VALUE, NUM_NETWORKED_EHANDLE_BITS,
+	NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS,
+};
+
+use sdk_raw::players::FIRST_GAME_TEAM;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
@@ -98,13 +106,6 @@ use std::ptr::NonNull;
 const ELEMENT_NAMES: [&CStr; MAX_NETWORKED_WEARABLES] = [
 	c"000", c"001", c"002", c"003", c"004", c"005", c"006", c"007",
 ];
-
-/// `FIRST_GAME_TEAM`, TF2's RED. Lower teams are unassigned and spectators.
-const FIRST_GAME_TEAM: c_int = 2;
-
-/// `INVALID_NETWORKED_EHANDLE_VALUE`, which `SendProxy_EHandleToInt` sends
-/// for a null handle.
-const INVALID_NETWORKED_HANDLE: u32 = (1 << (NETWORKED_INDEX_BITS + NETWORKED_SERIAL_BITS)) - 1;
 
 /// `MAX_WEARABLES_SENT_FROM_SERVER` (TF2's `LOADOUT_MAX_WEARABLES_COUNT`): the
 /// most entries of a player's wearable list the game networks.
@@ -122,13 +123,6 @@ const MAX_PARENT_DEPTH: usize = 8;
 /// the end of the list, so it reaches the wearable within the list's length.
 const MAX_REMOVE_ATTEMPTS: usize = 32;
 
-/// `MAX_EDICT_BITS`: the bits of a networked handle holding the entry index.
-const NETWORKED_INDEX_BITS: u32 = 11;
-
-/// `NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS`: the bits of a networked handle
-/// holding the low bits of the serial number.
-const NETWORKED_SERIAL_BITS: u32 = 10;
-
 /// An entity handle as `SendProxy_EHandleToInt` networks it: the entry index
 /// in the low 11 bits, and the low 10 bits of the serial number above them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,22 +135,22 @@ impl NetworkedHandle {
 		let raw = raw.cast_unsigned();
 
 		(raw != 0
-			&& raw != INVALID_NETWORKED_HANDLE
-			&& raw >> (NETWORKED_INDEX_BITS + NETWORKED_SERIAL_BITS) == 0)
+			&& raw != INVALID_NETWORKED_EHANDLE_VALUE
+			&& raw >> NUM_NETWORKED_EHANDLE_BITS == 0)
 			.then_some(Self(raw))
 	}
 
 	/// The entity's slot in the entity list, which is its edict index.
 	const fn index(self) -> usize {
-		(self.0 & ((1 << NETWORKED_INDEX_BITS) - 1)) as usize
+		(self.0 & ((1 << MAX_EDICT_BITS) - 1)) as usize
 	}
 
 	/// Whether `handle` has this slot and the serial number bits sent.
 	const fn matches(self, handle: EntityHandle) -> bool {
-		let serial = handle.serial_number() & ((1 << NETWORKED_SERIAL_BITS) - 1);
+		let serial = handle.serial_number() & ((1 << NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS) - 1);
 
 		matches!(handle.index(), Some(index) if index == self.index())
-			&& serial == self.0 >> NETWORKED_INDEX_BITS
+			&& serial == self.0 >> MAX_EDICT_BITS
 	}
 
 	/// Finds the networked entity the handle refers to, if it still exists.
@@ -1499,7 +1493,7 @@ mod tests {
 	/// Encodes a raw handle as `SendProxy_EHandleToInt` does.
 	fn encode(handle: u32) -> c_int {
 		if handle == NULL {
-			INVALID_NETWORKED_HANDLE.cast_signed()
+			INVALID_NETWORKED_EHANDLE_VALUE.cast_signed()
 		} else {
 			((handle & 0x7FF) | ((handle >> 16) & 0x3FF) << 11).cast_signed()
 		}
@@ -2091,7 +2085,12 @@ mod tests {
 			Some(2047)
 		);
 
-		for raw in [0, INVALID_NETWORKED_HANDLE.cast_signed(), 1 << 21, -1] {
+		for raw in [
+			0,
+			INVALID_NETWORKED_EHANDLE_VALUE.cast_signed(),
+			1 << 21,
+			-1,
+		] {
 			assert_eq!(NetworkedHandle::decode(raw), None);
 		}
 	}

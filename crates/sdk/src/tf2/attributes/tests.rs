@@ -13,6 +13,8 @@ use crate::entities::test_support::{
 use crate::server::test_support::{export, mock_server};
 use crate::tf2::weapons::{Weapon, WeaponError};
 use crate::{InterfaceFactory, Module};
+use sdk_raw::datatables::SendPropExtraUtlVector;
+use sdk_raw::tf2::script_binding::SF_MEMBER_FUNC;
 use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, c_int, c_void};
@@ -291,16 +293,6 @@ impl Default for Spec {
 			vector: offset(offset_of!(sys::CAttributeList, m_Attributes)),
 		}
 	}
-}
-
-/// `CSendPropExtra_UtlVector`, as `SendPropUtlVector` shares it between the
-/// properties of a vector's table.
-#[repr(C)]
-struct UtlVectorExtra {
-	functions: [*const c_void; 3],
-	element_stride: c_int,
-	offset: c_int,
-	max_elements: c_int,
 }
 
 /// The native methods of `CEconEntity`'s script descriptor, as the game
@@ -875,7 +867,7 @@ fn player_attributes_dispatch_typed_methods_and_reject_invalid_values() {
 			binding::VOID
 		};
 		function.m_desc.m_Parameters = vector(&mut parameters[i]);
-		function.m_flags = 1;
+		function.m_flags = SF_MEMBER_FUNC;
 		function.m_pfnBinding = Some(player_adapter);
 		function.m_pFunction.val_0 = i as isize;
 	}
@@ -1206,7 +1198,7 @@ fn script_description() -> *mut sys::ScriptClassDesc_t {
 			function.m_desc.m_pszScriptName = names[i].as_ptr();
 			function.m_desc.m_ReturnType = returns[i];
 			function.m_desc.m_Parameters = vector(parameters[i].clone().leak());
-			function.m_flags = 1;
+			function.m_flags = SF_MEMBER_FUNC;
 			function.m_pfnBinding = Some(adapter);
 			function.m_pFunction.val_0 = i as isize;
 			function
@@ -1250,8 +1242,10 @@ fn send_table(spec: Spec) -> *mut sys::SendTable {
 	let foreign = leak_table(c"DT_ScriptCreatedAttribute", entry_props());
 
 	// `SendPropUtlVector` shares this between the vector's properties.
-	let extra = leak(UtlVectorExtra {
-		functions: [null(); 3],
+	let extra = leak(SendPropExtraUtlVector {
+		data_table_proxy: None,
+		proxy: None,
+		ensure_capacity: None,
 		element_stride: spec.stride,
 		offset: spec.vector,
 		max_elements: c_int::try_from(MAX_RUNTIME_ATTRIBUTES).unwrap(),

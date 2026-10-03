@@ -18,9 +18,11 @@ use crate::tf2::attributes::{
 };
 
 use crate::tf2::weapons::ItemDefinitionIndex;
+use sdk_raw::datatables::{SendPropExtraUtlVector, utl_vector_extra};
 use sdk_raw::vcall;
-use std::ffi::{CStr, c_int, c_void};
+use std::ffi::{CStr, c_int};
 use std::mem::{offset_of, size_of};
+use std::ptr::NonNull;
 
 /// `CEconEntity::m_AttributeManager`, the item's `CAttributeContainer`.
 const CONTAINER: usize = offset_of!(sys::CEconEntity, m_AttributeManager);
@@ -298,27 +300,6 @@ impl<'s> ItemLayout<'s> {
 	}
 }
 
-/// `CSendPropExtra_UtlVector` (`dt_utlvector_send.cpp`), which
-/// `SendPropUtlVector` allocates for each networked vector and shares between
-/// the properties of the table it builds for it. The class is private to
-/// that file, so the generated bindings lack it. It has no bases or virtual
-/// methods, so both supported ABIs lay it out as C does.
-#[repr(C)]
-struct UtlVectorExtra {
-	/// `m_DataTableProxyFn`, `m_ProxyFn` and `m_EnsureCapacityFn`, unused.
-	_functions: [*const c_void; 3],
-
-	/// `m_ElementStride`: the size of each element.
-	element_stride: c_int,
-
-	/// `m_Offset`: bytes from the structure the vector's property belongs to,
-	/// here the list, to the vector.
-	offset: c_int,
-
-	/// `m_nMaxElements`: the most elements networked.
-	max_elements: c_int,
-}
-
 /// Checks that a property lies at `offset` from the entity.
 fn check_offset(prop: NetProp<'_>, offset: usize) -> Result<(), AttributeError> {
 	if prop.offset() == offset {
@@ -368,14 +349,11 @@ fn child<'s>(parent: NetProp<'s>, name: &CStr) -> Result<NetProp<'s>, AttributeE
 }
 
 /// A send property's extra data (`m_pExtraData`), if it is set and aligned
-/// for a [`UtlVectorExtra`].
-fn extra_data(prop: SendProp<'_>) -> Option<*const UtlVectorExtra> {
-	// SAFETY: The property belongs to one of the game DLL's send tables, and
-	// the field is read without forming a reference.
-	let extra =
-		unsafe { (&raw const (*prop.as_ptr()).m_pExtraData).read() }.cast::<UtlVectorExtra>();
-
-	(!extra.is_null() && extra.is_aligned()).then_some(extra)
+/// for a [`SendPropExtraUtlVector`].
+fn extra_data(prop: SendProp<'_>) -> Option<NonNull<SendPropExtraUtlVector>> {
+	// SAFETY: The property belongs to one of the game DLL's send tables, which
+	// stay loaded while the game DLL is.
+	unsafe { utl_vector_extra(prop.as_ptr()) }
 }
 
 /// An economy item's definition index (`m_iItemDefinitionIndex`), or `None`
@@ -444,7 +422,7 @@ unsafe fn read_definition_index(entity: Entity<'_>) -> u16 {
 /// `lengthproxy` property, then one property per entry, each nesting the
 /// entry's table and holding its position in its element stride. It keeps
 /// where the vector lies within the list, and the size of its entries, in a
-/// [`UtlVectorExtra`] every one of those properties shares
+/// [`SendPropExtraUtlVector`] every one of those properties shares
 /// (`dt_utlvector_send.cpp`). That must give the generated offset of the
 /// list's vector, the size of `CEconItemAttribute`, and 20 entries
 /// (`MAX_ATTRIBUTES_PER_ITEM`, `econ_item_constants.h`).

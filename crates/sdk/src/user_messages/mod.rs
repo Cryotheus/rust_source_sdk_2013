@@ -11,12 +11,13 @@
 
 pub mod messages;
 
-use crate::bitbuf::{BitWriter, RawBfWrite};
+use crate::bitbuf::BitWriter;
 use crate::edicts::Edict;
 use crate::entities::Entity;
 use crate::net::EncodeError;
 use crate::net::messages::MAX_MESSAGE_DATA_BYTES;
 use crate::server::{InterfaceError, Server};
+use sdk_raw::bitbuf::BfWrite;
 use sdk_raw::user_messages::RecipientFilter;
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
@@ -253,7 +254,7 @@ fn finish(
 
 	// SAFETY: The engine's message buffer stays allocated, and only this
 	// writes to it, until `MessageEnd`.
-	let copied = unsafe { RawBfWrite::append(buffer.cast(), data) };
+	let copied = unsafe { BfWrite::append(BfWrite::from_sys(buffer), data.as_words(), data.len()) };
 
 	// A begun message must end, or the engine refuses the next. An overflowed
 	// one is dropped rather than sent.
