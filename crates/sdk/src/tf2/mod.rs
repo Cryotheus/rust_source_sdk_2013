@@ -14,6 +14,8 @@ pub mod game_events;
 pub mod host_timescale;
 pub mod overlays;
 mod script_binding;
+pub mod sound;
 pub mod user_messages;
+pub mod voice;
 pub mod voting;
 pub mod weapons;
