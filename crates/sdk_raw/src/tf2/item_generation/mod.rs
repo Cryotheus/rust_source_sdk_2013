@@ -15,6 +15,25 @@
 //! The functions are C++ member functions, called as `extern "C"`: on both
 //! supported x86-64 targets that is their calling convention, with `this`
 //! passed as the first argument.
+//!
+//! # Caching
+//!
+//! Resolution inspects the whole module: on Windows it snapshots and scans its
+//! image, and on Linux it reads and parses its file. [`ItemGeneration::cached`]
+//! therefore keeps the last successful resolution for the rest of the process,
+//! keyed by the address of the factory and the base address of the module
+//! containing it, which it looks up through the loader on each call, and
+//! returns it again without inspecting the module. A call for another factory
+//! or module base resolves anew and replaces it. Failures are not kept, so the
+//! next call inspects the module again instead of repeating an error that may
+//! have been transient, such as a failed read.
+//!
+//! The cache cannot tell a module from a different image later loaded at the
+//! same base with its `CreateInterface` at the same address, and assumes that
+//! this does not happen. Source never unloads the game server module while
+//! plugins are loaded: Metamod:Source and the engine unload plugins first, and
+//! the cache, a static of the plugin that links this crate, is unloaded with
+//! it.
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
@@ -26,10 +45,12 @@ mod platform;
 
 use crate::interfaces::CreateInterfaceFn;
 use crate::sig;
-use crate::util::SignaturePattern;
+use crate::util::{Module, SignaturePattern};
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::transmute;
+use std::num::NonZeroUsize;
 use std::ptr::{self, NonNull};
+use std::sync::{Mutex, PoisonError};
 
 /// `CEconItemSchema::GetItemDefinition(int)`.
 type GetItemDefinitionFn = unsafe extern "C" fn(
@@ -53,6 +74,14 @@ type SpawnItemFn = unsafe extern "C" fn(
 	quality: sys::entityquality_t,
 	classname: *const c_char,
 ) -> *mut sys::CBaseEntity;
+
+// `ItemGeneration` is a plain bundle of addresses, which only the unsafe
+// `spawn` uses, so it can be copied and shared between threads.
+const _: () = {
+	const fn assert_plain<T: Copy + Send + Sync>() {}
+
+	assert_plain::<ItemGeneration>();
+};
 
 /// The body of `ItemGeneration()`, which returns the `CItemGeneration`
 /// singleton: `lea rax, [rip + singleton]; ret`.
@@ -79,8 +108,13 @@ const NO_DEFINITION: c_int = -1;
 /// section of the module.
 const SINGLETON_LEN: usize = 16;
 
+/// The last resolution [`ItemGeneration::cached`] kept, with the module it was
+/// resolved in.
+static CACHE: Mutex<Option<(ModuleKey, Addresses)>> = Mutex::new(None);
+
 /// The addresses of the item generation functions and singleton in a module,
 /// as the platform's resolver verified them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Addresses {
 	/// `CEconItemSchema::GetItemDefinition`, a [`GetItemDefinitionFn`].
 	get_item_definition: usize,
@@ -89,7 +123,7 @@ struct Addresses {
 	schema_getter: usize,
 
 	/// The `CItemGeneration` singleton.
-	singleton: usize,
+	singleton: NonZeroUsize,
 
 	/// `CItemGeneration::SpawnItem`, a [`SpawnItemFn`].
 	spawn_item: usize,
@@ -97,27 +131,110 @@ struct Addresses {
 
 /// TF2's item generation functions, resolved in a game server module.
 ///
-/// Holding one does not keep that module loaded: its functions may only be
-/// called while the module [`Self::resolve`] inspected stays loaded. It is
-/// neither `Send` nor `Sync`, since the game generates items on its main
-/// thread.
+/// It is a plain bundle of the addresses the resolver verified, so it is
+/// `Copy`, `Send`, and `Sync`: only [`Self::spawn`], which must be called on
+/// the server's main thread, uses them. Holding one does not keep that module
+/// loaded: its functions may only be called while the module it was resolved
+/// in stays loaded.
 #[doc(alias("CItemGeneration"))]
 #[derive(Debug, Clone, Copy)]
 pub struct ItemGeneration {
 	get_item_definition: GetItemDefinitionFn,
 	schema_getter: SchemaGetterFn,
-	singleton: NonNull<sys::CItemGeneration>,
+	singleton: NonZeroUsize,
 	spawn_item: SpawnItemFn,
 }
 
 impl ItemGeneration {
+	/// Finds TF2's item generation in the module whose `CreateInterface`
+	/// export is `factory`, as [`Self::resolve`] does, but inspects each module
+	/// only once.
+	///
+	/// If the last successful call was for the same factory, in a module at
+	/// the same base address as the one containing `factory` now, this returns
+	/// what that call resolved without inspecting the module again. Otherwise,
+	/// it resolves the module and, on success, keeps the result in place of
+	/// the previous one. Each call looks up the base of the module containing
+	/// `factory` through the loader, as the
+	/// [module documentation](crate::tf2::item_generation#caching) describes.
+	///
+	/// Fails with [`ItemGenerationError::Unresolved`] if no loaded module
+	/// contains `factory`, or if resolution fails as for [`Self::resolve`]. A
+	/// failure is not kept: the next call resolves again.
+	///
+	/// # Safety
+	///
+	/// - `factory` must be the `CreateInterface` export of a module that stays
+	///   loaded, with its image mappings unchanged, for the whole call.
+	/// - If an earlier call resolved a module mapped at the same base, with its
+	///   `CreateInterface` at the same address, the module containing `factory`
+	///   must be that same image, with the code and singleton that call found
+	///   unchanged, since a cache hit returns that call's addresses without
+	///   inspecting the module. This holds unless that module was unloaded and
+	///   a different image loaded at the same base since, which Source never
+	///   does to the game server module while plugins are loaded.
+	pub unsafe fn cached(factory: CreateInterfaceFn) -> Result<Self, ItemGenerationError> {
+		let factory = factory as usize;
+
+		// SAFETY: The caller keeps the factory's module loaded for this call, so
+		// it stays loaded while the loader finds it. On Windows, the loader
+		// reference `Module` takes is released when it drops, at the end of this
+		// statement.
+		let base = unsafe { Module::at(factory) }
+			.map_err(|_| ItemGenerationError::Unresolved)?
+			.base();
+
+		let addresses = lookup(ModuleKey { base, factory }, || {
+			// SAFETY: The caller keeps the factory's module loaded, with its image
+			// mappings unchanged, for this call, including the loader metadata the
+			// resolver inspects.
+			unsafe { platform::resolve(factory) }
+		})
+		.ok_or(ItemGenerationError::Unresolved)?;
+
+		// SAFETY: The resolver verified the addresses in this module: in this
+		// call, or, on a cache hit, in an earlier call, for a module mapped at
+		// the same base with the same factory, which the caller guarantees is
+		// this same, unchanged image, still mapped for this call.
+		Ok(unsafe { Self::from_addresses(addresses) })
+	}
+
+	/// Types the addresses a platform resolver verified.
+	///
+	/// # Safety
+	///
+	/// A platform resolver verified `addresses` in a module whose image is
+	/// still mapped at the addresses it inspected.
+	unsafe fn from_addresses(addresses: Addresses) -> Self {
+		// SAFETY: The resolver verified each address as the entry of the function
+		// its type describes, in the module's executable code: on Windows through
+		// the native call chain and the argument setup of its calls, on Linux
+		// through exact mangled symbols whose live code matches the file. None is
+		// null, since each lies in a section of the module.
+		unsafe {
+			Self {
+				get_item_definition: transmute::<*const (), GetItemDefinitionFn>(
+					ptr::with_exposed_provenance(addresses.get_item_definition),
+				),
+				schema_getter: transmute::<*const (), SchemaGetterFn>(
+					ptr::with_exposed_provenance(addresses.schema_getter),
+				),
+				singleton: addresses.singleton,
+				spawn_item: transmute::<*const (), SpawnItemFn>(ptr::with_exposed_provenance(
+					addresses.spawn_item,
+				)),
+			}
+		}
+	}
+
 	/// Finds TF2's item generation in the module whose `CreateInterface`
 	/// export is `factory`.
 	///
 	/// Fails with [`ItemGenerationError::Unresolved`] unless that module is a
 	/// game server module whose functions match retail TF2's, as the
 	/// [module documentation](crate::tf2::item_generation) describes. Nothing
-	/// is cached: each call inspects the module again.
+	/// is cached: each call inspects the module again, while [`Self::cached`]
+	/// keeps the result.
 	///
 	/// # Safety
 	///
@@ -130,27 +247,9 @@ impl ItemGeneration {
 		let addresses = unsafe { platform::resolve(factory as usize) }
 			.ok_or(ItemGenerationError::Unresolved)?;
 
-		let singleton = NonNull::new(ptr::with_exposed_provenance_mut(addresses.singleton))
-			.ok_or(ItemGenerationError::Unresolved)?;
-
-		// SAFETY: The resolver verified each address as the entry of the function
-		// its type describes, in the module's executable code: on Windows through
-		// the native call chain and the argument setup of its calls, on Linux
-		// through exact mangled symbols whose live code matches the file.
-		unsafe {
-			Ok(Self {
-				get_item_definition: transmute::<*const (), GetItemDefinitionFn>(
-					ptr::with_exposed_provenance(addresses.get_item_definition),
-				),
-				schema_getter: transmute::<*const (), SchemaGetterFn>(
-					ptr::with_exposed_provenance(addresses.schema_getter),
-				),
-				singleton,
-				spawn_item: transmute::<*const (), SpawnItemFn>(ptr::with_exposed_provenance(
-					addresses.spawn_item,
-				)),
-			})
-		}
+		// SAFETY: The resolver just verified the addresses in this module, which
+		// the caller keeps mapped.
+		Ok(unsafe { Self::from_addresses(addresses) })
 	}
 
 	/// Creates the economy item `definition` at `origin` through
@@ -171,8 +270,9 @@ impl ItemGeneration {
 	///
 	/// # Safety
 	///
-	/// - The module that [`Self::resolve`] inspected is still loaded, with its
-	///   image mappings unchanged, for the whole call.
+	/// - The module this was resolved in, by [`Self::resolve`] or
+	///   [`Self::cached`], is still loaded, with its image mappings unchanged,
+	///   for the whole call.
 	/// - The call is made on the server's main thread, from a callback in which
 	///   the game may create and spawn entities.
 	/// - The game code the call runs, such as the item's constructor, `Spawn`,
@@ -231,7 +331,7 @@ impl ItemGeneration {
 		// this call.
 		let entity = unsafe {
 			(self.spawn_item)(
-				self.singleton.as_ptr(),
+				ptr::with_exposed_provenance_mut(self.singleton.get()),
 				c_int::from(definition),
 				&origin,
 				&angles,
@@ -266,4 +366,38 @@ pub enum ItemGenerationError {
 	/// [module documentation](crate::tf2::item_generation) describes.
 	#[error("the game's item generation functions could not be found")]
 	Unresolved,
+}
+
+/// The module [`ItemGeneration::cached`] resolved: the base address it is
+/// mapped at, and the address of its `CreateInterface` export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ModuleKey {
+	/// The module's base address.
+	base: usize,
+
+	/// The address of the module's `CreateInterface` export.
+	factory: usize,
+}
+
+/// The addresses [`CACHE`] holds for `key`, or else those `resolve` finds,
+/// which then replace its entry. A failure leaves the entry as it was.
+fn lookup(key: ModuleKey, resolve: impl FnOnce() -> Option<Addresses>) -> Option<Addresses> {
+	// Nothing that can panic runs while the lock is held, and the entry is
+	// `Copy` and written in one assignment, so even a poisoned lock would hold a
+	// complete entry.
+	let cached = *CACHE.lock().unwrap_or_else(PoisonError::into_inner);
+
+	if let Some((cached_key, addresses)) = cached
+		&& cached_key == key
+	{
+		return Some(addresses);
+	}
+
+	// Resolution runs without the lock: concurrent misses each resolve, and the
+	// last to finish keeps its entry.
+	let addresses = resolve()?;
+
+	*CACHE.lock().unwrap_or_else(PoisonError::into_inner) = Some((key, addresses));
+
+	Some(addresses)
 }

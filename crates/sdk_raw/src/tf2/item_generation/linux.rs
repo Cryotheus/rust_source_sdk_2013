@@ -4,6 +4,7 @@
 use super::{Addresses, ITEM_GENERATION_GETTER, ITEM_GENERATION_GETTER_OPERAND, SINGLETON_LEN};
 use crate::util::elf::LoadedElf;
 use crate::util::{pattern, relative};
+use std::num::NonZeroUsize;
 
 /// `CEconItemSchema::GetItemDefinition(int)`.
 const GET_ITEM_DEFINITION: &[u8] = b"_ZN15CEconItemSchema17GetItemDefinitionEi";
@@ -54,7 +55,7 @@ pub(super) unsafe fn resolve(address: usize) -> Option<Addresses> {
 	Some(Addresses {
 		get_item_definition,
 		schema_getter,
-		singleton,
+		singleton: NonZeroUsize::new(singleton)?,
 		spawn_item,
 	})
 }

@@ -776,6 +776,12 @@ fn check_live(entity: Entity<'_>) -> Result<(), WeaponError> {
 /// class `classname`, as [`ItemGeneration::spawn`] describes. The entity is
 /// newly created and spawned, and must not be spawned again.
 ///
+/// Once a call has resolved item generation in the game server module, later
+/// calls reuse it without inspecting the module again, as
+/// [`ItemGeneration::cached`] describes. This relies on Source never unloading
+/// that module while plugins are loaded, so that the module at its base
+/// address stays the image that was inspected.
+///
 /// # Safety
 ///
 /// The item's constructor, spawn and activation, and everything they reach,
@@ -788,8 +794,12 @@ pub(crate) unsafe fn generate_item(
 	classname: Option<&CStr>,
 ) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
 	// SAFETY: `Server::new` guarantees that the game server module, whose
-	// factory this is, stays loaded through the callback.
-	let generation = unsafe { ItemGeneration::resolve(server.game_server_factory().as_raw()) }?;
+	// factory this is, stays loaded through the callback. A cached resolution
+	// for the same factory and module base was made in this same image: Source
+	// never unloads the game server module while plugins are loaded, since
+	// Metamod:Source and the engine unload plugins first, and the cache, a
+	// static of this plugin, is unloaded with it.
+	let generation = unsafe { ItemGeneration::cached(server.game_server_factory().as_raw()) }?;
 
 	// SAFETY: As above, the module stays loaded, and this runs on the main
 	// thread, inside the engine's callback. The caller vouches for the game

@@ -8,6 +8,7 @@ use super::{Addresses, ITEM_GENERATION_GETTER, ITEM_GENERATION_GETTER_OPERAND, S
 use crate::sig;
 use crate::util::{Image, SignaturePattern, pattern, relative};
 use std::mem::offset_of;
+use std::num::NonZeroUsize;
 
 // The tail calls `CBaseEntity::Spawn` and `Activate` through the generated
 // vtable's slots, and `SpawnItem` passes `GetItemDefinition` the schema
@@ -186,7 +187,7 @@ fn resolve_image(image: &Image) -> Option<Addresses> {
 	Some(Addresses {
 		get_item_definition,
 		schema_getter,
-		singleton,
+		singleton: NonZeroUsize::new(singleton)?,
 		spawn_item,
 	})
 }
@@ -194,6 +195,7 @@ fn resolve_image(image: &Image) -> Option<Addresses> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::tf2::item_generation::{ModuleKey, lookup};
 
 	#[test]
 	#[ignore = "set TF2_SERVER_IMAGE to an authorized retail server.dll for binary validation"]
@@ -209,6 +211,20 @@ mod tests {
 		assert!(image.executable(addresses.spawn_item));
 		assert!(image.executable(addresses.schema_getter));
 		assert!(image.executable(addresses.get_item_definition));
+
+		// Resolving the same module twice through the cache inspects it once.
+		// A file has no loader to find its factory by, so another of its
+		// addresses stands in for it.
+		let key = ModuleKey {
+			base: image.base,
+			factory: addresses.spawn_item,
+		};
+
+		assert_eq!(lookup(key, || resolve_image(&image)), Some(addresses));
+		assert_eq!(
+			lookup(key, || panic!("a cache hit inspected the module again")),
+			Some(addresses)
+		);
 
 		// Matching prologues alone are insufficient: redirect the caller to
 		// another executable function and require the cross-check to reject it.
