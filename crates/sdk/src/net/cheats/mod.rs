@@ -112,6 +112,12 @@
 //!
 //! [`IncomingHandler`]: super::incoming::IncomingHandler
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
+mod tests;
+
 use crate::bitbuf::BitWriter;
 use crate::commands::CommandFlags;
 use crate::interfaces::cvar::ConVar;
@@ -317,6 +323,19 @@ struct Client {
 }
 
 impl Client {
+	/// A client with nothing recorded.
+	const fn new(user_id: UserId) -> Self {
+		Self {
+			confirmed: false,
+			leases: Vec::new(),
+			refused: false,
+			retired: Vec::new(),
+			spoofed: false,
+			user_id,
+			window: Window::Closed,
+		}
+	}
+
 	/// Sends again, without counting a failure, every lease whose answer may
 	/// have been overtaken by another `sv_cheats`, retiring its query.
 	fn invalidate(&mut self) {
@@ -348,19 +367,6 @@ impl Client {
 	/// Whether the client has nothing to wait for or send.
 	fn is_idle(&self) -> bool {
 		self.leases.is_empty() && self.window == Window::Closed
-	}
-
-	/// A client with nothing recorded.
-	const fn new(user_id: UserId) -> Self {
-		Self {
-			confirmed: false,
-			leases: Vec::new(),
-			refused: false,
-			retired: Vec::new(),
-			spoofed: false,
-			user_id,
-			window: Window::Closed,
-		}
 	}
 
 	/// Sends the restore, or what is left of it. Returns whether `sv_cheats`
@@ -534,6 +540,18 @@ pub struct ClientCheats {
 }
 
 impl ClientCheats {
+	/// A coordinator with no leases, which waits and retries as `options`
+	/// says.
+	pub const fn new(options: CheatsOptions) -> Self {
+		Self {
+			clients: Vec::new(),
+			next_cookie: None,
+			next_lease: NonZero::<u64>::MIN,
+			options,
+			server_cheats: false,
+		}
+	}
+
 	/// Whether any query awaits its answer, or a late or repeated answer may
 	/// still arrive.
 	fn awaits_answers(&self) -> bool {
@@ -725,18 +743,6 @@ impl ClientCheats {
 			})
 	}
 
-	/// A coordinator with no leases, which waits and retries as `options`
-	/// says.
-	pub const fn new(options: CheatsOptions) -> Self {
-		Self {
-			clients: Vec::new(),
-			next_cookie: None,
-			next_lease: NonZero::<u64>::MIN,
-			options,
-			server_cheats: false,
-		}
-	}
-
 	/// A cookie no outstanding or retired query carries.
 	fn next_cookie(&mut self) -> c_int {
 		let span = COOKIES.end() - COOKIES.start() + 1;
@@ -915,6 +921,7 @@ impl ClientCheats {
 
 			// A repeated answer.
 			Some(_) => Verdict::Block,
+
 			None if client.retired.contains(cookie) => Verdict::Block,
 			None => Verdict::Continue,
 		}
@@ -1145,14 +1152,6 @@ struct EngineLink<'s> {
 }
 
 impl<'s> EngineLink<'s> {
-	/// The connected client with `user_id`.
-	fn client(&self, user_id: UserId) -> Option<GameClient<'s>> {
-		self.clients
-			.iter()
-			.find(|&&(id, _)| id == user_id)
-			.map(|&(_, client)| client)
-	}
-
 	/// Finds the server's clients and `sv_cheats`.
 	fn new(server: Server<'s>) -> Result<Self, CheatsError> {
 		let game_server = server
@@ -1174,6 +1173,14 @@ impl<'s> EngineLink<'s> {
 			cvar,
 			restore: None,
 		})
+	}
+
+	/// The connected client with `user_id`.
+	fn client(&self, user_id: UserId) -> Option<GameClient<'s>> {
+		self.clients
+			.iter()
+			.find(|&&(id, _)| id == user_id)
+			.map(|&(_, client)| client)
 	}
 }
 
@@ -1534,9 +1541,3 @@ fn spoof_bits<'a>(
 
 	Ok(bits)
 }
-
-#[cfg(test)]
-pub(crate) mod test_support;
-
-#[cfg(test)]
-mod tests;

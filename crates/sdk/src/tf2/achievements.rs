@@ -85,6 +85,13 @@ pub struct AchievementLock {
 }
 
 impl AchievementLock {
+	/// A lock that knows no client, which a `static` can hold.
+	pub const fn new() -> Self {
+		Self {
+			requests: Vec::new(),
+		}
+	}
+
 	/// Forgets every client, as at level shutdown, when [`ClientCheats::clear`]
 	/// is called too.
 	pub fn clear(&mut self) {
@@ -184,13 +191,6 @@ impl AchievementLock {
 			.collect())
 	}
 
-	/// A lock that knows no client, which a `static` can hold.
-	pub const fn new() -> Self {
-		Self {
-			requests: Vec::new(),
-		}
-	}
-
 	/// How far the client with `user_id` is locked, or `None` if this lock
 	/// never tried, and `cheats` knows of no lease of the client that was
 	/// confirmed or refused.
@@ -211,6 +211,7 @@ impl AchievementLock {
 			Some(Request::Lease(lease)) if cheats.lease(lease).is_some() => {
 				Some(LockState::Pending)
 			}
+
 			_ if client.is_some_and(|client| client.refused) => Some(LockState::Refused),
 			Some(Request::Lease(_)) => Some(LockState::Failed),
 			Some(Request::ServerCheats) => Some(LockState::ServerCheats),
@@ -290,8 +291,58 @@ mod tests {
 	use std::num::NonZero;
 	use std::time::Duration;
 
-	fn user(id: u16) -> UserId {
-		UserId::new(id).unwrap()
+	#[test]
+	fn any_confirmed_lease_locks_the_client() {
+		let mock = MockEngine::new(&[MockClient::active(2)], c"0", &[]);
+		let mut cheats = ClientCheats::default();
+		let lock = AchievementLock::default();
+		let commands = Purpose::Commands(vec![c"cl_soundscape_flush".into()]);
+
+		cheats.begin(mock.server(), user(2), commands).unwrap();
+
+		let cookie = query_cookie(&mock.take_sent(0)[0]);
+
+		assert_eq!(lock.state(&cheats, user(2)), None);
+		cheats.on_response(user(2), &response(cookie, 0, c"1"));
+		cheats.on_game_frame(mock.server()).unwrap();
+		assert_eq!(lock.state(&cheats, user(2)), Some(LockState::Locked));
+		assert_eq!(lock.lease(user(2)), None);
+	}
+
+	#[test]
+	fn bots_and_other_games_are_refused() {
+		let bot = MockClient {
+			fake: true,
+			..MockClient::active(3)
+		};
+		let mock = MockEngine::new(&[bot], c"0", &[]);
+		let mut cheats = ClientCheats::default();
+		let mut lock = AchievementLock::new();
+
+		assert_eq!(
+			lock.lock(&mut cheats, mock.server(), user(3)),
+			Err(LockError::Cheats(CheatsError::FakeClient))
+		);
+		assert_eq!(lock.state(&cheats, user(3)), None);
+
+		unsafe extern "C" fn no_interfaces(_: *const c_char, _: *mut c_int) -> *mut c_void {
+			std::ptr::null_mut()
+		}
+
+		let factory = InterfaceFactory::new(no_interfaces);
+		let scope = ();
+
+		// SAFETY: The factories export nothing, and nothing is looked up.
+		let server = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
+
+		assert_eq!(
+			lock.lock(&mut cheats, server, user(3)),
+			Err(LockError::UnsupportedGame)
+		);
+		assert_eq!(
+			lock.lock_all(&mut cheats, server),
+			Err(LockError::UnsupportedGame)
+		);
 	}
 
 	#[test]
@@ -394,6 +445,62 @@ mod tests {
 	}
 
 	#[test]
+	fn lock_all_locks_every_connected_player() {
+		let connecting = MockClient {
+			active: false,
+			..MockClient::active(3)
+		};
+		let bot = MockClient {
+			fake: true,
+			..MockClient::active(4)
+		};
+		let host = MockClient {
+			loopback: true,
+			..MockClient::active(5)
+		};
+		let mock = MockEngine::new(
+			&[
+				MockClient::active(2),
+				connecting,
+				bot,
+				MockClient::default(),
+				host,
+			],
+			c"0",
+			&[],
+		);
+		let mut cheats = ClientCheats::default();
+		let mut lock = AchievementLock::new();
+
+		assert_eq!(
+			lock.lock_all(&mut cheats, mock.server()),
+			Ok(vec![
+				(user(2), Ok(LockState::Pending)),
+				(user(3), Ok(LockState::Pending)),
+				(user(5), Err(LockError::Cheats(CheatsError::Loopback))),
+			])
+		);
+		assert_eq!(mock.take_sent(0).len(), 1);
+
+		// The client still connecting is sent its lease once in the game.
+		assert!(mock.take_sent(1).is_empty());
+		mock.set_client(1, MockClient::active(3));
+		assert_eq!(cheats.on_game_frame(mock.server()), Ok(Vec::new()));
+		assert_eq!(mock.take_sent(1).len(), 1);
+
+		// Again, as after unpausing: pending clients are left as they are.
+		assert_eq!(
+			lock.lock_all(&mut cheats, mock.server()),
+			Ok(vec![
+				(user(2), Ok(LockState::Pending)),
+				(user(3), Ok(LockState::Pending)),
+				(user(5), Err(LockError::Cheats(CheatsError::Loopback))),
+			])
+		);
+		assert!(mock.take_sent(0).is_empty());
+	}
+
+	#[test]
 	fn refusing_clients_are_not_tried_again() {
 		let mock = MockEngine::new(&[MockClient::active(2)], c"0", &[]);
 		let mut cheats = ClientCheats::default();
@@ -459,113 +566,7 @@ mod tests {
 		assert_eq!(mock.take_sent(0).len(), 1);
 	}
 
-	#[test]
-	fn any_confirmed_lease_locks_the_client() {
-		let mock = MockEngine::new(&[MockClient::active(2)], c"0", &[]);
-		let mut cheats = ClientCheats::default();
-		let lock = AchievementLock::default();
-		let commands = Purpose::Commands(vec![c"cl_soundscape_flush".into()]);
-
-		cheats.begin(mock.server(), user(2), commands).unwrap();
-
-		let cookie = query_cookie(&mock.take_sent(0)[0]);
-
-		assert_eq!(lock.state(&cheats, user(2)), None);
-		cheats.on_response(user(2), &response(cookie, 0, c"1"));
-		cheats.on_game_frame(mock.server()).unwrap();
-		assert_eq!(lock.state(&cheats, user(2)), Some(LockState::Locked));
-		assert_eq!(lock.lease(user(2)), None);
-	}
-
-	#[test]
-	fn lock_all_locks_every_connected_player() {
-		let connecting = MockClient {
-			active: false,
-			..MockClient::active(3)
-		};
-		let bot = MockClient {
-			fake: true,
-			..MockClient::active(4)
-		};
-		let host = MockClient {
-			loopback: true,
-			..MockClient::active(5)
-		};
-		let mock = MockEngine::new(
-			&[
-				MockClient::active(2),
-				connecting,
-				bot,
-				MockClient::default(),
-				host,
-			],
-			c"0",
-			&[],
-		);
-		let mut cheats = ClientCheats::default();
-		let mut lock = AchievementLock::new();
-
-		assert_eq!(
-			lock.lock_all(&mut cheats, mock.server()),
-			Ok(vec![
-				(user(2), Ok(LockState::Pending)),
-				(user(3), Ok(LockState::Pending)),
-				(user(5), Err(LockError::Cheats(CheatsError::Loopback))),
-			])
-		);
-		assert_eq!(mock.take_sent(0).len(), 1);
-
-		// The client still connecting is sent its lease once in the game.
-		assert!(mock.take_sent(1).is_empty());
-		mock.set_client(1, MockClient::active(3));
-		assert_eq!(cheats.on_game_frame(mock.server()), Ok(Vec::new()));
-		assert_eq!(mock.take_sent(1).len(), 1);
-
-		// Again, as after unpausing: pending clients are left as they are.
-		assert_eq!(
-			lock.lock_all(&mut cheats, mock.server()),
-			Ok(vec![
-				(user(2), Ok(LockState::Pending)),
-				(user(3), Ok(LockState::Pending)),
-				(user(5), Err(LockError::Cheats(CheatsError::Loopback))),
-			])
-		);
-		assert!(mock.take_sent(0).is_empty());
-	}
-
-	#[test]
-	fn bots_and_other_games_are_refused() {
-		let bot = MockClient {
-			fake: true,
-			..MockClient::active(3)
-		};
-		let mock = MockEngine::new(&[bot], c"0", &[]);
-		let mut cheats = ClientCheats::default();
-		let mut lock = AchievementLock::new();
-
-		assert_eq!(
-			lock.lock(&mut cheats, mock.server(), user(3)),
-			Err(LockError::Cheats(CheatsError::FakeClient))
-		);
-		assert_eq!(lock.state(&cheats, user(3)), None);
-
-		unsafe extern "C" fn no_interfaces(_: *const c_char, _: *mut c_int) -> *mut c_void {
-			std::ptr::null_mut()
-		}
-
-		let factory = InterfaceFactory::new(no_interfaces);
-		let scope = ();
-
-		// SAFETY: The factories export nothing, and nothing is looked up.
-		let server = unsafe { Server::new(factory, factory, Game::SourceSdk2013, &scope) };
-
-		assert_eq!(
-			lock.lock(&mut cheats, server, user(3)),
-			Err(LockError::UnsupportedGame)
-		);
-		assert_eq!(
-			lock.lock_all(&mut cheats, server),
-			Err(LockError::UnsupportedGame)
-		);
+	fn user(id: u16) -> UserId {
+		UserId::new(id).unwrap()
 	}
 }

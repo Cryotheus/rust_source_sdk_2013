@@ -81,6 +81,9 @@
 //! [`Scoreboard`] overrides a team's number, set it through
 //! [`Scoreboard::set_real_team_stat`] instead.
 
+#[cfg(test)]
+mod tests;
+
 use crate::datatables::{NetPropError, PropFlags, PropKind, SendProp, ServerClass, Storage};
 use crate::edicts::{Edict, MAX_CHANGE_OFFSETS};
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
@@ -127,20 +130,6 @@ struct ArrayLayout {
 }
 
 impl ArrayLayout {
-	/// Checks that the array holds [`STREAKS_PER_SLOT`] elements for each of
-	/// `slots` player slots, as `m_iStreaks` must for the bindings' streak
-	/// numbering to address the right element.
-	fn grouped(self, slots: usize) -> Result<Self, ScoreboardError> {
-		if slots.checked_mul(STREAKS_PER_SLOT) == Some(self.len) {
-			Ok(self)
-		} else {
-			Err(ScoreboardError::UnexpectedStreaks {
-				len: self.len,
-				slots,
-			})
-		}
-	}
-
 	/// Resolves `field`'s array in `class`, checking that it is a contiguous
 	/// array of `int`s that holds at least player slot 1.
 	fn resolve(
@@ -180,6 +169,20 @@ impl ArrayLayout {
 			len,
 			range: encodable_range(first.prop()),
 		})
+	}
+
+	/// Checks that the array holds [`STREAKS_PER_SLOT`] elements for each of
+	/// `slots` player slots, as `m_iStreaks` must for the bindings' streak
+	/// numbering to address the right element.
+	fn grouped(self, slots: usize) -> Result<Self, ScoreboardError> {
+		if slots.checked_mul(STREAKS_PER_SLOT) == Some(self.len) {
+			Ok(self)
+		} else {
+			Err(ScoreboardError::UnexpectedStreaks {
+				len: self.len,
+				slots,
+			})
+		}
 	}
 
 	/// Bytes from the start of the entity to `field`'s element for `slot`, or
@@ -2196,6 +2199,3 @@ fn team_entity<'c, 's>(
 
 	Ok((entity, edict, cached))
 }
-
-#[cfg(test)]
-mod tests;

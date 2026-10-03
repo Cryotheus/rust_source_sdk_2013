@@ -152,7 +152,6 @@ impl From<BindingError> for OverlayError {
 	fn from(error: BindingError) -> Self {
 		match error {
 			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
-
 			BindingError::Rejected => Self::Rejected,
 		}
 	}
@@ -241,7 +240,6 @@ impl OverlayMaterial {
 	const fn stock(name: &'static CStr) -> Self {
 		match check_name(name) {
 			Ok(()) => Self(Cow::Borrowed(name)),
-
 			Err(_) => panic!("a stock overlay material name is invalid"),
 		}
 	}

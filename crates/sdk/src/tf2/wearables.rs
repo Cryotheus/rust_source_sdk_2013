@@ -78,6 +78,20 @@ use std::ffi::{CStr, c_int};
 use std::mem::{offset_of, size_of};
 use std::ptr::NonNull;
 
+// The entity pointer of a wearable is passed as the `CEconWearable *` that
+// `EquipWearable` and `RemoveWearable` take, which needs every class from
+// `CTFWearable` down to `CBaseEntity` to start with its primary base. The
+// Itanium bindings describe `CEconWearable` and `CBaseAnimating` as opaque
+// blobs, whose single, polymorphic primary bases that ABI also places first.
+const _: () = {
+	assert!(offset_of!(sys::CTFWearable, _base) == 0 && offset_of!(sys::CEconEntity, _base) == 0);
+
+	#[cfg(target_os = "windows")]
+	assert!(
+		offset_of!(sys::CEconWearable, _base) == 0 && offset_of!(sys::CBaseAnimating, _base) == 0
+	);
+};
+
 /// The names `SendPropUtlVector` gives the networked elements of
 /// `m_hMyWearables`, in order (`DT_ArrayElementNameForIdx`).
 const ELEMENT_NAMES: [&CStr; MAX_NETWORKED_WEARABLES] = [
@@ -113,20 +127,6 @@ const NETWORKED_INDEX_BITS: u32 = 11;
 /// `NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS`: the bits of a networked handle
 /// holding the low bits of the serial number.
 const NETWORKED_SERIAL_BITS: u32 = 10;
-
-// The entity pointer of a wearable is passed as the `CEconWearable *` that
-// `EquipWearable` and `RemoveWearable` take, which needs every class from
-// `CTFWearable` down to `CBaseEntity` to start with its primary base. The
-// Itanium bindings describe `CEconWearable` and `CBaseAnimating` as opaque
-// blobs, whose single, polymorphic primary bases that ABI also places first.
-const _: () = {
-	assert!(offset_of!(sys::CTFWearable, _base) == 0 && offset_of!(sys::CEconEntity, _base) == 0);
-
-	#[cfg(target_os = "windows")]
-	assert!(
-		offset_of!(sys::CEconWearable, _base) == 0 && offset_of!(sys::CBaseAnimating, _base) == 0
-	);
-};
 
 /// An entity handle as `SendProxy_EHandleToInt` networks it: the entry index
 /// in the low 11 bits, and the low 10 bits of the serial number above them.
@@ -537,6 +537,7 @@ impl<'s> PlayerWearables<'s> {
 
 				// The list holds any `CEconWearable`, such as a bare `wearable_item`.
 				Err(WearableError::NotWearable) => None,
+
 				Err(error) => return Err(error),
 			};
 		}
@@ -1034,9 +1035,11 @@ mod tests {
 	use super::*;
 	use crate::Module;
 	use crate::datatables::PropFlags;
+
 	use crate::datatables::test_support::{
 		direct_table, int8_proxy, int16_proxy, pointer_table, prop, proxies, table, table_prop,
 	};
+
 	use crate::edicts::test_support::mock_edict;
 	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, data_map, field, leak};
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
@@ -1495,6 +1498,142 @@ mod tests {
 		ENTITY_LIST.get()
 	}
 
+	#[test]
+	fn equip_remove_and_strip_go_through_the_players_list() {
+		let world = World::new();
+		let scope = ();
+		let server = mock_server(&scope);
+		let player = world.player;
+		let wearables = PlayerWearables::new(server, entity(player)).unwrap();
+		let player_handle = unsafe { (*player).handle };
+		let wear = |index| Wearable::new(server, entity(world.wearable(index))).unwrap();
+		let fake = |wearable: Wearable<'_>| wearable.entity().as_ptr().cast::<FakeEntity>();
+
+		// The mock game never iterates the list while these run.
+		let equip = |wearable| unsafe { wearables.equip(wearable) };
+		let remove = |wearable| unsafe { wearables.remove(wearable) };
+
+		let owned = wear(2);
+		unsafe { (*fake(owned)).owner = 9 | 1 << 16 };
+		assert!(matches!(equip(owned), Err(WearableError::DifferentOwner)));
+
+		let hat = wear(3);
+		assert!(matches!(remove(hat), Err(WearableError::NotEquipped)));
+		assert_eq!(unsafe { (*player).remove_calls }, 0);
+
+		equip(hat).unwrap();
+		equip(hat).unwrap();
+		unsafe {
+			assert!((*fake(hat)).validated);
+			assert_eq!((*fake(hat)).owner, player_handle);
+			assert_eq!((*player).equip_calls, 1);
+		}
+
+		// The game's removal takes a null entry behind the wearable first.
+		unsafe { (*player).wearables.push(NULL) };
+		remove(hat).unwrap();
+		unsafe {
+			assert_eq!((*fake(hat)).flags, 1);
+			assert_eq!(((*fake(hat)).owner, (*fake(hat)).move_parent), (NULL, NULL));
+			assert_eq!((*player).remove_calls, 2);
+			assert!((*player).wearables.is_empty());
+		}
+		assert!(matches!(remove(hat), Err(WearableError::MarkedForDeletion)));
+		assert!(matches!(equip(hat), Err(WearableError::MarkedForDeletion)));
+
+		// Behind more null entries, it takes one call per entry.
+		let removals = TOOL_REMOVALS.get();
+		let behind = wear(4);
+		equip(behind).unwrap();
+		unsafe { (*player).wearables.extend([NULL; 3]) };
+		remove(behind).unwrap();
+		unsafe {
+			assert_eq!((*fake(behind)).flags, 1);
+			assert_eq!((*player).remove_calls, 6);
+			assert!((*player).wearables.is_empty());
+		}
+		assert_eq!(TOOL_REMOVALS.get(), removals);
+
+		// If the game never removes it, it is deleted through `ServerTools`.
+		let stubborn = wear(15);
+		equip(stubborn).unwrap();
+		IGNORE_REMOVE.set(true);
+		remove(stubborn).unwrap();
+		IGNORE_REMOVE.set(false);
+		assert_eq!(TOOL_REMOVALS.get(), removals + 1);
+		unsafe {
+			assert_eq!((*fake(stubborn)).flags, 1);
+			assert_eq!((*player).remove_calls, 6 + MAX_REMOVE_ATTEMPTS);
+			(*player).wearables = vec![NULL; MAX_NETWORKED_WEARABLES];
+		}
+
+		assert!(matches!(equip(wear(5)), Err(WearableError::Full)));
+		unsafe { (*player).wearables.clear() };
+
+		// Only what the filter selects is stripped.
+		let cosmetic = wear(6);
+		let disguise = wear(7);
+		let extra = wear(8);
+		let boots = wear(9);
+		for wearable in [cosmetic, disguise, extra, boots] {
+			equip(wearable).unwrap();
+		}
+		unsafe {
+			(*fake(disguise)).disguise = true;
+			(*fake(extra)).initialized = false;
+			(*fake(boots)).definition = 133;
+		}
+		let mut seen = 0;
+		let removed = unsafe {
+			wearables.strip(|wearable| {
+				seen += 1;
+				!wearable.is_game_managed().unwrap()
+					&& wearable.definition().unwrap() != ItemDefinitionIndex::new(133)
+			})
+		}
+		.unwrap();
+		assert_eq!((removed, seen), (1, 4));
+		unsafe {
+			assert_eq!((*fake(cosmetic)).flags, 1);
+			assert_eq!(
+				[
+					(*fake(disguise)).flags,
+					(*fake(extra)).flags,
+					(*fake(boots)).flags
+				],
+				[0; 3]
+			);
+			assert_eq!((*player).wearables.len(), 3);
+		}
+
+		// Dead players are given nothing, but can still lose wearables.
+		DEAD.set(true);
+		assert!(matches!(
+			equip(wear(10)),
+			Err(WearableError::PlayerNotPlaying)
+		));
+		assert_eq!(unsafe { wearables.strip(|_| true) }.unwrap(), 3);
+		assert!(wearables.list().unwrap().is_empty());
+		DEAD.set(false);
+
+		// A view model wearable follows the view model, which follows the player.
+		let view_model = world.spawn(11, 1, world.base_map, world.wearable_class, c"tf_viewmodel");
+		unsafe { (*view_model).move_parent = player_handle };
+		FOLLOW.set(Some(unsafe { (*view_model).handle }));
+		let sleeve = wear(12);
+		equip(sleeve).unwrap();
+
+		// Following anything else is not attached, and is undone.
+		FOLLOW.set(Some(13 | 1 << 16));
+		let detached = wear(14);
+		assert!(matches!(equip(detached), Err(WearableError::Rejected)));
+		FOLLOW.set(None);
+		unsafe {
+			assert_eq!((*fake(detached)).flags, 1);
+			assert_eq!((*player).wearables, [(*fake(sleeve)).handle]);
+		}
+	}
+
 	/// Emulates `CBasePlayer::EquipWearable` and `CEconWearable::Equip`.
 	unsafe extern "C" fn equip_wearable(
 		player: *mut sys::CTFPlayer,
@@ -1532,6 +1671,112 @@ mod tests {
 		flags.fieldOffset[0] = MOCK_EFLAGS_OFFSET as c_int;
 		flags.fieldSizeInBytes = size_of::<c_int>() as c_int;
 		flags
+	}
+
+	#[test]
+	fn give_validates_before_equipping_and_deletes_what_the_game_refuses() {
+		let world = World::new();
+		let scope = ();
+		let server = mock_server(&scope);
+		let wearables = PlayerWearables::new(server, entity(world.player)).unwrap();
+		let player_handle = unsafe { (*world.player).handle };
+		let created = |fake: *mut FakeEntity| {
+			move |origin| {
+				assert_eq!(origin, Vector::new(1.0, 2.0, 3.0));
+				Ok(NonNull::new(fake).unwrap().cast())
+			}
+		};
+
+		let hat = world.wearable(2);
+		let given = unsafe { wearables.give_with(created(hat)) }.unwrap();
+
+		assert_eq!(given.entity().as_ptr(), hat.cast());
+		assert_eq!(VALIDATED_AT_EQUIP.get(), Some(true));
+		unsafe {
+			assert_eq!(
+				((*hat).owner, (*hat).move_parent, (*hat).flags),
+				(player_handle, player_handle, 0)
+			);
+			assert_eq!((*world.player).equip_calls, 1);
+		}
+		assert!(wearables.list().unwrap().contains(given));
+
+		// Nothing is created for a player who could not wear it.
+		DEAD.set(true);
+		assert!(matches!(
+			unsafe { wearables.give_with(|_| unreachable!()) },
+			Err(WearableError::PlayerNotPlaying)
+		));
+		DEAD.set(false);
+		TEAM.set(1);
+		assert!(matches!(
+			unsafe { wearables.give_with(|_| unreachable!()) },
+			Err(WearableError::PlayerNotPlaying)
+		));
+		TEAM.set(FIRST_GAME_TEAM);
+
+		unsafe { (*world.player).wearables = vec![(*hat).handle; MAX_NETWORKED_WEARABLES] };
+		assert!(matches!(
+			unsafe { wearables.give_with(|_| unreachable!()) },
+			Err(WearableError::Full)
+		));
+		unsafe { (*world.player).wearables = vec![(*hat).handle] };
+
+		// A definition that creates a weapon is deleted unequipped.
+		let weapon = world.spawn(
+			3,
+			1,
+			data_map(c"CTFWeaponBase", vec![], world.base_map),
+			world.wearable_class,
+			c"tf_weapon_bottle",
+		);
+		assert!(matches!(
+			unsafe { wearables.give_with(created(weapon)) },
+			Err(WearableError::NotWearable)
+		));
+		assert_eq!(unsafe { (*weapon).flags }, 1);
+		assert_eq!(unsafe { (*world.player).equip_calls }, 1);
+
+		// `CanEquip` refusing a holiday item makes the game delete it already.
+		let removals = TOOL_REMOVALS.get();
+		let holiday = world.wearable(4);
+		REFUSE_EQUIP.set(true);
+		assert!(matches!(
+			unsafe { wearables.give_with(created(holiday)) },
+			Err(WearableError::Rejected)
+		));
+		unsafe {
+			assert_eq!((*holiday).flags, 1);
+			assert_eq!((*world.player).remove_calls, 1);
+			assert_eq!((*world.player).wearables, [(*hat).handle]);
+		}
+		assert_eq!(TOOL_REMOVALS.get(), removals);
+
+		// With a null entry at the end, the game's own removal takes the null
+		// entry instead, leaving the refused item listed but unowned.
+		let quirk = world.wearable(5);
+		unsafe { (*world.player).wearables.push(NULL) };
+		assert!(matches!(
+			unsafe { wearables.give_with(created(quirk)) },
+			Err(WearableError::Rejected)
+		));
+		REFUSE_EQUIP.set(false);
+		unsafe {
+			assert_eq!((*quirk).flags, 1);
+			assert_eq!((*world.player).remove_calls, 3);
+			assert_eq!((*world.player).wearables, [(*hat).handle]);
+		}
+		assert_eq!(TOOL_REMOVALS.get(), removals);
+
+		unsafe { (*world.player).flags = 1 };
+		assert!(matches!(
+			unsafe { wearables.give_with(|_| unreachable!()) },
+			Err(WearableError::MarkedForDeletion)
+		));
+		assert!(matches!(
+			wearables.list(),
+			Err(WearableError::MarkedForDeletion)
+		));
 	}
 
 	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
@@ -1584,105 +1829,6 @@ mod tests {
 
 	unsafe extern "C" fn is_dead(_: *mut sys::IPlayerInfo) -> bool {
 		DEAD.get()
-	}
-
-	unsafe extern "C" fn networkable(
-		entity: *mut sys::IServerUnknown,
-	) -> *mut sys::IServerNetworkable {
-		unsafe { &raw mut (*entity.cast::<FakeEntity>()).networkable }
-	}
-
-	unsafe extern "C" fn origin(this: *const sys::ICollideable) -> *const sys::Vector {
-		unsafe { &raw const (*fake_of(this, offset_of!(FakeEntity, collideable))).origin }
-	}
-
-	unsafe extern "C" fn player_info(
-		_: *mut sys::IPlayerInfoManager,
-		_: *mut sys::edict_t,
-	) -> *mut sys::IPlayerInfo {
-		PLAYER_INFO.get()
-	}
-
-	unsafe extern "C" fn remove_entity(_: *mut sys::IServerTools, entity: *mut sys::CBaseEntity) {
-		unsafe { (*entity.cast::<FakeEntity>()).flags |= 1 };
-		TOOL_REMOVALS.set(TOOL_REMOVALS.get() + 1);
-	}
-
-	/// Emulates `CBasePlayer::RemoveWearable`, which removes the first null
-	/// entry it meets from the end instead of the wearable.
-	unsafe extern "C" fn remove_wearable(
-		player: *mut sys::CTFPlayer,
-		item: *mut sys::CEconWearable,
-	) {
-		assert!(!item.is_null(), "RemoveWearable unequips null entries");
-
-		unsafe {
-			let player = player.cast::<FakeEntity>();
-			let item = item.cast::<FakeEntity>();
-
-			(*player).remove_calls += 1;
-
-			if IGNORE_REMOVE.get() {
-				return;
-			}
-
-			let wearables = &mut (*player).wearables;
-
-			for index in (0..wearables.len()).rev() {
-				let entry = wearables[index];
-
-				if entry == (*item).handle {
-					(*item).owner = NULL;
-					(*item).move_parent = NULL;
-					(*item).flags |= 1;
-					wearables.remove(index);
-					break;
-				}
-
-				if entry == NULL {
-					wearables.remove(index);
-					break;
-				}
-			}
-		}
-	}
-
-	unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
-		unsafe { (*fake_of(this, offset_of!(FakeEntity, networkable))).class }
-	}
-
-	unsafe extern "C" fn shared_change_info(
-		_: *mut sys::IVEngineServer,
-	) -> *mut sys::CSharedEdictChangeInfo {
-		null_mut()
-	}
-
-	unsafe extern "C" fn standard_proxies(
-		_: *mut sys::IServerGameDLL,
-	) -> *mut sys::CStandardSendProxies {
-		PROXIES.get()
-	}
-
-	unsafe extern "C" fn team_index(_: *mut sys::IPlayerInfo) -> c_int {
-		TEAM.get()
-	}
-
-	/// Stands in for `SendProxy_UtlVectorElement` over a fake player's list.
-	unsafe extern "C" fn wearable_element(
-		prop: *const sys::SendProp,
-		structure: *const c_void,
-		_: *const c_void,
-		out: *mut sys::DVariant,
-		_: c_int,
-		_: c_int,
-	) {
-		unsafe {
-			let index = usize::try_from((*prop).m_ElementStride).unwrap();
-			let wearables = &(*structure.cast::<FakeEntity>()).wearables;
-
-			(*out).__bindgen_anon_1.m_Int =
-				wearables.get(index).map_or(0, |&handle| encode(handle));
-		}
 	}
 
 	#[test]
@@ -1894,246 +2040,10 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn give_validates_before_equipping_and_deletes_what_the_game_refuses() {
-		let world = World::new();
-		let scope = ();
-		let server = mock_server(&scope);
-		let wearables = PlayerWearables::new(server, entity(world.player)).unwrap();
-		let player_handle = unsafe { (*world.player).handle };
-		let created = |fake: *mut FakeEntity| {
-			move |origin| {
-				assert_eq!(origin, Vector::new(1.0, 2.0, 3.0));
-				Ok(NonNull::new(fake).unwrap().cast())
-			}
-		};
-
-		let hat = world.wearable(2);
-		let given = unsafe { wearables.give_with(created(hat)) }.unwrap();
-
-		assert_eq!(given.entity().as_ptr(), hat.cast());
-		assert_eq!(VALIDATED_AT_EQUIP.get(), Some(true));
-		unsafe {
-			assert_eq!(
-				((*hat).owner, (*hat).move_parent, (*hat).flags),
-				(player_handle, player_handle, 0)
-			);
-			assert_eq!((*world.player).equip_calls, 1);
-		}
-		assert!(wearables.list().unwrap().contains(given));
-
-		// Nothing is created for a player who could not wear it.
-		DEAD.set(true);
-		assert!(matches!(
-			unsafe { wearables.give_with(|_| unreachable!()) },
-			Err(WearableError::PlayerNotPlaying)
-		));
-		DEAD.set(false);
-		TEAM.set(1);
-		assert!(matches!(
-			unsafe { wearables.give_with(|_| unreachable!()) },
-			Err(WearableError::PlayerNotPlaying)
-		));
-		TEAM.set(FIRST_GAME_TEAM);
-
-		unsafe { (*world.player).wearables = vec![(*hat).handle; MAX_NETWORKED_WEARABLES] };
-		assert!(matches!(
-			unsafe { wearables.give_with(|_| unreachable!()) },
-			Err(WearableError::Full)
-		));
-		unsafe { (*world.player).wearables = vec![(*hat).handle] };
-
-		// A definition that creates a weapon is deleted unequipped.
-		let weapon = world.spawn(
-			3,
-			1,
-			data_map(c"CTFWeaponBase", vec![], world.base_map),
-			world.wearable_class,
-			c"tf_weapon_bottle",
-		);
-		assert!(matches!(
-			unsafe { wearables.give_with(created(weapon)) },
-			Err(WearableError::NotWearable)
-		));
-		assert_eq!(unsafe { (*weapon).flags }, 1);
-		assert_eq!(unsafe { (*world.player).equip_calls }, 1);
-
-		// `CanEquip` refusing a holiday item makes the game delete it already.
-		let removals = TOOL_REMOVALS.get();
-		let holiday = world.wearable(4);
-		REFUSE_EQUIP.set(true);
-		assert!(matches!(
-			unsafe { wearables.give_with(created(holiday)) },
-			Err(WearableError::Rejected)
-		));
-		unsafe {
-			assert_eq!((*holiday).flags, 1);
-			assert_eq!((*world.player).remove_calls, 1);
-			assert_eq!((*world.player).wearables, [(*hat).handle]);
-		}
-		assert_eq!(TOOL_REMOVALS.get(), removals);
-
-		// With a null entry at the end, the game's own removal takes the null
-		// entry instead, leaving the refused item listed but unowned.
-		let quirk = world.wearable(5);
-		unsafe { (*world.player).wearables.push(NULL) };
-		assert!(matches!(
-			unsafe { wearables.give_with(created(quirk)) },
-			Err(WearableError::Rejected)
-		));
-		REFUSE_EQUIP.set(false);
-		unsafe {
-			assert_eq!((*quirk).flags, 1);
-			assert_eq!((*world.player).remove_calls, 3);
-			assert_eq!((*world.player).wearables, [(*hat).handle]);
-		}
-		assert_eq!(TOOL_REMOVALS.get(), removals);
-
-		unsafe { (*world.player).flags = 1 };
-		assert!(matches!(
-			unsafe { wearables.give_with(|_| unreachable!()) },
-			Err(WearableError::MarkedForDeletion)
-		));
-		assert!(matches!(
-			wearables.list(),
-			Err(WearableError::MarkedForDeletion)
-		));
-	}
-
-	#[test]
-	fn equip_remove_and_strip_go_through_the_players_list() {
-		let world = World::new();
-		let scope = ();
-		let server = mock_server(&scope);
-		let player = world.player;
-		let wearables = PlayerWearables::new(server, entity(player)).unwrap();
-		let player_handle = unsafe { (*player).handle };
-		let wear = |index| Wearable::new(server, entity(world.wearable(index))).unwrap();
-		let fake = |wearable: Wearable<'_>| wearable.entity().as_ptr().cast::<FakeEntity>();
-
-		// The mock game never iterates the list while these run.
-		let equip = |wearable| unsafe { wearables.equip(wearable) };
-		let remove = |wearable| unsafe { wearables.remove(wearable) };
-
-		let owned = wear(2);
-		unsafe { (*fake(owned)).owner = 9 | 1 << 16 };
-		assert!(matches!(equip(owned), Err(WearableError::DifferentOwner)));
-
-		let hat = wear(3);
-		assert!(matches!(remove(hat), Err(WearableError::NotEquipped)));
-		assert_eq!(unsafe { (*player).remove_calls }, 0);
-
-		equip(hat).unwrap();
-		equip(hat).unwrap();
-		unsafe {
-			assert!((*fake(hat)).validated);
-			assert_eq!((*fake(hat)).owner, player_handle);
-			assert_eq!((*player).equip_calls, 1);
-		}
-
-		// The game's removal takes a null entry behind the wearable first.
-		unsafe { (*player).wearables.push(NULL) };
-		remove(hat).unwrap();
-		unsafe {
-			assert_eq!((*fake(hat)).flags, 1);
-			assert_eq!(((*fake(hat)).owner, (*fake(hat)).move_parent), (NULL, NULL));
-			assert_eq!((*player).remove_calls, 2);
-			assert!((*player).wearables.is_empty());
-		}
-		assert!(matches!(remove(hat), Err(WearableError::MarkedForDeletion)));
-		assert!(matches!(equip(hat), Err(WearableError::MarkedForDeletion)));
-
-		// Behind more null entries, it takes one call per entry.
-		let removals = TOOL_REMOVALS.get();
-		let behind = wear(4);
-		equip(behind).unwrap();
-		unsafe { (*player).wearables.extend([NULL; 3]) };
-		remove(behind).unwrap();
-		unsafe {
-			assert_eq!((*fake(behind)).flags, 1);
-			assert_eq!((*player).remove_calls, 6);
-			assert!((*player).wearables.is_empty());
-		}
-		assert_eq!(TOOL_REMOVALS.get(), removals);
-
-		// If the game never removes it, it is deleted through `ServerTools`.
-		let stubborn = wear(15);
-		equip(stubborn).unwrap();
-		IGNORE_REMOVE.set(true);
-		remove(stubborn).unwrap();
-		IGNORE_REMOVE.set(false);
-		assert_eq!(TOOL_REMOVALS.get(), removals + 1);
-		unsafe {
-			assert_eq!((*fake(stubborn)).flags, 1);
-			assert_eq!((*player).remove_calls, 6 + MAX_REMOVE_ATTEMPTS);
-			(*player).wearables = vec![NULL; MAX_NETWORKED_WEARABLES];
-		}
-
-		assert!(matches!(equip(wear(5)), Err(WearableError::Full)));
-		unsafe { (*player).wearables.clear() };
-
-		// Only what the filter selects is stripped.
-		let cosmetic = wear(6);
-		let disguise = wear(7);
-		let extra = wear(8);
-		let boots = wear(9);
-		for wearable in [cosmetic, disguise, extra, boots] {
-			equip(wearable).unwrap();
-		}
-		unsafe {
-			(*fake(disguise)).disguise = true;
-			(*fake(extra)).initialized = false;
-			(*fake(boots)).definition = 133;
-		}
-		let mut seen = 0;
-		let removed = unsafe {
-			wearables.strip(|wearable| {
-				seen += 1;
-				!wearable.is_game_managed().unwrap()
-					&& wearable.definition().unwrap() != ItemDefinitionIndex::new(133)
-			})
-		}
-		.unwrap();
-		assert_eq!((removed, seen), (1, 4));
-		unsafe {
-			assert_eq!((*fake(cosmetic)).flags, 1);
-			assert_eq!(
-				[
-					(*fake(disguise)).flags,
-					(*fake(extra)).flags,
-					(*fake(boots)).flags
-				],
-				[0; 3]
-			);
-			assert_eq!((*player).wearables.len(), 3);
-		}
-
-		// Dead players are given nothing, but can still lose wearables.
-		DEAD.set(true);
-		assert!(matches!(
-			equip(wear(10)),
-			Err(WearableError::PlayerNotPlaying)
-		));
-		assert_eq!(unsafe { wearables.strip(|_| true) }.unwrap(), 3);
-		assert!(wearables.list().unwrap().is_empty());
-		DEAD.set(false);
-
-		// A view model wearable follows the view model, which follows the player.
-		let view_model = world.spawn(11, 1, world.base_map, world.wearable_class, c"tf_viewmodel");
-		unsafe { (*view_model).move_parent = player_handle };
-		FOLLOW.set(Some(unsafe { (*view_model).handle }));
-		let sleeve = wear(12);
-		equip(sleeve).unwrap();
-
-		// Following anything else is not attached, and is undone.
-		FOLLOW.set(Some(13 | 1 << 16));
-		let detached = wear(14);
-		assert!(matches!(equip(detached), Err(WearableError::Rejected)));
-		FOLLOW.set(None);
-		unsafe {
-			assert_eq!((*fake(detached)).flags, 1);
-			assert_eq!((*player).wearables, [(*fake(sleeve)).handle]);
-		}
+	unsafe extern "C" fn networkable(
+		entity: *mut sys::IServerUnknown,
+	) -> *mut sys::IServerNetworkable {
+		unsafe { &raw mut (*entity.cast::<FakeEntity>()).networkable }
 	}
 
 	#[test]
@@ -2155,6 +2065,99 @@ mod tests {
 
 		for raw in [0, INVALID_NETWORKED_HANDLE.cast_signed(), 1 << 21, -1] {
 			assert_eq!(NetworkedHandle::decode(raw), None);
+		}
+	}
+
+	unsafe extern "C" fn origin(this: *const sys::ICollideable) -> *const sys::Vector {
+		unsafe { &raw const (*fake_of(this, offset_of!(FakeEntity, collideable))).origin }
+	}
+
+	unsafe extern "C" fn player_info(
+		_: *mut sys::IPlayerInfoManager,
+		_: *mut sys::edict_t,
+	) -> *mut sys::IPlayerInfo {
+		PLAYER_INFO.get()
+	}
+
+	unsafe extern "C" fn remove_entity(_: *mut sys::IServerTools, entity: *mut sys::CBaseEntity) {
+		unsafe { (*entity.cast::<FakeEntity>()).flags |= 1 };
+		TOOL_REMOVALS.set(TOOL_REMOVALS.get() + 1);
+	}
+
+	/// Emulates `CBasePlayer::RemoveWearable`, which removes the first null
+	/// entry it meets from the end instead of the wearable.
+	unsafe extern "C" fn remove_wearable(
+		player: *mut sys::CTFPlayer,
+		item: *mut sys::CEconWearable,
+	) {
+		assert!(!item.is_null(), "RemoveWearable unequips null entries");
+
+		unsafe {
+			let player = player.cast::<FakeEntity>();
+			let item = item.cast::<FakeEntity>();
+
+			(*player).remove_calls += 1;
+
+			if IGNORE_REMOVE.get() {
+				return;
+			}
+
+			let wearables = &mut (*player).wearables;
+
+			for index in (0..wearables.len()).rev() {
+				let entry = wearables[index];
+
+				if entry == (*item).handle {
+					(*item).owner = NULL;
+					(*item).move_parent = NULL;
+					(*item).flags |= 1;
+					wearables.remove(index);
+					break;
+				}
+
+				if entry == NULL {
+					wearables.remove(index);
+					break;
+				}
+			}
+		}
+	}
+
+	unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
+		unsafe { (*fake_of(this, offset_of!(FakeEntity, networkable))).class }
+	}
+
+	unsafe extern "C" fn shared_change_info(
+		_: *mut sys::IVEngineServer,
+	) -> *mut sys::CSharedEdictChangeInfo {
+		null_mut()
+	}
+
+	unsafe extern "C" fn standard_proxies(
+		_: *mut sys::IServerGameDLL,
+	) -> *mut sys::CStandardSendProxies {
+		PROXIES.get()
+	}
+
+	unsafe extern "C" fn team_index(_: *mut sys::IPlayerInfo) -> c_int {
+		TEAM.get()
+	}
+
+	/// Stands in for `SendProxy_UtlVectorElement` over a fake player's list.
+	unsafe extern "C" fn wearable_element(
+		prop: *const sys::SendProp,
+		structure: *const c_void,
+		_: *const c_void,
+		out: *mut sys::DVariant,
+		_: c_int,
+		_: c_int,
+	) {
+		unsafe {
+			let index = usize::try_from((*prop).m_ElementStride).unwrap();
+			let wearables = &(*structure.cast::<FakeEntity>()).wearables;
+
+			(*out).__bindgen_anon_1.m_Int =
+				wearables.get(index).map_or(0, |&handle| encode(handle));
 		}
 	}
 }

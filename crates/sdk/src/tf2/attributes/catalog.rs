@@ -100,6 +100,18 @@ pub const CLIP_SIZE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	1.0,
 );
 
+/// `crit kill will gib` (309, `crit_kill_will_gib`): critical kills always
+/// gib the victim.
+#[doc(alias = "crit kill will gib")]
+pub const CRIT_KILL_WILL_GIB: AttributeDef<Flag> = AttributeDef::new(
+	309,
+	c"crit kill will gib",
+	c"crit_kill_will_gib",
+	DescriptionFormat::Additive,
+	0.0,
+	1.0,
+);
+
 /// `critboost on kill` (31, `add_onkill_critboost_time`): seconds of
 /// critical boost after each kill with the weapon, up to 60. The game rounds
 /// them to whole seconds.
@@ -111,18 +123,6 @@ pub const CRITBOOST_ON_KILL: AttributeDef<Seconds> = AttributeDef::new(
 	DescriptionFormat::Additive,
 	0.0,
 	60.0,
-);
-
-/// `crit kill will gib` (309, `crit_kill_will_gib`): critical kills always
-/// gib the victim.
-#[doc(alias = "crit kill will gib")]
-pub const CRIT_KILL_WILL_GIB: AttributeDef<Flag> = AttributeDef::new(
-	309,
-	c"crit kill will gib",
-	c"crit_kill_will_gib",
-	DescriptionFormat::Additive,
-	0.0,
-	1.0,
 );
 
 /// `damage bonus` (2, `mult_dmg`): scales the weapon's damage, from 1 to 10.
@@ -243,18 +243,6 @@ pub const FIRE_RATE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	10.0,
 );
 
-/// `health regen` (57, `add_health_regen`): health the owner regenerates per
-/// second, up to 100.
-#[doc(alias = "health regen")]
-pub const HEALTH_REGEN: AttributeDef<Amount> = AttributeDef::new(
-	57,
-	c"health regen",
-	c"add_health_regen",
-	DescriptionFormat::Additive,
-	0.0,
-	100.0,
-);
-
 /// `heal on hit for rapidfire` (16, `add_onhit_addhealth`): health the owner
 /// gains per hit, up to 500.
 #[doc(alias = "heal on hit for rapidfire")]
@@ -289,6 +277,44 @@ pub const HEAL_ON_KILL: AttributeDef<Amount> = AttributeDef::new(
 	DescriptionFormat::Additive,
 	0.0,
 	500.0,
+);
+
+/// `health regen` (57, `add_health_regen`): health the owner regenerates per
+/// second, up to 100.
+#[doc(alias = "health regen")]
+pub const HEALTH_REGEN: AttributeDef<Amount> = AttributeDef::new(
+	57,
+	c"health regen",
+	c"add_health_regen",
+	DescriptionFormat::Additive,
+	0.0,
+	100.0,
+);
+
+/// `max health additive bonus` (26, `add_maxhealth`): health added to the
+/// owner's maximum, up to 1000. Current health does not change.
+#[doc(alias = "max health additive bonus")]
+pub const MAX_HEALTH_ADDITIVE_BONUS: AttributeDef<Amount> = AttributeDef::new(
+	26,
+	c"max health additive bonus",
+	c"add_maxhealth",
+	DescriptionFormat::Additive,
+	0.0,
+	1000.0,
+);
+
+/// `max health additive penalty` (125, `add_maxhealth`): health removed from
+/// the owner's maximum, as a negative amount down to -100, which on one item
+/// leaves every class at least 25. The game adds up `add_maxhealth` from all
+/// of the owner's items, so penalties on several items stack below that.
+#[doc(alias = "max health additive penalty")]
+pub const MAX_HEALTH_ADDITIVE_PENALTY: AttributeDef<Amount> = AttributeDef::new(
+	125,
+	c"max health additive penalty",
+	c"add_maxhealth",
+	DescriptionFormat::Additive,
+	-100.0,
+	0.0,
 );
 
 /// `maxammo primary increased` (76, `mult_maxammo_primary`): scales the
@@ -339,30 +365,16 @@ pub const MAXAMMO_SECONDARY_REDUCED: AttributeDef<Multiplier> = AttributeDef::ne
 	1.0,
 );
 
-/// `max health additive bonus` (26, `add_maxhealth`): health added to the
-/// owner's maximum, up to 1000. Current health does not change.
-#[doc(alias = "max health additive bonus")]
-pub const MAX_HEALTH_ADDITIVE_BONUS: AttributeDef<Amount> = AttributeDef::new(
-	26,
-	c"max health additive bonus",
-	c"add_maxhealth",
+/// `minicrit vs burning player` (209, `or_minicrit_vs_playercond_burning`):
+/// hits on burning players are mini-crits.
+#[doc(alias = "minicrit vs burning player")]
+pub const MINICRIT_VS_BURNING_PLAYER: AttributeDef<Flag> = AttributeDef::new(
+	209,
+	c"minicrit vs burning player",
+	c"or_minicrit_vs_playercond_burning",
 	DescriptionFormat::Additive,
 	0.0,
-	1000.0,
-);
-
-/// `max health additive penalty` (125, `add_maxhealth`): health removed from
-/// the owner's maximum, as a negative amount down to -100, which on one item
-/// leaves every class at least 25. The game adds up `add_maxhealth` from all
-/// of the owner's items, so penalties on several items stack below that.
-#[doc(alias = "max health additive penalty")]
-pub const MAX_HEALTH_ADDITIVE_PENALTY: AttributeDef<Amount> = AttributeDef::new(
-	125,
-	c"max health additive penalty",
-	c"add_maxhealth",
-	DescriptionFormat::Additive,
-	-100.0,
-	0.0,
+	1.0,
 );
 
 /// `minicrits become crits` (179, `minicrits_become_crits`): the weapon's
@@ -372,18 +384,6 @@ pub const MINICRITS_BECOME_CRITS: AttributeDef<Flag> = AttributeDef::new(
 	179,
 	c"minicrits become crits",
 	c"minicrits_become_crits",
-	DescriptionFormat::Additive,
-	0.0,
-	1.0,
-);
-
-/// `minicrit vs burning player` (209, `or_minicrit_vs_playercond_burning`):
-/// hits on burning players are mini-crits.
-#[doc(alias = "minicrit vs burning player")]
-pub const MINICRIT_VS_BURNING_PLAYER: AttributeDef<Flag> = AttributeDef::new(
-	209,
-	c"minicrit vs burning player",
-	c"or_minicrit_vs_playercond_burning",
 	DescriptionFormat::Additive,
 	0.0,
 	1.0,
@@ -719,6 +719,7 @@ mod tests {
 			match c {
 				'{' => tokens.push(Token::Open),
 				'}' => tokens.push(Token::Close),
+
 				'/' if chars.peek() == Some(&'/') => {
 					for c in chars.by_ref() {
 						if c == '\n' {

@@ -12,9 +12,11 @@
 use crate::datatables::{NetProp, PropFlags, PropKind, SendProp, SendTable, Storage};
 use crate::entities::Entity;
 use crate::interfaces::ServerGameDll;
+
 use crate::tf2::attributes::{
 	AttributeError, AttributeIndex, MAX_RUNTIME_ATTRIBUTES, RuntimeAttribute,
 };
+
 use crate::tf2::weapons::ItemDefinitionIndex;
 use std::ffi::{CStr, c_int, c_void};
 use std::mem::{offset_of, size_of};
@@ -376,6 +378,22 @@ fn extra_data(prop: SendProp<'_>) -> Option<*const UtlVectorExtra> {
 	(!extra.is_null() && extra.is_aligned()).then_some(extra)
 }
 
+/// An economy item's definition index (`m_iItemDefinitionIndex`), or `None`
+/// for an item without one, read after checking only the networked
+/// variables that place it. Fails with [`AttributeError::UnsupportedLayout`]
+/// if they do not place it where the generated layout does.
+pub(crate) fn item_definition<'s>(
+	dll: ServerGameDll<'s>,
+	entity: Entity<'s>,
+) -> Result<Option<ItemDefinitionIndex>, AttributeError> {
+	item_tables(dll, entity)?;
+
+	// SAFETY: `item_tables` checked the field.
+	Ok(ItemDefinitionIndex::new(unsafe {
+		read_definition_index(entity)
+	}))
+}
+
 /// The networked container and item of `entity`, checked to be nested tables
 /// at the generated offsets behind proxies that pass their data through
 /// unchanged, with the item's definition index at its generated offset and
@@ -400,22 +418,6 @@ fn item_tables<'s>(
 	check_storage(definition.storage(), Storage::U16)?;
 
 	Ok((container, item))
-}
-
-/// An economy item's definition index (`m_iItemDefinitionIndex`), or `None`
-/// for an item without one, read after checking only the networked
-/// variables that place it. Fails with [`AttributeError::UnsupportedLayout`]
-/// if they do not place it where the generated layout does.
-pub(crate) fn item_definition<'s>(
-	dll: ServerGameDll<'s>,
-	entity: Entity<'s>,
-) -> Result<Option<ItemDefinitionIndex>, AttributeError> {
-	item_tables(dll, entity)?;
-
-	// SAFETY: `item_tables` checked the field.
-	Ok(ItemDefinitionIndex::new(unsafe {
-		read_definition_index(entity)
-	}))
 }
 
 /// Reads an item's raw definition index.

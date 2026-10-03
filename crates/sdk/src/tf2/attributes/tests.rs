@@ -1,12 +1,15 @@
 use super::*;
 use crate::datatables::PropFlags;
+
 use crate::datatables::test_support::{
 	custom_proxy, direct_table, int16_proxy, int32_proxy, pointer_table, prop, proxies, table,
 	table_prop,
 };
+
 use crate::entities::test_support::{
 	MOCK_EFLAGS_OFFSET, base_entity_fields, data_map, field, leak,
 };
+
 use crate::ffi::test_support::{mock_vtable, unexpected_call};
 use crate::server::test_support::{export, mock_server};
 use crate::tf2::weapons::{Weapon, WeaponError};
@@ -187,13 +190,13 @@ impl Item {
 		unsafe { (&raw mut (*self.list()).m_Attributes.m_Size).write(0) };
 	}
 
+	fn entity(&self) -> Entity<'_> {
+		unsafe { Entity::from_raw(NonNull::new(self.entity).unwrap()) }
+	}
+
 	/// The list's entries, as indices and values.
 	fn entries(&self) -> Vec<(u16, f32)> {
 		unsafe { entries(self.list()) }
-	}
-
-	fn entity(&self) -> Entity<'_> {
-		unsafe { Entity::from_raw(NonNull::new(self.entity).unwrap()) }
 	}
 
 	fn list(&self) -> *mut sys::CAttributeList {
@@ -1180,50 +1183,6 @@ fn schema(attributes: &[(&'static CStr, u16)]) {
 	SCHEMA.set(attributes.to_vec());
 }
 
-#[test]
-fn setting_a_held_value_confirms_the_schema_index_with_another_value() {
-	let scope = ();
-	let server = mock_server(&scope);
-	let token = unsafe { trust_shipped_schema(server) };
-	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
-
-	schema(&[(c"damage bonus", 2)]);
-	item.push(2, 2.0);
-
-	// The lower bound shows the entry the name maps to.
-	attributes
-		.set(token, &catalog::DAMAGE_BONUS, multiplier(2.0))
-		.unwrap();
-	assert_eq!(ADDED.take(), [1.0, 2.0]);
-	assert_eq!(item.entries(), [(2, 2.0)]);
-
-	// The lower bound itself is confirmed with the upper one.
-	attributes
-		.set(token, &catalog::DAMAGE_BONUS, multiplier(1.0))
-		.unwrap();
-	ADDED.take();
-	attributes
-		.set(token, &catalog::DAMAGE_BONUS, multiplier(1.0))
-		.unwrap();
-	assert_eq!(ADDED.take(), [10.0, 1.0]);
-	assert_eq!(item.entries(), [(2, 1.0)]);
-
-	// A renumbered name is caught even when the catalog's index holds the
-	// value, and its new entry undone.
-	schema(&[(c"damage bonus", 7)]);
-	take_calls();
-	assert_eq!(
-		attributes.set(token, &catalog::DAMAGE_BONUS, multiplier(1.0)),
-		Err(AttributeError::SchemaMismatch {
-			expected: index(2),
-			found: index(7),
-		})
-	);
-	assert_eq!(take_calls(), ["AddAttribute", "RemoveAttribute"]);
-	assert_eq!(item.entries(), [(2, 1.0)]);
-}
-
 /// A script class descriptor for `CEconEntity` with its four native
 /// attribute methods, which [`adapter`] implements.
 fn script_description() -> *mut sys::ScriptClassDesc_t {
@@ -1404,6 +1363,50 @@ unsafe fn set_runtime(list: *mut sys::CAttributeList, index: u16, value: f32) {
 		(*entry).m_nRefundableCurrency.m_Value = 0;
 		(*list).m_Attributes.m_Size += 1;
 	}
+}
+
+#[test]
+fn setting_a_held_value_confirms_the_schema_index_with_another_value() {
+	let scope = ();
+	let server = mock_server(&scope);
+	let token = unsafe { trust_shipped_schema(server) };
+	let item = Item::new(Spec::default(), item_map());
+	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+
+	schema(&[(c"damage bonus", 2)]);
+	item.push(2, 2.0);
+
+	// The lower bound shows the entry the name maps to.
+	attributes
+		.set(token, &catalog::DAMAGE_BONUS, multiplier(2.0))
+		.unwrap();
+	assert_eq!(ADDED.take(), [1.0, 2.0]);
+	assert_eq!(item.entries(), [(2, 2.0)]);
+
+	// The lower bound itself is confirmed with the upper one.
+	attributes
+		.set(token, &catalog::DAMAGE_BONUS, multiplier(1.0))
+		.unwrap();
+	ADDED.take();
+	attributes
+		.set(token, &catalog::DAMAGE_BONUS, multiplier(1.0))
+		.unwrap();
+	assert_eq!(ADDED.take(), [10.0, 1.0]);
+	assert_eq!(item.entries(), [(2, 1.0)]);
+
+	// A renumbered name is caught even when the catalog's index holds the
+	// value, and its new entry undone.
+	schema(&[(c"damage bonus", 7)]);
+	take_calls();
+	assert_eq!(
+		attributes.set(token, &catalog::DAMAGE_BONUS, multiplier(1.0)),
+		Err(AttributeError::SchemaMismatch {
+			expected: index(2),
+			found: index(7),
+		})
+	);
+	assert_eq!(take_calls(), ["AddAttribute", "RemoveAttribute"]);
+	assert_eq!(item.entries(), [(2, 1.0)]);
 }
 
 fn take_calls() -> Vec<&'static str> {

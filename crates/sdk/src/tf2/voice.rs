@@ -215,11 +215,6 @@ impl ScenePath {
 		Self::checked(path.to_owned())
 	}
 
-	/// The path as the game takes it.
-	pub fn as_c_str(&self) -> &CStr {
-		&self.0
-	}
-
 	/// Checks an owned path.
 	fn checked(path: CString) -> Result<Self, ScenePathError> {
 		let bytes = path.to_bytes();
@@ -269,6 +264,11 @@ impl ScenePath {
 
 		// The checked name and the directories have no NUL.
 		Self::checked(CString::new(path).map_err(|_| ScenePathError::InvalidLineName)?)
+	}
+
+	/// The path as the game takes it.
+	pub fn as_c_str(&self) -> &CStr {
+		&self.0
 	}
 }
 
@@ -619,85 +619,6 @@ mod tests {
 		}
 	}
 
-	unsafe extern "C" fn datamap(_: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
-		DATA_MAP.get()
-	}
-
-	/// The datamaps of a `class` deriving from `CBaseEntity`, whose own map has
-	/// `life_state` among its fields if given.
-	fn maps(
-		class: &'static CStr,
-		life_state: Option<sys::typedescription_t>,
-	) -> *mut sys::datamap_t {
-		let mut fields = Vec::from(base_entity_fields());
-
-		fields.extend(life_state);
-
-		let base = data_map(c"CBaseEntity", fields, null_mut());
-
-		data_map(class, vec![], base)
-	}
-
-	/// The `m_lifeState` declaration of [`FakePlayer`].
-	fn life_state_field() -> sys::typedescription_t {
-		let mut life_state = field();
-
-		life_state.fieldType = sys::_fieldtypes_FIELD_CHARACTER;
-		life_state.fieldName = c"m_lifeState".as_ptr();
-		life_state.fieldOffset[0] = offset_of!(FakePlayer, life_state) as c_int;
-		life_state.fieldSize = 1;
-		life_state.fieldSizeInBytes = 1;
-		life_state
-	}
-
-	unsafe extern "C" fn no_interface(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		null_mut()
-	}
-
-	unsafe extern "C" fn play_scene(
-		player: *mut sys::CTFPlayer,
-		scene: *const c_char,
-		delay: f32,
-		response: *mut sys::AI_Response,
-		filter: *mut sys::IRecipientFilter,
-	) -> f32 {
-		assert!(response.is_null());
-		assert!(
-			filter.is_null(),
-			"a filter would be cast to CRecipientFilter"
-		);
-
-		let scene = unsafe { CStr::from_ptr(scene) }.to_owned();
-
-		PLAYED.with_borrow_mut(|played| played.push((player.cast(), scene, delay)));
-		LENGTH.get()
-	}
-
-	unsafe extern "C" fn play_scene_adapter(
-		_: sys::ScriptFunctionBindingStorageType_t,
-		object: *mut c_void,
-		arguments: *mut sys::ScriptVariant_t,
-		count: c_int,
-		result: *mut sys::ScriptVariant_t,
-	) -> bool {
-		assert_eq!(count, 2);
-
-		if REJECT.get() {
-			return false;
-		}
-
-		let (scene, delay) = unsafe {
-			(
-				CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString).to_owned(),
-				(*arguments.add(1)).__bindgen_anon_1.m_float,
-			)
-		};
-
-		PLAYED.with_borrow_mut(|played| played.push((object, scene, delay)));
-		unsafe { result.write(binding::float(LENGTH.get())) };
-		true
-	}
-
 	#[test]
 	fn classes_round_trip_through_native_numbers() {
 		for (raw, class) in (1..).zip(PlayerClass::ALL) {
@@ -711,6 +632,22 @@ mod tests {
 
 		assert_eq!(PlayerClass::Heavy.scene_directory(), "Heavy");
 		assert_eq!(PlayerClass::Demoman.scene_directory(), "Demoman");
+	}
+
+	unsafe extern "C" fn datamap(_: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
+		DATA_MAP.get()
+	}
+
+	/// The `m_lifeState` declaration of [`FakePlayer`].
+	fn life_state_field() -> sys::typedescription_t {
+		let mut life_state = field();
+
+		life_state.fieldType = sys::_fieldtypes_FIELD_CHARACTER;
+		life_state.fieldName = c"m_lifeState".as_ptr();
+		life_state.fieldOffset[0] = offset_of!(FakePlayer, life_state) as c_int;
+		life_state.fieldSize = 1;
+		life_state.fieldSizeInBytes = 1;
+		life_state
 	}
 
 	#[test]
@@ -772,6 +709,69 @@ mod tests {
 		unsafe { drop(Box::from_raw(player)) };
 	}
 
+	/// The datamaps of a `class` deriving from `CBaseEntity`, whose own map has
+	/// `life_state` among its fields if given.
+	fn maps(
+		class: &'static CStr,
+		life_state: Option<sys::typedescription_t>,
+	) -> *mut sys::datamap_t {
+		let mut fields = Vec::from(base_entity_fields());
+
+		fields.extend(life_state);
+
+		let base = data_map(c"CBaseEntity", fields, null_mut());
+
+		data_map(class, vec![], base)
+	}
+
+	unsafe extern "C" fn no_interface(_: *const c_char, _: *mut c_int) -> *mut c_void {
+		null_mut()
+	}
+
+	unsafe extern "C" fn play_scene(
+		player: *mut sys::CTFPlayer,
+		scene: *const c_char,
+		delay: f32,
+		response: *mut sys::AI_Response,
+		filter: *mut sys::IRecipientFilter,
+	) -> f32 {
+		assert!(response.is_null());
+		assert!(
+			filter.is_null(),
+			"a filter would be cast to CRecipientFilter"
+		);
+
+		let scene = unsafe { CStr::from_ptr(scene) }.to_owned();
+
+		PLAYED.with_borrow_mut(|played| played.push((player.cast(), scene, delay)));
+		LENGTH.get()
+	}
+
+	unsafe extern "C" fn play_scene_adapter(
+		_: sys::ScriptFunctionBindingStorageType_t,
+		object: *mut c_void,
+		arguments: *mut sys::ScriptVariant_t,
+		count: c_int,
+		result: *mut sys::ScriptVariant_t,
+	) -> bool {
+		assert_eq!(count, 2);
+
+		if REJECT.get() {
+			return false;
+		}
+
+		let (scene, delay) = unsafe {
+			(
+				CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString).to_owned(),
+				(*arguments.add(1)).__bindgen_anon_1.m_float,
+			)
+		};
+
+		PLAYED.with_borrow_mut(|played| played.push((object, scene, delay)));
+		unsafe { result.write(binding::float(LENGTH.get())) };
+		true
+	}
+
 	#[test]
 	fn scene_paths_are_checked_against_what_the_game_keeps() {
 		for path in [
@@ -808,6 +808,12 @@ mod tests {
 		for path in [c"scenes/a.wav", c"scenes/vcd", c"scenes/"] {
 			assert_eq!(ScenePath::new(path), Err(ScenePathError::NotVcd));
 		}
+	}
+
+	unsafe extern "C" fn script_description(
+		_: *mut sys::CBaseEntity,
+	) -> *mut sys::ScriptClassDesc_t {
+		DESCRIPTION.get()
 	}
 
 	#[test]
@@ -899,12 +905,6 @@ mod tests {
 		);
 		PLAYED.take();
 		unsafe { drop(Box::from_raw(player)) };
-	}
-
-	unsafe extern "C" fn script_description(
-		_: *mut sys::CBaseEntity,
-	) -> *mut sys::ScriptClassDesc_t {
-		DESCRIPTION.get()
 	}
 
 	#[test]

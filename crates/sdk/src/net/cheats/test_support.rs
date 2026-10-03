@@ -17,6 +17,28 @@ use std::cell::{Cell, RefCell};
 use std::ffi::c_char;
 use std::ptr::{NonNull, null_mut};
 
+#[repr(C)]
+struct ChannelObject {
+	interface: sys::INetChannel,
+	loopback: bool,
+	room: Cell<usize>,
+	sent: RefCell<Vec<BitWriter>>,
+}
+
+#[repr(C)]
+struct ClientObject {
+	interface: sys::IClient,
+	channel: *mut ChannelObject,
+	spec: Cell<MockClient>,
+}
+
+#[repr(C)]
+struct CvarObject {
+	interface: sys::ICvar,
+	head: *mut sys::ConCommandBase,
+	vars: Vec<*mut sys::ConVar>,
+}
+
 /// A message a test decoded from what a channel was sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Decoded {
@@ -28,6 +50,12 @@ pub(crate) enum Decoded {
 
 	/// `net_StringCmd`: a command.
 	StringCmd(CString),
+}
+
+#[repr(C)]
+struct EngineObject {
+	interface: sys::IVEngineServer,
+	server: *mut ServerObject,
 }
 
 /// One player slot of a [`MockEngine`]. A slot whose user ID is 0 is empty.
@@ -65,22 +93,6 @@ pub(crate) struct MockEngine {
 }
 
 impl MockEngine {
-	/// The client in `slot`.
-	fn client(&self, slot: usize) -> &ClientObject {
-		// SAFETY: `new` leaked the client, and tests only change it through
-		// its `Cell`.
-		unsafe { &*self.clients[slot] }
-	}
-
-	/// The client in `slot`, as the engine wrappers see it.
-	pub(crate) fn game_client(&self, slot: usize) -> GameClient<'_> {
-		let client = NonNull::new(self.clients[slot].cast()).unwrap();
-
-		// SAFETY: `new` leaked the client, whose vtable answers every call
-		// the wrappers make of a lease's client, so it outlives the borrow.
-		unsafe { GameClient::from_raw(client) }
-	}
-
 	/// Exports the engine on this thread. `sv_cheats` is listed first in the
 	/// registry, then `vars`, and each variable is its own parent.
 	pub(crate) fn new(clients: &[MockClient], cheats: &'static CStr, vars: &[MockVar]) -> Self {
@@ -209,6 +221,22 @@ impl MockEngine {
 		}
 	}
 
+	/// The client in `slot`.
+	fn client(&self, slot: usize) -> &ClientObject {
+		// SAFETY: `new` leaked the client, and tests only change it through
+		// its `Cell`.
+		unsafe { &*self.clients[slot] }
+	}
+
+	/// The client in `slot`, as the engine wrappers see it.
+	pub(crate) fn game_client(&self, slot: usize) -> GameClient<'_> {
+		let client = NonNull::new(self.clients[slot].cast()).unwrap();
+
+		// SAFETY: `new` leaked the client, whose vtable answers every call
+		// the wrappers make of a lease's client, so it outlives the borrow.
+		unsafe { GameClient::from_raw(client) }
+	}
+
 	/// Makes `SendData` refuse data of more than `bits` bits for the client in
 	/// `slot`.
 	pub(crate) fn room(&self, slot: usize, bits: usize) {
@@ -282,34 +310,6 @@ impl MockVar {
 			flags: Some(flags),
 		}
 	}
-}
-
-#[repr(C)]
-struct ChannelObject {
-	interface: sys::INetChannel,
-	loopback: bool,
-	room: Cell<usize>,
-	sent: RefCell<Vec<BitWriter>>,
-}
-
-#[repr(C)]
-struct ClientObject {
-	interface: sys::IClient,
-	channel: *mut ChannelObject,
-	spec: Cell<MockClient>,
-}
-
-#[repr(C)]
-struct CvarObject {
-	interface: sys::ICvar,
-	head: *mut sys::ConCommandBase,
-	vars: Vec<*mut sys::ConVar>,
-}
-
-#[repr(C)]
-struct EngineObject {
-	interface: sys::IVEngineServer,
-	server: *mut ServerObject,
 }
 
 #[repr(C)]

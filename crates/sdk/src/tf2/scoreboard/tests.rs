@@ -2,9 +2,11 @@
 //! engine that records changes as the real one does.
 
 use super::*;
+
 use crate::datatables::test_support::{
 	direct_table, int32_proxy, prop, proxies, table, table_prop,
 };
+
 use crate::entities::test_support::{data_map, field, leak};
 use crate::ffi::test_support::{mock_vtable, unexpected_call};
 use crate::server::test_support::{export, mock_server};
@@ -13,26 +15,6 @@ use std::cell::{Cell, RefCell};
 use std::ffi::{CString, c_char, c_void};
 use std::mem::{offset_of, zeroed};
 use std::ptr::{NonNull, null_mut};
-
-/// `FL_EDICT_CHANGED` from `public/edict.h`.
-const FL_EDICT_CHANGED: c_int = 1 << 0;
-
-/// `FL_FULL_EDICT_CHANGED` from `public/edict.h`.
-const FL_FULL_EDICT_CHANGED: c_int = 1 << 8;
-
-/// `int`s of data each fake entity holds, enough for 102 player slots.
-const DATA_WORDS: usize = 2100;
-
-/// Bytes from the start of a fake entity to its data.
-const DATA: usize = offset_of!(FakeEntity, data);
-
-/// Slots in the fake edict table.
-const EDICT_COUNT: usize = 128;
-
-/// The edict indices of the player resource and the teams.
-const RESOURCE: usize = 110;
-const RED: usize = 111;
-const BLUE: usize = 112;
 
 /// The player resource's arrays: name, bits, flags, and elements per slot.
 const ARRAYS: [(&CStr, c_int, PropFlags, usize); 17] = {
@@ -67,15 +49,40 @@ const ARRAYS: [(&CStr, c_int, PropFlags, usize); 17] = {
 /// How many of [`ARRAYS`] belong to `DT_PlayerResource`.
 const BASE_ARRAYS: usize = 5;
 
-/// Where the teams keep `m_iTeamNum`, `m_iScore`, and `m_nFlagCaptures`, in
-/// words of their data.
-const TEAM_NUMBER: usize = 0;
-const TEAM_SCORE: usize = 1;
-const TEAM_CAPTURES: usize = 3;
+const BLUE: usize = 112;
+
+/// Bytes from the start of a fake entity to its data.
+const DATA: usize = offset_of!(FakeEntity, data);
+
+/// `int`s of data each fake entity holds, enough for 102 player slots.
+const DATA_WORDS: usize = 2100;
+
+const DEATHS: usize = 1;
+
+/// Slots in the fake edict table.
+const EDICT_COUNT: usize = 128;
+
+/// `FL_EDICT_CHANGED` from `public/edict.h`.
+const FL_EDICT_CHANGED: c_int = 1 << 0;
+
+/// `FL_FULL_EDICT_CHANGED` from `public/edict.h`.
+const FL_FULL_EDICT_CHANGED: c_int = 1 << 8;
 
 /// Where players keep `m_iFrags` and `m_iDeaths`, in words of their data.
 const FRAGS: usize = 0;
-const DEATHS: usize = 1;
+
+const RED: usize = 111;
+
+/// The edict indices of the player resource and the teams.
+const RESOURCE: usize = 110;
+
+const TEAM_CAPTURES: usize = 3;
+
+/// Where the teams keep `m_iTeamNum`, `m_iScore`, and `m_nFlagCaptures`, in
+/// words of their data.
+const TEAM_NUMBER: usize = 0;
+
+const TEAM_SCORE: usize = 1;
 
 thread_local! {
 	static ACCESSORS: Cell<*mut sys::IChangeInfoAccessor> = const { Cell::new(null_mut()) };
@@ -121,161 +128,6 @@ struct FakeEntity {
 	map: *mut sys::datamap_t,
 	resets: usize,
 	data: [i32; DATA_WORDS],
-}
-
-/// The entity owning `networkable`.
-fn container(networkable: *const sys::IServerNetworkable) -> *mut FakeEntity {
-	networkable
-		.wrapping_byte_sub(offset_of!(FakeEntity, networkable))
-		.cast::<FakeEntity>()
-		.cast_mut()
-}
-
-unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const c_char {
-	unsafe { (*container(this)).class_name }
-}
-
-unsafe extern "C" fn datamap(this: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
-	unsafe { (*this.cast::<FakeEntity>()).map }
-}
-
-unsafe extern "C" fn edict(this: *const sys::IServerNetworkable) -> *mut sys::edict_t {
-	unsafe { (*container(this)).edict }
-}
-
-unsafe extern "C" fn edict_of_index(
-	_: *mut sys::IVEngineServer,
-	index: c_int,
-) -> *mut sys::edict_t {
-	match usize::try_from(index) {
-		Ok(index) if index < EDICT_COUNT => unsafe { EDICTS.get().add(index) },
-		_ => null_mut(),
-	}
-}
-
-unsafe extern "C" fn change_accessor(
-	_: *mut sys::IVEngineServer,
-	edict: *const sys::edict_t,
-) -> *mut sys::IChangeInfoAccessor {
-	let index = usize::try_from(unsafe { (*edict)._base.m_EdictIndex }).unwrap();
-
-	unsafe { ACCESSORS.get().add(index) }
-}
-
-unsafe extern "C" fn entity_list(_: *mut sys::IServerTools) -> *mut sys::CGlobalEntityList {
-	LIST.get()
-}
-
-unsafe extern "C" fn find_by_class_name(
-	_: *mut sys::IServerTools,
-	after: *mut sys::CBaseEntity,
-	name: *const c_char,
-) -> *mut sys::CBaseEntity {
-	let name = unsafe { CStr::from_ptr(name) };
-
-	BY_CLASS
-		.with_borrow(|entities| {
-			let mut matching = entities
-				.iter()
-				.filter(|(class, _)| *class == name)
-				.map(|&(_, entity)| entity);
-
-			if after.is_null() {
-				matching.next()
-			} else {
-				matching.skip_while(|&entity| entity != after).nth(1)
-			}
-		})
-		.unwrap_or(null_mut())
-}
-
-unsafe extern "C" fn handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
-	unsafe { (&raw const (*this.cast::<FakeEntity>()).handle).cast() }
-}
-
-unsafe extern "C" fn networkable(this: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
-	unsafe { &raw mut (*this.cast::<FakeEntity>()).networkable }
-}
-
-unsafe extern "C" fn player_user_id(
-	_: *mut sys::IVEngineServer,
-	edict: *const sys::edict_t,
-) -> c_int {
-	let index = usize::try_from(unsafe { (*edict)._base.m_EdictIndex }).unwrap();
-
-	USER_IDS.with_borrow(|ids| ids[index])
-}
-
-unsafe extern "C" fn reset_player_scores(this: *mut sys::CTFPlayer) {
-	unsafe { (*this.cast::<FakeEntity>()).resets += 1 };
-}
-
-unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
-	unsafe { (*container(this)).class }
-}
-
-unsafe extern "C" fn shared_change_info(
-	_: *mut sys::IVEngineServer,
-) -> *mut sys::CSharedEdictChangeInfo {
-	SHARED.get()
-}
-
-unsafe extern "C" fn standard_send_proxies(
-	_: *mut sys::IServerGameDLL,
-) -> *mut sys::CStandardSendProxies {
-	PROXIES.get()
-}
-
-/// A leaked name for element `index` of an array, as `SendPropArray3` names
-/// them.
-fn element_name(index: usize) -> &'static CStr {
-	Box::leak(
-		CString::new(format!("{index:03}"))
-			.unwrap()
-			.into_boxed_c_str(),
-	)
-}
-
-/// A `SendPropArray3`-shaped array of `len` integers at `offset`.
-fn int_array(
-	name: &'static CStr,
-	offset: usize,
-	len: usize,
-	stride: usize,
-	bits: c_int,
-	flags: PropFlags,
-) -> sys::SendProp {
-	let elements = (0..len)
-		.map(|index| int_prop(element_name(index), index * stride, bits, flags))
-		.collect::<Vec<_>>();
-	let nested = leak(table(name, Box::leak(elements.into_boxed_slice())));
-
-	table_prop(name, offset as c_int, nested, Some(direct_table))
-}
-
-/// An integer property at `offset`.
-fn int_prop(name: &'static CStr, offset: usize, bits: c_int, flags: PropFlags) -> sys::SendProp {
-	let mut prop = prop(
-		name,
-		sys::SendPropType_DPT_Int,
-		offset as c_int,
-		flags,
-		Some(int32_proxy),
-	);
-
-	prop.m_nBits = bits;
-	prop
-}
-
-/// A leaked server class named `name` describing `table`.
-fn server_class_of(name: &'static CStr, table: *mut sys::SendTable) -> *mut sys::ServerClass {
-	leak(sys::ServerClass {
-		m_pNetworkName: name.as_ptr(),
-		m_pTable: table,
-		m_pNext: null_mut(),
-		m_ClassID: 1,
-		m_InstanceBaselineIndex: 0,
-	})
 }
 
 /// A fake game: a player resource, two teams, players, and the interfaces
@@ -532,17 +384,6 @@ impl World {
 		world
 	}
 
-	/// The data word of `name`'s element `element`.
-	fn word(&self, name: &CStr, element: usize) -> usize {
-		let (_, first) = self
-			.arrays
-			.iter()
-			.find(|(array, _)| *array == name)
-			.unwrap();
-
-		first + element
-	}
-
 	/// Reads `name`'s element `element` in the player resource.
 	fn get(&self, name: &CStr, element: usize) -> i32 {
 		unsafe { (*self.resource).data[self.word(name, element)] }
@@ -625,279 +466,17 @@ impl World {
 
 		unsafe { (*entity).data[word] }
 	}
-}
 
-/// What the engine recorded as changed for edict `index` since the last
-/// snapshot.
-fn changed(index: usize) -> Changed {
-	unsafe {
-		let flags = (*EDICTS.get().add(index))._base.m_fStateFlags;
+	/// The data word of `name`'s element `element`.
+	fn word(&self, name: &CStr, element: usize) -> usize {
+		let (_, first) = self
+			.arrays
+			.iter()
+			.find(|(array, _)| *array == name)
+			.unwrap();
 
-		if flags & FL_FULL_EDICT_CHANGED != 0 {
-			return Changed::Full;
-		}
-
-		if flags & FL_EDICT_CHANGED == 0 {
-			return Changed::Nothing;
-		}
-
-		let accessor = ACCESSORS.get().add(index);
-		let shared = SHARED.get();
-
-		assert_eq!(
-			(*accessor).m_iChangeInfoSerialNumber,
-			(*shared).m_iSerialNumber
-		);
-
-		let info = (*shared).m_ChangeInfos[usize::from((*accessor).m_iChangeInfo)];
-		let mut offsets = info.m_ChangeOffsets[..usize::from(info.m_nChangeOffsets)].to_vec();
-
-		offsets.sort_unstable();
-		Changed::Offsets(offsets)
+		first + element
 	}
-}
-
-/// The edict at `index`.
-fn edict_at(index: usize) -> Edict<'static> {
-	unsafe { Edict::from_raw(NonNull::new(EDICTS.get().add(index)).unwrap()) }
-}
-
-/// Sends the frame to clients, as the engine does after the frame: change
-/// flags are cleared, and change records start over.
-fn end_snapshot() {
-	unsafe {
-		for index in 0..EDICT_COUNT {
-			(*EDICTS.get().add(index))._base.m_fStateFlags &=
-				!(FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED);
-		}
-
-		let shared = SHARED.get();
-
-		(*shared).m_iSerialNumber += 1;
-		(*shared).m_nChangeInfos = 0;
-	}
-}
-
-/// Makes `user_id` the client owning player slot `slot`.
-fn connect(slot: usize, user_id: u16) {
-	USER_IDS.with_borrow_mut(|ids| ids[slot] = c_int::from(user_id));
-}
-
-/// Leaves player slot `slot` without a client.
-fn disconnect(slot: usize) {
-	USER_IDS.with_borrow_mut(|ids| ids[slot] = -1);
-}
-
-/// A server whose factories export no interface at all.
-fn unreachable_server<S: ?Sized>(scope: &S) -> Server<'_> {
-	unsafe extern "C" fn no_interface(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		null_mut()
-	}
-
-	unsafe {
-		Server::new(
-			InterfaceFactory::new(no_interface),
-			InterfaceFactory::new(no_interface),
-			Game::TeamFortress2,
-			scope,
-		)
-	}
-}
-
-fn user(id: u16) -> UserId {
-	UserId::new(id).unwrap()
-}
-
-#[test]
-fn fixed_overrides_are_applied_once_and_restored_around_each_frame() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let score = world.offset(c"m_iTotalScore", 1);
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-
-	// Nothing was applied yet, so the first restore has nothing to do.
-	board.before_frame(server);
-	assert_eq!(changed(RESOURCE), Changed::Nothing);
-	board.after_frame(server);
-
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-	assert_eq!(
-		board.real_player_stat(user(5), PlayerStat::Score),
-		Some(120)
-	);
-	end_snapshot();
-
-	// The game's logic sees its own value, and clients the override, without
-	// either being marked changed again.
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert_eq!(changed(RESOURCE), Changed::Nothing);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-	assert_eq!(changed(RESOURCE), Changed::Nothing);
-
-	// Neighbouring slots and columns are untouched.
-	assert_eq!(world.get(c"m_iTotalScore", 2), 0);
-	assert_eq!(world.get(c"m_iScore", 1), 0);
-}
-
-#[test]
-fn always_flag_marks_every_write() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let score = world.offset(c"m_iTotalScore", 1);
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board.set_always_flag(true);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-	end_snapshot();
-
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-	assert_eq!(
-		board.real_player_stat(user(5), PlayerStat::Score),
-		Some(120)
-	);
-}
-
-#[test]
-fn the_game_changes_values_between_the_callbacks() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let score = world.offset(c"m_iTotalScore", 1);
-	let damage = world.offset(c"m_iDamage", 1);
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	world.put(c"m_iDamage", 1, 300);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board
-		.set_player_stat(server, user(5), PlayerStat::Damage, Override::Offset(50))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iDamage", 1), 350);
-	end_snapshot();
-
-	// The game's think recomputes both, from what it sees as its own values.
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert_eq!(world.get(c"m_iDamage", 1), 300);
-	world.set(server, c"m_iTotalScore", 1, 122);
-	world.set(server, c"m_iDamage", 1, 340);
-	board.after_frame(server);
-
-	assert_eq!(
-		board.real_player_stat(user(5), PlayerStat::Score),
-		Some(122)
-	);
-	assert_eq!(
-		board.real_player_stat(user(5), PlayerStat::Damage),
-		Some(340)
-	);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-	assert_eq!(world.get(c"m_iDamage", 1), 390);
-
-	// The game marked both; an offset follows the game's value, so it changed
-	// for clients anyway.
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score, damage]));
-}
-
-#[test]
-fn values_written_between_frames_become_the_games_own() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let kills = world.offset(c"m_iScore", 1);
-
-	connect(1, 5);
-	world.put(c"m_iScore", 1, 4);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Kills, Override::Fixed(42))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	// Another plugin writes the variable between frames.
-	world.put(c"m_iScore", 1, 7);
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iScore", 1), 7);
-	assert_eq!(changed(RESOURCE), Changed::Nothing);
-	board.after_frame(server);
-
-	assert_eq!(board.real_player_stat(user(5), PlayerStat::Kills), Some(7));
-	assert_eq!(world.get(c"m_iScore", 1), 42);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![kills]));
-}
-
-#[test]
-fn clearing_writes_the_game_value_back_and_marks_it() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let deaths = world.offset(c"m_iDeaths", 1);
-	let ping = world.offset(c"m_iPing", 1);
-
-	connect(1, 5);
-	world.put(c"m_iDeaths", 1, 3);
-	world.put(c"m_iPing", 1, 60);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Deaths, Override::Fixed(0))
-		.unwrap();
-	board
-		.set_player_stat(server, user(5), PlayerStat::Ping, Override::Fixed(500))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	// Cleared between frames: written back and marked before the frame.
-	board.clear_player_stat(user(5), PlayerStat::Deaths);
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iDeaths", 1), 3);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![deaths]));
-
-	// Cleared during the frame: marked after it.
-	board.clear_player_stat(user(5), PlayerStat::Ping);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iPing", 1), 60);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![ping, deaths]));
-	assert_eq!(board.real_player_stat(user(5), PlayerStat::Ping), None);
-	end_snapshot();
-
-	// Nothing is left to do.
-	board.before_frame(server);
-	board.after_frame(server);
-	assert_eq!(changed(RESOURCE), Changed::Nothing);
-	assert!(board.players.is_empty());
 }
 
 #[test]
@@ -944,37 +523,6 @@ fn a_missed_after_frame_marks_the_resource_fully_changed() {
 		board.real_player_stat(user(5), PlayerStat::Score),
 		Some(120)
 	);
-}
-
-#[test]
-fn an_after_frame_without_interfaces_leaves_the_repair_to_before_frame() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	// The game's value is written back without a mark, and the `after_frame`
-	// that would apply the override again cannot reach the interfaces.
-	board.before_frame(server);
-	board.after_frame(unreachable_server(&scope));
-	assert_eq!(board.phase, Phase::Restored { unflagged: true });
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	end_snapshot();
-
-	board.before_frame(server);
-	assert_eq!(changed(RESOURCE), Changed::Full);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
 }
 
 #[test]
@@ -1025,6 +573,937 @@ fn a_missed_before_frame_keeps_the_real_value() {
 	);
 	assert_eq!(world.get(c"m_iTotalScore", 1), 1130);
 	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+}
+
+#[test]
+fn a_replaced_resource_is_never_written_back_to() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	// The resource is replaced, in the same edict, by one with another serial
+	// number, which holds the game's values.
+	BY_CLASS.with_borrow_mut(|entities| entities.retain(|(name, _)| *name != RESOURCE_CLASS_NAME));
+	let replacement = world.spawn(
+		RESOURCE,
+		8,
+		world.resource_class,
+		RESOURCE_CLASS_NAME,
+		null_mut(),
+	);
+	let element = world.word(c"m_iTotalScore", 1);
+
+	unsafe { (*replacement).data[element] = 50 };
+	board.before_frame(server);
+	assert_eq!(unsafe { (*replacement).data[element] }, 50);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+
+	board.after_frame(server);
+	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
+	assert_eq!(board.real_player_stat(user(5), PlayerStat::Score), Some(50));
+	end_snapshot();
+
+	// An entity reporting another server class is not trusted with the
+	// layout either.
+	let copy = leak(unsafe { world.resource_class.read() });
+
+	unsafe { (*replacement).class = copy };
+	board.before_frame(server);
+	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
+	board.after_frame(server);
+	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
+	assert_eq!(
+		board.real_player_stat(user(5), PlayerStat::Score),
+		Some(9999)
+	);
+}
+
+#[test]
+fn a_user_id_found_in_another_slot_releases_the_first() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+	let score = world.offset(c"m_iTotalScore", 1);
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	// The client is in another slot before any frame callback noticed.
+	disconnect(1);
+	connect(2, 5);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Kills, Override::Fixed(3))
+		.unwrap();
+	assert_eq!(board.slot_of(user(5)), Some(2));
+	assert_eq!(board.player_override(user(5), PlayerStat::Score), None);
+	assert_eq!(
+		board.player_override(user(5), PlayerStat::Kills),
+		Some(Override::Fixed(3))
+	);
+	assert_eq!(board.overridden_players().collect::<Vec<_>>(), [user(5)]);
+
+	// The first slot's value is written back and sent.
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert_eq!(world.get(c"m_iScore", 2), 3);
+	assert_eq!(board.players.keys().collect::<Vec<_>>(), [&2]);
+}
+
+#[test]
+fn always_flag_marks_every_write() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+	let score = world.offset(c"m_iTotalScore", 1);
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board.set_always_flag(true);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+	end_snapshot();
+
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+	assert_eq!(
+		board.real_player_stat(user(5), PlayerStat::Score),
+		Some(120)
+	);
+}
+
+#[test]
+fn an_after_frame_without_interfaces_leaves_the_repair_to_before_frame() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	// The game's value is written back without a mark, and the `after_frame`
+	// that would apply the override again cannot reach the interfaces.
+	board.before_frame(server);
+	board.after_frame(unreachable_server(&scope));
+	assert_eq!(board.phase, Phase::Restored { unflagged: true });
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	end_snapshot();
+
+	board.before_frame(server);
+	assert_eq!(changed(RESOURCE), Changed::Full);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+}
+
+#[test]
+fn an_idle_store_makes_no_engine_calls() {
+	// Every interface the store could reach aborts if called.
+	for (module, version) in [
+		(Module::Engine, ValveEngine::VERSION),
+		(Module::GameServer, ServerTools::VERSION),
+		(Module::GameServer, ServerGameDll::VERSION),
+	] {
+		let vtable = Box::leak(vec![unexpected_call as *const (); 256].into_boxed_slice());
+
+		export(module, version, leak(vtable.as_ptr()));
+	}
+
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	board.before_frame(server);
+	board.after_frame(server);
+	board.restore_all(server);
+	board.clear_player_stat(user(5), PlayerStat::Score);
+	board.clear_team_stat(ScoringTeam::Red, TeamStat::Score);
+	board.forget_player(user(5));
+	board.clear_all_overrides();
+	board.level_shutdown(LevelPolicy::ClearOverrides);
+	board.before_frame(server);
+	board.after_frame(server);
+	assert_eq!(board.phase, Phase::Applied);
+}
+
+#[test]
+fn arrays_must_be_contiguous_and_long_enough() {
+	for (name, breakage, stat, needed) in [
+		(c"m_iDamage", Breakage::Stride(8), PlayerStat::Damage, 2),
+		(c"m_iDeaths", Breakage::Len(1), PlayerStat::Deaths, 2),
+		(
+			c"m_iStreaks",
+			Breakage::Len(STREAKS_PER_SLOT),
+			PlayerStat::Killstreak,
+			5,
+		),
+	] {
+		let _world = World::new(8, Some((name, breakage)));
+		let scope = ();
+		let server = mock_server(&scope);
+		let mut board = Scoreboard::new();
+
+		connect(1, 5);
+
+		let error = board
+			.set_player_stat(server, user(5), stat, Override::Fixed(1))
+			.unwrap_err();
+
+		assert_eq!(
+			error,
+			ScoreboardError::UnexpectedLayout {
+				name: name.to_str().unwrap(),
+				needed,
+			}
+		);
+		assert!(board.player_stat_range(server, stat).is_err());
+		assert!(board.player_stat_range(server, PlayerStat::Score).is_ok());
+	}
+
+	let _world = World::new(8, Some((c"m_iPing", Breakage::Len(3))));
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	// The array covers slots 1 and 2, but not 3.
+	connect(3, 7);
+	assert_eq!(
+		board.set_player_stat(server, user(7), PlayerStat::Ping, Override::Fixed(1)),
+		Err(ScoreboardError::UnexpectedLayout {
+			name: "m_iPing",
+			needed: 4,
+		})
+	);
+	assert_eq!(
+		ScoreboardError::UnexpectedLayout {
+			name: "m_iPing",
+			needed: 4,
+		}
+		.to_string(),
+		"`m_iPing` is not a contiguous array of 32-bit integers with at least 4 elements"
+	);
+}
+
+unsafe extern "C" fn change_accessor(
+	_: *mut sys::IVEngineServer,
+	edict: *const sys::edict_t,
+) -> *mut sys::IChangeInfoAccessor {
+	let index = usize::try_from(unsafe { (*edict)._base.m_EdictIndex }).unwrap();
+
+	unsafe { ACCESSORS.get().add(index) }
+}
+
+/// What the engine recorded as changed for edict `index` since the last
+/// snapshot.
+fn changed(index: usize) -> Changed {
+	unsafe {
+		let flags = (*EDICTS.get().add(index))._base.m_fStateFlags;
+
+		if flags & FL_FULL_EDICT_CHANGED != 0 {
+			return Changed::Full;
+		}
+
+		if flags & FL_EDICT_CHANGED == 0 {
+			return Changed::Nothing;
+		}
+
+		let accessor = ACCESSORS.get().add(index);
+		let shared = SHARED.get();
+
+		assert_eq!(
+			(*accessor).m_iChangeInfoSerialNumber,
+			(*shared).m_iSerialNumber
+		);
+
+		let info = (*shared).m_ChangeInfos[usize::from((*accessor).m_iChangeInfo)];
+		let mut offsets = info.m_ChangeOffsets[..usize::from(info.m_nChangeOffsets)].to_vec();
+
+		offsets.sort_unstable();
+		Changed::Offsets(offsets)
+	}
+}
+
+#[test]
+fn changes_past_the_engines_limit_mark_the_whole_resource() {
+	let limit = usize::from(MAX_CHANGE_OFFSETS);
+
+	for count in [limit, limit + 1] {
+		let _world = World::new(8, None);
+		let scope = ();
+		let server = mock_server(&scope);
+		let mut board = Scoreboard::new();
+		let fields = [(1, 5), (2, 6)]
+			.into_iter()
+			.flat_map(|(slot, id)| PlayerField::ALL.map(|field| (slot, id, field)));
+
+		for (slot, id, field) in fields.take(count) {
+			connect(slot, id);
+			board
+				.set_player_field(server, user(id), field, Override::Fixed(1))
+				.unwrap();
+		}
+
+		board.before_frame(server);
+		board.after_frame(server);
+
+		match changed(RESOURCE) {
+			Changed::Offsets(offsets) => assert_eq!((offsets.len(), count), (limit, limit)),
+			changed => assert_eq!((changed, count), (Changed::Full, limit + 1)),
+		}
+	}
+
+	// An offset the engine cannot record marks the entity as a whole too.
+	let _world = World::new(8, None);
+	let scope = ();
+	let engine = mock_server(&scope).valve_engine().unwrap();
+	let far = Changes {
+		full: false,
+		offsets: vec![usize::from(u16::MAX) + 1],
+	};
+
+	far.flush(engine, edict_at(RESOURCE));
+	assert_eq!(changed(RESOURCE), Changed::Full);
+	end_snapshot();
+
+	let near = Changes {
+		full: false,
+		offsets: vec![12, 8],
+	};
+
+	near.flush(engine, edict_at(RESOURCE));
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![8, 12]));
+}
+
+unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const c_char {
+	unsafe { (*container(this)).class_name }
+}
+
+#[test]
+fn classes_and_teams_are_bounded() {
+	for (raw, class) in (0..).zip(PlayerClass::ALL) {
+		assert_eq!(PlayerClass::from_raw(raw), Some(class));
+		assert_eq!(class.to_raw(), raw);
+	}
+
+	for raw in [-1, 10, 11, 12, 31, i32::MAX] {
+		assert_eq!(PlayerClass::from_raw(raw), None);
+	}
+
+	assert_eq!(PlayerClass::from_raw(8), Some(PlayerClass::Spy));
+	assert_eq!(ScoringTeam::from_raw(2), Some(ScoringTeam::Red));
+	assert_eq!(ScoringTeam::from_raw(3), Some(ScoringTeam::Blue));
+	assert_eq!(ScoringTeam::from_raw(1), None);
+	assert_eq!(ScoringTeam::Blue.to_raw(), 3);
+
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	connect(2, 6);
+	world.put(c"m_iPlayerClass", 2, 3);
+	world.put(c"m_bAlive", 2, 1);
+	board
+		.set_player_class(server, user(6), PlayerClass::Spy)
+		.unwrap();
+	board.set_player_alive(server, user(6), false).unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iPlayerClass", 2), 8);
+	assert_eq!(world.get(c"m_bAlive", 2), 0);
+	assert_eq!(board.player_class_override(user(6)), Some(PlayerClass::Spy));
+	assert_eq!(board.player_alive_override(user(6)), Some(false));
+	assert_eq!(board.player_override(user(6), PlayerStat::Score), None);
+	assert_eq!(board.overridden_players().collect::<Vec<_>>(), [user(6)]);
+	end_snapshot();
+
+	board.clear_player_class(user(6));
+	board.clear_player_alive(user(6));
+	assert_eq!(board.player_class_override(user(6)), None);
+	assert_eq!(board.player_alive_override(user(6)), None);
+	assert_eq!(board.overridden_players().count(), 0);
+	board.before_frame(server);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iPlayerClass", 2), 3);
+	assert_eq!(world.get(c"m_bAlive", 2), 1);
+	assert_eq!(
+		changed(RESOURCE),
+		Changed::Offsets(vec![
+			world.offset(c"m_bAlive", 2),
+			world.offset(c"m_iPlayerClass", 2)
+		])
+	);
+}
+
+#[test]
+fn clearing_writes_the_game_value_back_and_marks_it() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+	let deaths = world.offset(c"m_iDeaths", 1);
+	let ping = world.offset(c"m_iPing", 1);
+
+	connect(1, 5);
+	world.put(c"m_iDeaths", 1, 3);
+	world.put(c"m_iPing", 1, 60);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Deaths, Override::Fixed(0))
+		.unwrap();
+	board
+		.set_player_stat(server, user(5), PlayerStat::Ping, Override::Fixed(500))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	// Cleared between frames: written back and marked before the frame.
+	board.clear_player_stat(user(5), PlayerStat::Deaths);
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iDeaths", 1), 3);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![deaths]));
+
+	// Cleared during the frame: marked after it.
+	board.clear_player_stat(user(5), PlayerStat::Ping);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iPing", 1), 60);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![ping, deaths]));
+	assert_eq!(board.real_player_stat(user(5), PlayerStat::Ping), None);
+	end_snapshot();
+
+	// Nothing is left to do.
+	board.before_frame(server);
+	board.after_frame(server);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	assert!(board.players.is_empty());
+}
+
+/// Makes `user_id` the client owning player slot `slot`.
+fn connect(slot: usize, user_id: u16) {
+	USER_IDS.with_borrow_mut(|ids| ids[slot] = c_int::from(user_id));
+}
+
+/// The entity owning `networkable`.
+fn container(networkable: *const sys::IServerNetworkable) -> *mut FakeEntity {
+	networkable
+		.wrapping_byte_sub(offset_of!(FakeEntity, networkable))
+		.cast::<FakeEntity>()
+		.cast_mut()
+}
+
+unsafe extern "C" fn datamap(this: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
+	unsafe { (*this.cast::<FakeEntity>()).map }
+}
+
+/// Leaves player slot `slot` without a client.
+fn disconnect(slot: usize) {
+	USER_IDS.with_borrow_mut(|ids| ids[slot] = -1);
+}
+
+unsafe extern "C" fn edict(this: *const sys::IServerNetworkable) -> *mut sys::edict_t {
+	unsafe { (*container(this)).edict }
+}
+
+/// The edict at `index`.
+fn edict_at(index: usize) -> Edict<'static> {
+	unsafe { Edict::from_raw(NonNull::new(EDICTS.get().add(index)).unwrap()) }
+}
+
+unsafe extern "C" fn edict_of_index(
+	_: *mut sys::IVEngineServer,
+	index: c_int,
+) -> *mut sys::edict_t {
+	match usize::try_from(index) {
+		Ok(index) if index < EDICT_COUNT => unsafe { EDICTS.get().add(index) },
+		_ => null_mut(),
+	}
+}
+
+/// A leaked name for element `index` of an array, as `SendPropArray3` names
+/// them.
+fn element_name(index: usize) -> &'static CStr {
+	Box::leak(
+		CString::new(format!("{index:03}"))
+			.unwrap()
+			.into_boxed_c_str(),
+	)
+}
+
+#[test]
+fn encodable_ranges_follow_send_prop_int() {
+	let range = |bits: c_int, flags: PropFlags| {
+		let prop = int_prop(c"m_iValue", 0, bits, flags);
+
+		encodable_range(unsafe { SendProp::from_raw(NonNull::from(&prop)) }).inclusive()
+	};
+	let varint = PropFlags::from_bits(PropFlags::NORMAL.bits());
+	let unsigned_varint =
+		PropFlags::from_bits(PropFlags::NORMAL.bits() | PropFlags::UNSIGNED.bits());
+
+	assert_eq!(range(1, PropFlags::UNSIGNED), 0..=1);
+	assert_eq!(range(5, PropFlags::UNSIGNED), 0..=31);
+	assert_eq!(range(8, PropFlags::default()), -128..=127);
+	assert_eq!(range(12, PropFlags::default()), -2048..=2047);
+	assert_eq!(range(32, PropFlags::default()), i32::MIN..=i32::MAX);
+	assert_eq!(range(32, PropFlags::UNSIGNED), 0..=i32::MAX);
+	assert_eq!(range(0, PropFlags::default()), i32::MIN..=i32::MAX);
+	assert_eq!(range(-1, PropFlags::UNSIGNED), 0..=i32::MAX);
+	assert_eq!(range(40, PropFlags::default()), i32::MIN..=i32::MAX);
+	assert_eq!(range(7, varint), i32::MIN..=i32::MAX);
+	assert_eq!(range(-1, unsigned_varint), 0..=i32::MAX);
+}
+
+/// Sends the frame to clients, as the engine does after the frame: change
+/// flags are cleared, and change records start over.
+fn end_snapshot() {
+	unsafe {
+		for index in 0..EDICT_COUNT {
+			(*EDICTS.get().add(index))._base.m_fStateFlags &=
+				!(FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED);
+		}
+
+		let shared = SHARED.get();
+
+		(*shared).m_iSerialNumber += 1;
+		(*shared).m_nChangeInfos = 0;
+	}
+}
+
+unsafe extern "C" fn entity_list(_: *mut sys::IServerTools) -> *mut sys::CGlobalEntityList {
+	LIST.get()
+}
+
+unsafe extern "C" fn find_by_class_name(
+	_: *mut sys::IServerTools,
+	after: *mut sys::CBaseEntity,
+	name: *const c_char,
+) -> *mut sys::CBaseEntity {
+	let name = unsafe { CStr::from_ptr(name) };
+
+	BY_CLASS
+		.with_borrow(|entities| {
+			let mut matching = entities
+				.iter()
+				.filter(|(class, _)| *class == name)
+				.map(|&(_, entity)| entity);
+
+			if after.is_null() {
+				matching.next()
+			} else {
+				matching.skip_while(|&entity| entity != after).nth(1)
+			}
+		})
+		.unwrap_or(null_mut())
+}
+
+#[test]
+fn fixed_overrides_are_applied_once_and_restored_around_each_frame() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+	let score = world.offset(c"m_iTotalScore", 1);
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+
+	// Nothing was applied yet, so the first restore has nothing to do.
+	board.before_frame(server);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	board.after_frame(server);
+
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+	assert_eq!(
+		board.real_player_stat(user(5), PlayerStat::Score),
+		Some(120)
+	);
+	end_snapshot();
+
+	// The game's logic sees its own value, and clients the override, without
+	// either being marked changed again.
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+
+	// Neighbouring slots and columns are untouched.
+	assert_eq!(world.get(c"m_iTotalScore", 2), 0);
+	assert_eq!(world.get(c"m_iScore", 1), 0);
+}
+
+#[test]
+fn forgotten_players_are_restored_at_the_next_frame() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+	let score = world.offset(c"m_iTotalScore", 1);
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	board.forget_player(user(5));
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert!(board.players.is_empty());
+}
+
+#[test]
+fn frags_and_deaths_are_written_through_the_player_datamap() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let player = world.player(2);
+	let data = |word: usize| unsafe { (*player.as_ptr().cast::<FakeEntity>()).data[word] };
+
+	set_frags(server, player, 17).unwrap();
+	set_deaths(server, player, -2).unwrap();
+	assert_eq!((data(FRAGS), data(DEATHS)), (17, -2));
+
+	let resource = unsafe { Entity::from_raw(NonNull::new(world.resource.cast()).unwrap()) };
+
+	assert_eq!(
+		set_frags(server, resource, 1),
+		Err(ScoreboardError::NotTfPlayer)
+	);
+
+	// A misaligned field is not trusted.
+	let mut misaligned = field();
+
+	misaligned.fieldType = sys::_fieldtypes_FIELD_INTEGER;
+	misaligned.fieldName = c"m_iFrags".as_ptr();
+	misaligned.fieldOffset[0] = (DATA + 2) as c_int;
+
+	let base = data_map(c"CBasePlayer", vec![misaligned], null_mut());
+
+	unsafe {
+		(*player.as_ptr().cast::<FakeEntity>()).map = data_map(c"CTFPlayer", Vec::new(), base)
+	};
+	assert_eq!(
+		set_frags(server, player, 1),
+		Err(ScoreboardError::MissingField {
+			class: "CBasePlayer",
+			name: "m_iFrags",
+		})
+	);
+	assert_eq!(data(FRAGS), 17);
+}
+
+#[test]
+fn full_length_arrays_reach_the_last_player_slot() {
+	let world = World::new(102, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	connect(101, 9);
+	board
+		.set_player_stat(server, user(9), PlayerStat::Killstreak, Override::Fixed(3))
+		.unwrap();
+	board
+		.set_player_stat(server, user(9), PlayerStat::Score, Override::Fixed(5))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+
+	assert_eq!(
+		world.get(c"m_iStreaks", 101 * STREAKS_PER_SLOT + KILL_STREAK),
+		3
+	);
+	assert_eq!(world.get(c"m_iTotalScore", 101), 5);
+}
+
+unsafe extern "C" fn handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
+	unsafe { (&raw const (*this.cast::<FakeEntity>()).handle).cast() }
+}
+
+/// A `SendPropArray3`-shaped array of `len` integers at `offset`.
+fn int_array(
+	name: &'static CStr,
+	offset: usize,
+	len: usize,
+	stride: usize,
+	bits: c_int,
+	flags: PropFlags,
+) -> sys::SendProp {
+	let elements = (0..len)
+		.map(|index| int_prop(element_name(index), index * stride, bits, flags))
+		.collect::<Vec<_>>();
+	let nested = leak(table(name, Box::leak(elements.into_boxed_slice())));
+
+	table_prop(name, offset as c_int, nested, Some(direct_table))
+}
+
+/// An integer property at `offset`.
+fn int_prop(name: &'static CStr, offset: usize, bits: c_int, flags: PropFlags) -> sys::SendProp {
+	let mut prop = prop(
+		name,
+		sys::SendPropType_DPT_Int,
+		offset as c_int,
+		flags,
+		Some(int32_proxy),
+	);
+
+	prop.m_nBits = bits;
+	prop
+}
+
+#[test]
+fn killstreaks_use_the_kill_element_of_the_slots_group() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	connect(2, 6);
+	board
+		.set_player_stat(server, user(6), PlayerStat::Killstreak, Override::Fixed(7))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+
+	let first = 2 * STREAKS_PER_SLOT;
+
+	assert_eq!(world.get(c"m_iStreaks", first + KILL_STREAK), 7);
+	assert_eq!(
+		(first..first + STREAKS_PER_SLOT)
+			.map(|element| world.get(c"m_iStreaks", element))
+			.filter(|&value| value == 7)
+			.count(),
+		1
+	);
+	assert_eq!(world.get(c"m_iStreaks", 2), 0);
+}
+
+#[test]
+fn layouts_and_players_are_checked() {
+	let world = World::new(8, Some((c"m_iCurrencyCollected", Breakage::Missing)));
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	connect(1, 5);
+
+	// One missing column leaves the others usable.
+	assert_eq!(
+		board.set_player_stat(
+			server,
+			user(5),
+			PlayerStat::CurrencyCollected,
+			Override::Fixed(1)
+		),
+		Err(ScoreboardError::NetProp(NetPropError::NotFound {
+			table: "DT_TFPlayerResource".to_owned(),
+			name: "m_iCurrencyCollected".to_owned(),
+		}))
+	);
+	assert!(
+		board
+			.set_player_stat(server, user(5), PlayerStat::Healing, Override::Fixed(1))
+			.is_ok()
+	);
+
+	// Players must be connected clients, in a player slot.
+	assert_eq!(
+		board.set_player_stat(server, user(7), PlayerStat::Score, Override::Fixed(1)),
+		Err(ScoreboardError::NotConnected)
+	);
+
+	// Only TF2 has this scoreboard.
+	let other_game = unsafe {
+		Server::new(
+			server.engine_factory(),
+			server.game_server_factory(),
+			Game::SourceSdk2013,
+			&scope,
+		)
+	};
+
+	assert_eq!(
+		board.set_player_stat(other_game, user(5), PlayerStat::Score, Override::Fixed(1)),
+		Err(ScoreboardError::NotTf2)
+	);
+	assert_eq!(
+		set_team_score(other_game, ScoringTeam::Red, 1),
+		Err(ScoreboardError::NotTf2)
+	);
+	assert_eq!(
+		reset_scores(other_game, world.player(1)),
+		Err(ScoreboardError::NotTf2)
+	);
+
+	// Without a player resource, no level runs.
+	BY_CLASS.with_borrow_mut(|entities| entities.retain(|(name, _)| *name != RESOURCE_CLASS_NAME));
+	let mut fresh = Scoreboard::new();
+
+	assert_eq!(
+		fresh.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(1)),
+		Err(ScoreboardError::NoPlayerResource)
+	);
+}
+
+#[test]
+fn level_shutdown_forgets_entities_by_policy() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board
+		.set_team_stat(
+			server,
+			ScoringTeam::Blue,
+			TeamStat::Score,
+			Override::Offset(1),
+		)
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	// Shutting down takes no server, so it cannot touch an entity.
+	board.level_shutdown(LevelPolicy::KeepOverrides);
+	assert_eq!(board.real_player_stat(user(5), PlayerStat::Score), None);
+	assert_eq!(
+		board.player_override(user(5), PlayerStat::Score),
+		Some(Override::Fixed(9999))
+	);
+	assert_eq!(
+		board.team_override(ScoringTeam::Blue, TeamStat::Score),
+		Some(Override::Offset(1))
+	);
+	assert!(board.resource.is_none());
+	assert!(!board.has_applied());
+
+	// The next level's entities start from the game's values.
+	world.put(c"m_iTotalScore", 1, 0);
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 0);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+	assert_eq!(world.team(ScoringTeam::Blue, TEAM_SCORE), 2);
+
+	board.level_shutdown(LevelPolicy::ClearOverrides);
+	assert!(!board.has_active());
+	assert_eq!(board.player_override(user(5), PlayerStat::Score), None);
+	assert_eq!(
+		board.team_override(ScoringTeam::Blue, TeamStat::Score),
+		None
+	);
+}
+
+unsafe extern "C" fn networkable(this: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
+	unsafe { &raw mut (*this.cast::<FakeEntity>()).networkable }
+}
+
+#[test]
+fn overrides_end_when_another_client_takes_the_slot() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+	let score = world.offset(c"m_iTotalScore", 1);
+
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	// The slot is taken by another client without `forget_player`.
+	connect(1, 9);
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	world.set(server, c"m_iTotalScore", 1, 0);
+	board.after_frame(server);
+
+	assert_eq!(world.get(c"m_iTotalScore", 1), 0);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+	assert_eq!(board.real_player_stat(user(5), PlayerStat::Score), None);
+	assert_eq!(board.real_player_stat(user(9), PlayerStat::Score), None);
+	assert!(board.players.is_empty());
+
+	// Setting an override for the new client starts afresh, and the previous
+	// client's user ID is no longer connected.
+	board
+		.set_player_stat(server, user(9), PlayerStat::Kills, Override::Fixed(1))
+		.unwrap();
+	assert_eq!(board.slot_of(user(9)), Some(1));
+	assert_eq!(board.player_override(user(9), PlayerStat::Score), None);
+	assert_eq!(
+		board.set_player_stat(server, user(5), PlayerStat::Kills, Override::Fixed(1)),
+		Err(ScoreboardError::NotConnected)
+	);
+}
+
+unsafe extern "C" fn player_user_id(
+	_: *mut sys::IVEngineServer,
+	edict: *const sys::edict_t,
+) -> c_int {
+	let index = usize::try_from(unsafe { (*edict)._base.m_EdictIndex }).unwrap();
+
+	USER_IDS.with_borrow(|ids| ids[index])
 }
 
 #[test]
@@ -1112,557 +1591,6 @@ fn ranges_come_from_the_live_bits_and_flags() {
 	assert_eq!(world.get(c"m_iPing", 1), 1023);
 	assert_eq!(world.get(c"m_iScore", 1), -2048);
 	assert_eq!(world.get(c"m_iDamage", 1), i32::MAX);
-}
-
-#[test]
-fn encodable_ranges_follow_send_prop_int() {
-	let range = |bits: c_int, flags: PropFlags| {
-		let prop = int_prop(c"m_iValue", 0, bits, flags);
-
-		encodable_range(unsafe { SendProp::from_raw(NonNull::from(&prop)) }).inclusive()
-	};
-	let varint = PropFlags::from_bits(PropFlags::NORMAL.bits());
-	let unsigned_varint =
-		PropFlags::from_bits(PropFlags::NORMAL.bits() | PropFlags::UNSIGNED.bits());
-
-	assert_eq!(range(1, PropFlags::UNSIGNED), 0..=1);
-	assert_eq!(range(5, PropFlags::UNSIGNED), 0..=31);
-	assert_eq!(range(8, PropFlags::default()), -128..=127);
-	assert_eq!(range(12, PropFlags::default()), -2048..=2047);
-	assert_eq!(range(32, PropFlags::default()), i32::MIN..=i32::MAX);
-	assert_eq!(range(32, PropFlags::UNSIGNED), 0..=i32::MAX);
-	assert_eq!(range(0, PropFlags::default()), i32::MIN..=i32::MAX);
-	assert_eq!(range(-1, PropFlags::UNSIGNED), 0..=i32::MAX);
-	assert_eq!(range(40, PropFlags::default()), i32::MIN..=i32::MAX);
-	assert_eq!(range(7, varint), i32::MIN..=i32::MAX);
-	assert_eq!(range(-1, unsigned_varint), 0..=i32::MAX);
-}
-
-#[test]
-fn classes_and_teams_are_bounded() {
-	for (raw, class) in (0..).zip(PlayerClass::ALL) {
-		assert_eq!(PlayerClass::from_raw(raw), Some(class));
-		assert_eq!(class.to_raw(), raw);
-	}
-
-	for raw in [-1, 10, 11, 12, 31, i32::MAX] {
-		assert_eq!(PlayerClass::from_raw(raw), None);
-	}
-
-	assert_eq!(PlayerClass::from_raw(8), Some(PlayerClass::Spy));
-	assert_eq!(ScoringTeam::from_raw(2), Some(ScoringTeam::Red));
-	assert_eq!(ScoringTeam::from_raw(3), Some(ScoringTeam::Blue));
-	assert_eq!(ScoringTeam::from_raw(1), None);
-	assert_eq!(ScoringTeam::Blue.to_raw(), 3);
-
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	connect(2, 6);
-	world.put(c"m_iPlayerClass", 2, 3);
-	world.put(c"m_bAlive", 2, 1);
-	board
-		.set_player_class(server, user(6), PlayerClass::Spy)
-		.unwrap();
-	board.set_player_alive(server, user(6), false).unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iPlayerClass", 2), 8);
-	assert_eq!(world.get(c"m_bAlive", 2), 0);
-	assert_eq!(board.player_class_override(user(6)), Some(PlayerClass::Spy));
-	assert_eq!(board.player_alive_override(user(6)), Some(false));
-	assert_eq!(board.player_override(user(6), PlayerStat::Score), None);
-	assert_eq!(board.overridden_players().collect::<Vec<_>>(), [user(6)]);
-	end_snapshot();
-
-	board.clear_player_class(user(6));
-	board.clear_player_alive(user(6));
-	assert_eq!(board.player_class_override(user(6)), None);
-	assert_eq!(board.player_alive_override(user(6)), None);
-	assert_eq!(board.overridden_players().count(), 0);
-	board.before_frame(server);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iPlayerClass", 2), 3);
-	assert_eq!(world.get(c"m_bAlive", 2), 1);
-	assert_eq!(
-		changed(RESOURCE),
-		Changed::Offsets(vec![
-			world.offset(c"m_bAlive", 2),
-			world.offset(c"m_iPlayerClass", 2)
-		])
-	);
-}
-
-#[test]
-fn killstreaks_use_the_kill_element_of_the_slots_group() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	connect(2, 6);
-	board
-		.set_player_stat(server, user(6), PlayerStat::Killstreak, Override::Fixed(7))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-
-	let first = 2 * STREAKS_PER_SLOT;
-
-	assert_eq!(world.get(c"m_iStreaks", first + KILL_STREAK), 7);
-	assert_eq!(
-		(first..first + STREAKS_PER_SLOT)
-			.map(|element| world.get(c"m_iStreaks", element))
-			.filter(|&value| value == 7)
-			.count(),
-		1
-	);
-	assert_eq!(world.get(c"m_iStreaks", 2), 0);
-}
-
-#[test]
-fn full_length_arrays_reach_the_last_player_slot() {
-	let world = World::new(102, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	connect(101, 9);
-	board
-		.set_player_stat(server, user(9), PlayerStat::Killstreak, Override::Fixed(3))
-		.unwrap();
-	board
-		.set_player_stat(server, user(9), PlayerStat::Score, Override::Fixed(5))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-
-	assert_eq!(
-		world.get(c"m_iStreaks", 101 * STREAKS_PER_SLOT + KILL_STREAK),
-		3
-	);
-	assert_eq!(world.get(c"m_iTotalScore", 101), 5);
-}
-
-#[test]
-fn changes_past_the_engines_limit_mark_the_whole_resource() {
-	let limit = usize::from(MAX_CHANGE_OFFSETS);
-
-	for count in [limit, limit + 1] {
-		let _world = World::new(8, None);
-		let scope = ();
-		let server = mock_server(&scope);
-		let mut board = Scoreboard::new();
-		let fields = [(1, 5), (2, 6)]
-			.into_iter()
-			.flat_map(|(slot, id)| PlayerField::ALL.map(|field| (slot, id, field)));
-
-		for (slot, id, field) in fields.take(count) {
-			connect(slot, id);
-			board
-				.set_player_field(server, user(id), field, Override::Fixed(1))
-				.unwrap();
-		}
-
-		board.before_frame(server);
-		board.after_frame(server);
-
-		match changed(RESOURCE) {
-			Changed::Offsets(offsets) => assert_eq!((offsets.len(), count), (limit, limit)),
-			changed => assert_eq!((changed, count), (Changed::Full, limit + 1)),
-		}
-	}
-
-	// An offset the engine cannot record marks the entity as a whole too.
-	let _world = World::new(8, None);
-	let scope = ();
-	let engine = mock_server(&scope).valve_engine().unwrap();
-	let far = Changes {
-		full: false,
-		offsets: vec![usize::from(u16::MAX) + 1],
-	};
-
-	far.flush(engine, edict_at(RESOURCE));
-	assert_eq!(changed(RESOURCE), Changed::Full);
-	end_snapshot();
-
-	let near = Changes {
-		full: false,
-		offsets: vec![12, 8],
-	};
-
-	near.flush(engine, edict_at(RESOURCE));
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![8, 12]));
-}
-
-#[test]
-fn overrides_end_when_another_client_takes_the_slot() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let score = world.offset(c"m_iTotalScore", 1);
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	// The slot is taken by another client without `forget_player`.
-	connect(1, 9);
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	world.set(server, c"m_iTotalScore", 1, 0);
-	board.after_frame(server);
-
-	assert_eq!(world.get(c"m_iTotalScore", 1), 0);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-	assert_eq!(board.real_player_stat(user(5), PlayerStat::Score), None);
-	assert_eq!(board.real_player_stat(user(9), PlayerStat::Score), None);
-	assert!(board.players.is_empty());
-
-	// Setting an override for the new client starts afresh, and the previous
-	// client's user ID is no longer connected.
-	board
-		.set_player_stat(server, user(9), PlayerStat::Kills, Override::Fixed(1))
-		.unwrap();
-	assert_eq!(board.slot_of(user(9)), Some(1));
-	assert_eq!(board.player_override(user(9), PlayerStat::Score), None);
-	assert_eq!(
-		board.set_player_stat(server, user(5), PlayerStat::Kills, Override::Fixed(1)),
-		Err(ScoreboardError::NotConnected)
-	);
-}
-
-#[test]
-fn a_user_id_found_in_another_slot_releases_the_first() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let score = world.offset(c"m_iTotalScore", 1);
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	// The client is in another slot before any frame callback noticed.
-	disconnect(1);
-	connect(2, 5);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Kills, Override::Fixed(3))
-		.unwrap();
-	assert_eq!(board.slot_of(user(5)), Some(2));
-	assert_eq!(board.player_override(user(5), PlayerStat::Score), None);
-	assert_eq!(
-		board.player_override(user(5), PlayerStat::Kills),
-		Some(Override::Fixed(3))
-	);
-	assert_eq!(board.overridden_players().collect::<Vec<_>>(), [user(5)]);
-
-	// The first slot's value is written back and sent.
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert_eq!(world.get(c"m_iScore", 2), 3);
-	assert_eq!(board.players.keys().collect::<Vec<_>>(), [&2]);
-}
-
-#[test]
-fn forgotten_players_are_restored_at_the_next_frame() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let score = world.offset(c"m_iTotalScore", 1);
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	board.forget_player(user(5));
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert!(board.players.is_empty());
-}
-
-#[test]
-fn a_replaced_resource_is_never_written_back_to() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	// The resource is replaced, in the same edict, by one with another serial
-	// number, which holds the game's values.
-	BY_CLASS.with_borrow_mut(|entities| entities.retain(|(name, _)| *name != RESOURCE_CLASS_NAME));
-	let replacement = world.spawn(
-		RESOURCE,
-		8,
-		world.resource_class,
-		RESOURCE_CLASS_NAME,
-		null_mut(),
-	);
-	let element = world.word(c"m_iTotalScore", 1);
-
-	unsafe { (*replacement).data[element] = 50 };
-	board.before_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 50);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-
-	board.after_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
-	assert_eq!(board.real_player_stat(user(5), PlayerStat::Score), Some(50));
-	end_snapshot();
-
-	// An entity reporting another server class is not trusted with the
-	// layout either.
-	let copy = leak(unsafe { world.resource_class.read() });
-
-	unsafe { (*replacement).class = copy };
-	board.before_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
-	board.after_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
-	assert_eq!(
-		board.real_player_stat(user(5), PlayerStat::Score),
-		Some(9999)
-	);
-}
-
-#[test]
-fn restore_all_writes_everything_back_and_keeps_the_overrides() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let score = world.offset(c"m_iTotalScore", 1);
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board
-		.set_team_stat(
-			server,
-			ScoringTeam::Red,
-			TeamStat::Score,
-			Override::Fixed(5),
-		)
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	assert_eq!(world.team(ScoringTeam::Red, TEAM_SCORE), 5);
-	end_snapshot();
-
-	board.restore_all(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
-	assert_eq!(world.team(ScoringTeam::Red, TEAM_SCORE), 0);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-	assert_eq!(
-		changed(RED),
-		Changed::Offsets(vec![(DATA + TEAM_SCORE * ELEMENT_SIZE) as u16])
-	);
-	assert_eq!(changed(BLUE), Changed::Nothing);
-	assert_eq!(
-		board.real_player_stat(user(5), PlayerStat::Score),
-		Some(120)
-	);
-	end_snapshot();
-
-	// While paused, the hooks do not run. Once they do again, the overrides
-	// return.
-	board.before_frame(server);
-	assert_eq!(changed(RESOURCE), Changed::Nothing);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-	assert_eq!(world.team(ScoringTeam::Red, TEAM_SCORE), 5);
-	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
-}
-
-#[test]
-fn level_shutdown_forgets_entities_by_policy() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	connect(1, 5);
-	world.put(c"m_iTotalScore", 1, 120);
-	board
-		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
-		.unwrap();
-	board
-		.set_team_stat(
-			server,
-			ScoringTeam::Blue,
-			TeamStat::Score,
-			Override::Offset(1),
-		)
-		.unwrap();
-	board.before_frame(server);
-	board.after_frame(server);
-	end_snapshot();
-
-	// Shutting down takes no server, so it cannot touch an entity.
-	board.level_shutdown(LevelPolicy::KeepOverrides);
-	assert_eq!(board.real_player_stat(user(5), PlayerStat::Score), None);
-	assert_eq!(
-		board.player_override(user(5), PlayerStat::Score),
-		Some(Override::Fixed(9999))
-	);
-	assert_eq!(
-		board.team_override(ScoringTeam::Blue, TeamStat::Score),
-		Some(Override::Offset(1))
-	);
-	assert!(board.resource.is_none());
-	assert!(!board.has_applied());
-
-	// The next level's entities start from the game's values.
-	world.put(c"m_iTotalScore", 1, 0);
-	board.before_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 0);
-	board.after_frame(server);
-	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
-	assert_eq!(world.team(ScoringTeam::Blue, TEAM_SCORE), 2);
-
-	board.level_shutdown(LevelPolicy::ClearOverrides);
-	assert!(!board.has_active());
-	assert_eq!(board.player_override(user(5), PlayerStat::Score), None);
-	assert_eq!(
-		board.team_override(ScoringTeam::Blue, TeamStat::Score),
-		None
-	);
-}
-
-#[test]
-fn an_idle_store_makes_no_engine_calls() {
-	// Every interface the store could reach aborts if called.
-	for (module, version) in [
-		(Module::Engine, ValveEngine::VERSION),
-		(Module::GameServer, ServerTools::VERSION),
-		(Module::GameServer, ServerGameDll::VERSION),
-	] {
-		let vtable = Box::leak(vec![unexpected_call as *const (); 256].into_boxed_slice());
-
-		export(module, version, leak(vtable.as_ptr()));
-	}
-
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	board.before_frame(server);
-	board.after_frame(server);
-	board.restore_all(server);
-	board.clear_player_stat(user(5), PlayerStat::Score);
-	board.clear_team_stat(ScoringTeam::Red, TeamStat::Score);
-	board.forget_player(user(5));
-	board.clear_all_overrides();
-	board.level_shutdown(LevelPolicy::ClearOverrides);
-	board.before_frame(server);
-	board.after_frame(server);
-	assert_eq!(board.phase, Phase::Applied);
-}
-
-#[test]
-fn teams_are_found_by_number() {
-	let world = World::new(8, None);
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-	let captures = (DATA + TEAM_CAPTURES * ELEMENT_SIZE) as u16;
-
-	unsafe { (*world.blue).data[TEAM_CAPTURES] = 1 };
-	board
-		.set_team_stat(
-			server,
-			ScoringTeam::Blue,
-			TeamStat::FlagCaptures,
-			Override::Offset(2),
-		)
-		.unwrap();
-	assert_eq!(
-		board.set_team_stat(
-			server,
-			ScoringTeam::Red,
-			TeamStat::FlagCaptures,
-			Override::Fixed(128)
-		),
-		Err(ScoreboardError::OutOfRange {
-			name: "m_nFlagCaptures",
-			value: 128,
-			min: -128,
-			max: 127,
-		})
-	);
-	board.before_frame(server);
-	board.after_frame(server);
-
-	assert_eq!(world.team(ScoringTeam::Blue, TEAM_CAPTURES), 3);
-	assert_eq!(world.team(ScoringTeam::Red, TEAM_CAPTURES), 0);
-	assert_eq!(changed(BLUE), Changed::Offsets(vec![captures]));
-	assert_eq!(changed(RED), Changed::Nothing);
-	assert_eq!(changed(RESOURCE), Changed::Nothing);
-	assert_eq!(
-		board.real_team_stat(ScoringTeam::Blue, TeamStat::FlagCaptures),
-		Some(1)
-	);
-	end_snapshot();
-
-	board.clear_team_stat(ScoringTeam::Blue, TeamStat::FlagCaptures);
-	board.before_frame(server);
-	assert_eq!(world.team(ScoringTeam::Blue, TEAM_CAPTURES), 1);
-	assert_eq!(changed(BLUE), Changed::Offsets(vec![captures]));
-	board.after_frame(server);
-	assert_eq!(
-		board.real_team_stat(ScoringTeam::Blue, TeamStat::FlagCaptures),
-		None
-	);
-
-	// Without a team entity, nothing can be set.
-	BY_CLASS.with_borrow_mut(|entities| entities.retain(|(name, _)| *name != TEAM_CLASS_NAME));
-	assert_eq!(
-		set_team_score(server, ScoringTeam::Red, 1),
-		Err(ScoreboardError::NoTeam(ScoringTeam::Red))
-	);
-	assert_eq!(
-		ScoreboardError::NoTeam(ScoringTeam::Blue).to_string(),
-		"no `tf_team` entity has team number 3"
-	);
 }
 
 #[test]
@@ -1772,129 +1700,106 @@ fn real_team_numbers_become_the_games_own() {
 	);
 }
 
-#[test]
-fn layouts_and_players_are_checked() {
-	let world = World::new(8, Some((c"m_iCurrencyCollected", Breakage::Missing)));
-	let scope = ();
-	let server = mock_server(&scope);
-	let mut board = Scoreboard::new();
-
-	connect(1, 5);
-
-	// One missing column leaves the others usable.
-	assert_eq!(
-		board.set_player_stat(
-			server,
-			user(5),
-			PlayerStat::CurrencyCollected,
-			Override::Fixed(1)
-		),
-		Err(ScoreboardError::NetProp(NetPropError::NotFound {
-			table: "DT_TFPlayerResource".to_owned(),
-			name: "m_iCurrencyCollected".to_owned(),
-		}))
-	);
-	assert!(
-		board
-			.set_player_stat(server, user(5), PlayerStat::Healing, Override::Fixed(1))
-			.is_ok()
-	);
-
-	// Players must be connected clients, in a player slot.
-	assert_eq!(
-		board.set_player_stat(server, user(7), PlayerStat::Score, Override::Fixed(1)),
-		Err(ScoreboardError::NotConnected)
-	);
-
-	// Only TF2 has this scoreboard.
-	let other_game = unsafe {
-		Server::new(
-			server.engine_factory(),
-			server.game_server_factory(),
-			Game::SourceSdk2013,
-			&scope,
-		)
-	};
-
-	assert_eq!(
-		board.set_player_stat(other_game, user(5), PlayerStat::Score, Override::Fixed(1)),
-		Err(ScoreboardError::NotTf2)
-	);
-	assert_eq!(
-		set_team_score(other_game, ScoringTeam::Red, 1),
-		Err(ScoreboardError::NotTf2)
-	);
-	assert_eq!(
-		reset_scores(other_game, world.player(1)),
-		Err(ScoreboardError::NotTf2)
-	);
-
-	// Without a player resource, no level runs.
-	BY_CLASS.with_borrow_mut(|entities| entities.retain(|(name, _)| *name != RESOURCE_CLASS_NAME));
-	let mut fresh = Scoreboard::new();
-
-	assert_eq!(
-		fresh.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(1)),
-		Err(ScoreboardError::NoPlayerResource)
-	);
+unsafe extern "C" fn reset_player_scores(this: *mut sys::CTFPlayer) {
+	unsafe { (*this.cast::<FakeEntity>()).resets += 1 };
 }
 
 #[test]
-fn arrays_must_be_contiguous_and_long_enough() {
-	for (name, breakage, stat, needed) in [
-		(c"m_iDamage", Breakage::Stride(8), PlayerStat::Damage, 2),
-		(c"m_iDeaths", Breakage::Len(1), PlayerStat::Deaths, 2),
-		(
-			c"m_iStreaks",
-			Breakage::Len(STREAKS_PER_SLOT),
-			PlayerStat::Killstreak,
-			5,
-		),
-	] {
-		let _world = World::new(8, Some((name, breakage)));
-		let scope = ();
-		let server = mock_server(&scope);
-		let mut board = Scoreboard::new();
+fn reset_scores_calls_the_game_once() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let player = world.player(2);
+	let resets = || unsafe { (*player.as_ptr().cast::<FakeEntity>()).resets };
 
-		connect(1, 5);
+	reset_scores(server, player).unwrap();
+	assert_eq!(resets(), 1);
 
-		let error = board
-			.set_player_stat(server, user(5), stat, Override::Fixed(1))
-			.unwrap_err();
+	let resource = unsafe { Entity::from_raw(NonNull::new(world.resource.cast()).unwrap()) };
 
-		assert_eq!(
-			error,
-			ScoreboardError::UnexpectedLayout {
-				name: name.to_str().unwrap(),
-				needed,
-			}
-		);
-		assert!(board.player_stat_range(server, stat).is_err());
-		assert!(board.player_stat_range(server, PlayerStat::Score).is_ok());
-	}
+	assert_eq!(
+		reset_scores(server, resource),
+		Err(ScoreboardError::NotTfPlayer)
+	);
+	assert_eq!(resets(), 1);
+}
 
-	let _world = World::new(8, Some((c"m_iPing", Breakage::Len(3))));
+#[test]
+fn restore_all_writes_everything_back_and_keeps_the_overrides() {
+	let world = World::new(8, None);
 	let scope = ();
 	let server = mock_server(&scope);
 	let mut board = Scoreboard::new();
+	let score = world.offset(c"m_iTotalScore", 1);
 
-	// The array covers slots 1 and 2, but not 3.
-	connect(3, 7);
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board
+		.set_team_stat(
+			server,
+			ScoringTeam::Red,
+			TeamStat::Score,
+			Override::Fixed(5),
+		)
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	assert_eq!(world.team(ScoringTeam::Red, TEAM_SCORE), 5);
+	end_snapshot();
+
+	board.restore_all(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert_eq!(world.team(ScoringTeam::Red, TEAM_SCORE), 0);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
 	assert_eq!(
-		board.set_player_stat(server, user(7), PlayerStat::Ping, Override::Fixed(1)),
-		Err(ScoreboardError::UnexpectedLayout {
-			name: "m_iPing",
-			needed: 4,
-		})
+		changed(RED),
+		Changed::Offsets(vec![(DATA + TEAM_SCORE * ELEMENT_SIZE) as u16])
 	);
+	assert_eq!(changed(BLUE), Changed::Nothing);
 	assert_eq!(
-		ScoreboardError::UnexpectedLayout {
-			name: "m_iPing",
-			needed: 4,
-		}
-		.to_string(),
-		"`m_iPing` is not a contiguous array of 32-bit integers with at least 4 elements"
+		board.real_player_stat(user(5), PlayerStat::Score),
+		Some(120)
 	);
+	end_snapshot();
+
+	// While paused, the hooks do not run. Once they do again, the overrides
+	// return.
+	board.before_frame(server);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+	assert_eq!(world.team(ScoringTeam::Red, TEAM_SCORE), 5);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
+}
+
+unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
+	unsafe { (*container(this)).class }
+}
+
+/// A leaked server class named `name` describing `table`.
+fn server_class_of(name: &'static CStr, table: *mut sys::SendTable) -> *mut sys::ServerClass {
+	leak(sys::ServerClass {
+		m_pNetworkName: name.as_ptr(),
+		m_pTable: table,
+		m_pNext: null_mut(),
+		m_ClassID: 1,
+		m_InstanceBaselineIndex: 0,
+	})
+}
+
+unsafe extern "C" fn shared_change_info(
+	_: *mut sys::IVEngineServer,
+) -> *mut sys::CSharedEdictChangeInfo {
+	SHARED.get()
+}
+
+unsafe extern "C" fn standard_send_proxies(
+	_: *mut sys::IServerGameDLL,
+) -> *mut sys::CStandardSendProxies {
+	PROXIES.get()
 }
 
 #[test]
@@ -1938,62 +1843,164 @@ fn streaks_must_be_grouped_by_player_slot() {
 }
 
 #[test]
-fn frags_and_deaths_are_written_through_the_player_datamap() {
+fn teams_are_found_by_number() {
 	let world = World::new(8, None);
 	let scope = ();
 	let server = mock_server(&scope);
-	let player = world.player(2);
-	let data = |word: usize| unsafe { (*player.as_ptr().cast::<FakeEntity>()).data[word] };
+	let mut board = Scoreboard::new();
+	let captures = (DATA + TEAM_CAPTURES * ELEMENT_SIZE) as u16;
 
-	set_frags(server, player, 17).unwrap();
-	set_deaths(server, player, -2).unwrap();
-	assert_eq!((data(FRAGS), data(DEATHS)), (17, -2));
-
-	let resource = unsafe { Entity::from_raw(NonNull::new(world.resource.cast()).unwrap()) };
-
+	unsafe { (*world.blue).data[TEAM_CAPTURES] = 1 };
+	board
+		.set_team_stat(
+			server,
+			ScoringTeam::Blue,
+			TeamStat::FlagCaptures,
+			Override::Offset(2),
+		)
+		.unwrap();
 	assert_eq!(
-		set_frags(server, resource, 1),
-		Err(ScoreboardError::NotTfPlayer)
-	);
-
-	// A misaligned field is not trusted.
-	let mut misaligned = field();
-
-	misaligned.fieldType = sys::_fieldtypes_FIELD_INTEGER;
-	misaligned.fieldName = c"m_iFrags".as_ptr();
-	misaligned.fieldOffset[0] = (DATA + 2) as c_int;
-
-	let base = data_map(c"CBasePlayer", vec![misaligned], null_mut());
-
-	unsafe {
-		(*player.as_ptr().cast::<FakeEntity>()).map = data_map(c"CTFPlayer", Vec::new(), base)
-	};
-	assert_eq!(
-		set_frags(server, player, 1),
-		Err(ScoreboardError::MissingField {
-			class: "CBasePlayer",
-			name: "m_iFrags",
+		board.set_team_stat(
+			server,
+			ScoringTeam::Red,
+			TeamStat::FlagCaptures,
+			Override::Fixed(128)
+		),
+		Err(ScoreboardError::OutOfRange {
+			name: "m_nFlagCaptures",
+			value: 128,
+			min: -128,
+			max: 127,
 		})
 	);
-	assert_eq!(data(FRAGS), 17);
+	board.before_frame(server);
+	board.after_frame(server);
+
+	assert_eq!(world.team(ScoringTeam::Blue, TEAM_CAPTURES), 3);
+	assert_eq!(world.team(ScoringTeam::Red, TEAM_CAPTURES), 0);
+	assert_eq!(changed(BLUE), Changed::Offsets(vec![captures]));
+	assert_eq!(changed(RED), Changed::Nothing);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	assert_eq!(
+		board.real_team_stat(ScoringTeam::Blue, TeamStat::FlagCaptures),
+		Some(1)
+	);
+	end_snapshot();
+
+	board.clear_team_stat(ScoringTeam::Blue, TeamStat::FlagCaptures);
+	board.before_frame(server);
+	assert_eq!(world.team(ScoringTeam::Blue, TEAM_CAPTURES), 1);
+	assert_eq!(changed(BLUE), Changed::Offsets(vec![captures]));
+	board.after_frame(server);
+	assert_eq!(
+		board.real_team_stat(ScoringTeam::Blue, TeamStat::FlagCaptures),
+		None
+	);
+
+	// Without a team entity, nothing can be set.
+	BY_CLASS.with_borrow_mut(|entities| entities.retain(|(name, _)| *name != TEAM_CLASS_NAME));
+	assert_eq!(
+		set_team_score(server, ScoringTeam::Red, 1),
+		Err(ScoreboardError::NoTeam(ScoringTeam::Red))
+	);
+	assert_eq!(
+		ScoreboardError::NoTeam(ScoringTeam::Blue).to_string(),
+		"no `tf_team` entity has team number 3"
+	);
 }
 
 #[test]
-fn reset_scores_calls_the_game_once() {
+fn the_game_changes_values_between_the_callbacks() {
 	let world = World::new(8, None);
 	let scope = ();
 	let server = mock_server(&scope);
-	let player = world.player(2);
-	let resets = || unsafe { (*player.as_ptr().cast::<FakeEntity>()).resets };
+	let mut board = Scoreboard::new();
+	let score = world.offset(c"m_iTotalScore", 1);
+	let damage = world.offset(c"m_iDamage", 1);
 
-	reset_scores(server, player).unwrap();
-	assert_eq!(resets(), 1);
+	connect(1, 5);
+	world.put(c"m_iTotalScore", 1, 120);
+	world.put(c"m_iDamage", 1, 300);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
+		.unwrap();
+	board
+		.set_player_stat(server, user(5), PlayerStat::Damage, Override::Offset(50))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	assert_eq!(world.get(c"m_iDamage", 1), 350);
+	end_snapshot();
 
-	let resource = unsafe { Entity::from_raw(NonNull::new(world.resource.cast()).unwrap()) };
+	// The game's think recomputes both, from what it sees as its own values.
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 120);
+	assert_eq!(world.get(c"m_iDamage", 1), 300);
+	world.set(server, c"m_iTotalScore", 1, 122);
+	world.set(server, c"m_iDamage", 1, 340);
+	board.after_frame(server);
 
 	assert_eq!(
-		reset_scores(server, resource),
-		Err(ScoreboardError::NotTfPlayer)
+		board.real_player_stat(user(5), PlayerStat::Score),
+		Some(122)
 	);
-	assert_eq!(resets(), 1);
+	assert_eq!(
+		board.real_player_stat(user(5), PlayerStat::Damage),
+		Some(340)
+	);
+	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
+	assert_eq!(world.get(c"m_iDamage", 1), 390);
+
+	// The game marked both; an offset follows the game's value, so it changed
+	// for clients anyway.
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score, damage]));
+}
+
+/// A server whose factories export no interface at all.
+fn unreachable_server<S: ?Sized>(scope: &S) -> Server<'_> {
+	unsafe extern "C" fn no_interface(_: *const c_char, _: *mut c_int) -> *mut c_void {
+		null_mut()
+	}
+
+	unsafe {
+		Server::new(
+			InterfaceFactory::new(no_interface),
+			InterfaceFactory::new(no_interface),
+			Game::TeamFortress2,
+			scope,
+		)
+	}
+}
+
+fn user(id: u16) -> UserId {
+	UserId::new(id).unwrap()
+}
+
+#[test]
+fn values_written_between_frames_become_the_games_own() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut board = Scoreboard::new();
+	let kills = world.offset(c"m_iScore", 1);
+
+	connect(1, 5);
+	world.put(c"m_iScore", 1, 4);
+	board
+		.set_player_stat(server, user(5), PlayerStat::Kills, Override::Fixed(42))
+		.unwrap();
+	board.before_frame(server);
+	board.after_frame(server);
+	end_snapshot();
+
+	// Another plugin writes the variable between frames.
+	world.put(c"m_iScore", 1, 7);
+	board.before_frame(server);
+	assert_eq!(world.get(c"m_iScore", 1), 7);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	board.after_frame(server);
+
+	assert_eq!(board.real_player_stat(user(5), PlayerStat::Kills), Some(7));
+	assert_eq!(world.get(c"m_iScore", 1), 42);
+	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![kills]));
 }

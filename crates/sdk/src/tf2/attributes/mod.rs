@@ -63,11 +63,8 @@ pub mod catalog;
 mod definition;
 mod layout;
 
-pub use definition::{
-	Amount, AttributeDef, AttributeIndex, AttributeValue, Combine, DescriptionFormat, Flag,
-	Multiplier, Seconds,
-};
-pub(crate) use layout::item_definition;
+#[cfg(test)]
+mod tests;
 
 use crate::entities::{Entity, data_map_class};
 use crate::ffi::NotThreadSafe;
@@ -78,6 +75,13 @@ use crate::tf2::weapons::ItemDefinitionIndex;
 use crate::{Game, Server};
 use std::ffi::CStr;
 use std::marker::PhantomData;
+
+pub use definition::{
+	Amount, AttributeDef, AttributeIndex, AttributeValue, Combine, DescriptionFormat, Flag,
+	Multiplier, Seconds,
+};
+
+pub(crate) use layout::item_definition;
 
 /// The most runtime attributes the game networks per item
 /// (`MAX_ATTRIBUTES_PER_ITEM`). The game applies further entries on the
@@ -1137,6 +1141,3 @@ pub const unsafe fn trust_shipped_schema<'s>(server: Server<'s>) -> SchemaToken<
 		_not_thread_safe: PhantomData,
 	}
 }
-
-#[cfg(test)]
-mod tests;
