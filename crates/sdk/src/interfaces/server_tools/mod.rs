@@ -130,6 +130,9 @@ impl<'s> ServerTools<'s> {
 	///   and scripts can also restart the round.
 	/// - [`InputError::PickerName`]: the string `"!picker"`, which the game
 	///   resolves through the first player without checking that there is one.
+	/// - [`InputError::UncheckedLookup`]: inputs that use a lookup of their
+	///   value unchecked, such as TF2's `SpeakResponseConcept`, which reads out
+	///   of bounds for a concept name the game does not know.
 	/// - [`InputError::ProtectedEntity`]: `Kill` and `KillHierarchy` on the
 	///   world, a player, or a soundscape, which [`Self::remove`] refuses too.
 	///

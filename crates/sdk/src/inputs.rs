@@ -47,6 +47,11 @@ const NPC_MAKER_SPAWN_INPUTS: [&[u8]; 4] = [
 /// without checking that there is one (`FindEntityProcedural`).
 const PICKER_NAME: &[u8] = b"!picker";
 
+/// Inputs that index a game table with a lookup of their value without checking
+/// that the lookup succeeded. TF2's `SpeakResponseConcept` reads
+/// `g_pszMPConcepts[-1]` for a concept name it does not know.
+const UNCHECKED_LOOKUP_INPUTS: [&[u8]; 1] = [b"SpeakResponseConcept"];
+
 /// An input found and checked before being sent.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CheckedInput<'s> {
@@ -64,6 +69,9 @@ pub(crate) struct CheckedInput<'s> {
 
 	/// Whether the input is one of [`KILL_INPUTS`].
 	kills: bool,
+
+	/// Whether the input is one of [`UNCHECKED_LOOKUP_INPUTS`].
+	looks_up_unchecked: bool,
 
 	/// Whether the target is a player or a soundscape. The world is recognized
 	/// by its index instead.
@@ -123,6 +131,12 @@ pub enum InputError {
 	/// without checking that there is a first player.
 	#[error("the value \"!picker\" can make the game dereference a missing player")]
 	PickerName,
+
+	/// The input looks its value up in a game table and uses the result without
+	/// checking it, such as TF2's `SpeakResponseConcept` with a concept name the
+	/// game does not know, which reads out of bounds.
+	#[error("the input uses a lookup of its value unchecked, so it is only sent unchecked")]
+	UncheckedLookup,
 
 	/// Adding a string to the pool needs the world entity of a loaded map.
 	#[error("the string could not be added to the game's string pool")]
@@ -356,6 +370,10 @@ pub(crate) fn check_guards(
 		return Err(InputError::ProtectedEntity);
 	}
 
+	if input.looks_up_unchecked {
+		return Err(InputError::UncheckedLookup);
+	}
+
 	if let InputValue::String(string) = value
 		&& string.to_bytes().eq_ignore_ascii_case(PICKER_NAME)
 	{
@@ -426,6 +444,7 @@ pub(crate) fn check_input<'s>(
 		frees_entities: is_any(&CODE_OR_SPAWN_INPUTS)
 			|| (is_npc_maker && is_any(&NPC_MAKER_SPAWN_INPUTS)),
 		kills: is_any(&KILL_INPUTS),
+		looks_up_unchecked: is_any(&UNCHECKED_LOOKUP_INPUTS),
 		target_is_protected: is_protected,
 	})
 }
@@ -779,6 +798,19 @@ mod tests {
 			.accept_input(target, c"Color", red, target, target)
 			.unwrap();
 
+		let concept = InputValue::String(c"TLK_NOT_A_CONCEPT");
+
+		assert_eq!(
+			tools.accept_input(target, c"speakresponseconcept", concept, target, target),
+			Err(InputError::UncheckedLookup)
+		);
+		// SAFETY: The mock input handler only records the call.
+		unsafe {
+			tools
+				.accept_input_unchecked(target, c"SpeakResponseConcept", concept, None, None)
+				.unwrap();
+		}
+
 		mocks.use_chain(c"CNPCMaker");
 
 		let target = entity(&mut mocks.target);
@@ -789,7 +821,8 @@ mod tests {
 				.accept_input(target, c"Spawn", InputValue::Void, target, target),
 			Err(InputError::FreesEntities)
 		);
-		assert_eq!(take_inputs().len(), 1);
+		// `Color` and the unchecked `SpeakResponseConcept` on the player.
+		assert_eq!(take_inputs().len(), 2);
 
 		mocks.target.set_eflags(1);
 
@@ -851,7 +884,11 @@ mod tests {
 			base,
 		);
 		let base_player = map(c"CBasePlayer", vec![], base);
-		let player = map(c"CTFPlayer", vec![], base_player);
+		let player = map(
+			c"CTFPlayer",
+			vec![input(c"SpeakResponseConcept", STRING)],
+			base_player,
+		);
 		let maker = map(c"CBaseNPCMaker", vec![input(c"Spawn", VOID)], base);
 		let npc_maker = map(c"CNPCMaker", vec![], maker);
 
