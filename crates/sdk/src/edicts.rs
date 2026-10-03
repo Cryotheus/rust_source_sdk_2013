@@ -1,5 +1,9 @@
 //! The engine's edict table, which pairs each networked entity with an index.
 
+#[cfg(test)]
+#[path = "tests/edicts.rs"]
+mod tests;
+
 use crate::NotThreadSafe;
 use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
@@ -142,109 +146,5 @@ impl<'s> Edict<'s> {
 	fn state_flags(self) -> c_int {
 		// SAFETY: As for `index`.
 		unsafe { (&raw const (*self.as_ptr())._base.m_fStateFlags).read() }
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	use crate::test_support::edicts::{
-		change_accessor, edict_table, set_change_accessor, set_shared_change_info,
-		shared_change_info,
-	};
-
-	use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
-	use sdk_raw::test_support::edicts::mock_edict;
-	use sdk_raw::test_support::{mock_vtable, unexpected_call};
-	use std::ptr::null_mut;
-
-	#[test]
-	fn reads_the_cached_index_and_free_flag() {
-		let mut table = edict_table(3, |slot| slot == 1);
-		let base = table.as_mut_ptr();
-		let edict = |slot: usize| unsafe { Edict::from_raw(NonNull::new(base.add(slot)).unwrap()) };
-
-		assert_eq!(edict(0).index(), 0);
-		assert_eq!(edict(2).index(), 2);
-		assert!(!edict(0).is_free());
-		assert!(edict(1).is_free());
-		assert_eq!(edict(1), edict(1));
-		assert_ne!(edict(1), edict(2));
-		assert_eq!(edict(2).as_ptr(), unsafe { base.add(2) });
-		assert_eq!(edict(1).entity(), None);
-		assert_eq!(edict(0).class_name(), None);
-	}
-
-	/// The algorithm itself is tested in `sdk_raw::edicts`; this checks that
-	/// the engine's change tracking reaches it.
-	#[test]
-	fn state_changes_reach_the_engines_change_tracking() {
-		let vtable = unsafe {
-			mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
-				unexpected_call as *const (),
-				|vtable| {
-					(&raw mut (*vtable).IVEngineServer_GetChangeAccessor).write(change_accessor);
-					(&raw mut (*vtable).IVEngineServer_GetSharedEdictChangeInfo)
-						.write(shared_change_info);
-				},
-			)
-		};
-
-		let mut interface = sys::IVEngineServer {
-			vtable_: &raw const *vtable,
-		};
-		let engine = unsafe { ValveEngine::from_raw(NonNull::from(&mut interface)) };
-		let mut accessor = sys::IChangeInfoAccessor {
-			m_iChangeInfo: 0,
-			m_iChangeInfoSerialNumber: 0,
-		};
-		let mut shared = Box::new(unsafe { std::mem::zeroed::<sys::CSharedEdictChangeInfo>() });
-
-		shared.m_iSerialNumber = 7;
-		shared.m_nChangeInfos = 3;
-		set_change_accessor(&raw mut accessor);
-		set_shared_change_info(&raw mut *shared);
-
-		let mut slot = mock_edict(4, false);
-		let edict = unsafe { Edict::from_raw(NonNull::from(&mut slot)) };
-
-		// The first change this frame claims the next free change info.
-		edict.state_changed(engine, 40);
-		assert_eq!(slot._base.m_fStateFlags, FL_EDICT_CHANGED);
-		assert_eq!(
-			(accessor.m_iChangeInfo, accessor.m_iChangeInfoSerialNumber),
-			(3, 7)
-		);
-		assert_eq!(shared.m_nChangeInfos, 4);
-		assert_eq!(shared.m_ChangeInfos[3].m_nChangeOffsets, 1);
-		assert_eq!(shared.m_ChangeInfos[3].m_ChangeOffsets[0], 40);
-
-		// Later changes append new offsets once.
-		edict.state_changed(engine, 44);
-		edict.state_changed(engine, 40);
-		assert_eq!(shared.m_ChangeInfos[3].m_nChangeOffsets, 2);
-		assert_eq!(shared.m_ChangeInfos[3].m_ChangeOffsets[1], 44);
-
-		// A full change releases the change info through the accessor.
-		edict.full_state_changed(engine);
-		assert_eq!(
-			slot._base.m_fStateFlags,
-			FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED
-		);
-		assert_eq!(accessor.m_iChangeInfoSerialNumber, 0);
-
-		// Without the engine's change tracking, every change is a full one.
-		set_change_accessor(null_mut());
-		set_shared_change_info(null_mut());
-
-		let mut slot = mock_edict(5, false);
-		let edict = unsafe { Edict::from_raw(NonNull::from(&mut slot)) };
-
-		edict.state_changed(engine, 40);
-		assert_eq!(
-			slot._base.m_fStateFlags,
-			FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED
-		);
 	}
 }
