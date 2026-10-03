@@ -29,7 +29,7 @@ pub const MAX_COMMAND_LEN: usize = 1023;
 
 /// The longest console variable name or value (`MAX_OSPATH`), less its
 /// terminator.
-pub const MAX_CONVAR_LEN: usize = 259;
+pub const MAX_CONVAR_LEN: usize = sdk_raw::net::incoming::MAX_OSPATH - 1;
 
 /// The largest payload of a user or entity message (`MAX_USER_MSG_DATA`).
 #[doc(alias = "MAX_USER_MSG_DATA")]

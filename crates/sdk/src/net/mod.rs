@@ -14,7 +14,9 @@ pub mod incoming;
 pub mod messages;
 
 use crate::NotThreadSafe;
-use crate::bitbuf::{BitWriter, RawBfWrite};
+use crate::bitbuf::BitWriter;
+use sdk_raw::bitbuf::BfWrite;
+use sdk_raw::net::{FLOW_INCOMING, FLOW_OUTGOING};
 use sdk_raw::util::cstr::copy_cstr;
 use sdk_raw::vcall;
 use std::ffi::{CString, c_int};
@@ -92,8 +94,8 @@ impl Flow {
 	/// The engine's value for the direction, its `FLOW_*` constant.
 	const fn raw(self) -> c_int {
 		match self {
-			Self::Outgoing => 0,
-			Self::Incoming => 1,
+			Self::Outgoing => FLOW_OUTGOING,
+			Self::Incoming => FLOW_INCOMING,
 		}
 	}
 }
@@ -458,17 +460,13 @@ impl<'s> NetChannel<'s> {
 	/// A malformed message makes the client disconnect.
 	#[doc(alias = "SendData")]
 	pub fn send_encoded(self, bits: &BitWriter, reliability: Reliability) -> Result<(), SendError> {
-		let mut buffer = RawBfWrite::written(bits);
+		let mut buffer = BfWrite::written(bits.as_words(), bits.len());
 		let reliable = reliability == Reliability::Reliable;
 
 		// SAFETY: As for `name`. The engine only reads the buffer, which
 		// describes the writer's storage and outlives the call.
-		let sent = unsafe {
-			vcall!(self.as_ptr() => INetChannel_SendData(
-				(&raw mut buffer).cast::<sys::bf_write>(),
-				reliable,
-			))
-		};
+		let sent =
+			unsafe { vcall!(self.as_ptr() => INetChannel_SendData(buffer.as_sys(), reliable)) };
 
 		match sent {
 			true => Ok(()),
@@ -607,6 +605,7 @@ pub struct SequenceData {
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
+	use crate::bitbuf::RawBfWrite;
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 

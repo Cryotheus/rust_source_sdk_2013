@@ -7,20 +7,11 @@
 //! game events are all encoded this way.
 
 use crate::math::{QAngle, Vector};
+use sdk_raw::bitbuf::{BfWrite, Bits};
 use std::error::Error;
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, CString};
 use std::fmt::{self, Display, Formatter};
-use std::mem::offset_of;
 use std::ptr::NonNull;
-
-const _: () = {
-	assert!(size_of::<RawBfWrite>() == 32);
-	assert!(offset_of!(RawBfWrite, data_bytes) == 8);
-	assert!(offset_of!(RawBfWrite, data_bits) == 12);
-	assert!(offset_of!(RawBfWrite, cur_bit) == 16);
-	assert!(offset_of!(RawBfWrite, overflow) == 20);
-	assert!(offset_of!(RawBfWrite, debug_name) == 24);
-};
 
 /// Steps per unit in a coordinate's fraction (`COORD_DENOMINATOR`).
 const COORD_DENOMINATOR: i32 = 1 << COORD_FRACTIONAL_BITS;
@@ -33,9 +24,6 @@ pub const COORD_INTEGER_BITS: u32 = 14;
 
 /// The step between the fractions a coordinate stores (`COORD_RESOLUTION`).
 const COORD_RESOLUTION: f32 = 1.0 / COORD_DENOMINATOR as f32;
-
-/// Named in the engine's messages about overflowed buffers.
-const DEBUG_NAME: &CStr = c"source_sdk_2013";
 
 /// The most bytes a 32-bit variable-length integer takes
 /// (`bitbuf::kMaxVarint32Bytes`).
@@ -704,6 +692,13 @@ impl BitWriter {
 	}
 }
 
+impl From<Bits> for BitWriter {
+	/// Copies bits out of one of the engine's buffers.
+	fn from(bits: Bits) -> Self {
+		Self::from_words(bits.as_words(), bits.len())
+	}
+}
+
 /// A read past the end of a [`BitReader`].
 ///
 /// A field that does not fit is not consumed, but after a value read in parts,
@@ -721,29 +716,9 @@ impl Display for Overflow {
 
 impl Error for Overflow {}
 
-/// A layout mirror of the engine's `bf_write`, from `public/tier1/bitbuf.h`.
-///
-/// The generated binding is opaque, since the header does not parse. The
-/// engine reads and writes these fields inline, so they match its own copy.
-#[repr(C)]
-#[derive(Debug)]
-pub(crate) struct RawBfWrite {
-	/// The storage (`m_pData`).
-	pub(crate) data: *mut u32,
-	/// The size of the storage in bytes (`m_nDataBytes`).
-	pub(crate) data_bytes: c_int,
-	/// The most bits that may be written (`m_nDataBits`).
-	pub(crate) data_bits: c_int,
-	/// The number of bits written (`m_iCurBit`).
-	pub(crate) cur_bit: c_int,
-	/// Whether a write did not fit (`m_bOverflow`).
-	pub(crate) overflow: bool,
-	/// Whether the engine asserts when a write does not fit
-	/// (`m_bAssertOnOverflow`).
-	pub(crate) assert_on_overflow: bool,
-	/// Named in the engine's messages about overflow (`m_pDebugName`).
-	pub(crate) debug_name: *const c_char,
-}
+/// Copies [`BitWriter`]s into and out of the engine's `bf_write` buffers,
+/// which [`BfWrite`] mirrors.
+pub(crate) enum RawBfWrite {}
 
 impl RawBfWrite {
 	/// Appends `bits` to the buffer at `raw`, as `WriteBits` would, or marks it
@@ -751,84 +726,20 @@ impl RawBfWrite {
 	///
 	/// # Safety
 	///
-	/// `raw` must point to a live `bf_write` whose `data` holds at least
-	/// `data_bytes` writable bytes, 4-byte aligned, which nothing else accesses
-	/// during the call.
-	pub(crate) unsafe fn append(raw: NonNull<RawBfWrite>, bits: &BitWriter) -> bool {
-		let raw = raw.as_ptr();
-
-		// SAFETY: The caller guarantees the buffer is live.
-		let (data, bytes, limit, cur_bit, overflow) = unsafe {
-			(
-				(&raw const (*raw).data).read(),
-				(&raw const (*raw).data_bytes).read(),
-				(&raw const (*raw).data_bits).read(),
-				(&raw const (*raw).cur_bit).read(),
-				(&raw const (*raw).overflow).read(),
-			)
-		};
-
-		let fits = (|| {
-			let start = usize::try_from(cur_bit).ok()?;
-			let end = start.checked_add(bits.len())?;
-			let limit = usize::try_from(limit)
-				.ok()?
-				.min(usize::try_from(bytes).ok()? * 8);
-
-			(!overflow && !data.is_null() && end <= limit).then_some((start, end))
-		})();
-
-		let Some((start, end)) = fits else {
-			// SAFETY: As above.
-			unsafe { (&raw mut (*raw).overflow).write(true) };
-			return false;
-		};
-
-		let mut reader = bits.reader();
-		let mut position = start;
-
-		while position < end {
-			let offset = (position % 32) as u32;
-			let chunk = (32 - offset).min(u32::try_from(end - position).unwrap_or(u32::MAX));
-			let value = reader
-				.read_ubits(chunk)
-				.expect("the writer holds these bits");
-			let chunk_mask = mask(chunk) << offset;
-
-			// SAFETY: `position` is below `end`, which is within the buffer the
-			// caller guarantees, so its word is too.
-			unsafe {
-				let word = data.add(position / 32);
-				word.write((word.read() & !chunk_mask) | ((value << offset) & chunk_mask));
-			}
-
-			position += chunk as usize;
-		}
-
-		// SAFETY: As above. `end` fit in `data_bits`, a `c_int`.
-		unsafe { (&raw mut (*raw).cur_bit).write(end as c_int) };
-		true
+	/// As for [`BfWrite::append`].
+	pub(crate) unsafe fn append(raw: NonNull<BfWrite>, bits: &BitWriter) -> bool {
+		// SAFETY: As the caller promises. The writer's words hold its bits.
+		unsafe { BfWrite::append(raw, bits.as_words(), bits.len()) }
 	}
 
 	/// A buffer for the engine to write up to `words.len() * 32` bits into,
-	/// from the start.
+	/// from the start, as [`BfWrite::empty`] makes.
 	///
 	/// # Panics
 	///
 	/// If the buffer holds more than `c_int::MAX` bits.
-	pub(crate) fn empty(words: &mut [u32]) -> Self {
-		let bytes = c_int::try_from(words.len() * 4).expect("bit buffer too large");
-		let bits = bytes.checked_mul(8).expect("bit buffer too large");
-
-		Self {
-			data: words.as_mut_ptr(),
-			data_bytes: bytes,
-			data_bits: bits,
-			cur_bit: 0,
-			overflow: false,
-			assert_on_overflow: false,
-			debug_name: DEBUG_NAME.as_ptr(),
-		}
+	pub(crate) fn empty(words: &mut [u32]) -> BfWrite {
+		BfWrite::empty(words)
 	}
 
 	/// Copies what the engine wrote into `raw`, or `None` if it overflowed or
@@ -836,63 +747,10 @@ impl RawBfWrite {
 	///
 	/// # Safety
 	///
-	/// `raw` must point to a live `bf_write` whose `data` holds at least
-	/// `data_bytes` readable bytes, 4-byte aligned, which nothing writes to
-	/// during the call.
-	pub(crate) unsafe fn read_back(raw: NonNull<RawBfWrite>) -> Option<BitWriter> {
-		let raw = raw.as_ptr();
-
-		// SAFETY: The caller guarantees the buffer is live.
-		let (data, bytes, bits, cur_bit, overflow) = unsafe {
-			(
-				(&raw const (*raw).data).read(),
-				(&raw const (*raw).data_bytes).read(),
-				(&raw const (*raw).data_bits).read(),
-				(&raw const (*raw).cur_bit).read(),
-				(&raw const (*raw).overflow).read(),
-			)
-		};
-
-		let bytes = usize::try_from(bytes).ok()?;
-		let cur_bit = usize::try_from(cur_bit).ok()?;
-
-		if overflow
-			|| data.is_null()
-			|| cur_bit > usize::try_from(bits).ok()?
-			|| cur_bit > bytes * 8
-		{
-			return None;
-		}
-
-		// SAFETY: The caller guarantees `data` holds `bytes` bytes, and
-		// `cur_bit` is within them.
-		let words = unsafe { std::slice::from_raw_parts(data, cur_bit.div_ceil(32)) };
-
-		Some(BitWriter::from_words(words, cur_bit))
-	}
-
-	/// A full buffer holding what `writer` wrote, for the engine to read, as
-	/// `INetChannel::SendData` does.
-	///
-	/// The engine only reads through the pointer, but `bf_write` stores it
-	/// mutably.
-	///
-	/// # Panics
-	///
-	/// If the writer holds more than `c_int::MAX` bits.
-	pub(crate) fn written(writer: &BitWriter) -> Self {
-		let bytes = c_int::try_from(writer.words.len() * 4).expect("bit buffer too large");
-		let bits = bytes.checked_mul(8).expect("bit buffer too large");
-
-		Self {
-			data: writer.words.as_ptr().cast_mut(),
-			data_bytes: bytes,
-			data_bits: bits,
-			cur_bit: c_int::try_from(writer.len).expect("bit buffer too large"),
-			overflow: false,
-			assert_on_overflow: false,
-			debug_name: DEBUG_NAME.as_ptr(),
-		}
+	/// As for [`BfWrite::read_back`].
+	pub(crate) unsafe fn read_back(raw: NonNull<BfWrite>) -> Option<BitWriter> {
+		// SAFETY: As the caller promises.
+		unsafe { BfWrite::read_back(raw) }.map(BitWriter::from)
 	}
 }
 
@@ -1005,47 +863,6 @@ mod tests {
 		writer.write_bit_vec3_coord(position);
 		assert_eq!(bits(&writer)[..3], *"101");
 		assert_eq!(writer.reader().read_bit_vec3_coord(), Ok(position));
-	}
-
-	#[test]
-	fn engine_buffers_overflow_instead_of_growing() {
-		let mut storage = [0u32; 1];
-		let mut raw = RawBfWrite::empty(&mut storage);
-		let raw_pointer = NonNull::from(&mut raw);
-		let mut bits = BitWriter::new();
-
-		bits.write_ubits(0, 20);
-
-		assert!(unsafe { RawBfWrite::append(raw_pointer, &bits) });
-		assert!(!unsafe { RawBfWrite::append(raw_pointer, &bits) });
-		assert!(unsafe { (&raw const (*raw_pointer.as_ptr()).overflow).read() });
-		assert_eq!(unsafe { RawBfWrite::read_back(raw_pointer) }, None);
-	}
-
-	#[test]
-	fn engine_buffers_take_bits_without_disturbing_their_contents() {
-		let mut storage = [u32::MAX; 2];
-		let mut raw = RawBfWrite::empty(&mut storage);
-		let raw_pointer = NonNull::from(&mut raw);
-		let mut bits = BitWriter::new();
-
-		bits.write_ubits(0, 30);
-
-		// Starting past bits already written, which must survive.
-		unsafe { (&raw mut (*raw_pointer.as_ptr()).cur_bit).write(5) };
-
-		assert!(unsafe { RawBfWrite::append(raw_pointer, &bits) });
-		assert_eq!(
-			unsafe { (&raw const (*raw_pointer.as_ptr()).cur_bit).read() },
-			35
-		);
-
-		let written = unsafe { RawBfWrite::read_back(raw_pointer) }.unwrap();
-		let mut reader = written.reader();
-
-		assert_eq!(reader.read_ubits(5), Ok(0b11111));
-		assert_eq!(reader.read_ubits(30), Ok(0));
-		assert_eq!(storage[1] >> 3, u32::MAX >> 3);
 	}
 
 	#[test]
@@ -1163,15 +980,19 @@ mod tests {
 	}
 
 	#[test]
-	fn written_buffers_expose_the_writers_bits() {
-		let mut writer = BitWriter::new();
+	fn writers_round_trip_through_engine_buffers() {
+		let mut storage = [0u32; 2];
+		let mut buffer = RawBfWrite::empty(&mut storage);
+		let raw = NonNull::from(&mut buffer);
+		let mut bits = BitWriter::new();
 
-		writer.write_ubits(5, 6);
+		bits.write_ubits(0x1_2345, 17);
+		bits.write_cstr(c"hi");
 
-		let raw = RawBfWrite::written(&writer);
-
-		assert_eq!(raw.cur_bit, 6);
-		assert_eq!(raw.data_bits, 32);
-		assert_eq!(unsafe { raw.data.read() }, 5);
+		// SAFETY: The buffer describes `storage`, which only it accesses.
+		unsafe {
+			assert!(RawBfWrite::append(raw, &bits));
+			assert_eq!(RawBfWrite::read_back(raw), Some(bits));
+		}
 	}
 }

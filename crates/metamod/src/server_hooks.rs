@@ -17,7 +17,7 @@ use source_sdk_2013::net::incoming::{
 use source_sdk_2013::raw::interfaces::server_game_dll::{
 	GAME_FRAME_SLOT, GameFrameFn as GameFrame,
 };
-
+use source_sdk_2013::raw::net::incoming::ProcessMessage;
 use source_sdk_2013::{Server, ServerBinding};
 use std::cell::Cell;
 use std::ffi::{CStr, c_char, c_int, c_void};
@@ -32,10 +32,6 @@ use std::ptr::{self, NonNull};
 /// startup before the engine has client slots. Do not assume client slots are
 /// available just because this callback runs.
 pub type GameFrameFn = fn(server: Server<'_>, simulating: bool);
-
-/// `bool IClientMessageHandler::Process*(NET_* *message)`, of each kind of
-/// message.
-type ProcessMessage = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
 
 /// `IServerGameDLL::GameFrame`, which runs the game's frame.
 const GAME_FRAME: VirtualFunction<GameFrame> = VirtualFunction::new(GAME_FRAME_SLOT);
