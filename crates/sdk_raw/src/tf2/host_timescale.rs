@@ -4,9 +4,9 @@
 //! TF2's 64-bit Windows `Host_AccumulateTime` applies a positive
 //! `host_timescale` only while `sv_cheats` is set or a demo plays. The gate
 //! located here is the `jnz` that skips the demo check when `sv_cheats` is
-//! set; the patch turns it into a `jmp`, so the time scale always applies.
-//! Linux has no corresponding gate, so the `Gate` that patches it exists on
-//! Windows only.
+//! set; the patch turns it into a `jmp`, so neither check refuses a positive
+//! time scale. Linux has no corresponding gate, so the `Gate` that patches it
+//! exists on Windows only.
 
 #[cfg(target_os = "windows")]
 use crate::util::Module;
@@ -259,7 +259,10 @@ fn find_gate(
 		};
 
 		for index in util::find_all(&section.bytes, &PATTERN) {
-			let Some(bytes) = section.bytes.get(index..index + PATTERN_LEN) else {
+			let Some(bytes) = index
+				.checked_add(PATTERN_LEN)
+				.and_then(|end| section.bytes.get(index..end))
+			else {
 				continue;
 			};
 			let Some(address) = section.address.checked_add(index) else {

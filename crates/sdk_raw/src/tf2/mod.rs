@@ -1,5 +1,6 @@
-//! Team Fortress 2's game-specific raw bindings: functions, layouts, and
-//! vtable slots of its game DLL that the generated bindings do not describe.
+//! Team Fortress 2's game-specific raw bindings: functions, layouts, header
+//! values, and vtable slots of its game DLL and engine that the generated
+//! bindings do not describe.
 
 pub mod attributes;
 pub mod class;
