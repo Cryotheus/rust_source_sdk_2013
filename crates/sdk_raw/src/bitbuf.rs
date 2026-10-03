@@ -152,7 +152,9 @@ impl BfWrite {
 	///
 	/// `this` must point to a live `bf_write` whose `data`, unless null, holds
 	/// at least `data_bytes` writable bytes, 4-byte aligned, which nothing
-	/// else accesses during the call.
+	/// else accesses during the call. Only the whole 32-bit words within
+	/// `data_bytes` are accessed: bits that would fall in a trailing partial
+	/// word do not fit.
 	pub unsafe fn append(this: NonNull<Self>, words: &[u32], bits: usize) -> bool {
 		assert!(
 			bits.div_ceil(32) <= words.len(),
@@ -177,7 +179,7 @@ impl BfWrite {
 			let end = start.checked_add(bits)?;
 			let limit = usize::try_from(limit)
 				.ok()?
-				.min(usize::try_from(bytes).ok()?.checked_mul(8)?);
+				.min((usize::try_from(bytes).ok()? / 4).checked_mul(32)?);
 
 			(overflow == 0 && !data.is_null() && end <= limit).then_some((start, end))
 		})();
@@ -196,8 +198,8 @@ impl BfWrite {
 			let value = bits_at(words, position - start, chunk);
 			let chunk_mask = mask(chunk) << offset;
 
-			// SAFETY: `position` is below `end`, which is within the storage the
-			// caller guarantees, so its word is too.
+			// SAFETY: `position` is below `end`, which is within the whole words
+			// of the storage the caller guarantees, so its word is too.
 			unsafe {
 				let word = data.add(position / 32);
 				word.write((word.read() & !chunk_mask) | ((value << offset) & chunk_mask));
@@ -246,7 +248,9 @@ impl BfWrite {
 	///
 	/// `this` must point to a live `bf_write` whose `data`, unless null, holds
 	/// at least `data_bytes` readable bytes, 4-byte aligned, which nothing
-	/// writes to during the call.
+	/// writes to during the call. Only the whole 32-bit words within
+	/// `data_bytes` are accessed: bits written into a trailing partial word
+	/// make the fields inconsistent.
 	pub unsafe fn read_back(this: NonNull<Self>) -> Option<Bits> {
 		let this = this.as_ptr();
 
@@ -266,13 +270,13 @@ impl BfWrite {
 		if overflow != 0
 			|| data.is_null()
 			|| len > usize::try_from(limit).ok()?
-			|| len > usize::try_from(bytes).ok()?.checked_mul(8)?
+			|| len > (usize::try_from(bytes).ok()? / 4).checked_mul(32)?
 		{
 			return None;
 		}
 
 		// SAFETY: The caller guarantees `data` holds `bytes` readable bytes,
-		// and `len` bits are within them.
+		// and `len` bits are within their whole words.
 		let mut words = unsafe { std::slice::from_raw_parts(data, len.div_ceil(32)) }.to_vec();
 
 		if let (Some(last), rest @ 1..) = (words.last_mut(), (len % 32) as u32) {
@@ -388,6 +392,34 @@ fn sizes(words: usize) -> (c_int, c_int) {
 mod tests {
 	use super::*;
 	use std::ptr::null;
+
+	#[test]
+	fn engine_buffers_access_only_whole_words() {
+		// Two words back the buffer, but it claims only five bytes, so its
+		// second word is not whole and must never be accessed.
+		let mut storage = [0, 0xDEAD_BEEF];
+		let mut buffer = BfWrite::empty(&mut storage);
+		let this = NonNull::from(&mut buffer);
+
+		// SAFETY: The buffer describes `storage`, which only it accesses, and
+		// claims fewer bytes than `storage` holds.
+		unsafe {
+			(&raw mut (*this.as_ptr()).data_bytes).write(5);
+			(&raw mut (*this.as_ptr()).data_bits).write(40);
+
+			assert!(BfWrite::append(this, &[u32::MAX], 32));
+			assert!(!BfWrite::append(this, &[u32::MAX], 8));
+			assert_eq!((&raw const (*this.as_ptr()).cur_bit).read(), 32);
+
+			(&raw mut (*this.as_ptr()).overflow).write(0);
+			assert_eq!(BfWrite::read_back(this).unwrap().as_words(), [u32::MAX]);
+
+			(&raw mut (*this.as_ptr()).cur_bit).write(33);
+			assert_eq!(BfWrite::read_back(this), None);
+		}
+
+		assert_eq!(storage, [u32::MAX, 0xDEAD_BEEF]);
+	}
 
 	#[test]
 	fn engine_buffers_overflow_instead_of_growing() {

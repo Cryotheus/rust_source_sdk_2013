@@ -491,7 +491,10 @@ impl<'s> ServerTools<'s> {
 		angles: Option<QAngle>,
 		velocity: Option<Vector>,
 	) -> Result<(), TeleportError> {
-		entity.teleport(self.game.teleport_vtable_slot(), origin, angles, velocity)
+		// SAFETY: `from_raw`'s caller guarantees the game DLL was built for
+		// `self.game`, as `bind` does from `Server::new` condition 2, so its
+		// slot is where that DLL's primary `CBaseEntity` vtable has `Teleport`.
+		unsafe { entity.teleport(self.game.teleport_vtable_slot(), origin, angles, velocity) }
 	}
 }
 

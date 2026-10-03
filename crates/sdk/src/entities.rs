@@ -320,7 +320,13 @@ impl<'s> Entity<'s> {
 
 	/// Moves the entity through Source's `Teleport` method, found at `slot` of
 	/// its vtable. Each argument left as `None` is unchanged.
-	pub(crate) fn teleport(
+	///
+	/// # Safety
+	///
+	/// `slot` must be where the loaded game DLL's primary `CBaseEntity` vtable
+	/// has `Teleport`, such as `Game::teleport_vtable_slot` of the game the
+	/// server's game DLL was built for.
+	pub(crate) unsafe fn teleport(
 		self,
 		slot: TeleportSlot,
 		origin: Option<Vector>,
@@ -346,11 +352,11 @@ impl<'s> Entity<'s> {
 		let angles = angles.map(sys::QAngle::from);
 		let velocity = velocity.map(sys::Vector::from);
 
-		// SAFETY: The entity is live during `'s`, on the main thread, and `Game`
-		// selected the slot of `Teleport` in the game DLL's vtable
-		// (`Server::new` condition 2). Every pointer is null or a local, and
+		// SAFETY: The entity is live during `'s`, on the main thread, and the
+		// caller guarantees `Teleport` is at `slot` of the game DLL's vtable,
+		// which the entity's class keeps. Every pointer is null or a local, and
 		// what the move runs frees entities only through deferred deletion
-		// (condition 4).
+		// (`Server::new` condition 4).
 		unsafe {
 			sdk_raw::entities::teleport(
 				self.as_ptr(),
@@ -876,19 +882,21 @@ mod tests {
 
 		let slot = TeleportSlot::TeamFortress2;
 
+		// SAFETY: The mock's vtable has `teleport_entity` at TF2's `Teleport`
+		// slot, here and below.
 		assert_eq!(
-			entity.teleport(
-				slot,
-				Some(Vector(Vec3::new(f32::NAN, 0.0, 0.0))),
-				None,
-				None
-			),
+			unsafe {
+				entity.teleport(
+					slot,
+					Some(Vector(Vec3::new(f32::NAN, 0.0, 0.0))),
+					None,
+					None,
+				)
+			},
 			Err(TeleportError::NonFinite)
 		);
 
-		entity
-			.teleport(slot, Some(Vector::new(4.0, 5.0, 6.0)), None, None)
-			.unwrap();
+		unsafe { entity.teleport(slot, Some(Vector::new(4.0, 5.0, 6.0)), None, None) }.unwrap();
 		assert_eq!(entity.position(), Some(Vector::new(4.0, 5.0, 6.0)));
 		assert_eq!(teleports(), 1);
 
@@ -897,7 +905,7 @@ mod tests {
 
 		assert!(entity.is_marked_for_deletion());
 		assert_eq!(
-			entity.teleport(slot, Some(Vector::new(7.0, 8.0, 9.0)), None, None),
+			unsafe { entity.teleport(slot, Some(Vector::new(7.0, 8.0, 9.0)), None, None) },
 			Err(TeleportError::MarkedForDeletion)
 		);
 		assert_eq!(teleports(), 1);

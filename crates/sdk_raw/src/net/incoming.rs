@@ -815,12 +815,17 @@ pub unsafe fn handler_of_client(
 		return Err(UnexpectedLayout);
 	}
 
-	// SAFETY: The complete object is a `CGameClient`, whose bases, confirmed
-	// above, place the handler right after the client, within the object.
+	// SAFETY: The complete object is a `CGameClient`, confirmed above with its
+	// `IClient` base at `CLIENT_OFFSET`. `CBaseClient` declares
+	// `IClientMessageHandler`, a polymorphic base of one vtable pointer, right
+	// after `IClient`, so `handler` lies within the object at that base's
+	// vtable pointer.
 	let handler = unsafe { client.byte_add(CLIENT_TO_HANDLER) };
 
 	// SAFETY: As above, `handler` is the client's `IClientMessageHandler`
-	// base, a polymorphic subobject of the same live `CGameClient`.
+	// base, a polymorphic subobject of the same live `CGameClient`, by the
+	// engine's declared base order; this run-time type read confirms that
+	// placement before it is relied on.
 	let handler_offset = unsafe { rtti::subobject_offset(handler.cast(), GAME_CLIENT) };
 
 	if handler_offset.and_then(|offset| usize::try_from(offset).ok())
