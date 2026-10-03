@@ -447,8 +447,7 @@ impl Display for EntityHandle {
 /// Stripper:Source, have none. Neither do entities created while the game
 /// runs, unless given one through the `hammerid` key, as the copies a
 /// `point_template` spawns are: they share their template entity's ID.
-#[doc(alias = "m_iHammerID")]
-#[doc(alias = "hammerid")]
+#[doc(alias("hammerid", "m_iHammerID"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HammerId(NonZero<c_int>);
 
@@ -710,7 +709,7 @@ pub(crate) mod test_support {
 				string: if (&raw const (*value).fieldType).read() == sys::_fieldtypes_FIELD_STRING {
 					(&raw const (*value).__bindgen_anon_1.iszVal.pszValue).read()
 				} else {
-					std::ptr::null()
+					ptr::null()
 				},
 				handle: (&raw const (*value).eVal._base.m_Index).read(),
 				output_id,
