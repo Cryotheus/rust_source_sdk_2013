@@ -16,8 +16,6 @@ use std::ffi::{c_char, c_void};
 use std::pin::Pin;
 use std::ptr::{self, NonNull, null_mut};
 
-const FCVAR_GAMEDLL: c_int = 1 << 2;
-
 thread_local! {
 	/// Listed commands and variables, most recent first, as `CCvar` keeps them.
 	static REGISTRY: RefCell<Vec<*mut sys::ConCommandBase>> = const { RefCell::new(Vec::new()) };
@@ -304,7 +302,12 @@ fn destructors_and_completion_leave_the_command_intact() {
 			(vtable.ConCommand_deleting_destructor)(this);
 		}
 
-		(vtable.ConCommand_CreateBase)(this, c"other".as_ptr(), c"".as_ptr(), FCVAR_GAMEDLL);
+		(vtable.ConCommand_CreateBase)(
+			this,
+			c"other".as_ptr(),
+			c"".as_ptr(),
+			CommandFlags::GAME_DLL.bits(),
+		);
 		(vtable.ConCommand_Init)(this);
 		assert_eq!(
 			(vtable.ConCommand_AutoCompleteSuggest)(this, c"sb".as_ptr(), null_mut()),
@@ -427,6 +430,11 @@ unsafe extern "C" fn foreign_name(this: *const sys::ConCommandBase) -> *const c_
 	unsafe { (&raw const (*this).m_pszName).read() }
 }
 
+/// The most recently listed entry, whose `m_pNext` leads through the rest.
+unsafe extern "C" fn get_commands(_: *mut sys::ICvar) -> *mut sys::ConCommandBase {
+	REGISTRY.with_borrow(|registry| registry.first().copied().unwrap_or(null_mut()))
+}
+
 fn leak<H: CommandHandler>(command: ConsoleCommand<H>) -> Pin<&'static ConsoleCommand<H>> {
 	Pin::static_ref(Box::leak(Box::new(command)))
 }
@@ -440,9 +448,10 @@ fn list_foreign(name: &'static CStr, is_command: bool) -> *mut sys::ConCommandBa
 			(&raw mut (*vtable).ConCommandBase_IsRegistered).write(yes);
 		})
 	};
+	let next = REGISTRY.with_borrow(|registry| registry.first().copied().unwrap_or(null_mut()));
 	let base = Box::leak(Box::new(sys::ConCommandBase {
 		vtable_: Box::leak(vtable),
-		m_pNext: null_mut(),
+		m_pNext: next,
 		m_bRegistered: true,
 		m_pszName: name.as_ptr(),
 		m_pszHelpString: c"".as_ptr(),
@@ -471,6 +480,7 @@ fn mock_engine() {
 			(&raw mut (*vtable).ICvar_UnregisterConCommand).write(unregister_con_command);
 			(&raw mut (*vtable).ICvar_AllocateDLLIdentifier).write(allocate_dll_identifier);
 			(&raw mut (*vtable).ICvar_FindVar).write(find_var);
+			(&raw mut (*vtable).ICvar_GetCommands).write(get_commands);
 			(&raw mut (*vtable).ICvar_ConsolePrintf).write(console_printf);
 			(&raw mut (*vtable).ICvar_CallGlobalChangeCallbacks)
 				.write(call_global_change_callbacks);
@@ -694,23 +704,31 @@ fn the_engine_dispatches_server_invocations() {
 fn the_engine_never_sees_the_game_dll_flag() {
 	mock_engine();
 
-	let command = leak(ConsoleCommand::new(c"sb_ping", record).flags(CommandFlags::DONT_RECORD));
+	// Flags copied from a variable the game declared carry it.
+	let flags = CommandFlags::GAME_DLL | CommandFlags::DONT_RECORD;
+	let command = leak(ConsoleCommand::new(c"sb_ping", record).flags(flags));
 
 	register(command).unwrap();
 
 	let base = base_of(command.get_ref());
+	let added = (CommandFlags::GAME_DLL | CommandFlags::HIDDEN).bits();
 
 	unsafe {
+		// The engine also reads the field directly.
+		assert_eq!(
+			(&raw const (*base).m_nFlags).read(),
+			CommandFlags::DONT_RECORD.bits()
+		);
 		assert!(vcall!(base => ConCommandBase_IsFlagSet(CommandFlags::DONT_RECORD.bits())));
 		assert!(!vcall!(base => ConCommandBase_IsFlagSet(CommandFlags::HIDDEN.bits())));
 
-		vcall!(base => ConCommandBase_AddFlags(FCVAR_GAMEDLL | CommandFlags::HIDDEN.bits()));
+		vcall!(base => ConCommandBase_AddFlags(added));
 		assert!(vcall!(base => ConCommandBase_IsFlagSet(CommandFlags::HIDDEN.bits())));
-		assert!(!vcall!(base => ConCommandBase_IsFlagSet(FCVAR_GAMEDLL)));
+		assert!(!vcall!(base => ConCommandBase_IsFlagSet(CommandFlags::GAME_DLL.bits())));
 
 		// Another plugin may write the flags directly.
-		(&raw mut (*base).m_nFlags).write(FCVAR_GAMEDLL);
-		assert!(!vcall!(base => ConCommandBase_IsFlagSet(FCVAR_GAMEDLL)));
+		(&raw mut (*base).m_nFlags).write(CommandFlags::GAME_DLL.bits());
+		assert!(!vcall!(base => ConCommandBase_IsFlagSet(CommandFlags::GAME_DLL.bits())));
 		assert!(!vcall!(base => ConCommandBase_IsFlagSet(-1)));
 	}
 }
@@ -1215,6 +1233,61 @@ fn register_variable(variable: Pin<&'static ConsoleVariable>) -> Result<(), Regi
 	let server = mock_server(&scope);
 
 	variable.register(server, mock_binding(), &Host(server.cvar().unwrap()))
+}
+
+#[test]
+fn registered_commands_and_variables_are_listed() {
+	mock_engine();
+
+	let command = leak(ConsoleCommand::new(c"sb_ping", record).flags(CommandFlags::GAME_DLL));
+	let variable = leak_variable(
+		ConsoleVariable::new(c"sb_rounds", c"3")
+			.flags(CommandFlags::GAME_DLL | CommandFlags::NOTIFY),
+	);
+
+	register(command).unwrap();
+	register_variable(variable).unwrap();
+
+	let scope = ();
+	let server = mock_server(&scope);
+	let cvar = server.cvar().unwrap();
+
+	// Each reports its kind through its own vtable. Only the command drops
+	// the flag.
+	assert_eq!(
+		cvar.command_bases()
+			.map(|base| (base.name(), base.kind(), base.flags()))
+			.collect::<Vec<_>>(),
+		[
+			(
+				c"sb_rounds",
+				CommandBaseKind::Variable,
+				CommandFlags::GAME_DLL | CommandFlags::NOTIFY
+			),
+			(c"sb_ping", CommandBaseKind::Command, CommandFlags::NONE),
+		]
+	);
+
+	let vars = cvar.vars().collect::<Vec<_>>();
+
+	assert_eq!(vars.len(), 1);
+
+	let var = vars[0];
+
+	assert_eq!(var.as_ptr().cast(), variable_base(variable.get_ref()));
+	assert_eq!(var.default_string().as_c_str(), c"3");
+	assert!(var.is_default());
+
+	var.set_string(c"5");
+	assert!(!var.is_default());
+
+	// The variable now holds its own copy of the string, not the default.
+	var.set_string(c"3");
+	assert_ne!(
+		unsafe { (&raw const (*var.as_ptr()).m_pszString).read() }.cast_const(),
+		variable.default_value().as_ptr()
+	);
+	assert!(var.is_default());
 }
 
 fn remove_self(command: &CommandContext<'_>) -> CommandResult {

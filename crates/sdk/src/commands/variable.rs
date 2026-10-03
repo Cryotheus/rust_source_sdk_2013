@@ -89,9 +89,6 @@ const _: () = assert!(size_of::<VtablePage>() == 4096);
 /// `IConVar *` point here.
 const INTERFACE_OFFSET: usize = offset_of!(sys::ConVar, _base_1);
 
-/// `FCVAR_NEVER_AS_STRING` from `public/tier1/iconvar.h`.
-const NEVER_AS_STRING: c_int = 1 << 12;
-
 /// The size of one vtable slot, a pointer.
 const SLOT: usize = size_of::<*const ()>();
 
@@ -376,7 +373,7 @@ impl ConsoleVariable {
 	}
 
 	/// Sets the flags the engine sees once the variable is registered, none by
-	/// default.
+	/// default. Unlike a command's, they keep [`CommandFlags::GAME_DLL`].
 	pub const fn flags(mut self, flags: CommandFlags) -> Self {
 		self.flags = flags;
 		self
@@ -581,7 +578,7 @@ impl ConsoleVariable {
 			(&raw mut (*raw).m_nValue).write(int);
 		}
 
-		if self.current_flags() & NEVER_AS_STRING == 0 {
+		if self.current_flags() & CommandFlags::NEVER_AS_STRING.bits() == 0 {
 			self.change_string(callbacks, text(), old_float);
 		}
 	}

@@ -182,6 +182,14 @@ impl<'s> Server<'s> {
 	///    every entity. The crate's safe functions refuse the calls known to
 	///    break this whatever the map does, such as inputs that run code the
 	///    caller chooses or spawn entity templates.
+	/// 5. Even if it is unregistered, a console command or variable that the
+	///    `ICvar` registry lists at any point during `'s` stays allocated, with
+	///    its name unchanged, until `'s` ends, and the module that declared it
+	///    stays loaded. As in 4, this includes code reached through calls made
+	///    in `'s`, such as another plugin's change callback that unloads a
+	///    plugin: unloading a Metamod:Source plugin unmaps the commands and
+	///    variables it declared, and unloading a SourceMod plugin can free the
+	///    commands it created, with their names.
 	pub const unsafe fn new<S: ?Sized>(
 		engine: InterfaceFactory,
 		game_server: InterfaceFactory,
@@ -361,7 +369,7 @@ impl ServerBinding {
 	///
 	/// # Safety
 	///
-	/// Conditions 1, 2 and 4 of [`Server::new`] must hold during every call
+	/// Conditions 1, 2, 4 and 5 of [`Server::new`] must hold during every call
 	/// from the engine into the plugin in which this binding, or a copy, is
 	/// turned into a [`Server`]. In practice: the factories belong to the
 	/// running server, which the plugin is unloaded from before those modules
@@ -391,7 +399,8 @@ impl ServerBinding {
 	/// Condition 3 of [`Server::new`]: `'s` lies within a single call from the
 	/// engine into the plugin, on the server's main thread.
 	pub const unsafe fn server<'s, S: ?Sized>(&self, scope: &'s S) -> Server<'s> {
-		// SAFETY: `new` vouched for conditions 1, 2 and 4, and the caller for 3.
+		// SAFETY: `new` vouched for conditions 1, 2, 4 and 5, and the caller for
+		// 3.
 		unsafe { Server::new(self.engine, self.game_server, self.game, scope) }
 	}
 }

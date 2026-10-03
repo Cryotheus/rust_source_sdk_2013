@@ -258,28 +258,69 @@ impl CommandError {
 /// The `FCVAR_*` flags a command or variable may carry, from
 /// `public/tier1/iconvar.h`.
 ///
-/// `FCVAR_GAMEDLL` cannot be expressed: the engine would then dispatch
-/// clients' invocations without saying who ran them (see the
-/// [module documentation](self)).
+/// Flags read from the engine, such as [`ConVar::flags`], keep every bit,
+/// including those without a constant here.
+///
+/// A [`ConsoleCommand`] is never registered with [`GAME_DLL`](Self::GAME_DLL),
+/// even if its flags contain it: the engine would then dispatch clients'
+/// invocations without saying who ran them (see the
+/// [module documentation](self)). A [`ConsoleVariable`] keeps it, since the
+/// engine only dispatches commands that way.
+///
+/// [`ConVar::flags`]: crate::interfaces::cvar::ConVar::flags
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct CommandFlags(c_int);
 
 impl CommandFlags {
+	/// `FCVAR_ARCHIVE`: a variable the engine saves when it writes its
+	/// configuration.
+	#[doc(alias = "FCVAR_ARCHIVE")]
+	pub const ARCHIVE: Self = Self(1 << 7);
+
 	/// `FCVAR_CHEAT`: runnable only while `sv_cheats` is set. The engine checks
 	/// this for server-side invokers, and [`route_client_command`] for clients.
 	#[doc(alias = "FCVAR_CHEAT")]
 	pub const CHEAT: Self = Self(1 << 14);
 
+	/// `FCVAR_CLIENTCMD_CAN_EXECUTE`: a client command or variable that the
+	/// client library's `IVEngineClient::ClientCmd` may run, which it refuses
+	/// otherwise. `ClientCmd_Unrestricted` runs either.
+	#[doc(alias = "FCVAR_CLIENTCMD_CAN_EXECUTE")]
+	pub const CLIENT_CMD_CAN_EXECUTE: Self = Self(1 << 30);
+
+	/// `FCVAR_CLIENTDLL`: declared by the client library, which shares a listen
+	/// server's registry.
+	#[doc(alias = "FCVAR_CLIENTDLL")]
+	pub const CLIENT_DLL: Self = Self(1 << 3);
+
+	/// `FCVAR_DEMO`: a variable recorded when a demo recording starts.
+	#[doc(alias = "FCVAR_DEMO")]
+	pub const DEMO: Self = Self(1 << 16);
+
+	/// `FCVAR_DEVELOPMENTONLY`: hidden from the console in released builds of
+	/// the engine.
+	#[doc(alias = "FCVAR_DEVELOPMENTONLY")]
+	pub const DEVELOPMENT_ONLY: Self = Self(1 << 1);
+
 	/// `FCVAR_DONTRECORD`: left out of demo recordings.
 	#[doc(alias = "FCVAR_DONTRECORD")]
 	pub const DONT_RECORD: Self = Self(1 << 17);
 
-	/// `FCVAR_GAMEDLL`, which commands never report.
-	pub(crate) const GAME_DLL: c_int = 1 << 2;
+	/// `FCVAR_GAMEDLL`: declared by the game server library.
+	///
+	/// A [`ConsoleCommand`] registered from Rust never carries or reports it,
+	/// while a [`ConsoleVariable`] keeps it.
+	#[doc(alias = "FCVAR_GAMEDLL")]
+	pub const GAME_DLL: Self = Self(1 << 2);
 
 	/// `FCVAR_HIDDEN`: left out of `find`, `cvarlist`, and completion.
 	#[doc(alias = "FCVAR_HIDDEN")]
 	pub const HIDDEN: Self = Self(1 << 4);
+
+	/// `FCVAR_NEVER_AS_STRING`: a variable whose string is never updated from
+	/// its value, so it keeps the one it was declared with.
+	#[doc(alias = "FCVAR_NEVER_AS_STRING")]
+	pub const NEVER_AS_STRING: Self = Self(1 << 12);
 
 	/// `FCVAR_NONE`: no flags, the default.
 	#[doc(alias = "FCVAR_NONE")]
@@ -290,6 +331,61 @@ impl CommandFlags {
 	#[doc(alias = "FCVAR_NOTIFY")]
 	pub const NOTIFY: Self = Self(1 << 8);
 
+	/// `FCVAR_NOT_CONNECTED`: a client variable that clients cannot change while
+	/// connected to a server, unless the game's
+	/// `CGameRules::IsConnectedUserInfoChangeAllowed` allows it.
+	#[doc(alias = "FCVAR_NOT_CONNECTED")]
+	pub const NOT_CONNECTED: Self = Self(1 << 22);
+
+	/// `FCVAR_PRINTABLEONLY`: a variable whose string may only contain
+	/// printable characters, such as a player's name. The variable's own
+	/// `SetValue` does not check this, so [`ConVar::set_string`] does not
+	/// either.
+	///
+	/// [`ConVar::set_string`]: crate::interfaces::cvar::ConVar::set_string
+	#[doc(alias = "FCVAR_PRINTABLEONLY")]
+	pub const PRINTABLE_ONLY: Self = Self(1 << 10);
+
+	/// `FCVAR_PROTECTED`: a server variable whose value is withheld, such as a
+	/// password. Queries of the server's rules learn only whether it is set.
+	#[doc(alias = "FCVAR_PROTECTED")]
+	pub const PROTECTED: Self = Self(1 << 5);
+
+	/// `FCVAR_REPLICATED`: a variable whose server value is sent to every
+	/// client, whose own copy follows it.
+	#[doc(alias = "FCVAR_REPLICATED")]
+	pub const REPLICATED: Self = Self(1 << 13);
+
+	/// `FCVAR_SERVER_CANNOT_QUERY`: a client variable whose value clients refuse
+	/// to report to the server, as
+	/// [`PluginHelpers::start_query_cvar_value`] asks them to.
+	///
+	/// [`PluginHelpers::start_query_cvar_value`]: crate::interfaces::PluginHelpers::start_query_cvar_value
+	#[doc(alias = "FCVAR_SERVER_CANNOT_QUERY")]
+	pub const SERVER_CANNOT_QUERY: Self = Self(1 << 29);
+
+	/// `FCVAR_SERVER_CAN_EXECUTE`: a client command clients run when the
+	/// server sends it to them, such as through `IVEngineServer::ClientCommand`.
+	#[doc(alias = "FCVAR_SERVER_CAN_EXECUTE")]
+	pub const SERVER_CAN_EXECUTE: Self = Self(1 << 28);
+
+	/// `FCVAR_SPONLY`: meant for single-player games; clients connected to a
+	/// multiplayer server cannot change a variable marked with it.
+	#[doc(alias = "FCVAR_SPONLY")]
+	pub const SP_ONLY: Self = Self(1 << 6);
+
+	/// `FCVAR_UNLOGGED`: changes to a variable are not written to the server
+	/// log, even if it is marked [`NOTIFY`](Self::NOTIFY).
+	#[doc(alias = "FCVAR_UNLOGGED")]
+	pub const UNLOGGED: Self = Self(1 << 11);
+
+	/// `FCVAR_USERINFO`: a client variable whose value clients send to the
+	/// server, which [`ValveEngine::client_convar_value`] reads.
+	///
+	/// [`ValveEngine::client_convar_value`]: crate::interfaces::ValveEngine::client_convar_value
+	#[doc(alias = "FCVAR_USERINFO")]
+	pub const USERINFO: Self = Self(1 << 9);
+
 	/// The flags as the engine stores them in `ConCommandBase::m_nFlags`.
 	pub const fn bits(self) -> c_int {
 		self.0
@@ -298,6 +394,12 @@ impl CommandFlags {
 	/// Whether every flag set in `other` is also set in `self`.
 	pub const fn contains(self, other: Self) -> bool {
 		self.0 & other.0 == other.0
+	}
+
+	/// The flags the engine stores as `bits` in `ConCommandBase::m_nFlags`,
+	/// keeping bits without a constant here.
+	pub const fn from_bits_retain(bits: c_int) -> Self {
+		Self(bits)
 	}
 
 	/// The flags set in either `self` or `other`, as `|` gives, in `const`

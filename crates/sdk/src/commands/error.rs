@@ -26,7 +26,8 @@ const ENGINE_CLIENT_COMMANDS: [&[u8]; 12] = [
 /// The longest command name [`validate_name`] accepts, in bytes.
 const MAX_NAME_LENGTH: usize = 63;
 
-/// What already uses a name in the engine's registry.
+/// Whether an entry of the engine's registry is a console command or a console
+/// variable, as its `IsCommand` reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommandBaseKind {
 	/// A console command (`ConCommand`).

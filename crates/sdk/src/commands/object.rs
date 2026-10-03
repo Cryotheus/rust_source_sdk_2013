@@ -155,6 +155,10 @@ impl CommandHeader {
 	fn prepare(&self, binding: ServerBinding, dll_identifier: sys::CVarDLLIdentifier_t) {
 		let base = self.raw.get().cast::<sys::ConCommandBase>();
 
+		// The engine also reads the field directly, not only through
+		// `is_flag_set`.
+		let flags = self.flags.bits() & !CommandFlags::GAME_DLL.bits();
+
 		// SAFETY: The command is not registered, so nothing else accesses these
 		// fields, and they are written through the cell without forming
 		// references. The callbacks and completion fields stay zero; only
@@ -164,7 +168,7 @@ impl CommandHeader {
 			(&raw mut (*base).m_pNext).write(ptr::null_mut());
 			(&raw mut (*base).m_pszName).write(self.name.as_ptr());
 			(&raw mut (*base).m_pszHelpString).write(self.help.as_ptr());
-			(&raw mut (*base).m_nFlags).write(self.flags.bits());
+			(&raw mut (*base).m_nFlags).write(flags);
 		}
 
 		self.binding.set(Some(binding));
@@ -285,7 +289,7 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 	}
 
 	/// Sets the flags the engine sees once the command is registered, none by
-	/// default.
+	/// default. [`CommandFlags::GAME_DLL`] is left out.
 	pub const fn flags(mut self, flags: CommandFlags) -> Self {
 		self.header.flags = flags;
 		self
@@ -456,7 +460,7 @@ unsafe extern "C" fn add_flags(this: *mut sys::ConCommand, flags: c_int) {
 	unsafe {
 		let field = &raw mut (*this)._base.m_nFlags;
 
-		field.write(field.read() | (flags & !CommandFlags::GAME_DLL));
+		field.write(field.read() | (flags & !CommandFlags::GAME_DLL.bits()));
 	}
 }
 
@@ -555,7 +559,7 @@ unsafe extern "C" fn is_flag_set(this: *const sys::ConCommand, flag: c_int) -> b
 	// SAFETY: See above.
 	let flags = unsafe { (&raw const (*this)._base.m_nFlags).read() };
 
-	flags & flag & !CommandFlags::GAME_DLL != 0
+	flags & flag & !CommandFlags::GAME_DLL.bits() != 0
 }
 
 unsafe extern "C" fn is_registered(this: *const sys::ConCommand) -> bool {
