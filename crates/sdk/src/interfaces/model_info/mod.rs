@@ -19,10 +19,11 @@ impl<'s> ModelInfo<'s> {
 	/// (`error.mdl`). `false` if no model has the index, or it is not a studio
 	/// model.
 	///
-	/// TF2's 64-bit server loads dynamic models, such as items' per-class
-	/// models, as soon as an entity sets them, and loads `error.mdl` for one
-	/// whose file is missing, as for an item worn by a class it has no model
-	/// for. Clients then draw nothing for it.
+	/// TF2's 64-bit Windows server was observed to have loaded a dynamic model,
+	/// an item's per-class model, by the time the item was equipped, and to
+	/// load `error.mdl` for one whose file is missing, as for an item worn by a
+	/// class it has no model for. The owner's client then drew nothing for
+	/// it. Linux servers have not been tested.
 	pub fn is_error_model(self, index: c_int) -> bool {
 		self.studio_name(index)
 			.is_some_and(|name| name.to_bytes().eq_ignore_ascii_case(ERROR_MODEL))

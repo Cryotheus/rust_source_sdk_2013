@@ -769,8 +769,8 @@ impl<'s> Wearable<'s> {
 	}
 
 	/// Whether the wearable's model is the engine's stand-in for a missing
-	/// model file, which clients draw nothing for, as for an item the
-	/// wearer's class has no model for.
+	/// model file, as for an item the wearer's class has no model for. The
+	/// wearer's own client was observed to draw nothing for such an item.
 	pub fn has_error_model(self) -> Result<bool, WearableError> {
 		check_live(self.entity)?;
 
@@ -895,7 +895,8 @@ pub enum WearableError {
 	MarkedForDeletion,
 
 	/// The item's model for the player's class is missing, as for an item
-	/// restricted to other classes, so clients would draw nothing for it.
+	/// restricted to other classes, so the player's own client was observed
+	/// to draw nothing for it.
 	#[error("the item has no model for the player's class")]
 	MissingModel,
 

@@ -54,12 +54,13 @@
 //! # Unverified
 //!
 //! On TF2's 64-bit Windows server, [`Speaker::play_scene`] and
-//! [`Speaker::play_scene_scripted`] have been observed to play a bot's line
-//! alike: a client hears it and sees the bot's face move. A client also hears
-//! a line its own player speaks. [`Speaker::play_scene`] returns the line's
-//! length, and 0 for a scene that does not exist. Whether clients show the
-//! line's caption has not been tested, nor has either way of playing a scene
-//! on Linux, whose vtables are laid out differently.
+//! [`Speaker::play_scene_scripted`] have been observed to play one bot line,
+//! the Scout's `508.vcd`, alike: a client hears it and sees the bot's face
+//! move. A client also hears a line its own player speaks. Both return the
+//! line's length, and [`VoiceError::MissingScene`] for a scene that does not
+//! exist. Other scenes, captions, whether clients hear the first play of a
+//! late-precached line, and either way of playing a scene on Linux, whose
+//! vtables are laid out differently, have not been tested.
 
 use crate::entities::{Entity, data_fields, data_map_class};
 use crate::ffi::borrow_cstr;
@@ -276,8 +277,8 @@ impl<'s> Speaker<'s> {
 	/// the scene has flex, expression, gesture or sequence events
 	/// (`CSceneEntity::ShouldNetwork`), and the game sends the line's caption to
 	/// the players who hear it with captions turned on. On TF2's 64-bit Windows
-	/// server, a client has been observed to hear the line and see the
-	/// speaker's face move; the
+	/// server, a client has been observed to hear a bot's line and see the
+	/// bot's face move; the
 	/// [module documentation](crate::tf2::voice#unverified) lists what has not
 	/// been tested.
 	///
@@ -353,8 +354,9 @@ impl<'s> Speaker<'s> {
 	/// instead of clients, and networks the scene entity for its flex and
 	/// expression events only, not for its gestures
 	/// (`CSceneEntity::ShouldNetwork`). On TF2's 64-bit Windows server, a
-	/// client has been observed to hear and see a bot's line played this way
-	/// as it does one from [`play_scene`], face movement included.
+	/// client has been observed to hear and see one bot line played this way
+	/// as it does from [`play_scene`], face movement included; scenes whose
+	/// gestures matter may differ.
 	///
 	/// As with [`play_scene`], the scene's path stays in the level's `Scenes`
 	/// string table, and creating the scene entity runs entity-creation and

@@ -73,21 +73,20 @@
 //! (`achievements_tf_medic.cpp:326-342`). Overrides can therefore grant or
 //! withhold real Steam achievements.
 //!
-//! # Observed
-//!
-//! On TF2's 64-bit Windows server, a retail client's scoreboard showed
-//! [`Override::Fixed`] values of a player's score and kills, and of BLU's
-//! score, steadily and without flicker. They held after a kill raised the
-//! player's own values, which [`Scoreboard::real_player_stat`] reported, and
-//! clearing the overrides showed the game's values again. With bots, pausing
-//! the plugin wrote the game's values back through [`Scoreboard::restore_all`],
-//! and unpausing applied the overrides again. Unloading wrote them back.
-//!
 //! # Unverified
 //!
+//! On TF2's 64-bit Windows server, a retail client's scoreboard has been
+//! observed to show [`Override::Fixed`] values of a player's score and kills,
+//! and of BLU's score, steadily and without flicker. They held after a kill
+//! raised the game's values, which [`Scoreboard::real_player_stat`] reported,
+//! and clearing the overrides showed the game's values again. With bots, a
+//! plugin calling [`Scoreboard::restore_all`] on pause and unload wrote the
+//! game's values back, and the overrides returned on unpause.
+//!
 //! Linux GNU servers, the other columns, [`Override::Offset`], team flag
-//! captures, the achievement effects above, Mann vs. Machine, SourceTV and
-//! demos, and clients under packet loss or lag have not been observed live.
+//! captures, the [game state](#game-state) functions, the achievement effects
+//! above, Mann vs. Machine, SourceTV and demos, and clients under packet loss
+//! or lag have not been observed live.
 //!
 //! # Game state
 //!
