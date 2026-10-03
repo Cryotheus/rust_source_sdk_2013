@@ -1,7 +1,9 @@
 //! `ICvar`, the registry of console variables and commands.
 
+use crate::NotThreadSafe;
 use crate::commands::{CommandBaseKind, CommandFlags};
-use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
+use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
+use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
@@ -441,7 +443,7 @@ impl<'s> Cvar<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::ptr::null_mut;
 
 	/// A registry whose `GetCommands` returns `head`.

@@ -1,9 +1,11 @@
 //! `IGameEventManager2` and the game events it creates, fires, and delivers.
 
+use crate::NotThreadSafe;
 use crate::bitbuf::{BitWriter, RawBfWrite};
-use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
 use crate::players::UserId;
 use sdk_raw::abi::{CppDestructors, WChar};
+use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
+use sdk_raw::vcall;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString, c_char, c_float, c_int, c_void};
 use std::fmt::{Display, Formatter};
@@ -1355,7 +1357,7 @@ impl<V: GameEventVisitor> VisitorExecutor<V> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ptr::null_mut;
 

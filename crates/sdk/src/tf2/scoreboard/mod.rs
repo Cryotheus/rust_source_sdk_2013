@@ -99,14 +99,15 @@
 #[cfg(test)]
 mod tests;
 
+use crate::NotThreadSafe;
 use crate::datatables::{NetPropError, PropFlags, PropKind, SendProp, ServerClass, Storage};
 use crate::edicts::{Edict, MAX_CHANGE_OFFSETS};
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
-use crate::ffi::NotThreadSafe;
 use crate::interfaces::{ServerGameDll, ServerTools, ValveEngine};
 use crate::players::UserId;
 use crate::tf2::PlayerClass;
 use crate::{Game, InterfaceError, Server};
+use sdk_raw::vcall;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_int};
 use std::ops::RangeInclusive;
@@ -1913,11 +1914,7 @@ pub fn reset_scores(server: Server<'_>, player: Entity<'_>) -> Result<(), Scoreb
 	// contract requires the code those reach to free entities only through
 	// deferred deletion, so every entity of the scope stays allocated.
 	unsafe {
-		let vtable = player
-			.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-			.read();
-
-		((*vtable).CTFPlayer_ResetScores)(player);
+		vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_ResetScores());
 	}
 
 	Ok(())

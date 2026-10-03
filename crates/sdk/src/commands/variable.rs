@@ -16,10 +16,11 @@ use super::error::{
 use super::object::{base_is_registered, register_base, unregister_base};
 use super::registrar::{CommandRegistrar, UnlinksBeforeUnload};
 use super::route::drop_payload;
-use crate::ffi::{NotThreadSafe, borrow_cstr};
+use crate::NotThreadSafe;
 use crate::interfaces::Cvar;
 use crate::server::{Server, ServerBinding};
 use sdk_raw::abi::{CppDestructors, VtablePage};
+use sdk_raw::util::cstr::borrow_cstr;
 use std::cell::{Cell, UnsafeCell};
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::marker::{PhantomData, PhantomPinned};
@@ -1114,7 +1115,7 @@ const fn skip_space(text: &[u8]) -> usize {
 #[cfg(target_os = "windows")]
 mod type_information {
 	use super::INTERFACE_OFFSET;
-	use crate::rtti::CompleteObjectLocator;
+	use sdk_raw::util::rtti::CompleteObjectLocator;
 	use std::cell::UnsafeCell;
 	use std::ffi::c_void;
 	use std::mem::offset_of;

@@ -7,9 +7,10 @@ use super::error::{
 
 use super::registrar::{CommandRegistrar, UnlinksBeforeUnload};
 use super::{CommandAccess, CommandContext, CommandFlags, CommandHandler, CommandResult, route};
-use crate::ffi::{NotThreadSafe, vcall};
+use crate::NotThreadSafe;
 use crate::server::{Server, ServerBinding};
 use sdk_raw::abi::{CppDestructors, VtablePage};
+use sdk_raw::vcall;
 use std::cell::{Cell, UnsafeCell};
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::marker::{PhantomData, PhantomPinned};

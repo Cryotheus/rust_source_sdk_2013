@@ -1,9 +1,85 @@
-//! Primary C++ vtable discovery from compiler RTTI in owned image snapshots.
+//! Run-time type information that C++ compilers emit for polymorphic
+//! classes: discovery of primary vtables in owned image snapshots, and checks
+//! of a live object's class.
+//!
+//! The live readers check a polymorphic object's class before code relies on
+//! a layout of the engine's that no public header declares.
 
 #[cfg(any(target_os = "windows", test))]
 use super::u32_at;
 
 use super::{Image, is_executable, word_at};
+use std::ffi::{CStr, c_char, c_void};
+
+#[cfg(any(target_os = "windows", test))]
+const _: () = {
+	use std::mem::offset_of;
+
+	assert!(size_of::<CompleteObjectLocator>() == 24);
+	assert!(offset_of!(CompleteObjectLocator, signature) == 0);
+	assert!(offset_of!(CompleteObjectLocator, offset) == 4);
+	assert!(offset_of!(CompleteObjectLocator, constructor_displacement) == 8);
+	assert!(offset_of!(CompleteObjectLocator, type_descriptor) == 12);
+	assert!(offset_of!(CompleteObjectLocator, class_descriptor) == 16);
+	assert!(offset_of!(CompleteObjectLocator, this) == 20);
+};
+
+/// Where an MSVC `_TypeDescriptor`'s decorated name starts: after its vtable
+/// pointer and the undecorated name the runtime caches.
+#[cfg(any(target_os = "windows", test))]
+const TYPE_DESCRIPTOR_NAME_OFFSET: usize = 2 * size_of::<*const c_void>();
+
+/// MSVC's `_RTTICompleteObjectLocator` for 64-bit images, whose references
+/// are relative to the image's base.
+///
+/// MSVC stores the address of a vtable's locator in the slot before the
+/// vtable's first.
+#[doc(alias = "_RTTICompleteObjectLocator")]
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct CompleteObjectLocator {
+	/// [`Self::SIGNATURE`] for 64-bit images.
+	pub signature: u32,
+
+	/// The subobject's offset in its complete object.
+	pub offset: u32,
+
+	/// `cdOffset`, the constructor displacement offset, which this module
+	/// does not read.
+	pub constructor_displacement: u32,
+
+	/// The image offset of the complete object's `_TypeDescriptor`, which
+	/// holds its decorated class name.
+	pub type_descriptor: u32,
+
+	/// The image offset of the complete object's
+	/// `_RTTIClassHierarchyDescriptor`.
+	pub class_descriptor: u32,
+
+	/// The locator's own offset in the image.
+	pub this: u32,
+}
+
+#[cfg(any(target_os = "windows", test))]
+impl CompleteObjectLocator {
+	/// The [`signature`](Self::signature) of a locator in a 64-bit image.
+	pub const SIGNATURE: u32 = 1;
+
+	/// Reads a locator from the start of `bytes`, as it lies in an image.
+	fn parse(bytes: &[u8]) -> Option<Self> {
+		use std::mem::offset_of;
+
+		Some(Self {
+			signature: u32_at(bytes, offset_of!(Self, signature))?,
+			offset: u32_at(bytes, offset_of!(Self, offset))?,
+			constructor_displacement: u32_at(bytes, offset_of!(Self, constructor_displacement))?,
+			type_descriptor: u32_at(bytes, offset_of!(Self, type_descriptor))?,
+			class_descriptor: u32_at(bytes, offset_of!(Self, class_descriptor))?,
+			this: u32_at(bytes, offset_of!(Self, this))?,
+		})
+	}
+}
 
 impl Image {
 	#[cfg(any(target_os = "linux", test))]
@@ -44,7 +120,7 @@ impl Image {
 		let mut tables = Vec::new();
 
 		for name in self.matches(format!(".?AV{class}@@\0").as_bytes(), 1) {
-			let Some(descriptor) = name.checked_sub(16) else {
+			let Some(descriptor) = name.checked_sub(TYPE_DESCRIPTOR_NAME_OFFSET) else {
 				continue;
 			};
 			let Some(relative) = descriptor
@@ -55,20 +131,24 @@ impl Image {
 			};
 
 			for reference in self.matches(&relative.to_le_bytes(), 4) {
-				let Some(locator) = reference.checked_sub(12) else {
+				let Some(locator) = reference
+					.checked_sub(std::mem::offset_of!(CompleteObjectLocator, type_descriptor))
+				else {
 					continue;
 				};
-				let Some(bytes) = self.rtti_read(locator, 24) else {
+				let Some(located) = self
+					.rtti_read(locator, size_of::<CompleteObjectLocator>())
+					.and_then(CompleteObjectLocator::parse)
+				else {
 					continue;
 				};
 
 				// MSVC x64 complete-object locator: signature=1, primary
 				// subobject offset=0, no construction displacement, self RVA.
-				if u32_at(bytes, 0) != Some(1)
-					|| u32_at(bytes, 4) != Some(0)
-					|| u32_at(bytes, 8) != Some(0)
-					|| u32_at(bytes, 20).and_then(|n| self.base.checked_add(n as usize))
-						!= Some(locator)
+				if located.signature != CompleteObjectLocator::SIGNATURE
+					|| located.offset != 0
+					|| located.constructor_displacement != 0
+					|| self.base.checked_add(located.this as usize) != Some(locator)
 				{
 					continue;
 				}
@@ -149,6 +229,118 @@ impl Image {
 	}
 }
 
+/// The offset of the subobject `object` points to in its complete object,
+/// and the complete object's decorated class name, from MSVC's run-time type
+/// information.
+///
+/// # Safety
+///
+/// `object` must point to a live polymorphic subobject, whose vtable the
+/// compiler emitted with run-time type information for the target's ABI. The
+/// module that emitted it must stay loaded for `'a`, which the name borrows.
+#[cfg(target_os = "windows")]
+pub unsafe fn dynamic_type<'a>(object: *const c_void) -> Option<(isize, &'a CStr)> {
+	// SAFETY: A polymorphic subobject starts with its vtable pointer, and MSVC
+	// stores the locator's address in the slot before the vtable's first.
+	let locator = unsafe { object.cast::<*const *const c_void>().read().sub(1).read() }
+		.cast::<CompleteObjectLocator>();
+
+	if locator.is_null() || !locator.is_aligned() {
+		return None;
+	}
+
+	// SAFETY: The compiler emitted the locator with the vtable.
+	let located = unsafe { locator.read() };
+
+	if located.signature != CompleteObjectLocator::SIGNATURE {
+		return None;
+	}
+
+	let image = locator.addr().checked_sub(located.this as usize)?;
+
+	let name = image
+		.checked_add(located.type_descriptor as usize)?
+		.checked_add(TYPE_DESCRIPTOR_NAME_OFFSET)?;
+
+	// SAFETY: As above, and the name is a string in the image, which the
+	// caller keeps loaded for `'a`.
+	Some((located.offset as isize, unsafe {
+		CStr::from_ptr(locator.cast::<c_char>().with_addr(name))
+	}))
+}
+
+/// The offset of the subobject `object` points to in its complete object,
+/// and the complete object's mangled class name, from the Itanium ABI's
+/// run-time type information: the vtable stores the offset from the
+/// subobject to its complete object two slots before its first, and the
+/// `std::type_info` one slot before.
+///
+/// # Safety
+///
+/// `object` must point to a live polymorphic subobject, whose vtable the
+/// compiler emitted with run-time type information for the target's ABI. The
+/// module that emitted it must stay loaded for `'a`, which the name borrows.
+#[cfg(not(target_os = "windows"))]
+pub unsafe fn dynamic_type<'a>(object: *const c_void) -> Option<(isize, &'a CStr)> {
+	// SAFETY: As the caller promises, per the Itanium ABI's vtable layout.
+	let (offset_to_top, type_info) = unsafe {
+		let vtable = object.cast::<*const isize>().read();
+
+		(
+			vtable.sub(2).read(),
+			vtable.sub(1).read() as *const *const c_char,
+		)
+	};
+
+	if type_info.is_null() {
+		return None;
+	}
+
+	// SAFETY: A `std::type_info` stores its vtable pointer, then its name.
+	let name = unsafe { type_info.add(1).read() };
+
+	// SAFETY: The name is a string in the image, which the caller keeps
+	// loaded for `'a`.
+	(!name.is_null()).then(|| (-offset_to_top, unsafe { CStr::from_ptr(name) }))
+}
+
+/// Whether `decorated`, a class name as [`dynamic_type`] returns it, names
+/// the class `class`, which MSVC decorates as `.?AVName@@`.
+#[cfg(target_os = "windows")]
+pub fn matches_class_name(decorated: &[u8], class: &str) -> bool {
+	decorated
+		.strip_prefix(b".?AV")
+		.and_then(|name| name.strip_suffix(b"@@"))
+		.is_some_and(|name| name == class.as_bytes())
+}
+
+/// Whether `decorated`, a class name as [`dynamic_type`] returns it, names
+/// the class `class`, which the Itanium ABI mangles as its length, then the
+/// name.
+#[cfg(not(target_os = "windows"))]
+pub fn matches_class_name(decorated: &[u8], class: &str) -> bool {
+	let length = class.len().to_string();
+
+	decorated
+		.strip_prefix(length.as_bytes())
+		.is_some_and(|name| name == class.as_bytes())
+}
+
+/// Where the subobject `object` points to sits in its complete object, if
+/// that object's class is named `class`, such as `CGameClient`.
+///
+/// # Safety
+///
+/// `object` must point to a live polymorphic subobject, whose vtable the
+/// compiler emitted with run-time type information for the target's ABI, in
+/// a module that stays loaded for the call.
+pub unsafe fn subobject_offset(object: *const c_void, class: &str) -> Option<isize> {
+	// SAFETY: As the caller promises; the name is not kept past the call.
+	let (offset, name) = unsafe { dynamic_type(object) }?;
+
+	matches_class_name(name.to_bytes(), class).then_some(offset)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -221,6 +413,23 @@ mod tests {
 		assert!(image.primary_vtable("CKickIssue", 8).is_none());
 		word(&mut image, 0x208 + 8 * 8, 0x30000);
 		assert_eq!(image.msvc("CKickIssue", 8), [BASE + 0x288]);
+	}
+
+	#[test]
+	fn names_follow_the_abi() {
+		#[cfg(target_os = "windows")]
+		{
+			assert!(matches_class_name(b".?AVCGameClient@@", "CGameClient"));
+			assert!(!matches_class_name(b".?AVCGameClientX@@", "CGameClient"));
+			assert!(!matches_class_name(b"11CGameClient", "CGameClient"));
+		}
+
+		#[cfg(not(target_os = "windows"))]
+		{
+			assert!(matches_class_name(b"11CGameClient", "CGameClient"));
+			assert!(!matches_class_name(b"12CGameClientX", "CGameClient"));
+			assert!(!matches_class_name(b".?AVCGameClient@@", "CGameClient"));
+		}
 	}
 
 	#[test]

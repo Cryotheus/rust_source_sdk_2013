@@ -13,8 +13,10 @@ pub mod cheats;
 pub mod incoming;
 pub mod messages;
 
+use crate::NotThreadSafe;
 use crate::bitbuf::{BitWriter, RawBfWrite};
-use crate::ffi::{NotThreadSafe, copy_cstr, vcall};
+use sdk_raw::util::cstr::copy_cstr;
+use sdk_raw::vcall;
 use std::ffi::{CString, c_int};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
@@ -605,7 +607,7 @@ pub struct SequenceData {
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 
 	thread_local! {

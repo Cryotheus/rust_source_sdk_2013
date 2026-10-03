@@ -1,8 +1,10 @@
 //! `IPlayerInfoManager`, which exposes player state and the engine's globals.
 
+use crate::NotThreadSafe;
 use crate::edicts::Edict;
-use crate::ffi::{NotThreadSafe, copy_cstr, vcall};
 use crate::players::UserId;
+use sdk_raw::util::cstr::copy_cstr;
+use sdk_raw::vcall;
 use std::ffi::{CString, c_int};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -197,7 +199,7 @@ impl<'s> GlobalVars<'s> {
 mod tests {
 	use super::*;
 	use crate::edicts::test_support::mock_edict;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::mem::MaybeUninit;
 	use std::ptr::null_mut;

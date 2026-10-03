@@ -63,10 +63,11 @@
 //! vtables are laid out differently, have not been tested.
 
 use crate::entities::{Entity, data_fields, data_map_class};
-use crate::ffi::borrow_cstr;
 use crate::tf2::PlayerClass;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
+use sdk_raw::util::cstr::borrow_cstr;
+use sdk_raw::vcall;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::ptr::null_mut;
@@ -328,17 +329,12 @@ impl<'s> Speaker<'s> {
 		// only ever removed with deferred deletion, in later frames, and the
 		// callbacks its creation runs are bound by `Server::new`'s contract.
 		let length = unsafe {
-			let vtable = player
-				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-				.read();
-
-			((*vtable).CTFPlayer_PlayScene)(
-				player,
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_PlayScene(
 				scene.as_c_str().as_ptr(),
 				NO_POST_SPEAK_DELAY,
 				null_mut(),
 				null_mut(),
-			)
+			))
 		};
 
 		scene_length(length)
@@ -735,7 +731,7 @@ mod tests {
 
 		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
 		vtable[SCRIPT_DESCRIPTION] = script_description as *const ();
-		vtable[PLAY_SCENE] = crate::ffi::test_support::unexpected_call as *const ();
+		vtable[PLAY_SCENE] = sdk_raw::util::mock::unexpected_call as *const ();
 
 		let player = Box::into_raw(FakePlayer::new(&vtable));
 		let entity = unsafe { Entity::from_raw(NonNull::new(player.cast()).unwrap()) };

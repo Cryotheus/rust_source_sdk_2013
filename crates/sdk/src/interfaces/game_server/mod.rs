@@ -1,9 +1,11 @@
 //! The engine's server and its clients (`IServer` and `IClient`).
 
-use crate::ffi::{NotThreadSafe, copy_cstr, vcall};
+use crate::NotThreadSafe;
 use crate::interfaces::ValveEngine;
 use crate::net::NetChannel;
 use crate::players::UserId;
+use sdk_raw::util::cstr::copy_cstr;
+use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
 use std::marker::PhantomData;
 use std::ptr::NonNull;

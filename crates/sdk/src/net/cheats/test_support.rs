@@ -8,11 +8,11 @@
 
 use super::*;
 use crate::bitbuf::RawBfWrite;
-use crate::ffi::test_support::{mock_vtable, unexpected_call};
 use crate::interfaces::ValveEngine;
 use crate::net::MESSAGE_TYPE_BITS;
 use crate::server::Module;
 use crate::server::test_support::{export, mock_server};
+use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_char;
 use std::ptr::{NonNull, null_mut};

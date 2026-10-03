@@ -14,11 +14,11 @@ pub mod messages;
 use crate::bitbuf::{BitWriter, RawBfWrite};
 use crate::edicts::Edict;
 use crate::entities::Entity;
-use crate::ffi::vcall;
 use crate::net::EncodeError;
 use crate::net::messages::MAX_MESSAGE_DATA_BYTES;
 use crate::server::{InterfaceError, Server};
 use sdk_raw::abi::CppDestructors;
+use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
 use std::mem::offset_of;
 use std::ptr::NonNull;
@@ -469,10 +469,10 @@ pub(crate) mod test_support {
 mod tests {
 	use super::*;
 	use crate::edicts::test_support::mock_edict;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::interfaces::{PlayerInfoManager, ValveEngine};
 	use crate::server::Module;
 	use crate::server::test_support::{export, mock_server};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::mem::MaybeUninit;
 	use std::ptr::null_mut;

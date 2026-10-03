@@ -5,10 +5,12 @@
 //! key values, and networked variables are reached through
 //! [`NetProp`](crate::datatables::NetProp).
 
+use crate::NotThreadSafe;
 use crate::datatables::ServerClass;
 use crate::edicts::Edict;
-use crate::ffi::{NotThreadSafe, borrow_cstr, vcall};
 use crate::math::{QAngle, Vector};
+use sdk_raw::util::cstr::borrow_cstr;
+use sdk_raw::vcall;
 use std::ffi::{CStr, c_char, c_int, c_short};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
@@ -662,7 +664,7 @@ pub(crate) fn data_map_class(map: &sys::datamap_t) -> Option<&CStr> {
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
-	use crate::ffi::test_support::unexpected_call;
+	use sdk_raw::util::mock::unexpected_call;
 	use std::cell::{Cell, RefCell};
 	use std::ffi::CString;
 	use std::mem::offset_of;

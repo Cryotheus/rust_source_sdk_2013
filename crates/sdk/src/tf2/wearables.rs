@@ -90,6 +90,7 @@ use crate::math::Vector;
 use crate::tf2::weapons::ItemDefinitionIndex;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::item_generation::WeaponCreationFailed;
+use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
 use std::mem::{offset_of, size_of};
 use std::ptr::NonNull;
@@ -342,11 +343,9 @@ impl<'s> PlayerWearables<'s> {
 		// the game is not iterating, and runs its `Equip`, which deletes only
 		// through `UTIL_Remove`.
 		unsafe {
-			let vtable = player
-				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-				.read();
-
-			((*vtable).CTFPlayer_EquipWearable)(player, wearable.entity.as_ptr().cast());
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_EquipWearable(
+				wearable.entity.as_ptr().cast(),
+			));
 		}
 	}
 
@@ -628,11 +627,9 @@ impl<'s> PlayerWearables<'s> {
 		// changes the list, which the caller guarantees the game is not
 		// iterating, and deletes through `UTIL_Remove`.
 		unsafe {
-			let vtable = player
-				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-				.read();
-
-			((*vtable).CTFPlayer_RemoveWearable)(player, wearable.entity.as_ptr().cast());
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_RemoveWearable(
+				wearable.entity.as_ptr().cast(),
+			));
 		}
 	}
 
@@ -1089,9 +1086,9 @@ mod tests {
 
 	use crate::edicts::test_support::mock_edict;
 	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, data_map, field, leak};
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::interfaces::{PlayerInfoManager, ServerGameDll, ValveEngine};
 	use crate::server::test_support::{export, mock_server};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{c_char, c_void};
 	use std::mem::MaybeUninit;

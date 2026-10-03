@@ -9,8 +9,8 @@
 //! [`ServerTools::accept_input`]: crate::interfaces::ServerTools::accept_input
 
 use crate::entities::{Entity, EntityHandle, data_fields, data_map_class};
-use crate::ffi::borrow_cstr;
 use crate::math::{Color32, Vector};
+use sdk_raw::util::cstr::borrow_cstr;
 use std::ffi::{CStr, c_int, c_short};
 use std::fmt::{self, Display, Formatter};
 use std::mem::MaybeUninit;
@@ -496,9 +496,9 @@ mod tests {
 		leak, set_accepts, set_datamap, take_inputs,
 	};
 
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::interfaces::ServerTools;
 	use crate::server::Game;
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char};
 	use std::ptr::{NonNull, null_mut};

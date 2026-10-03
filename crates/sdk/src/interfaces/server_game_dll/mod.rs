@@ -28,9 +28,11 @@
 //! | `OnQueryCvarValueFinished`, `GameServerSteamAPIActivated`, `GameServerSteamAPIShutdown`, `SetServerHibernation` | Not wrapped: engine notifications, which a plugin would fake by calling. |
 //! | `SaveInit`, `SaveWriteFields`, `SaveReadFields`, `SaveGlobalState`, `RestoreGlobalState`, `PreSave`, `Save`, `WriteSaveHeaders`, `ReadRestoreHeaders`, `Restore`, `CreateEntityTransitionList`, `BuildAdjacentMapList`, `PreSaveGameLoaded` | Not wrapped: the single-player save system, driven by the engine. |
 
+use crate::NotThreadSafe;
 use crate::datatables::{NetProp, NetPropError, ServerClass, ServerClasses, StandardSendProxies};
 use crate::entities::Entity;
-use crate::ffi::{NotThreadSafe, buffer_from_cstr, copy_cstr, cstring_from_buffer, vcall};
+use sdk_raw::util::cstr::{buffer_from_cstr, copy_cstr, cstring_from_buffer};
+use sdk_raw::vcall;
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, VaList, c_char, c_int};
 use std::marker::PhantomData;
@@ -681,7 +683,7 @@ unsafe fn format_into(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 
 	unsafe extern "C" fn can_provide_level(
 		_: *mut sys::IServerGameDLL,

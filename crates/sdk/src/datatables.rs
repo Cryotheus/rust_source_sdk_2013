@@ -10,12 +10,13 @@
 //! SourceMod's `Prop_Send` lookups do, and reads or writes it after checking
 //! the entity's class and the variable's storage.
 
+use crate::NotThreadSafe;
 use crate::edicts::Edict;
 use crate::entities::Entity;
-use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr};
 use crate::interfaces::ValveEngine;
 use crate::math::{QAngle, Vector};
 use glam::Vec2;
+use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use std::any::type_name;
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::fmt::{self, Debug, Display, Formatter};
@@ -1627,7 +1628,7 @@ mod tests {
 	use super::test_support::*;
 	use super::*;
 	use crate::entities::test_support::{MockEntity, set_networking};
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::ptr::null_mut;
 
 	/// `DT_Base` holds `m_iHealth` and a local table; `DT_Derived` embeds it

@@ -151,8 +151,14 @@ pub enum PatchError {
 #[cfg(any(target_os = "windows", test))]
 mod scan {
 	use super::PatchError;
-	use crate::sigscan;
+	use sdk_raw::util::{self, SignaturePattern, sig};
 	use std::ops::Range;
+
+	// The patched opcode is the gate's original `jnz rel8`.
+	const _: () = assert!(matches!(
+		PATTERN[PATCH_OFFSET],
+		SignaturePattern::Exact(ORIGINAL)
+	));
 
 	/// The gate's original `jnz rel8` opcode.
 	pub(super) const ORIGINAL: u8 = 0x75;
@@ -177,70 +183,20 @@ mod scan {
 	// +45  jz reject
 	// +51  mov rcx, [rip+timescale]
 	// +58  movss xmm6, [rcx+0x54]
-	const PATTERN: [Option<u8>; PATTERN_LEN] = [
-		Some(0x48),
-		Some(0x8b),
-		Some(0x0d),
-		None,
-		None,
-		None,
-		None,
-		Some(0x0f),
-		Some(0x2f),
-		Some(0x71),
-		Some(0x54),
-		Some(0x0f),
-		Some(0x83),
-		None,
-		None,
-		None,
-		None,
-		Some(0x48),
-		Some(0x8b),
-		Some(0x05),
-		None,
-		None,
-		None,
-		None,
-		Some(0x83),
-		Some(0x78),
-		Some(0x58),
-		Some(0x00),
-		Some(ORIGINAL),
-		Some(0x1c),
-		Some(0x48),
-		Some(0x8b),
-		Some(0x0d),
-		None,
-		None,
-		None,
-		None,
-		Some(0x48),
-		Some(0x8b),
-		Some(0x01),
-		Some(0xff),
-		Some(0x50),
-		Some(0x30),
-		Some(0x84),
-		Some(0xc0),
-		Some(0x0f),
-		Some(0x84),
-		None,
-		None,
-		None,
-		None,
-		Some(0x48),
-		Some(0x8b),
-		Some(0x0d),
-		None,
-		None,
-		None,
-		None,
-		Some(0xf3),
-		Some(0x0f),
-		Some(0x10),
-		Some(0x71),
-		Some(0x54),
+	const PATTERN: [SignaturePattern; PATTERN_LEN] = sig![
+		0x48 0x8b 0x0d ? ? ? ?
+		0x0f 0x2f 0x71 0x54
+		0x0f 0x83 ? ? ? ?
+		0x48 0x8b 0x05 ? ? ? ?
+		0x83 0x78 0x58 0x00
+		0x75 0x1c
+		0x48 0x8b 0x0d ? ? ? ?
+		0x48 0x8b 0x01
+		0xff 0x50 0x30
+		0x84 0xc0
+		0x0f 0x84 ? ? ? ?
+		0x48 0x8b 0x0d ? ? ? ?
+		0xf3 0x0f 0x10 0x71 0x54
 	];
 
 	/// Length of [`PATTERN`], which is also the block a patch keeps verifying.
@@ -278,7 +234,7 @@ mod scan {
 	) -> Result<usize, PatchError> {
 		let mut found = None;
 		for section in code {
-			for index in sigscan::find_all(&section.bytes, &PATTERN) {
+			for index in util::find_all(&section.bytes, &PATTERN) {
 				let bytes = &section.bytes[index..index + PATTERN.len()];
 				let Some(offset) = section.offset.checked_add(index) else {
 					continue;
@@ -424,7 +380,10 @@ mod scan {
 			let address = BASE + offset;
 			let mut bytes = vec![0x90; 256];
 			for (out, input) in bytes.iter_mut().zip(PATTERN) {
-				*out = input.unwrap_or_default();
+				*out = match input {
+					SignaturePattern::Exact(byte) => byte,
+					SignaturePattern::Any => 0,
+				};
 			}
 			put_relative(&mut bytes, 3, 7, TIMESCALE, address);
 			put_relative(&mut bytes, 20, 24, CHEATS, address);

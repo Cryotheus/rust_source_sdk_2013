@@ -1,6 +1,6 @@
 //! The crate's entry point, through which every other interface is reached.
 
-use crate::ffi::NotThreadSafe;
+use crate::NotThreadSafe;
 
 use crate::interfaces::{
 	BotManager, Cvar, EngineSound, EngineTrace, GameEventManager, ModelInfo, NetworkStringTables,

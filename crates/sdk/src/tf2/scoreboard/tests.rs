@@ -8,9 +8,9 @@ use crate::datatables::test_support::{
 };
 
 use crate::entities::test_support::{data_map, field, leak};
-use crate::ffi::test_support::{mock_vtable, unexpected_call};
 use crate::server::test_support::{export, mock_server};
 use crate::{InterfaceFactory, Module};
+use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CString, c_char, c_void};
 use std::mem::{offset_of, zeroed};

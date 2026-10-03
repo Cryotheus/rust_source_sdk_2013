@@ -12,8 +12,10 @@
 //!
 //! [`ValveEngine::with_unlocked_string_tables`]: crate::interfaces::ValveEngine::with_unlocked_string_tables
 
-use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
+use crate::NotThreadSafe;
 use crate::server::{InterfaceError, Server};
+use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
+use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
@@ -282,10 +284,10 @@ pub fn add_downloadable(server: Server<'_>, path: &CStr) -> Result<usize, AddDow
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::interfaces::ValveEngine;
 	use crate::server::Module;
 	use crate::server::test_support::{export, mock_server};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{c_char, c_void};
 	use std::ptr::null_mut;

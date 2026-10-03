@@ -1,6 +1,7 @@
 //! `IVModelInfo`, the server's registry of precached models.
 
-use crate::ffi::{copy_cstr, vcall};
+use sdk_raw::util::cstr::copy_cstr;
+use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
 
 /// The name in the studio header of the model the engine loads in place of
@@ -92,7 +93,7 @@ impl<'s> ModelInfo<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::mem::zeroed;
 	use std::ptr::{NonNull, null};

@@ -38,8 +38,8 @@ mod variable;
 #[cfg(test)]
 mod tests;
 
+use crate::NotThreadSafe;
 use crate::edicts::Edict;
-use crate::ffi::NotThreadSafe;
 use crate::server::{InterfaceError, Server};
 use std::borrow::Cow;
 use std::ffi::{CStr, CString, c_int};

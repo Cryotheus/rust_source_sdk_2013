@@ -18,7 +18,7 @@ macro_rules! interface {
 		$vis struct $Name<'s> {
 			raw: ::core::ptr::NonNull<$Raw>,
 			_scope: ::core::marker::PhantomData<&'s ()>,
-			_not_thread_safe: $crate::ffi::NotThreadSafe,
+			_not_thread_safe: $crate::NotThreadSafe,
 		}
 
 		impl<'s> $Name<'s> {

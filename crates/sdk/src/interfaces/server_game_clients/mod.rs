@@ -1,6 +1,6 @@
 //! `IServerGameClients`, the game's handling of connected clients.
 
-use crate::ffi::vcall;
+use sdk_raw::vcall;
 use std::ffi::c_int;
 use std::mem::{offset_of, size_of};
 

@@ -4,6 +4,13 @@ use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::ptr::NonNull;
+
+/// `dlopen`'s flag to only find a library that is already loaded.
+const RTLD_NOLOAD: c_int = 4;
+
+/// `dlopen`'s flag to resolve every symbol before returning.
+const RTLD_NOW: c_int = 2;
 
 #[repr(C)]
 struct DlInfo {
@@ -100,6 +107,9 @@ impl Module {
 #[link(name = "dl")]
 unsafe extern "C" {
 	fn dladdr(address: *const c_void, info: *mut DlInfo) -> c_int;
+	fn dlclose(handle: *mut c_void) -> c_int;
+	fn dlopen(file: *const c_char, mode: c_int) -> *mut c_void;
+	fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
 }
 
 /// Checks current process mapping permissions. The result is a snapshot;
@@ -197,6 +207,27 @@ pub(super) fn load_segments(base: usize, programs: &[u8]) -> Result<Vec<LoadSegm
 	Ok(segments)
 }
 
+/// The address of the export `name` of the already loaded library `library`,
+/// such as `libtier0.so`, or `None` if no library of that name is loaded or
+/// it does not export `name`. This never loads a library.
+///
+/// The library is kept loaded during the lookup only. The address is usable
+/// as a native pointer only while the library stays loaded, and only with the
+/// type the library exports it with.
+pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
+	// SAFETY: `RTLD_NOLOAD` only finds a library that is already loaded, and
+	// adds a reference to it that keeps it loaded until it is closed below.
+	let handle = NonNull::new(unsafe { dlopen(library.as_ptr(), RTLD_NOW | RTLD_NOLOAD) })?;
+
+	// SAFETY: The handle is live until closed.
+	let symbol = unsafe { dlsym(handle.as_ptr(), name.as_ptr()) };
+
+	// SAFETY: This releases only the reference `dlopen` added.
+	unsafe { dlclose(handle.as_ptr()) };
+
+	NonNull::new(symbol)
+}
+
 pub(super) fn program_headers(
 	memory: &MemoryReader,
 	base: usize,
@@ -274,5 +305,12 @@ mod tests {
 		);
 		assert!(image.sections.iter().any(|section| section.writable));
 		assert!(image.sections.iter().any(|section| !section.executable));
+	}
+
+	#[test]
+	fn symbols_are_found_only_in_loaded_libraries() {
+		assert!(loaded_symbol(c"libc.so.6", c"getpid").is_some());
+		assert!(loaded_symbol(c"libc.so.6", c"source_sdk_2013_raw_absent").is_none());
+		assert!(loaded_symbol(c"libsource_sdk_2013_raw_absent.so", c"Msg").is_none());
 	}
 }

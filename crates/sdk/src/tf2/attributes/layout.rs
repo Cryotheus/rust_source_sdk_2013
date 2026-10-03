@@ -18,6 +18,7 @@ use crate::tf2::attributes::{
 };
 
 use crate::tf2::weapons::ItemDefinitionIndex;
+use sdk_raw::vcall;
 use std::ffi::{CStr, c_int, c_void};
 use std::mem::{offset_of, size_of};
 
@@ -172,11 +173,8 @@ impl<'s> ItemLayout<'s> {
 			let container = (&raw const (*list).m_pManager)
 				.read()
 				.cast::<sys::CAttributeContainer>();
-			let vtable = (&raw const (*container)._base.vtable_)
-				.read()
-				.cast::<sys::CAttributeContainer__bindgen_vtable>();
 
-			((*vtable).CAttributeContainer_OnAttributeValuesChanged)(container);
+			vcall!(container as sys::CAttributeContainer__bindgen_vtable => CAttributeContainer_OnAttributeValuesChanged());
 		}
 
 		Ok(())

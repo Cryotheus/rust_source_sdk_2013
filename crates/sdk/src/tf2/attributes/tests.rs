@@ -10,10 +10,10 @@ use crate::entities::test_support::{
 	MOCK_EFLAGS_OFFSET, base_entity_fields, data_map, field, leak,
 };
 
-use crate::ffi::test_support::{mock_vtable, unexpected_call};
 use crate::server::test_support::{export, mock_server};
 use crate::tf2::weapons::{Weapon, WeaponError};
 use crate::{InterfaceFactory, Module};
+use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, c_int, c_void};
 use std::mem::{offset_of, size_of, zeroed};

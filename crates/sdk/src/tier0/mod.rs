@@ -1,21 +1,18 @@
 //! tier0's console output, found at runtime so the crate links against no
 //! Source library.
 
-/// Symbol lookup in tier0 through the Windows loader.
-#[cfg(windows)]
-#[path = "windows.rs"]
-mod platform;
-
-/// Symbol lookup in tier0 through the dynamic loader.
-#[cfg(target_os = "linux")]
-#[path = "linux.rs"]
-mod platform;
-
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::OnceLock;
 
 /// `Msg` from `public/tier0/dbg.h`, which tier0 exports with C linkage.
 pub(crate) type MsgFn = unsafe extern "C" fn(format: *const c_char, ...);
+
+/// The names tier0 has: on Windows, and in 64-bit and older Linux dedicated
+/// servers.
+const LIBRARIES: &[&CStr] = cfg_select! {
+	windows => &[c"tier0.dll"],
+	target_os = "linux" => &[c"libtier0.so", c"libtier0_srv.so"],
+};
 
 #[cfg(test)]
 thread_local! {
@@ -31,10 +28,12 @@ fn find_msg() -> Option<MsgFn> {
 		return None;
 	}
 
-	let address = platform::find_symbol(c"Msg")?;
+	let address = LIBRARIES
+		.iter()
+		.find_map(|library| sdk_raw::util::loaded_symbol(library, c"Msg"))?;
 
 	// SAFETY: tier0 exports `Msg` with this signature.
-	Some(unsafe { std::mem::transmute::<*mut c_void, MsgFn>(address) })
+	Some(unsafe { std::mem::transmute::<*mut c_void, MsgFn>(address.as_ptr()) })
 }
 
 /// Prints through tier0's `Msg`, whose output the dedicated server's console

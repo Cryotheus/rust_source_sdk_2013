@@ -320,13 +320,13 @@ mod tests {
 	use crate::bitbuf::{BitWriter, RawBfWrite};
 	use crate::edicts::test_support::mock_edict;
 	use crate::entities::test_support::{MockEntity, set_networking};
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::interfaces::{GameEventManager, ServerTools, ValveEngine};
 	use crate::net::MESSAGE_TYPE_BITS;
 	use crate::net::test_support::MockChannel;
 	use crate::server::Module;
 	use crate::server::test_support::{export, mock_server};
 	use crate::user_messages::test_support::recipients;
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char, c_void};
 	use std::marker::PhantomData;

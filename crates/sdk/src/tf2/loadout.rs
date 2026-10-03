@@ -743,13 +743,13 @@ unsafe fn give_missing(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::interfaces::ValveEngine;
 	use crate::net::cheats::test_support::{MockClient, MockEngine};
 	use crate::server::test_support::{export, mock_server};
 	use crate::tf2::attributes::{Multiplier, catalog, trust_shipped_schema};
 	use crate::tf2::weapons::WeaponSlot;
 	use crate::{InterfaceFactory, Module};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::ffi::{c_char, c_void};
 	use std::ptr::{NonNull, null_mut};
 

@@ -7,9 +7,9 @@
 //! the value types here only hold what survives that encoding.
 
 use crate::entities::Entity;
-use crate::ffi::vcall;
 use crate::math::Vector;
 use crate::user_messages::{RecipientFilter, Recipients};
+use sdk_raw::vcall;
 use std::ffi::{CStr, c_char, c_int};
 use std::num::NonZero;
 use std::ptr::{self, null_mut};
@@ -628,8 +628,8 @@ mod tests {
 	use super::*;
 	use crate::edicts::test_support::mock_edict;
 	use crate::entities::test_support::{MockEntity, set_networking};
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::user_messages::test_support::recipients;
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::CString;
 	use std::ptr::NonNull;

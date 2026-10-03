@@ -1,7 +1,7 @@
 //! `IBotManager`, which creates bots.
 
 use crate::edicts::Edict;
-use crate::ffi::vcall;
+use sdk_raw::vcall;
 use std::ffi::CStr;
 use std::ptr::NonNull;
 

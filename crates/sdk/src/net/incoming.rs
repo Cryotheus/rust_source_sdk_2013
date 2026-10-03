@@ -12,11 +12,13 @@
 //! only once the engine's reported sizes, and pointers the engine keeps into
 //! its own messages, confirm the expected layout.
 
+use crate::NotThreadSafe;
 use crate::bitbuf::BitWriter;
-use crate::ffi::{NotThreadSafe, copy_cstr, cstring_from_buffer, vcall};
 use crate::interfaces::game_server::GameClient;
-use crate::rtti;
 use crate::server::{InterfaceError, Server, ServerBinding};
+use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
+use sdk_raw::util::rtti;
+use sdk_raw::vcall;
 use std::ffi::{CString, c_char, c_int, c_void};
 use std::marker::PhantomData;
 use std::mem::offset_of;
@@ -825,7 +827,7 @@ unsafe fn string<const N: usize>(base: *const u8, offset: usize) -> CString {
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::ffi::CStr;
 
 	/// The size of `CNetMessage` in mock messages. Every mock that decodes

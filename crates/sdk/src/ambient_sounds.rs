@@ -16,7 +16,7 @@
 //! game does.
 
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
-use crate::ffi::copy_cstr;
+use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::{CString, c_int};
 
 /// `MAX_PATH`, the length of the sound file name `CAmbientGeneric` keeps.

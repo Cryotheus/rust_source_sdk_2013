@@ -11,6 +11,7 @@ use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::item_generation::WeaponCreationFailed;
+use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
 
@@ -86,10 +87,9 @@ impl<'s> PlayerWeapons<'s> {
 		// The player owns this live weapon. RemovePlayerItem detaches and
 		// holsters it without immediately deleting either entity.
 		let removed = unsafe {
-			let vtable = player
-				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-				.read();
-			((*vtable).CTFPlayer_RemovePlayerItem)(player, weapon.entity.as_ptr().cast())
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_RemovePlayerItem(
+				weapon.entity.as_ptr().cast(),
+			))
 		};
 
 		if !removed {
@@ -131,10 +131,9 @@ impl<'s> PlayerWeapons<'s> {
 		// The live weapon is not in an inventory. Native equip updates inventory,
 		// ownership, and attribute providers through the generated TF2 vtable.
 		unsafe {
-			let vtable = player
-				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-				.read();
-			((*vtable).CTFPlayer_Weapon_Equip)(player, weapon.entity.as_ptr().cast());
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_Weapon_Equip(
+				weapon.entity.as_ptr().cast(),
+			));
 		}
 
 		if weapon.owner()? != Some(self.player.handle())
@@ -160,11 +159,9 @@ impl<'s> PlayerWeapons<'s> {
 		// generated virtual method scans its own inventory and returns a live
 		// weapon or null. The slot is a comparison value.
 		let raw = unsafe {
-			let vtable = player
-				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-				.read();
-
-			((*vtable).CTFPlayer_Weapon_GetSlot)(player, slot.into_weapon_slot())
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_Weapon_GetSlot(
+				slot.into_weapon_slot(),
+			))
 		};
 
 		NonNull::new(raw)
@@ -189,30 +186,25 @@ impl<'s> PlayerWeapons<'s> {
 		check_live(self.player)?;
 
 		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+
 		// SAFETY: `new` verified the primary CTFPlayer base. This generated
 		// overload takes a nullable CEconItemView and a force flag. Null requests
 		// native stock-item generation; force keeps the
 		// exact classname instead of translating it for the player's class. The
-		// caller vouches for the spawn/pickup path.
-		let give = unsafe {
-			let vtable = player
-				.cast::<*const sys::CTFPlayer__bindgen_vtable>()
-				.read();
-			(*vtable).CTFPlayer_GiveNamedItem1
-		};
-
-		// SAFETY: GiveNamedItem returns a newly created callback-live entity.
+		// caller vouches for the spawn/pickup path. GiveNamedItem returns a newly
+		// created callback-live entity.
 		unsafe {
 			self.give_with(
 				None,
 				|| {
-					NonNull::new(give(
-						player,
-						classname.as_ptr(),
-						subtype,
-						std::ptr::null(),
-						true,
-					))
+					NonNull::new(
+						vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_GiveNamedItem1(
+							classname.as_ptr(),
+							subtype,
+							std::ptr::null(),
+							true,
+						)),
+					)
 					.ok_or(WeaponError::CreationFailed)
 				},
 				|_| Ok(()),
@@ -606,10 +598,7 @@ impl<'s> Weapon<'s> {
 		// SAFETY: `new` established CTFWeaponBase's zero-offset primary entity
 		// base. The generated GetSlot entry leaves the weapon alive.
 		Ok(unsafe {
-			let vtable = weapon
-				.cast::<*const sys::CTFWeaponBase__bindgen_vtable>()
-				.read();
-			((*vtable).CTFWeaponBase_GetSlot)(weapon)
+			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetSlot())
 		})
 	}
 }
@@ -774,8 +763,8 @@ mod tests {
 	use super::*;
 	use crate::InterfaceFactory;
 	use crate::entities::test_support::{base_entity_fields, data_map, field};
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::tf2::attributes::{Multiplier, catalog, trust_shipped_schema};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::ffi::{c_char, c_void};
 	use std::mem::{offset_of, size_of};

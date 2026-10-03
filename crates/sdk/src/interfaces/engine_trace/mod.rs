@@ -1,7 +1,7 @@
 //! `IEngineTrace`, which traces rays and queries what the world contains.
 
-use crate::ffi::vcall;
 use crate::math::Vector;
+use sdk_raw::vcall;
 use std::ffi::c_int;
 use std::ptr;
 

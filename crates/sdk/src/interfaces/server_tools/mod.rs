@@ -1,10 +1,12 @@
 //! `IServerTools`, which enumerates and manipulates the server's entities.
 
+use crate::NotThreadSafe;
 use crate::entities::{Entity, EntityHandle, HammerId, ProtectedEntity, TeleportError};
-use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, cstring_from_buffer, vcall};
 use crate::inputs::{self, InputError, InputValue};
 use crate::math::{QAngle, Vector};
 use crate::server::{Game, Interface, Module, Server};
+use sdk_raw::util::cstr::{borrow_cstr, copy_cstr, cstring_from_buffer};
+use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_char, c_int};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
@@ -516,7 +518,7 @@ mod tests {
 		MockEntity, base_entity_fields, data_map, field, set_datamap,
 	};
 
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ptr::null_mut;
 

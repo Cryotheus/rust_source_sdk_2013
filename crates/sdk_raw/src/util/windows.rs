@@ -1,6 +1,7 @@
 use super::{Error, Image, MAX_IMAGE_BYTES, Section, pe};
-use std::ffi::c_void;
+use std::ffi::{CStr, c_char, c_void};
 use std::mem::MaybeUninit;
+use std::ptr::NonNull;
 
 const _: () = assert!(size_of::<MemoryInformation>() == 48);
 
@@ -91,7 +92,9 @@ impl Drop for Module {
 unsafe extern "system" {
 	fn FreeLibrary(module: *mut c_void) -> i32;
 	fn GetCurrentProcess() -> *mut c_void;
+	fn GetModuleHandleExA(flags: u32, name: *const c_char, module: *mut *mut c_void) -> i32;
 	fn GetModuleHandleExW(flags: u32, address: *const u16, module: *mut *mut c_void) -> i32;
+	fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
 
 	fn ReadProcessMemory(
 		process: *mut c_void,
@@ -158,6 +161,29 @@ pub(super) unsafe fn load(address: usize) -> Result<Image, Error> {
 	Ok(image)
 }
 
+/// The address of the export `name` of the already loaded library `library`,
+/// such as `tier0.dll`, or `None` if no library of that name is loaded or it
+/// does not export `name`. This never loads a library.
+///
+/// The library is kept loaded during the lookup only. The address is usable
+/// as a native pointer only while the library stays loaded, and only with the
+/// type the library exports it with.
+pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
+	let mut handle = std::ptr::null_mut();
+
+	// SAFETY: Without flags, this only finds a module that is already loaded,
+	// by name, and adds a loader reference to it; the output is valid.
+	if unsafe { GetModuleHandleExA(0, library.as_ptr(), &mut handle) } == 0 {
+		return None;
+	}
+
+	// Releases the reference when dropped, after the lookup.
+	let module = Module(handle);
+
+	// SAFETY: The reference keeps the module loaded during the lookup.
+	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -178,5 +204,12 @@ mod tests {
 		assert!(reader.copy(usize::MAX, 2).is_err());
 		assert!(is_executable(address));
 		assert!(!is_executable(bytes.as_ptr() as usize));
+	}
+
+	#[test]
+	fn symbols_are_found_only_in_loaded_libraries() {
+		assert!(loaded_symbol(c"kernel32.dll", c"GetCurrentProcess").is_some());
+		assert!(loaded_symbol(c"kernel32.dll", c"source_sdk_2013_raw_absent").is_none());
+		assert!(loaded_symbol(c"source_sdk_2013_raw_absent.dll", c"Msg").is_none());
 	}
 }

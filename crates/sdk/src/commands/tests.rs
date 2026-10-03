@@ -6,11 +6,11 @@ use super::variable::test_support::interface_of;
 use super::variable::{parse_float, parse_int};
 use super::*;
 use crate::edicts::test_support::mock_edict;
-use crate::ffi::test_support::{mock_vtable, unexpected_call};
-use crate::ffi::vcall;
 use crate::interfaces::{Cvar, ValveEngine};
 use crate::server::Module;
 use crate::server::test_support::{export, mock_binding, mock_server};
+use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+use sdk_raw::vcall;
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, c_void};
 use std::pin::Pin;
@@ -861,11 +861,11 @@ fn casts_to_the_engines_classes_fail() {
 	// information describes the whole variable from either table.
 	assert!(cast(object, (&raw const convar).cast(), type_info(), 0).is_null());
 	assert_eq!(
-		unsafe { crate::rtti::subobject_offset(object, "RustConsoleVariable") },
+		unsafe { sdk_raw::util::rtti::subobject_offset(object, "RustConsoleVariable") },
 		Some(0)
 	);
 	assert_eq!(
-		unsafe { crate::rtti::subobject_offset(interface, "RustConsoleVariable") },
+		unsafe { sdk_raw::util::rtti::subobject_offset(interface, "RustConsoleVariable") },
 		Some(48)
 	);
 }
@@ -950,11 +950,11 @@ fn casts_to_the_engines_classes_fail() {
 	}
 
 	assert_eq!(
-		unsafe { crate::rtti::subobject_offset(object, "RustConsoleVariable") },
+		unsafe { sdk_raw::util::rtti::subobject_offset(object, "RustConsoleVariable") },
 		Some(0)
 	);
 	assert_eq!(
-		unsafe { crate::rtti::subobject_offset(interface, "RustConsoleVariable") },
+		unsafe { sdk_raw::util::rtti::subobject_offset(interface, "RustConsoleVariable") },
 		Some(48)
 	);
 }

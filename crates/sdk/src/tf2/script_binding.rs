@@ -11,7 +11,7 @@
 //! borrows whatever storage the method returned it from.
 
 use crate::entities::Entity;
-use crate::ffi::{borrow_cstr, copy_cstr};
+use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use std::ffi::{CStr, CString, c_int, c_uint};
 use std::mem::{offset_of, size_of, transmute, zeroed};
 

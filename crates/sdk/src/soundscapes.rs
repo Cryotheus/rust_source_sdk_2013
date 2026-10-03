@@ -15,9 +15,9 @@
 
 use crate::datatables::NetPropError;
 use crate::entities::{Entity, data_field_offset, data_map_class};
-use crate::ffi::copy_cstr;
 use crate::interfaces::ServerTools;
 use crate::server::{InterfaceError, Server};
+use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::{CStr, CString, c_int};
 use std::num::NonZero;
 

@@ -2,7 +2,7 @@
 
 use crate::edicts::Edict;
 use crate::entities::Entity;
-use crate::ffi::vcall;
+use sdk_raw::vcall;
 use std::ptr::NonNull;
 
 interface! {

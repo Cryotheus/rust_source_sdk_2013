@@ -1,8 +1,10 @@
 //! The engine's edict table, which pairs each networked entity with an index.
 
+use crate::NotThreadSafe;
 use crate::entities::Entity;
-use crate::ffi::{NotThreadSafe, borrow_cstr, vcall};
 use crate::interfaces::ValveEngine;
+use sdk_raw::util::cstr::borrow_cstr;
+use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -262,7 +264,7 @@ pub(crate) mod test_support {
 mod tests {
 	use super::test_support::mock_edict;
 	use super::*;
-	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::ptr::null_mut;
 

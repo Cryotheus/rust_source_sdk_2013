@@ -1,6 +1,6 @@
 //! `IVoiceServer`, which routes voice between clients.
 
-use crate::ffi::vcall;
+use sdk_raw::vcall;
 use std::ffi::c_int;
 
 interface! {

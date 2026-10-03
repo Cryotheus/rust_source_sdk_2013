@@ -44,15 +44,12 @@ pub mod commands;
 pub mod datatables;
 pub mod edicts;
 pub mod entities;
-mod ffi;
 pub mod inputs;
 pub mod interfaces;
 pub mod math;
 pub mod net;
 pub mod players;
-mod rtti;
 pub mod server;
-pub mod sigscan;
 pub mod soundscapes;
 mod tier0;
 pub mod user_messages;
@@ -61,8 +58,15 @@ pub mod user_messages;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod tf2;
 
+use std::marker::PhantomData;
+
 pub use sdk_raw as raw;
 pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
 
 /// The raw Source SDK bindings this crate wraps.
 pub use sys;
+
+/// Makes a type `!Send` and `!Sync`.
+///
+/// Engine state may only be touched from the server's main thread.
+pub(crate) type NotThreadSafe = PhantomData<*mut ()>;
