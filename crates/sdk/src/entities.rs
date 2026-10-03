@@ -228,7 +228,7 @@ impl<'s> Entity<'s> {
 	}
 
 	/// Finds the offset of a field `CBaseEntity`'s own map declares.
-	fn find_base_entity_field(
+	pub(crate) fn find_base_entity_field(
 		self,
 		name: &CStr,
 		field_type: sys::fieldtype_t,

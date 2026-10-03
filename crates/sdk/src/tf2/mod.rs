@@ -19,3 +19,4 @@ pub mod user_messages;
 pub mod voice;
 pub mod voting;
 pub mod weapons;
+pub mod wearables;
