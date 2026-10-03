@@ -25,6 +25,10 @@ pub const DOWNLOADABLES: &CStr = c"downloadables";
 /// `INVALID_STRING_INDEX` from `public/networkstringtabledefs.h`.
 const INVALID_STRING_INDEX: c_int = u16::MAX as c_int;
 
+/// The name of the table listing the precached sounds, which clients load
+/// before playing them.
+pub const SOUND_PRECACHE: &CStr = c"soundprecache";
+
 interface! {
 	/// The string tables the server replicates to clients (`INetworkStringTableContainer`).
 	#[doc(alias = "INetworkStringTableContainer")]
@@ -221,6 +225,22 @@ impl<'s> NetworkStringTables<'s> {
 		self.len() == 0
 	}
 
+	/// Whether a sample, such as `vo/scout_thanks01.mp3`, is in the
+	/// [`SOUND_PRECACHE`] table, which the engine plays sounds from.
+	///
+	/// The sample must be spelled as it was precached, including any of the
+	/// engine's leading sound characters. Unlike the engine's own
+	/// [`EngineSound::is_sound_precached`], which TF2's 64-bit engine answers
+	/// `true` for any sample, this reads the table the engine looks samples up
+	/// in. `false` if the level has no such table.
+	///
+	/// [`EngineSound::is_sound_precached`]: crate::interfaces::EngineSound::is_sound_precached
+	#[doc(alias = "IsSoundPrecached")]
+	pub fn is_sound_precached(self, sample: &CStr) -> bool {
+		self.find(SOUND_PRECACHE)
+			.is_some_and(|table| table.find(sample).is_some())
+	}
+
 	/// The number of tables, which bounds the IDs [`Self::get`] takes.
 	#[doc(alias = "GetNumTables")]
 	pub fn len(self) -> usize {
@@ -356,6 +376,9 @@ mod tests {
 		/// What the mock container's `FindTable` returns.
 		static FOUND_TABLE: Cell<*mut sys::INetworkStringTable> = const { Cell::new(null_mut()) };
 
+		/// The strings the mock table's `FindStringIndex` finds, by index.
+		static KNOWN_STRINGS: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
+
 		/// Every engine and state passed to the mock engine's
 		/// `LockNetworkStringTables`, in order.
 		static LOCK_REQUESTS: RefCell<Vec<(*mut sys::IVEngineServer, bool)>> =
@@ -443,6 +466,20 @@ mod tests {
 		FIND_REQUESTS.with_borrow(Clone::clone)
 	}
 
+	unsafe extern "C" fn find_string_index(
+		_: *mut sys::INetworkStringTable,
+		string: *const c_char,
+	) -> c_int {
+		let string = unsafe { CStr::from_ptr(string) };
+
+		KNOWN_STRINGS.with_borrow(|known| {
+			known
+				.iter()
+				.position(|known| known.as_c_str() == string)
+				.map_or(INVALID_STRING_INDEX, |index| index as c_int)
+		})
+	}
+
 	unsafe extern "C" fn find_table(
 		this: *const sys::INetworkStringTableContainer,
 		name: *const c_char,
@@ -513,6 +550,8 @@ mod tests {
 				unexpected_call as *const (),
 				|vtable| {
 					(&raw mut (*vtable).INetworkStringTable_AddString).write(add_string);
+					(&raw mut (*vtable).INetworkStringTable_FindStringIndex)
+						.write(find_string_index);
 				},
 			)
 		};
@@ -522,6 +561,25 @@ mod tests {
 		});
 
 		(vtable, table)
+	}
+
+	#[test]
+	fn precached_sounds_are_found_in_the_sound_precache_table() {
+		let mut mocks = Mocks::exported();
+		let scope = ();
+		let tables = mock_server(&scope).network_string_tables().unwrap();
+
+		// A level without the table has no precached sounds.
+		assert!(!tables.is_sound_precached(c"vo/scout_thanks01.mp3"));
+
+		FOUND_TABLE.set(&raw mut *mocks.table);
+		KNOWN_STRINGS.set(vec![c"vo/scout_thanks01.mp3".to_owned()]);
+
+		assert!(tables.is_sound_precached(c"vo/scout_thanks01.mp3"));
+		assert!(!tables.is_sound_precached(c"vo/does_not_exist.wav"));
+		assert!(find_requests().iter().all(|(container, name)| *container
+			== &raw const *mocks.container
+			&& name.as_c_str() == SOUND_PRECACHE));
 	}
 
 	#[test]

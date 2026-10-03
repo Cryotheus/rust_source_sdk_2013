@@ -10,7 +10,7 @@ use crate::entities::Entity;
 use crate::ffi::vcall;
 use crate::math::Vector;
 use crate::user_messages::{RecipientFilter, Recipients};
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, c_char, c_int};
 use std::num::NonZero;
 use std::ptr::{self, null_mut};
 
@@ -251,10 +251,6 @@ pub enum SoundError {
 	/// The source or speaker has no edict, so no client knows it.
 	#[error("the entity is not networked, so no client knows it")]
 	NotNetworked,
-
-	/// The sample is not in the precache table, so clients cannot load it.
-	#[error("the sound {0:?} is not precached")]
-	NotPrecached(CString),
 }
 
 /// The `SND_*` flags a sound is emitted with, from `public/soundflags.h`.
@@ -463,9 +459,11 @@ impl<'s> EngineSound<'s> {
 	/// never hear the sound, and never relay or swallow it.
 	///
 	/// The sample is a path under `sound/`, such as `vo/scout_thanks01.mp3`,
-	/// which must be [precached](Self::precache_sound). Sound script names,
-	/// such as `Scout.Thanks01`, are not resolved here. The engine skips the
-	/// recipients no client owns, and fake clients.
+	/// which must be [precached](Self::precache_sound). The engine drops a
+	/// sample that is not, and prints `SV_StartSound: <sample> not precached`;
+	/// [`NetworkStringTables::is_sound_precached`] tells beforehand. Sound
+	/// script names, such as `Scout.Thanks01`, are not resolved here. The
+	/// engine skips the recipients no client owns, and fake clients.
 	///
 	/// The emission is checked before anything else, so an empty `recipients`
 	/// returns the same errors as any other. Once it passes, an empty
@@ -476,8 +474,11 @@ impl<'s> EngineSound<'s> {
 	///
 	/// The engine is given no vector to append the sound's actual origins to
 	/// (`pUtlVecOrigins`). Null is the header's default, but every caller in
-	/// the game passes a vector, and a live server has not yet confirmed that
-	/// the engine accepts null.
+	/// the game passes a vector. TF2's 64-bit Windows server accepted null for
+	/// emissions to fake clients, which it does not send; emissions a real
+	/// client receives are not yet confirmed.
+	///
+	/// [`NetworkStringTables::is_sound_precached`]: crate::interfaces::NetworkStringTables::is_sound_precached
 	#[doc(alias = "EmitSound")]
 	pub fn emit_sound(
 		self,
@@ -496,10 +497,6 @@ impl<'s> EngineSound<'s> {
 			sound_time,
 			speaker,
 		} = *emission;
-
-		if !self.is_sound_precached(sample) {
-			return Err(SoundError::NotPrecached(sample.to_owned()));
-		}
 
 		let entity = source.to_raw()?;
 		let speaker = match speaker {
@@ -549,7 +546,13 @@ impl<'s> EngineSound<'s> {
 		Ok(())
 	}
 
-	/// Whether a sound is in the precache table.
+	/// What the engine answers when asked whether a sound is in the precache
+	/// table.
+	///
+	/// TF2's 64-bit engine answers `true` for samples it has not precached, so
+	/// use [`NetworkStringTables::is_sound_precached`] instead.
+	///
+	/// [`NetworkStringTables::is_sound_precached`]: crate::interfaces::NetworkStringTables::is_sound_precached
 	#[doc(alias = "IsSoundPrecached")]
 	pub fn is_sound_precached(self, sample: &CStr) -> bool {
 		// SAFETY: As for `precache_sound`.
@@ -586,7 +589,8 @@ impl<'s> EngineSound<'s> {
 	/// engine call the game's `CBaseEntity::StopSound` makes.
 	///
 	/// To stop it for only some clients, emit it to them with
-	/// [`SoundFlags::STOP`] instead.
+	/// [`SoundFlags::STOP`] instead. The engine ignores a sample that is not
+	/// precached.
 	#[doc(alias = "StopSound")]
 	pub fn stop_sound(
 		self,
@@ -594,10 +598,6 @@ impl<'s> EngineSound<'s> {
 		channel: Channel,
 		sample: &CStr,
 	) -> Result<(), SoundError> {
-		if !self.is_sound_precached(sample) {
-			return Err(SoundError::NotPrecached(sample.to_owned()));
-		}
-
 		let entity = source.to_raw()?;
 
 		// SAFETY: As for `precache_sound`. The engine only reads the sample
@@ -627,6 +627,7 @@ mod tests {
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
 	use crate::user_messages::test_support::recipients;
 	use std::cell::{Cell, RefCell};
+	use std::ffi::CString;
 	use std::ptr::NonNull;
 
 	thread_local! {
@@ -947,23 +948,6 @@ mod tests {
 			}),
 			Err(SoundError::NotFinite)
 		);
-
-		PRECACHED.set(false);
-
-		assert_eq!(
-			emit(world),
-			Err(SoundError::NotPrecached(sample.to_owned()))
-		);
-		assert_eq!(
-			sound.emit_sound(&Recipients::new(), &world),
-			Err(SoundError::NotPrecached(sample.to_owned()))
-		);
-		assert_eq!(
-			sound.stop_sound(SoundSource::World, Channel::AUTO, sample),
-			Err(SoundError::NotPrecached(sample.to_owned()))
-		);
-
-		PRECACHED.set(true);
 
 		// Valid, but nobody would hear it.
 		assert_eq!(sound.emit_sound(&Recipients::new(), &world), Ok(()));
