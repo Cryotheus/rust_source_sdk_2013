@@ -136,22 +136,3 @@ impl ContextKey {
 pub fn cached_context_key() -> Option<ContextKey> {
 	STATE.with(|state| state.get().key)
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn nested_caches_release_the_key_at_zero_depth() {
-		let plugin = NonNull::<c_void>::dangling();
-		let key = ContextKey::new(plugin, 1);
-		let outer = CachedContext::new(12, key);
-		assert_eq!(cached_context_key(), Some(key));
-		let inner = outer.clone();
-		assert_eq!(*inner, 12);
-		drop(inner);
-		assert_eq!(cached_context_key(), Some(key));
-		drop(outer);
-		assert_eq!(cached_context_key(), None);
-	}
-}

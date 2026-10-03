@@ -60,7 +60,8 @@ mod site;
 mod sourcehook;
 
 #[cfg(test)]
-pub(crate) mod tests;
+#[path = "../tests/hook.rs"]
+mod tests;
 
 use crate::MetamodApi;
 use crate::sys::sourcehook::{ISourceHook, MetaRes};

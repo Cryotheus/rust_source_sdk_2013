@@ -18,6 +18,10 @@ mod server_hooks;
 #[cfg(feature = "tf2")]
 mod vote_hooks;
 
+#[cfg(test)]
+#[path = "tests/support/mod.rs"]
+mod test_support;
+
 pub use api::{
 	LoaderVersionInfo, MetamodApi, MetamodApiBinding, MetamodFeature, MetamodVersion,
 	SourceHookVersions, UnsupportedFeature,

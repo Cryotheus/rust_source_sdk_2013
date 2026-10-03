@@ -150,22 +150,3 @@ macro_rules! plugin_meta {
 		}
 	};
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn error_buffer_initializes_and_terminates_uninitialized_memory() {
-		let mut storage = [MaybeUninit::<c_char>::uninit(); 5];
-		let lifetime = ();
-		let mut buffer =
-			unsafe { ErrorBuffer::from_raw(storage.as_mut_ptr().cast(), storage.len(), &lifetime) };
-
-		buffer.write(c"longer than the buffer");
-
-		let initialized = storage.map(|byte| unsafe { byte.assume_init() as u8 });
-
-		assert_eq!(&initialized, b"long\0");
-	}
-}

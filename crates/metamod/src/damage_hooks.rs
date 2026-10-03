@@ -6,6 +6,10 @@
 //! removed or the plugin unloads. As with other Metamod hooks, they stop
 //! calling handlers while the plugin is paused.
 
+#[cfg(test)]
+#[path = "tests/damage_hooks.rs"]
+mod tests;
+
 use crate::MetamodApi;
 
 use crate::hook::{
@@ -233,99 +237,6 @@ unsafe fn dispatch(
 			// call. The Server contract guarantees only deferred removal.
 			let result = unsafe { original(victim.as_ptr(), event.info.as_ptr()) };
 			HookAction::Supersede(result)
-		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use source_sdk_2013::InterfaceFactory;
-	use source_sdk_2013::tf2::damage::{DamageInfo, DamageType};
-	use std::ffi::c_char;
-	use std::mem::{MaybeUninit, offset_of, size_of};
-
-	thread_local! { static CALLS: Cell<usize> = const { Cell::new(0) }; }
-
-	#[test]
-	fn changed_damage_reaches_original_once_without_overwriting_source() {
-		let (action, calls) = probe(|_, _, event| {
-			event.info.set_amount(37.0);
-			DamageAction::Apply
-		});
-		assert_eq!(action, HookAction::Supersede(37));
-		assert_eq!(calls, 1);
-	}
-
-	#[test]
-	fn ignored_edits_and_blocking_do_not_call_original() {
-		let (action, calls) = probe(|_, _, event| {
-			event.info.set_amount(37.0);
-			DamageAction::Continue
-		});
-		assert_eq!(action, HookAction::Ignore);
-		assert_eq!(calls, 0);
-		assert_eq!(
-			probe(|_, _, _| DamageAction::Block),
-			(HookAction::Supersede(0), 0)
-		);
-	}
-
-	unsafe extern "C" fn no_interfaces(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		std::ptr::null_mut()
-	}
-
-	unsafe extern "C" fn original(
-		_: *mut sys::CBaseEntity,
-		info: *const sys::CTakeDamageInfo,
-	) -> c_int {
-		CALLS.with(|calls| calls.set(calls.get() + 1));
-		// SAFETY: The test dispatch supplies a constructed local damage record.
-		unsafe { (&raw const (*info).m_flDamage).read() as c_int }
-	}
-
-	fn probe(callback: DamageFn) -> (HookAction<c_int>, usize) {
-		CALLS.with(|calls| calls.set(0));
-		let scope = ();
-		let factory = InterfaceFactory::new(no_interfaces);
-		// SAFETY: These tests exercise no engine interface; their only virtual
-		// call is the explicit mock original below, within this stack scope.
-		let server = unsafe { Server::new(factory, factory, Game::TeamFortress2, &scope) };
-		let mut victim = MaybeUninit::<sys::CBaseEntity>::zeroed();
-		let info = DamageInfo::new(11.0, DamageType::BULLET);
-		// SAFETY: Both allocations live through dispatch. The mock original
-		// and callbacks never dereference the mock entity or call its methods.
-		let action = unsafe {
-			dispatch(
-				server,
-				DamageStage::Incoming,
-				original,
-				callback,
-				NonNull::new(victim.as_mut_ptr()).unwrap(),
-				NonNull::new(info.as_ptr().cast_mut()).unwrap(),
-			)
-		};
-		assert_eq!(
-			info.amount(),
-			11.0,
-			"a const source record must never be overwritten"
-		);
-		(action, CALLS.with(Cell::get))
-	}
-
-	#[test]
-	fn stages_hook_the_generated_player_damage_slots() {
-		for (stage, offset) in [
-			(
-				DamageStage::Incoming,
-				offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage),
-			),
-			(
-				DamageStage::Alive,
-				offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage_Alive),
-			),
-		] {
-			assert_eq!(stage.function().index(), offset / size_of::<usize>());
 		}
 	}
 }

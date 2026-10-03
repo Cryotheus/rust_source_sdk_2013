@@ -373,7 +373,7 @@ pub(super) fn on_main_thread() -> bool {
 /// What the shell reports of the plugin.
 fn plugin_status(api_version: c_int) -> PluginStatus {
 	#[cfg(test)]
-	if let Some(status) = super::tests::plugin_status() {
+	if let Some(status) = crate::test_support::harness::plugin_status() {
 		return status;
 	}
 

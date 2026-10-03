@@ -1,5 +1,9 @@
 //! TF2 vote creation gates, through Metamod's managed virtual hooks.
 
+#[cfg(test)]
+#[path = "tests/vote_hooks.rs"]
+mod tests;
+
 use crate::MetamodApi;
 
 use crate::hook::{
@@ -206,79 +210,6 @@ unsafe fn dispatch(
 				time.write(-1);
 			}
 			HookAction::Supersede(false)
-		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use source_sdk_2013::raw::tf2::voting::DEDICATED_SERVER;
-	use source_sdk_2013::{Game, InterfaceFactory};
-	use std::ffi::{c_char, c_void};
-
-	struct Policy;
-
-	impl VoteStartHandler for Policy {
-		fn vote_start(&self, _: Server<'_>, request: VoteRequest<'_>) -> VoteDecision {
-			assert_eq!(request.caller_entity_index, DEDICATED_SERVER);
-			assert!(request.is_server_request());
-			assert_eq!(request.details, c"test");
-			if request.issue == VoteIssue::RestartGame {
-				VoteDecision::Block
-			} else {
-				VoteDecision::Allow
-			}
-		}
-	}
-
-	#[test]
-	fn every_builtin_issue_has_exactly_one_gate() {
-		for issue in VoteIssue::ALL {
-			assert_eq!(
-				ROUTES.iter().filter(|route| route.issue == issue).count(),
-				1
-			);
-		}
-	}
-
-	unsafe extern "C" fn factory(_: *const c_char, _: *mut c_int) -> *mut c_void {
-		std::ptr::null_mut()
-	}
-
-	#[test]
-	fn veto_supersedes_with_failure_and_allow_preserves_game_outputs() {
-		let scope = ();
-		// SAFETY: The callback only inspects owned request data. No engine
-		// interfaces or entity operations are reachable through this fixture.
-		let server = unsafe {
-			Server::new(
-				InterfaceFactory::new(factory),
-				InterfaceFactory::new(factory),
-				Game::TeamFortress2,
-				&scope,
-			)
-		};
-		for (issue, expected, expected_outputs) in [
-			(
-				VoteIssue::RestartGame,
-				HookAction::Supersede(false),
-				(0, -1),
-			),
-			(VoteIssue::NextLevel, HookAction::Ignore, (25, 42)),
-		] {
-			let (mut failure, mut time) = (25, 42);
-			let request = VoteRequest {
-				issue,
-				caller_entity_index: DEDICATED_SERVER,
-				details: c"test",
-			};
-			// SAFETY: These two stack outputs remain allocated for the call.
-			assert_eq!(
-				unsafe { dispatch(server, request, &Policy, &mut failure, &mut time) },
-				expected
-			);
-			assert_eq!((failure, time), expected_outputs);
 		}
 	}
 }
