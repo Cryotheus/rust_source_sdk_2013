@@ -67,9 +67,12 @@ impl UserMessage for RawUserMessage<'_> {
 }
 
 /// A [`Recipients`] with the layout of an `IRecipientFilter`, which the engine
-/// calls through its vtable while it sends a message.
+/// calls through its vtable while it sends a message or sound.
+///
+/// Only the interface's virtual methods are implemented, so it must not be
+/// given to game code that casts it to the game's `CRecipientFilter`.
 #[repr(C)]
-struct RecipientFilter<'a> {
+pub(crate) struct RecipientFilter<'a> {
 	vtable: &'static RecipientFilterVtable,
 	recipients: &'a Recipients,
 }
@@ -85,7 +88,7 @@ impl<'a> RecipientFilter<'a> {
 	};
 
 	/// A filter that lends `recipients` to the engine for as long as it lives.
-	fn new(recipients: &'a Recipients) -> Self {
+	pub(crate) fn new(recipients: &'a Recipients) -> Self {
 		Self {
 			vtable: &Self::VTABLE,
 			recipients,
@@ -130,7 +133,7 @@ impl<'a> RecipientFilter<'a> {
 
 	/// The filter as the `IRecipientFilter` the engine takes, valid while it
 	/// lives.
-	fn as_raw(&self) -> *mut sys::IRecipientFilter {
+	pub(crate) fn as_raw(&self) -> *mut sys::IRecipientFilter {
 		// The engine only reads through the pointer.
 		(&raw const *self).cast_mut().cast()
 	}
@@ -147,10 +150,13 @@ struct RecipientFilterVtable {
 	recipient_index: unsafe extern "C" fn(this: *const sys::IRecipientFilter, slot: c_int) -> c_int,
 }
 
-/// The clients a user message goes to, by player index, for the engine's
-/// `IRecipientFilter`.
+/// The clients a user message or sound goes to, by player index, for the
+/// engine's `IRecipientFilter`.
 ///
 /// The engine skips indices no client in the game owns, and fake clients.
+///
+/// [`EngineSound::emit_sound`](crate::interfaces::EngineSound::emit_sound)
+/// sends sounds to them too.
 #[doc(alias = "IRecipientFilter")]
 #[doc(alias = "CRecipientFilter")]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -202,6 +208,41 @@ impl Recipients {
 		recipients
 	}
 
+	/// Every player on a team, by the team index the game reports for the
+	/// player of each slot up to the client limit, such as 2 and 3 for TF2's
+	/// RED and BLU.
+	///
+	/// A client that is still connecting has no player yet, so it is left out
+	/// until the game creates one. A player that has not joined a team yet is
+	/// on `TEAM_UNASSIGNED` (0), and spectators are on `TEAM_SPECTATOR` (1),
+	/// from `game/shared/shareddefs.h`. Bots on the team are included, as in
+	/// [`all_players`](Self::all_players), though the engine sends them
+	/// nothing. Unlike the game's `CTeamRecipientFilter`, spectators watching
+	/// a player on the team are not added.
+	///
+	/// Fails if the engine or the player info manager is missing.
+	#[doc(alias = "CTeamRecipientFilter")]
+	pub fn team(server: Server<'_>, team: c_int) -> Result<Self, InterfaceError> {
+		let engine = server.valve_engine()?;
+		let players = server.player_info_manager()?;
+		let max_clients = players
+			.global_vars()
+			.map_or(0, |globals| globals.max_clients());
+		let mut recipients = Self::new();
+
+		for index in 1..=max_clients {
+			if let Some(edict) = engine.edict_of_index(index)
+				&& players
+					.player_info(edict)
+					.is_some_and(|player| player.team() == team)
+			{
+				recipients.add(edict);
+			}
+		}
+
+		Ok(recipients)
+	}
+
 	/// Adds a client, once.
 	#[doc(alias = "AddRecipient")]
 	pub fn add(&mut self, client: Edict<'_>) {
@@ -223,12 +264,26 @@ impl Recipients {
 		self.players.len()
 	}
 
+	/// The player index of each client, in the order they were added.
+	#[doc(alias = "GetRecipientIndex")]
+	pub fn players(&self) -> &[c_int] {
+		&self.players
+	}
+
 	/// Sends the message in each client's reliable stream, in order with the
 	/// other reliable messages, instead of dropping it when the packet is full.
 	#[doc(alias = "MakeReliable")]
 	pub fn reliable(mut self) -> Self {
 		self.reliable = true;
 		self
+	}
+
+	/// Removes a client, if it was added, keeping the others in order.
+	#[doc(alias = "RemoveRecipient")]
+	pub fn remove(&mut self, client: Edict<'_>) {
+		let index = client.index();
+
+		self.players.retain(|&player| player != index);
 	}
 }
 
@@ -398,8 +453,110 @@ pub fn send_entity_message(
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+	use super::*;
+
+	/// Recipients with exactly these player indices, in order.
+	pub(crate) fn recipients(players: &[c_int], reliable: bool) -> Recipients {
+		Recipients {
+			players: players.to_vec(),
+			reliable,
+		}
+	}
+}
+
+#[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::edicts::test_support::mock_edict;
+	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use crate::interfaces::{PlayerInfoManager, ValveEngine};
+	use crate::server::Module;
+	use crate::server::test_support::{export, mock_server};
+	use std::cell::Cell;
+	use std::mem::MaybeUninit;
+	use std::ptr::null_mut;
+
+	thread_local! {
+		static GLOBALS: Cell<*mut sys::CGlobalVars> = const { Cell::new(null_mut()) };
+		static TABLE: Cell<(*mut sys::edict_t, usize)> = const { Cell::new((null_mut(), 0)) };
+		static PLAYERS: Cell<*const [*mut MockPlayer]> =
+			const { Cell::new(std::ptr::slice_from_raw_parts(std::ptr::null(), 0)) };
+	}
+
+	/// A player's `IPlayerInfo`, which reports the team it was made with.
+	#[repr(C)]
+	struct MockPlayer {
+		interface: sys::IPlayerInfo,
+		team: c_int,
+	}
+
+	unsafe extern "C" fn edict_of_index(
+		_: *mut sys::IVEngineServer,
+		index: c_int,
+	) -> *mut sys::edict_t {
+		let (table, len) = TABLE.get();
+
+		match usize::try_from(index) {
+			// SAFETY: The slot lies within the table.
+			Ok(slot) if slot < len => unsafe { table.add(slot) },
+			_ => null_mut(),
+		}
+	}
+
+	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
+		GLOBALS.get()
+	}
+
+	unsafe extern "C" fn player_info(
+		_: *mut sys::IPlayerInfoManager,
+		edict: *mut sys::edict_t,
+	) -> *mut sys::IPlayerInfo {
+		// SAFETY: The wrapper passes an edict of the mock table, and the players
+		// are leaked.
+		unsafe {
+			let index = (*edict)._base.m_EdictIndex;
+
+			usize::try_from(index)
+				.ok()
+				.and_then(|index| (&*PLAYERS.get()).get(index))
+				.map_or(null_mut(), |&player| player.cast())
+		}
+	}
+
+	unsafe extern "C" fn team_index(this: *mut sys::IPlayerInfo) -> c_int {
+		// SAFETY: Every player info the mock returns is a `MockPlayer`.
+		unsafe { (*this.cast::<MockPlayer>()).team }
+	}
+
+	#[test]
+	fn clients_are_added_and_removed_once() {
+		let mut table = [
+			mock_edict(0, false),
+			mock_edict(1, false),
+			mock_edict(2, false),
+		];
+		let base = table.as_mut_ptr();
+		// SAFETY: The table outlives every handle.
+		let edict = |slot: usize| unsafe { Edict::from_raw(NonNull::new(base.add(slot)).unwrap()) };
+		let mut recipients = Recipients::new();
+
+		recipients.add(edict(2));
+		recipients.add(edict(1));
+		recipients.add(edict(2));
+		assert_eq!(recipients.players(), [2, 1]);
+		assert_eq!(recipients.len(), 2);
+
+		recipients.remove(edict(0));
+		assert_eq!(recipients.players(), [2, 1]);
+
+		recipients.remove(edict(2));
+		assert_eq!(recipients.players(), [1]);
+
+		recipients.remove(edict(1));
+		assert!(recipients.is_empty());
+		assert_eq!(Recipients::player(edict(1)).players(), [1]);
+	}
 
 	#[test]
 	fn filters_report_their_recipients_through_the_vtable() {
@@ -422,5 +579,82 @@ mod tests {
 			assert_eq!(((*vtable).IRecipientFilter_GetRecipientIndex)(raw, 2), -1);
 			assert_eq!(((*vtable).IRecipientFilter_GetRecipientIndex)(raw, -1), -1);
 		}
+	}
+
+	#[test]
+	fn teams_are_the_players_reporting_them() {
+		// SAFETY: The vtables hold only function pointers.
+		let (player_vtable, engine_vtable, manager_vtable) = unsafe {
+			(
+				mock_vtable::<sys::IPlayerInfo__bindgen_vtable>(
+					unexpected_call as *const (),
+					|vtable| (&raw mut (*vtable).IPlayerInfo_GetTeamIndex).write(team_index),
+				),
+				mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
+					unexpected_call as *const (),
+					|vtable| {
+						(&raw mut (*vtable).IVEngineServer_PEntityOfEntIndex).write(edict_of_index);
+					},
+				),
+				mock_vtable::<sys::IPlayerInfoManager__bindgen_vtable>(
+					unexpected_call as *const (),
+					|vtable| {
+						(&raw mut (*vtable).IPlayerInfoManager_GetGlobalVars).write(global_vars);
+						(&raw mut (*vtable).IPlayerInfoManager_GetPlayerInfo).write(player_info);
+					},
+				),
+			)
+		};
+		let player = |team| {
+			Box::into_raw(Box::new(MockPlayer {
+				interface: sys::IPlayerInfo {
+					vtable_: &raw const *player_vtable,
+				},
+				team,
+			}))
+		};
+
+		// Slot 3 is a client still connecting, which has no player, slot 5 is
+		// free, and slot 6 lies past the client limit.
+		let players = vec![
+			null_mut(),
+			player(2),
+			player(3),
+			null_mut(),
+			player(2),
+			player(2),
+			player(2),
+		];
+		let mut table = [0, 1, 2, 3, 4, 5, 6].map(|index| mock_edict(index, index == 5));
+		let mut globals = MaybeUninit::<sys::CGlobalVars>::zeroed();
+
+		// SAFETY: The globals are zeroed, which is valid for every field.
+		unsafe { (&raw mut (*globals.as_mut_ptr())._base.maxClients).write(5) };
+		GLOBALS.set(globals.as_mut_ptr());
+		TABLE.set((table.as_mut_ptr(), table.len()));
+		PLAYERS.set(Vec::leak(players));
+
+		let mut engine = sys::IVEngineServer {
+			vtable_: &raw const *engine_vtable,
+		};
+		let mut manager = sys::IPlayerInfoManager {
+			vtable_: &raw const *manager_vtable,
+		};
+
+		export(Module::Engine, ValveEngine::VERSION, &raw mut engine);
+		export(
+			Module::GameServer,
+			PlayerInfoManager::VERSION,
+			&raw mut manager,
+		);
+
+		let scope = ();
+		let server = mock_server(&scope);
+		let team = |team| Recipients::team(server, team).unwrap();
+
+		assert_eq!(team(2).players(), [1, 4]);
+		assert_eq!(team(3).players(), [2]);
+		assert!(team(0).is_empty());
+		assert!(!team(2).reliable);
 	}
 }
