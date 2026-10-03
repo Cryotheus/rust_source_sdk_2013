@@ -21,6 +21,9 @@ use std::ptr::NonNull;
 pub type CreateInterfaceFn =
 	unsafe extern "C" fn(name: *const c_char, return_code: *mut c_int) -> *mut c_void;
 
+// The generated binding is this signature, made nullable.
+const _: fn(CreateInterfaceFn) -> sys::CreateInterfaceFn = Some;
+
 /// Asks `factory` for the interface exported under `name`, such as
 /// `VEngineServer023`, or returns `None` if the factory's module does not
 /// export it.

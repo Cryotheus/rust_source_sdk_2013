@@ -174,7 +174,9 @@ impl<'s> ItemLayout<'s> {
 				.read()
 				.cast::<sys::CAttributeContainer>();
 
-			vcall!(container as sys::CAttributeContainer__bindgen_vtable => CAttributeContainer_OnAttributeValuesChanged());
+			type Vtable = sys::CAttributeContainer__bindgen_vtable;
+
+			vcall!(container as Vtable => CAttributeContainer_OnAttributeValuesChanged());
 		}
 
 		Ok(())

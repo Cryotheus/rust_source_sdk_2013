@@ -301,7 +301,10 @@ pub unsafe fn dynamic_type<'a>(object: *const c_void) -> Option<(isize, &'a CStr
 
 	// SAFETY: The name is a string in the image, which the caller keeps
 	// loaded for `'a`.
-	(!name.is_null()).then(|| (-offset_to_top, unsafe { CStr::from_ptr(name) }))
+	let offset = offset_to_top.checked_neg()?;
+
+	// SAFETY: As above.
+	(!name.is_null()).then(|| (offset, unsafe { CStr::from_ptr(name) }))
 }
 
 /// Whether `decorated`, a class name as [`dynamic_type`] returns it, names

@@ -79,8 +79,8 @@ mod tests {
 		assert!(unsafe { borrow_cstr(std::ptr::null()) }.is_none());
 		// SAFETY: As above.
 		assert!(unsafe { copy_cstr(std::ptr::null()) }.is_none());
-		// SAFETY: The literal is NUL-terminated and static.
 		assert_eq!(
+			// SAFETY: The literal is NUL-terminated and static.
 			unsafe { copy_cstr(c"cp_dustbowl".as_ptr()) }.as_deref(),
 			Some(c"cp_dustbowl")
 		);

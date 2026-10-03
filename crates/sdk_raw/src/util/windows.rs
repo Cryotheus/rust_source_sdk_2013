@@ -81,7 +81,8 @@ impl Module {
 
 impl Drop for Module {
 	fn drop(&mut self) {
-		// SAFETY: Balances exactly the loader reference acquired by Module::at.
+		// SAFETY: Balances exactly the one loader reference taken when this
+		// Module was made, by Module::at or loaded_symbol.
 		unsafe {
 			FreeLibrary(self.0);
 		}

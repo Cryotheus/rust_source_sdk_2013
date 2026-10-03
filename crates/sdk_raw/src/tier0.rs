@@ -2,9 +2,9 @@
 //! values from its headers.
 //!
 //! tier0 is the engine's base library, which every other Source module links
-//! against. It is loaded before them and unloaded after them, so an export
-//! found while it is loaded stays callable for as long as any module that
-//! uses this crate is.
+//! against. It is loaded before them and unloaded after them, so inside a
+//! Source process an export found while it is loaded stays callable for as
+//! long as any module that uses this crate is.
 
 use crate::util::loaded_symbol;
 use std::ffi::{CStr, c_char, c_void};
@@ -59,13 +59,19 @@ pub fn msg() -> Option<MsgFn> {
 /// not loaded.
 ///
 /// The message is printed as is, never interpreted as a format.
-pub fn print(message: &CStr) -> bool {
+///
+/// # Safety
+///
+/// Any loaded tier0 library must be the Source engine's, which stays loaded
+/// for the call, and the call must be made on a thread where tier0's console
+/// output may run, such as the server's main thread.
+pub unsafe fn print(message: &CStr) -> bool {
 	let Some(msg) = msg() else {
 		return false;
 	};
 
-	// SAFETY: `msg` is tier0's `Msg`, which formats as `printf` does, and
-	// tier0 outlives every module that uses this crate.
+	// SAFETY: `msg` is tier0's `Msg`, which formats as `printf` does, and the
+	// caller keeps tier0 loaded and calls on a thread where it may print.
 	unsafe { print_through(msg, message) };
 	true
 }
@@ -106,7 +112,8 @@ mod tests {
 	#[test]
 	fn nothing_is_printed_without_tier0() {
 		assert!(msg().is_none());
-		assert!(!print(c"unprinted"));
+		// SAFETY: The test process loads no tier0, so nothing is called.
+		assert!(!unsafe { print(c"unprinted") });
 	}
 
 	unsafe extern "C" fn record(format: *const c_char, _arguments: ...) {

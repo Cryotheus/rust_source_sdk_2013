@@ -176,12 +176,12 @@ pub unsafe fn load(address: usize) -> Result<Image, Error> {
 }
 
 pub(super) fn load_segments(base: usize, programs: &[u8]) -> Result<Vec<LoadSegment>, Error> {
-	if programs.len() % 56 != 0 {
+	if !programs.len().is_multiple_of(56) {
 		return Err(Error::InvalidImage);
 	}
 	let mut segments = Vec::new();
 	let mut total = 0_usize;
-	for program in programs.chunks_exact(56) {
+	for program in programs.as_chunks::<56>().0 {
 		let flags = u32_at(program, 4).ok_or(Error::InvalidImage)?;
 		if u32_at(program, 0) != Some(1) || flags & 4 == 0 {
 			continue;

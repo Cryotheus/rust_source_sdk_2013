@@ -59,7 +59,10 @@ pub mod tf2;
 
 use std::marker::PhantomData;
 
+/// The hand-written raw bindings and low-level utilities this crate wraps,
+/// for what [`sys`] does not generate.
 pub use sdk_raw as raw;
+
 pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
 
 /// The raw Source SDK bindings this crate wraps.

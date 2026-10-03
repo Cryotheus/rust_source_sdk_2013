@@ -9,6 +9,10 @@ use crate::interfaces::{
 };
 
 use sdk_raw::interfaces::{CreateInterfaceFn, create_interface};
+
+#[cfg(test)]
+use std::cell::Cell;
+
 use std::ffi::{CStr, CString};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
@@ -347,7 +351,7 @@ impl<'s> Server<'s> {
 #[cfg(test)]
 thread_local! {
 	/// Stands in for tier0's `Msg` on this thread, since tests load no tier0.
-	pub(crate) static TEST_MSG: std::cell::Cell<Option<sdk_raw::tier0::MsgFn>> = const { std::cell::Cell::new(None) };
+	pub(crate) static TEST_MSG: Cell<Option<sdk_raw::tier0::MsgFn>> = const { Cell::new(None) };
 }
 
 /// The running server's interface factories, kept between the engine's calls
@@ -416,7 +420,10 @@ fn tier0_print(message: &CStr) -> bool {
 		return true;
 	}
 
-	sdk_raw::tier0::print(message)
+	// SAFETY: Under `Server::new`'s contract, this runs on the server's main
+	// thread inside an engine callback, where the engine's tier0 is loaded and
+	// may print.
+	unsafe { sdk_raw::tier0::print(message) }
 }
 
 #[cfg(test)]

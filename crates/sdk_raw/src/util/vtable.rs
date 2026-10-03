@@ -19,7 +19,7 @@ pub use crate::vcall;
 /// `this` must point to a live polymorphic object whose primary vtable is laid
 /// out as `V` on the target's ABI, such as the generated `__bindgen_vtable`
 /// struct of its class.
-pub unsafe fn primary_vtable<V>(this: *const impl Sized) -> *const V {
+pub unsafe fn vtable_pointer<V>(this: *const impl Sized) -> *const V {
 	// SAFETY: A polymorphic object starts with the pointer to its primary
 	// vtable, which the caller guarantees is laid out as `V`.
 	unsafe { this.cast::<*const V>().read() }
@@ -34,7 +34,7 @@ pub unsafe fn primary_vtable<V>(this: *const impl Sized) -> *const V {
 ///
 /// `vcall!(this as Vtable => Method(arguments...))` instead reads the
 /// object's primary vtable as the generated `Vtable` struct, through
-/// [`primary_vtable`](crate::util::vtable::primary_vtable), and casts `this`
+/// [`vtable_pointer`](crate::util::vtable::vtable_pointer), and casts `this`
 /// to the method's receiver type. It is for classes whose generated binding
 /// has no top-level `vtable_`, such as `sys::CTFPlayer`, whose methods take a
 /// pointer to the class itself. `this` must be a local variable holding the
@@ -44,7 +44,7 @@ pub unsafe fn primary_vtable<V>(this: *const impl Sized) -> *const V {
 macro_rules! vcall {
 	($this:ident as $Vtable:ty => $method:ident($($argument:expr),* $(,)?)) => {{
 		let this = $this;
-		let vtable = $crate::util::vtable::primary_vtable::<$Vtable>(this);
+		let vtable = $crate::util::vtable::vtable_pointer::<$Vtable>(this);
 
 		((*vtable).$method)(this.cast() $(, $argument)*)
 	}};
@@ -101,7 +101,7 @@ mod tests {
 		unsafe {
 			assert_eq!(vcall!(base => get()), 40);
 			assert_eq!(vcall!(derived as Vtable => add(2)), 42);
-			assert_eq!(super::primary_vtable::<Vtable>(derived), &raw const VTABLE);
+			assert_eq!(super::vtable_pointer::<Vtable>(derived), &raw const VTABLE);
 		}
 	}
 
