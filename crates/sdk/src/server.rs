@@ -8,15 +8,11 @@ use crate::interfaces::{
 	ServerTools, ValveEngine, VoiceServer,
 };
 
-use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use sdk_raw::interfaces::{CreateInterfaceFn, create_interface};
+use std::ffi::{CStr, CString};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-
-/// The signature of `CreateInterface`, which every Source module exports to
-/// hand out the interfaces it implements.
-pub type RawInterfaceFactory =
-	unsafe extern "C" fn(name: *const c_char, return_code: *mut c_int) -> *mut c_void;
 
 /// The game a server runs, which decides the ABI details that the SDK headers
 /// alone cannot describe, such as virtual methods added under `TF_DLL`.
@@ -94,11 +90,11 @@ impl InterfaceError {
 #[doc(alias = "CreateInterface")]
 #[doc(alias = "CreateInterfaceFn")]
 #[derive(Debug, Clone, Copy)]
-pub struct InterfaceFactory(RawInterfaceFactory);
+pub struct InterfaceFactory(CreateInterfaceFn);
 
 impl InterfaceFactory {
 	/// Wraps a module's `CreateInterface` function.
-	pub const fn new(factory: RawInterfaceFactory) -> Self {
+	pub const fn new(factory: CreateInterfaceFn) -> Self {
 		Self(factory)
 	}
 
@@ -111,7 +107,7 @@ impl InterfaceFactory {
 	}
 
 	/// Returns the wrapped `CreateInterface` function.
-	pub const fn as_raw(self) -> RawInterfaceFactory {
+	pub const fn as_raw(self) -> CreateInterfaceFn {
 		self.0
 	}
 }
@@ -262,12 +258,11 @@ impl<'s> Server<'s> {
 			Module::GameServer => self.game_server,
 		};
 
-		let mut return_code = 0;
+		// SAFETY: `new` guarantees the factory is the module's `CreateInterface`,
+		// which stays loaded for `'s`, on the server's main thread.
+		let interface = unsafe { create_interface(factory.as_raw(), version) };
 
-		// SAFETY: `new` guarantees the factory is the module's `CreateInterface`.
-		let interface = unsafe { factory.as_raw()(version.as_ptr(), &raw mut return_code) };
-
-		NonNull::new(interface.cast()).ok_or_else(|| InterfaceError {
+		interface.map(NonNull::cast).ok_or_else(|| InterfaceError {
 			module,
 			version: version.to_owned(),
 		})
@@ -428,6 +423,7 @@ fn tier0_print(message: &CStr) -> bool {
 pub(crate) mod test_support {
 	use super::*;
 	use std::cell::RefCell;
+	use std::ffi::{c_char, c_int, c_void};
 
 	thread_local! {
 		static INTERFACES: RefCell<Vec<(Module, CString, *mut c_void)>> = const { RefCell::new(Vec::new()) };

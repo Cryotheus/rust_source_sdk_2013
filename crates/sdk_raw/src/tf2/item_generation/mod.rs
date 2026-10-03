@@ -11,7 +11,8 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
-use std::ffi::{CStr, c_char, c_int, c_void};
+use crate::interfaces::CreateInterfaceFn;
+use std::ffi::{CStr, c_char, c_void};
 use std::ptr::NonNull;
 
 struct Targets {
@@ -41,7 +42,7 @@ pub struct WeaponCreationFailed(());
 ///   `Activate` and everything they reach, frees entities only through the
 ///   engine's deferred deletion.
 pub unsafe fn spawn(
-	factory: unsafe extern "C" fn(name: *const c_char, return_code: *mut c_int) -> *mut c_void,
+	factory: CreateInterfaceFn,
 	definition: u16,
 	origin: sys::Vector,
 	classname: Option<&CStr>,
