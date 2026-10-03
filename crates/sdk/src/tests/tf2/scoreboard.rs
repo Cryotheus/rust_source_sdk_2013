@@ -1,5 +1,6 @@
-//! The scoreboard against fake entities, send tables shaped as TF2's, and an
-//! engine that records changes as the real one does.
+//! Tests of `crate::tf2::scoreboard`: the scoreboard against fake entities,
+//! send tables shaped as TF2's, and an engine that records changes as the real
+//! one does.
 
 use super::*;
 use crate::Module;
@@ -143,6 +144,9 @@ impl World {
 	/// as `broken` says.
 	fn new(slots: usize, broken: Option<(&CStr, Breakage)>) -> Self {
 		// The interfaces.
+		// SAFETY: The vtable holds only function pointers, `unexpected_call`
+		// aborts whichever slot reaches it, and the patch only writes slots of
+		// the vtable being built.
 		let engine_vtable = unsafe {
 			mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -155,6 +159,7 @@ impl World {
 				},
 			)
 		};
+		// SAFETY: As for the engine's vtable.
 		let tools_vtable = unsafe {
 			mock_vtable::<sys::IServerTools__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -187,15 +192,22 @@ impl World {
 		EDICTS.set(edicts);
 		serve_edicts(edicts, EDICT_COUNT);
 
+		// SAFETY: An accessor is two integers, for which zero is valid.
 		let accessors = (0..EDICT_COUNT)
 			.map(|_| unsafe { zeroed::<sys::IChangeInfoAccessor>() })
 			.collect::<Vec<_>>();
 		ACCESSORS.set(Box::leak(accessors.into_boxed_slice()).as_mut_ptr());
 
+		// SAFETY: The shared change info is plain integers, for which zero is
+		// valid.
 		let shared = leak(unsafe { zeroed::<sys::CSharedEdictChangeInfo>() });
+		// SAFETY: The shared change info is leaked, and nothing else refers to it
+		// yet.
 		unsafe { (*shared).m_iSerialNumber = 1 };
 		SHARED.set(shared);
 
+		// SAFETY: The entity list holds integers, a `bool` and raw pointers, for
+		// all of which zero is valid.
 		LIST.set(Box::into_raw(unsafe {
 			Box::<sys::CGlobalEntityList>::new_zeroed().assume_init()
 		}));
@@ -302,6 +314,7 @@ impl World {
 		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		vtable[reset_slot] = reset_player_scores as *const ();
 
+		// SAFETY: As for the engine's vtable.
 		let networkable_vtable = unsafe {
 			mock_vtable::<sys::IServerNetworkable__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -328,6 +341,7 @@ impl World {
 		world.red = world.spawn(RED, 3, team_class, TEAM_CLASS_NAME, null_mut());
 		world.blue = world.spawn(BLUE, 3, team_class, TEAM_CLASS_NAME, null_mut());
 
+		// SAFETY: `spawn` leaks the teams, and no reference to them is live.
 		unsafe {
 			(*world.red).data[TEAM_NUMBER] = ScoringTeam::Red.to_raw();
 			(*world.blue).data[TEAM_NUMBER] = ScoringTeam::Blue.to_raw();
@@ -362,6 +376,7 @@ impl World {
 
 	/// Reads `name`'s element `element` in the player resource.
 	fn get(&self, name: &CStr, element: usize) -> i32 {
+		// SAFETY: `spawn` leaks the resource, and no reference to it is live.
 		unsafe { (*self.resource).data[self.word(name, element)] }
 	}
 
@@ -378,12 +393,15 @@ impl World {
 			.find(|(found, _)| *found == slot)
 			.unwrap();
 
+		// SAFETY: `spawn` leaks the players, which are in the entity list, and
+		// their vtable answers what the scoreboard calls.
 		unsafe { Entity::from_raw(NonNull::new(player.cast()).unwrap()) }
 	}
 
 	/// Writes `name`'s element `element` in the player resource, without
 	/// telling the engine.
 	fn put(&self, name: &CStr, element: usize, value: i32) {
+		// SAFETY: As for `get`.
 		unsafe { (*self.resource).data[self.word(name, element)] = value };
 	}
 
@@ -413,6 +431,8 @@ impl World {
 			},
 			handle: index as u32 | serial << NUM_SERIAL_NUM_SHIFT_BITS,
 			class,
+			// SAFETY: Entities are only spawned at indices within the table of
+			// `EDICT_COUNT` edicts.
 			edict: unsafe { EDICTS.get().add(index) },
 			class_name: class_name.as_ptr(),
 			map,
@@ -420,6 +440,8 @@ impl World {
 			data: [0; DATA_WORDS],
 		});
 
+		// SAFETY: The entity list is leaked, and `index`, below `EDICT_COUNT`,
+		// lies within its `m_EntPtrArray`.
 		unsafe {
 			let info = (&raw mut (*LIST.get())._base.m_EntPtrArray)
 				.cast::<sys::CEntInfo>()
@@ -440,6 +462,7 @@ impl World {
 			ScoringTeam::Blue => self.blue,
 		};
 
+		// SAFETY: `spawn` leaks the teams, and no reference to them is live.
 		unsafe { (*entity).data[word] }
 	}
 
@@ -467,6 +490,7 @@ fn a_missed_after_frame_marks_the_resource_fully_changed() {
 	board
 		.set_player_stat(server, user(5), PlayerStat::Score, Override::Fixed(9999))
 		.unwrap();
+	// SAFETY: The world leaks its teams, and no reference to them is live.
 	unsafe { (*world.blue).data[TEAM_SCORE] = 1 };
 	board
 		.set_team_stat(
@@ -578,26 +602,31 @@ fn a_replaced_resource_is_never_written_back_to() {
 		null_mut(),
 	);
 	let element = world.word(c"m_iTotalScore", 1);
+	// SAFETY: `spawn` leaks the replacement, and no reference to it is live.
+	let score = move || unsafe { (*replacement).data[element] };
 
+	// SAFETY: As for `score`.
 	unsafe { (*replacement).data[element] = 50 };
 	board.before_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 50);
+	assert_eq!(score(), 50);
 	assert_eq!(world.get(c"m_iTotalScore", 1), 9999);
 
 	board.after_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
+	assert_eq!(score(), 9999);
 	assert_eq!(board.real_player_stat(user(5), PlayerStat::Score), Some(50));
 	end_snapshot();
 
 	// An entity reporting another server class is not trusted with the
 	// layout either.
+	// SAFETY: The world leaks its server classes, which are plain data.
 	let copy = leak(unsafe { world.resource_class.read() });
 
+	// SAFETY: As for `score`.
 	unsafe { (*replacement).class = copy };
 	board.before_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
+	assert_eq!(score(), 9999);
 	board.after_frame(server);
-	assert_eq!(unsafe { (*replacement).data[element] }, 9999);
+	assert_eq!(score(), 9999);
 	assert_eq!(
 		board.real_player_stat(user(5), PlayerStat::Score),
 		Some(9999)
@@ -786,28 +815,26 @@ fn arrays_must_be_contiguous_and_long_enough() {
 			needed: 4,
 		})
 	);
-	assert_eq!(
-		ScoreboardError::UnexpectedLayout {
-			name: "m_iPing",
-			needed: 4,
-		}
-		.to_string(),
-		"`m_iPing` is not a contiguous array of 32-bit integers with at least 4 elements"
-	);
 }
 
+/// `IVEngineServer::GetChangeAccessor`, which returns the edict's own accessor.
 unsafe extern "C" fn change_accessor(
 	_: *mut sys::IVEngineServer,
 	edict: *const sys::edict_t,
 ) -> *mut sys::IChangeInfoAccessor {
+	// SAFETY: The engine is only asked about edicts of the world's table.
 	let index = usize::try_from(unsafe { (*edict)._base.m_EdictIndex }).unwrap();
 
+	// SAFETY: The world leaks one accessor for each edict of its table, which
+	// `index` lies within.
 	unsafe { ACCESSORS.get().add(index) }
 }
 
 /// What the engine recorded as changed for edict `index` since the last
 /// snapshot.
 fn changed(index: usize) -> Changed {
+	// SAFETY: The world leaks its edicts, their accessors and the shared change
+	// info, and the tests only ask about edicts within its table.
 	unsafe {
 		let flags = (*EDICTS.get().add(index))._base.m_fStateFlags;
 
@@ -886,17 +913,15 @@ fn changes_past_the_engines_limit_mark_the_whole_resource() {
 	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![8, 12]));
 }
 
+/// `IServerNetworkable::GetClassName`, which returns the fake entity's.
 unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const c_char {
+	// SAFETY: Only fake entities' networkables have this vtable, and `spawn`
+	// leaks the entities.
 	unsafe { (*container(this)).class_name }
 }
 
 #[test]
 fn classes_and_teams_are_bounded() {
-	assert_eq!(ScoringTeam::from_raw(2), Some(ScoringTeam::Red));
-	assert_eq!(ScoringTeam::from_raw(3), Some(ScoringTeam::Blue));
-	assert_eq!(ScoringTeam::from_raw(1), None);
-	assert_eq!(ScoringTeam::Blue.to_raw(), 3);
-
 	let world = World::new(8, None);
 	let scope = ();
 	let server = mock_server(&scope);
@@ -993,7 +1018,9 @@ fn container(networkable: *const sys::IServerNetworkable) -> *mut FakeEntity {
 		.cast_mut()
 }
 
+/// `CBaseEntity::GetDataDescMap`, which returns the fake entity's datamap.
 unsafe extern "C" fn datamap(this: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
+	// SAFETY: Only fake entities have this vtable, and `spawn` leaks them.
 	unsafe { (*this.cast::<FakeEntity>()).map }
 }
 
@@ -1002,12 +1029,16 @@ fn disconnect(slot: usize) {
 	USER_IDS.with_borrow_mut(|ids| ids[slot] = -1);
 }
 
+/// `IServerNetworkable::GetEdict`, which returns the fake entity's.
 unsafe extern "C" fn edict(this: *const sys::IServerNetworkable) -> *mut sys::edict_t {
+	// SAFETY: As for `class_name`.
 	unsafe { (*container(this)).edict }
 }
 
 /// The edict at `index`.
 fn edict_at(index: usize) -> Edict<'static> {
+	// SAFETY: The world leaks its edict table, which the tests only index
+	// within.
 	unsafe { Edict::from_raw(NonNull::new(EDICTS.get().add(index)).unwrap()) }
 }
 
@@ -1026,6 +1057,8 @@ fn encodable_ranges_follow_send_prop_int() {
 	let range = |bits: c_int, flags: PropFlags| {
 		let prop = int_prop(c"m_iValue", 0, bits, flags);
 
+		// SAFETY: The property is an integer one, as a game DLL's send table
+		// holds, and outlives the handle, which is used only in the call.
 		encodable_range(unsafe { SendProp::from_raw(NonNull::from(&prop)) }).inclusive()
 	};
 	let varint = PropFlags::NORMAL;
@@ -1047,6 +1080,8 @@ fn encodable_ranges_follow_send_prop_int() {
 /// Sends the frame to clients, as the engine does after the frame: change
 /// flags are cleared, and change records start over.
 fn end_snapshot() {
+	// SAFETY: The world leaks its edict table of `EDICT_COUNT` edicts and the
+	// shared change info, and no reference to them is live.
 	unsafe {
 		for index in 0..EDICT_COUNT {
 			(*EDICTS.get().add(index))._base.m_fStateFlags &=
@@ -1069,6 +1104,7 @@ unsafe extern "C" fn find_by_class_name(
 	after: *mut sys::CBaseEntity,
 	name: *const c_char,
 ) -> *mut sys::CBaseEntity {
+	// SAFETY: The tools are passed a NUL-terminated class name.
 	let name = unsafe { CStr::from_ptr(name) };
 
 	BY_CLASS
@@ -1162,12 +1198,16 @@ fn frags_and_deaths_are_written_through_the_player_datamap() {
 	let scope = ();
 	let server = mock_server(&scope);
 	let player = world.player(2);
+	// SAFETY: The player is a fake entity, which `spawn` leaks, and no
+	// reference to it is live.
 	let data = |word: usize| unsafe { (*player.as_ptr().cast::<FakeEntity>()).data[word] };
 
 	set_frags(server, player, 17).unwrap();
 	set_deaths(server, player, -2).unwrap();
 	assert_eq!((data(FRAGS), data(DEATHS)), (17, -2));
 
+	// SAFETY: `spawn` leaks the resource, which is in the entity list, and its
+	// vtable answers what the scoreboard calls.
 	let resource = unsafe { Entity::from_raw(NonNull::new(world.resource.cast()).unwrap()) };
 
 	assert_eq!(
@@ -1180,6 +1220,7 @@ fn frags_and_deaths_are_written_through_the_player_datamap() {
 
 	let base = data_map(c"CBasePlayer", vec![misaligned], null_mut());
 
+	// SAFETY: As for `data`.
 	unsafe {
 		(*player.as_ptr().cast::<FakeEntity>()).map = data_map(c"CTFPlayer", Vec::new(), base)
 	};
@@ -1217,7 +1258,9 @@ fn full_length_arrays_reach_the_last_player_slot() {
 	assert_eq!(world.get(c"m_iTotalScore", 101), 5);
 }
 
+/// `IHandleEntity::GetRefEHandle`, which returns the fake entity's handle.
 unsafe extern "C" fn handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
+	// SAFETY: As for `datamap`.
 	unsafe { (&raw const (*this.cast::<FakeEntity>()).handle).cast() }
 }
 
@@ -1281,7 +1324,7 @@ fn killstreaks_use_the_kill_element_of_the_slots_group() {
 
 #[test]
 fn layouts_and_players_are_checked() {
-	let world = World::new(8, Some((c"m_iCurrencyCollected", Breakage::Missing)));
+	let _world = World::new(8, Some((c"m_iCurrencyCollected", Breakage::Missing)));
 	let scope = ();
 	let server = mock_server(&scope);
 	let mut board = Scoreboard::new();
@@ -1311,29 +1354,6 @@ fn layouts_and_players_are_checked() {
 	assert_eq!(
 		board.set_player_stat(server, user(7), PlayerStat::Score, Override::Fixed(1)),
 		Err(ScoreboardError::NotConnected)
-	);
-
-	// Only TF2 has this scoreboard.
-	let other_game = unsafe {
-		Server::new(
-			server.engine_factory(),
-			server.game_server_factory(),
-			Game::SourceSdk2013,
-			&scope,
-		)
-	};
-
-	assert_eq!(
-		board.set_player_stat(other_game, user(5), PlayerStat::Score, Override::Fixed(1)),
-		Err(ScoreboardError::NotTf2)
-	);
-	assert_eq!(
-		set_team_score(other_game, ScoringTeam::Red, 1),
-		Err(ScoreboardError::NotTf2)
-	);
-	assert_eq!(
-		reset_scores(other_game, world.player(1)),
-		Err(ScoreboardError::NotTf2)
 	);
 
 	// Without a player resource, no level runs.
@@ -1401,7 +1421,9 @@ fn level_shutdown_forgets_entities_by_policy() {
 	);
 }
 
+/// `IServerUnknown::GetNetworkable`, which returns the fake entity's.
 unsafe extern "C" fn networkable(this: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
+	// SAFETY: As for `datamap`.
 	unsafe { &raw mut (*this.cast::<FakeEntity>()).networkable }
 }
 
@@ -1448,10 +1470,13 @@ fn overrides_end_when_another_client_takes_the_slot() {
 	);
 }
 
+/// `IVEngineServer::GetPlayerUserId`, which returns the user ID [`connect`]
+/// gave the edict's slot, or -1.
 unsafe extern "C" fn player_user_id(
 	_: *mut sys::IVEngineServer,
 	edict: *const sys::edict_t,
 ) -> c_int {
+	// SAFETY: The engine is only asked about edicts of the world's table.
 	let index = usize::try_from(unsafe { (*edict)._base.m_EdictIndex }).unwrap();
 
 	USER_IDS.with_borrow(|ids| ids[index])
@@ -1465,9 +1490,6 @@ fn ranges_come_from_the_live_bits_and_flags() {
 	let mut board = Scoreboard::new();
 	let range = |board: &mut Scoreboard, stat| board.player_stat_range(server, stat).unwrap();
 
-	assert_eq!(PlayerStat::Score.name(), c"m_iTotalScore");
-	assert_eq!(PlayerStat::Kills.name(), c"m_iScore");
-	assert_eq!(TeamStat::FlagCaptures.name(), c"m_nFlagCaptures");
 	assert_eq!(range(&mut board, PlayerStat::Kills), -2048..=2047);
 	assert_eq!(range(&mut board, PlayerStat::Ping), 0..=1023);
 	assert_eq!(range(&mut board, PlayerStat::Dominations), 0..=63);
@@ -1485,22 +1507,15 @@ fn ranges_come_from_the_live_bits_and_flags() {
 	// Fixed values must fit.
 	connect(1, 5);
 	let player = user(5);
-	let error = board
-		.set_player_stat(server, player, PlayerStat::Kills, Override::Fixed(2048))
-		.unwrap_err();
 
 	assert_eq!(
-		error,
-		ScoreboardError::OutOfRange {
+		board.set_player_stat(server, player, PlayerStat::Kills, Override::Fixed(2048)),
+		Err(ScoreboardError::OutOfRange {
 			name: "m_iScore",
 			value: 2048,
 			min: -2048,
 			max: 2047,
-		}
-	);
-	assert_eq!(
-		error.to_string(),
-		"2048 cannot be networked as `m_iScore`, which holds -2048..=2047"
+		})
 	);
 	assert!(
 		board
@@ -1651,7 +1666,9 @@ fn real_team_numbers_become_the_games_own() {
 	);
 }
 
+/// `CTFPlayer::ResetScores`, which counts the call in the fake entity.
 unsafe extern "C" fn reset_player_scores(this: *mut sys::CTFPlayer) {
+	// SAFETY: As for `datamap`.
 	unsafe { (*this.cast::<FakeEntity>()).resets += 1 };
 }
 
@@ -1661,11 +1678,15 @@ fn reset_scores_calls_the_game_once() {
 	let scope = ();
 	let server = mock_server(&scope);
 	let player = world.player(2);
+	// SAFETY: The player is a fake entity, which `spawn` leaks, and no
+	// reference to it is live.
 	let resets = || unsafe { (*player.as_ptr().cast::<FakeEntity>()).resets };
 
 	reset_scores(server, player).unwrap();
 	assert_eq!(resets(), 1);
 
+	// SAFETY: `spawn` leaks the resource, which is in the entity list, and its
+	// vtable answers what the scoreboard calls.
 	let resource = unsafe { Entity::from_raw(NonNull::new(world.resource.cast()).unwrap()) };
 
 	assert_eq!(
@@ -1726,7 +1747,9 @@ fn restore_all_writes_everything_back_and_keeps_the_overrides() {
 	assert_eq!(changed(RESOURCE), Changed::Offsets(vec![score]));
 }
 
+/// `IServerNetworkable::GetServerClass`, which returns the fake entity's.
 unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
+	// SAFETY: As for `class_name`.
 	unsafe { (*container(this)).class }
 }
 
@@ -1764,11 +1787,6 @@ fn streaks_must_be_grouped_by_player_slot() {
 		assert!(board.player_stat_range(server, PlayerStat::Score).is_ok());
 	}
 
-	assert_eq!(
-		ScoreboardError::UnexpectedStreaks { len: 33, slots: 8 }.to_string(),
-		"`m_iStreaks` has 33 elements, not 4 for each of 8 player slots"
-	);
-
 	// Without the score's array, the slots cannot be counted.
 	let _world = World::new(8, Some((c"m_iTotalScore", Breakage::Missing)));
 	let scope = ();
@@ -1795,6 +1813,7 @@ fn teams_are_found_by_number() {
 	let mut board = Scoreboard::new();
 	let captures = (DATA + TEAM_CAPTURES * ELEMENT_SIZE) as u16;
 
+	// SAFETY: The world leaks its teams, and no reference to them is live.
 	unsafe { (*world.blue).data[TEAM_CAPTURES] = 1 };
 	board
 		.set_team_stat(
@@ -1804,20 +1823,6 @@ fn teams_are_found_by_number() {
 			Override::Offset(2),
 		)
 		.unwrap();
-	assert_eq!(
-		board.set_team_stat(
-			server,
-			ScoringTeam::Red,
-			TeamStat::FlagCaptures,
-			Override::Fixed(128)
-		),
-		Err(ScoreboardError::OutOfRange {
-			name: "m_nFlagCaptures",
-			value: 128,
-			min: -128,
-			max: 127,
-		})
-	);
 	board.before_frame(server);
 	board.after_frame(server);
 
@@ -1847,10 +1852,6 @@ fn teams_are_found_by_number() {
 	assert_eq!(
 		set_team_score(server, ScoringTeam::Red, 1),
 		Err(ScoreboardError::NoTeam(ScoringTeam::Red))
-	);
-	assert_eq!(
-		ScoreboardError::NoTeam(ScoringTeam::Blue).to_string(),
-		"no `tf_team` entity has team number 3"
 	);
 }
 

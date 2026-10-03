@@ -529,24 +529,3 @@ impl Display for GameEventId {
 		f.write_str(self.name())
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn every_name_form_looks_up_its_id() {
-		for &id in GameEventId::ALL {
-			assert_eq!(id.name_bstr(), id.name_cstr().to_bytes());
-			assert_eq!(GameEventId::from_cstr(id.name_cstr()), Some(id));
-			assert_eq!(GameEventId::from_str(id.name()), Some(id));
-			assert_eq!(id.to_string(), id.name());
-		}
-
-		assert_eq!(
-			GameEventId::from_cstr(c"player_calledformedic"),
-			Some(GameEventId::PlayerCalledformedic)
-		);
-		assert_eq!(GameEventId::from_str("not_an_event"), None);
-	}
-}

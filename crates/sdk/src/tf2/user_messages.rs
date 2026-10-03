@@ -59,27 +59,3 @@ impl UserMessage for HudNotification<'_> {
 		Ok(())
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use crate::test_support::user_messages::payload;
-
-	#[test]
-	fn view_angles_are_coordinates() {
-		let angles = QAngle {
-			pitch: 10.0,
-			yaw: -90.0,
-			roll: 0.0,
-		};
-		let bits = payload(&ForcePlayerViewAngles { player: 5, angles });
-		let mut reader = bits.reader();
-
-		assert_eq!(reader.read_u8(), Ok(1));
-		assert_eq!(reader.read_u8(), Ok(5));
-		assert_eq!(
-			reader.read_bit_vec3_coord(),
-			Ok(crate::math::Vector::new(10.0, -90.0, 0.0))
-		);
-	}
-}

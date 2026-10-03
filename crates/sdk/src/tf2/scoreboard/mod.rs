@@ -97,6 +97,7 @@
 //! [`Scoreboard::set_real_team_stat`] instead.
 
 #[cfg(test)]
+#[path = "../../tests/tf2/scoreboard.rs"]
 mod tests;
 
 use crate::NotThreadSafe;
