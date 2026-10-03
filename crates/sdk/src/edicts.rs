@@ -18,7 +18,7 @@ const FL_EDICT_FREE: c_int = 1 << 1;
 const FL_FULL_EDICT_CHANGED: c_int = 1 << 8;
 
 /// `MAX_CHANGE_OFFSETS` from `public/edict.h`.
-const MAX_CHANGE_OFFSETS: u16 = 19;
+pub(crate) const MAX_CHANGE_OFFSETS: u16 = 19;
 
 /// `MAX_EDICT_CHANGE_INFOS` from `public/edict.h`.
 const MAX_EDICT_CHANGE_INFOS: u16 = 100;
