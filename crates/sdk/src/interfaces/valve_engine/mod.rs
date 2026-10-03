@@ -147,8 +147,7 @@ impl<'s> ValveEngine<'s> {
 	///
 	/// A client's edict resolves as soon as it connects, before its player
 	/// entity spawns, and until its disconnection completes, so the edict may
-	/// have no entity yet. A lookup scans up to
-	/// [`ABSOLUTE_PLAYER_LIMIT`](crate::players::ABSOLUTE_PLAYER_LIMIT) slots.
+	/// have no entity yet. A lookup scans up to [`ABSOLUTE_PLAYER_LIMIT`] slots.
 	pub fn edict_of_user_id(self, user_id: UserId) -> Option<Edict<'s>> {
 		(1..=ABSOLUTE_PLAYER_LIMIT)
 			.filter_map(|index| self.edict_of_index(index))
