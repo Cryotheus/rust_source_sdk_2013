@@ -13,7 +13,7 @@ To generate the bindings yourself, check [`source_sdk_2013_sys`](/crates/sdk_sys
 
 A small, non-generated, crate for Metamod:Source bindings ([`metamod_source`](/crates/metamod)) is also provided.
 
-[*SLoC*](https://ghloc.dev/Cryotheus/rust_source_sdk_2013?branch=master&filter=%21crates%2Fsdk_sys_win64%2C%21crates%2Fsdk_sys_linux64%2C%21.md%24%2C%21.gitignore%2C%21%5ELICENSE-%2C%21.toml)
+[*SLoC*](https://ghloc.dev/Cryotheus/rust_source_sdk_2013?branch=master&filter=.rs%24%2C.hpp%24%2C.cpp%24%2C%21%5Ecrates%2Fsdk_sys_)
 
 # License
 
