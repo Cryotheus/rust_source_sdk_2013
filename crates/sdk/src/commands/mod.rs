@@ -326,16 +326,16 @@ impl CommandFlags {
 	#[doc(alias = "FCVAR_NONE")]
 	pub const NONE: Self = Self(0);
 
-	/// `FCVAR_NOTIFY`: changes to a variable are announced to players and
-	/// written to the server log.
-	#[doc(alias = "FCVAR_NOTIFY")]
-	pub const NOTIFY: Self = Self(1 << 8);
-
 	/// `FCVAR_NOT_CONNECTED`: a client variable that clients cannot change while
 	/// connected to a server, unless the game's
 	/// `CGameRules::IsConnectedUserInfoChangeAllowed` allows it.
 	#[doc(alias = "FCVAR_NOT_CONNECTED")]
 	pub const NOT_CONNECTED: Self = Self(1 << 22);
+
+	/// `FCVAR_NOTIFY`: changes to a variable are announced to players and
+	/// written to the server log.
+	#[doc(alias = "FCVAR_NOTIFY")]
+	pub const NOTIFY: Self = Self(1 << 8);
 
 	/// `FCVAR_PRINTABLEONLY`: a variable whose string may only contain
 	/// printable characters, such as a player's name. The variable's own
@@ -356,6 +356,11 @@ impl CommandFlags {
 	#[doc(alias = "FCVAR_REPLICATED")]
 	pub const REPLICATED: Self = Self(1 << 13);
 
+	/// `FCVAR_SERVER_CAN_EXECUTE`: a client command clients run when the
+	/// server sends it to them, such as through `IVEngineServer::ClientCommand`.
+	#[doc(alias = "FCVAR_SERVER_CAN_EXECUTE")]
+	pub const SERVER_CAN_EXECUTE: Self = Self(1 << 28);
+
 	/// `FCVAR_SERVER_CANNOT_QUERY`: a client variable whose value clients refuse
 	/// to report to the server, as
 	/// [`PluginHelpers::start_query_cvar_value`] asks them to.
@@ -363,11 +368,6 @@ impl CommandFlags {
 	/// [`PluginHelpers::start_query_cvar_value`]: crate::interfaces::PluginHelpers::start_query_cvar_value
 	#[doc(alias = "FCVAR_SERVER_CANNOT_QUERY")]
 	pub const SERVER_CANNOT_QUERY: Self = Self(1 << 29);
-
-	/// `FCVAR_SERVER_CAN_EXECUTE`: a client command clients run when the
-	/// server sends it to them, such as through `IVEngineServer::ClientCommand`.
-	#[doc(alias = "FCVAR_SERVER_CAN_EXECUTE")]
-	pub const SERVER_CAN_EXECUTE: Self = Self(1 << 28);
 
 	/// `FCVAR_SPONLY`: meant for single-player games; clients connected to a
 	/// multiplayer server cannot change a variable marked with it.
@@ -386,6 +386,12 @@ impl CommandFlags {
 	#[doc(alias = "FCVAR_USERINFO")]
 	pub const USERINFO: Self = Self(1 << 9);
 
+	/// The flags the engine stores as `bits` in `ConCommandBase::m_nFlags`,
+	/// keeping bits without a constant here.
+	pub const fn from_bits_retain(bits: c_int) -> Self {
+		Self(bits)
+	}
+
 	/// The flags as the engine stores them in `ConCommandBase::m_nFlags`.
 	pub const fn bits(self) -> c_int {
 		self.0
@@ -394,12 +400,6 @@ impl CommandFlags {
 	/// Whether every flag set in `other` is also set in `self`.
 	pub const fn contains(self, other: Self) -> bool {
 		self.0 & other.0 == other.0
-	}
-
-	/// The flags the engine stores as `bits` in `ConCommandBase::m_nFlags`,
-	/// keeping bits without a constant here.
-	pub const fn from_bits_retain(bits: c_int) -> Self {
-		Self(bits)
 	}
 
 	/// The flags set in either `self` or `other`, as `|` gives, in `const`

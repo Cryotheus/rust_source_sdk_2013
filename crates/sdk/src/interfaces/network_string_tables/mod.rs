@@ -83,11 +83,6 @@ impl<'s> NetworkStringTable<'s> {
 		}
 	}
 
-	/// Returns the native pointer for low-level interop.
-	pub const fn as_ptr(self) -> *mut sys::INetworkStringTable {
-		self.raw.as_ptr()
-	}
-
 	/// Adds a string to the table and returns its index, which is the index it
 	/// already had if the table contains it.
 	///
@@ -126,6 +121,11 @@ impl<'s> NetworkStringTable<'s> {
 			.ok()
 			.filter(|_| index != INVALID_STRING_INDEX)
 			.ok_or(AddStringError)
+	}
+
+	/// Returns the native pointer for low-level interop.
+	pub const fn as_ptr(self) -> *mut sys::INetworkStringTable {
+		self.raw.as_ptr()
 	}
 
 	/// The index of a string in the table, or `None` if the table does not

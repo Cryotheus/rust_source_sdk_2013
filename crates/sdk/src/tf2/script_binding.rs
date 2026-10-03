@@ -15,6 +15,10 @@ use crate::ffi::{borrow_cstr, copy_cstr};
 use std::ffi::{CStr, CString, c_int, c_uint};
 use std::mem::{offset_of, size_of, transmute, zeroed};
 
+// The member adapter stores a returned `const char *` without a copy, and so
+// without `SV_FREE`, only while the default allocator does not always copy.
+const _: () = assert!(sys::CVariantDefaultAllocator_ALWAYS_COPY == 0);
+
 /// The script type of a `bool` (`FIELD_BOOLEAN`).
 pub(crate) const BOOL: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_BOOLEAN as _;
 
@@ -48,10 +52,6 @@ const SV_FREE: u16 = 0x01;
 
 /// The script type of no value (`FIELD_VOID`), for methods returning nothing.
 pub(crate) const VOID: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_VOID as _;
-
-// The member adapter stores a returned `const char *` without a copy, and so
-// without `SV_FREE`, only while the default allocator does not always copy.
-const _: () = assert!(sys::CVariantDefaultAllocator_ALWAYS_COPY == 0);
 
 /// Why [`call`] did not return a native method's result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -340,33 +340,6 @@ mod tests {
 		true
 	}
 
-	unsafe extern "C" fn get_description(
-		object: *mut sys::CBaseEntity,
-	) -> *mut sys::ScriptClassDesc_t {
-		unsafe { (*object.cast::<Object>()).description }
-	}
-
-	/// A member adapter for `const char *Object::GetText()`. Like the SDK's
-	/// `*pReturn = const char *`, it stores the pointer without a copy.
-	unsafe extern "C" fn string_adapter(
-		function: sys::ScriptFunctionBindingStorageType_t,
-		object: *mut std::ffi::c_void,
-		_: *mut sys::ScriptVariant_t,
-		count: i32,
-		result: *mut sys::ScriptVariant_t,
-	) -> bool {
-		assert_eq!(function.val_0, 0x5678);
-		assert_eq!(count, 0);
-		assert!(!result.is_null());
-		let object = unsafe { &*object.cast::<Object>() };
-		object.calls.set(object.calls.get() + 1);
-		let mut value = variant(STRING);
-		value.__bindgen_anon_1.m_pszString = object.text.get();
-		value.m_flags = object.flags.get();
-		unsafe { result.write(value) };
-		true
-	}
-
 	#[test]
 	fn copy_string_refuses_other_types_and_owned_strings() {
 		assert_eq!(
@@ -388,6 +361,12 @@ mod tests {
 			unsafe { copy_string(owned) },
 			Err(BindingError::SignatureMismatch)
 		);
+	}
+
+	unsafe extern "C" fn get_description(
+		object: *mut sys::CBaseEntity,
+	) -> *mut sys::ScriptClassDesc_t {
+		unsafe { (*object.cast::<Object>()).description }
 	}
 
 	#[test]
@@ -451,6 +430,27 @@ mod tests {
 			unsafe { call(entity, c"Base", c"SetValue", &mut [float(3.0)], VOID) }.err(),
 			Some(BindingError::Unavailable)
 		);
+	}
+
+	/// A member adapter for `const char *Object::GetText()`. Like the SDK's
+	/// `*pReturn = const char *`, it stores the pointer without a copy.
+	unsafe extern "C" fn string_adapter(
+		function: sys::ScriptFunctionBindingStorageType_t,
+		object: *mut std::ffi::c_void,
+		_: *mut sys::ScriptVariant_t,
+		count: i32,
+		result: *mut sys::ScriptVariant_t,
+	) -> bool {
+		assert_eq!(function.val_0, 0x5678);
+		assert_eq!(count, 0);
+		assert!(!result.is_null());
+		let object = unsafe { &*object.cast::<Object>() };
+		object.calls.set(object.calls.get() + 1);
+		let mut value = variant(STRING);
+		value.__bindgen_anon_1.m_pszString = object.text.get();
+		value.m_flags = object.flags.get();
+		unsafe { result.write(value) };
+		true
 	}
 
 	#[test]

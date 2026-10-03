@@ -491,44 +491,6 @@ mod tests {
 		team: c_int,
 	}
 
-	unsafe extern "C" fn edict_of_index(
-		_: *mut sys::IVEngineServer,
-		index: c_int,
-	) -> *mut sys::edict_t {
-		let (table, len) = TABLE.get();
-
-		match usize::try_from(index) {
-			// SAFETY: The slot lies within the table.
-			Ok(slot) if slot < len => unsafe { table.add(slot) },
-			_ => null_mut(),
-		}
-	}
-
-	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
-		GLOBALS.get()
-	}
-
-	unsafe extern "C" fn player_info(
-		_: *mut sys::IPlayerInfoManager,
-		edict: *mut sys::edict_t,
-	) -> *mut sys::IPlayerInfo {
-		// SAFETY: The wrapper passes an edict of the mock table, and the players
-		// are leaked.
-		unsafe {
-			let index = (*edict)._base.m_EdictIndex;
-
-			usize::try_from(index)
-				.ok()
-				.and_then(|index| (&*PLAYERS.get()).get(index))
-				.map_or(null_mut(), |&player| player.cast())
-		}
-	}
-
-	unsafe extern "C" fn team_index(this: *mut sys::IPlayerInfo) -> c_int {
-		// SAFETY: Every player info the mock returns is a `MockPlayer`.
-		unsafe { (*this.cast::<MockPlayer>()).team }
-	}
-
 	#[test]
 	fn clients_are_added_and_removed_once() {
 		let mut table = [
@@ -558,6 +520,20 @@ mod tests {
 		assert_eq!(Recipients::player(edict(1)).players(), [1]);
 	}
 
+	unsafe extern "C" fn edict_of_index(
+		_: *mut sys::IVEngineServer,
+		index: c_int,
+	) -> *mut sys::edict_t {
+		let (table, len) = TABLE.get();
+
+		match usize::try_from(index) {
+			// SAFETY: The slot lies within the table.
+			Ok(slot) if slot < len => unsafe { table.add(slot) },
+
+			_ => null_mut(),
+		}
+	}
+
 	#[test]
 	fn filters_report_their_recipients_through_the_vtable() {
 		let recipients = Recipients {
@@ -579,6 +555,31 @@ mod tests {
 			assert_eq!(((*vtable).IRecipientFilter_GetRecipientIndex)(raw, 2), -1);
 			assert_eq!(((*vtable).IRecipientFilter_GetRecipientIndex)(raw, -1), -1);
 		}
+	}
+
+	unsafe extern "C" fn global_vars(_: *mut sys::IPlayerInfoManager) -> *mut sys::CGlobalVars {
+		GLOBALS.get()
+	}
+
+	unsafe extern "C" fn player_info(
+		_: *mut sys::IPlayerInfoManager,
+		edict: *mut sys::edict_t,
+	) -> *mut sys::IPlayerInfo {
+		// SAFETY: The wrapper passes an edict of the mock table, and the players
+		// are leaked.
+		unsafe {
+			let index = (*edict)._base.m_EdictIndex;
+
+			usize::try_from(index)
+				.ok()
+				.and_then(|index| (&*PLAYERS.get()).get(index))
+				.map_or(null_mut(), |&player| player.cast())
+		}
+	}
+
+	unsafe extern "C" fn team_index(this: *mut sys::IPlayerInfo) -> c_int {
+		// SAFETY: Every player info the mock returns is a `MockPlayer`.
+		unsafe { (*this.cast::<MockPlayer>()).team }
 	}
 
 	#[test]

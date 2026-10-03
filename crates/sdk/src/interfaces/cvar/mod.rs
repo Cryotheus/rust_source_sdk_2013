@@ -463,6 +463,22 @@ mod tests {
 		false
 	}
 
+	#[test]
+	fn listing_ends_at_the_last_entry_or_the_limit() {
+		assert_eq!(mock_cvar(null_mut()).command_bases().len(), 0);
+		assert_eq!(mock_cvar(null_mut()).vars().count(), 0);
+
+		// A corrupted registry that links an entry to itself.
+		let looped = mock_command(c"sb_loop", null_mut());
+
+		unsafe { (*looped).m_pNext = looped };
+
+		let mut listed = mock_cvar(looped).command_bases();
+
+		assert_eq!(listed.len(), MAX_LISTED);
+		assert!(listed.all(|base| base.as_ptr() == looped));
+	}
+
 	/// A `ConCommandBase` whose `IsCommand` reports `kind`, linked to `next`.
 	fn mock_base(
 		name: &'static CStr,
@@ -536,22 +552,6 @@ mod tests {
 		}
 
 		var
-	}
-
-	#[test]
-	fn listing_ends_at_the_last_entry_or_the_limit() {
-		assert_eq!(mock_cvar(null_mut()).command_bases().len(), 0);
-		assert_eq!(mock_cvar(null_mut()).vars().count(), 0);
-
-		// A corrupted registry that links an entry to itself.
-		let looped = mock_command(c"sb_loop", null_mut());
-
-		unsafe { (*looped).m_pNext = looped };
-
-		let mut listed = mock_cvar(looped).command_bases();
-
-		assert_eq!(listed.len(), MAX_LISTED);
-		assert!(listed.all(|base| base.as_ptr() == looped));
 	}
 
 	#[test]
