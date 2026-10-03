@@ -100,7 +100,7 @@ thread_local! {
 	static FAILURES: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
 
 	/// The mock KHook, for the hooks of another plugin's to call.
-	static FOREIGN_KHOOK: Cell<*mut IKHook> = const { Cell::new(ptr::null_mut()) };
+	pub(crate) static FOREIGN_KHOOK: Cell<*mut IKHook> = const { Cell::new(ptr::null_mut()) };
 
 	/// How many times handlers noted a call.
 	static HANDLER_CALLS: Cell<u32> = const { Cell::new(0) };
@@ -127,22 +127,22 @@ type Poke = unsafe extern "C" fn(*mut Object);
 
 /// Another plugin's SourceHook delegate on `Add`.
 #[repr(C)]
-struct ForeignDelegate {
-	vtable: *const *mut c_void,
-	sourcehook: *mut ISourceHook,
-	result: Cell<MetaRes>,
-	value: i32,
+pub(crate) struct ForeignDelegate {
+	pub(crate) vtable: *const *mut c_void,
+	pub(crate) sourcehook: *mut ISourceHook,
+	pub(crate) result: Cell<MetaRes>,
+	pub(crate) value: i32,
 }
 
 /// A running Metamod of one version, through mocks of its API and hooking
 /// library.
-struct Harness {
+pub(crate) struct Harness {
 	version: MetamodVersion,
 	smm: Box<MockSmm>,
 	_smm_vtable: Box<[MaybeUninit<*const ()>; 34]>,
-	sourcehook: Box<MockSourceHook>,
-	khook: Box<MockKHook>,
-	generation: u64,
+	pub(crate) sourcehook: Box<MockSourceHook>,
+	pub(crate) khook: Box<MockKHook>,
+	pub(crate) generation: u64,
 	_serial: MutexGuard<'static, ()>,
 }
 
@@ -193,7 +193,7 @@ impl Harness {
 		harness
 	}
 
-	fn api(&self) -> MetamodApi<'_> {
+	pub(crate) fn api(&self) -> MetamodApi<'_> {
 		// SAFETY: The mock lives as long as the harness, and has the methods the
 		// detection calls.
 		let binding = unsafe { MetamodApiBinding::detect(NonNull::from(&*self.smm).cast()) }
@@ -205,7 +205,12 @@ impl Harness {
 
 	/// Calls the function at `index` of the object's vtable, as the engine
 	/// would through a hooked vtable.
-	fn call<S: Signature>(&self, object: *mut S::This, index: usize, args: S::Args) -> S::Output {
+	pub(crate) fn call<S: Signature>(
+		&self,
+		object: *mut S::This,
+		index: usize,
+		args: S::Args,
+	) -> S::Output {
 		// SAFETY: Every object of these tests starts with its vtable, which has
 		// a function of signature `S` at `index`.
 		let vtable = unsafe { object.cast::<*mut *mut c_void>().read() };
@@ -234,7 +239,7 @@ impl Harness {
 		ptr::from_ref(&*self.khook).cast::<IKHook>().cast_mut()
 	}
 
-	fn set_status(&self, loaded: bool, paused: bool, generation: u64) {
+	pub(crate) fn set_status(&self, loaded: bool, paused: bool, generation: u64) {
 		PLUGIN_STATUS.set(Some(PluginStatus {
 			generation,
 			id: 7,
@@ -243,7 +248,7 @@ impl Harness {
 		}));
 	}
 
-	fn sourcehook_ptr(&self) -> *mut ISourceHook {
+	pub(crate) fn sourcehook_ptr(&self) -> *mut ISourceHook {
 		ptr::from_ref(&*self.sourcehook)
 			.cast::<ISourceHook>()
 			.cast_mut()
@@ -258,13 +263,13 @@ impl Drop for Harness {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct KhHook {
-	context: *mut c_void,
-	pre: *mut c_void,
-	post: *mut c_void,
-	make_return: *mut c_void,
-	call_original: *mut c_void,
-	stack_size: c_uint,
+pub(crate) struct KhHook {
+	pub(crate) context: *mut c_void,
+	pub(crate) pre: *mut c_void,
+	pub(crate) post: *mut c_void,
+	pub(crate) make_return: *mut c_void,
+	pub(crate) call_original: *mut c_void,
+	pub(crate) stack_size: c_uint,
 }
 
 /// What a KHook detour keeps for a call.
@@ -432,14 +437,14 @@ impl MockInfo {
 
 /// KHook, emulating each detour's loop.
 #[repr(C)]
-struct MockKHook {
+pub(crate) struct MockKHook {
 	khook: IKHook,
 	state: RefCell<KhState>,
 }
 
 impl MockKHook {
 	/// Adds another plugin's hook, as KHook would.
-	fn add_foreign(&self, vtable: *mut *mut c_void, index: usize, hook: KhHook) {
+	pub(crate) fn add_foreign(&self, vtable: *mut *mut c_void, index: usize, hook: KhHook) {
 		self.state
 			.borrow_mut()
 			.slot(vtable, index as c_int)
@@ -539,14 +544,14 @@ struct MockSmm {
 
 /// SourceHook, with the hook loops it runs.
 #[repr(C)]
-struct MockSourceHook {
+pub(crate) struct MockSourceHook {
 	sourcehook: ISourceHook,
 	state: RefCell<ShState>,
 }
 
 impl MockSourceHook {
 	/// Adds another plugin's delegate, to run before the others on the slot.
-	fn add_foreign(&self, vfnptr: *mut *mut c_void, delegate: *mut IShDelegate) {
+	pub(crate) fn add_foreign(&self, vfnptr: *mut *mut c_void, delegate: *mut IShDelegate) {
 		self.state.borrow_mut().hooks.insert(
 			0,
 			ShHook {
@@ -805,7 +810,10 @@ unsafe extern "C" fn foreign_copy(destination: *mut i32, value: *const i32) {
 
 unsafe extern "C" fn foreign_destroy(_value: *mut i32) {}
 
-unsafe extern "C" fn foreign_is_equal(this: *mut IShDelegate, other: *mut IShDelegate) -> bool {
+pub(crate) unsafe extern "C" fn foreign_is_equal(
+	this: *mut IShDelegate,
+	other: *mut IShDelegate,
+) -> bool {
 	this == other
 }
 
@@ -870,7 +878,7 @@ unsafe extern "C" fn foreign_khook_supersede(_this: *mut Object, _amount: i32) -
 	0
 }
 
-unsafe extern "C" fn foreign_noop(_this: *mut IShDelegate) {}
+pub(crate) unsafe extern "C" fn foreign_noop(_this: *mut IShDelegate) {}
 
 #[test]
 fn functions_returning_nothing_can_be_superseded() {
@@ -1393,6 +1401,9 @@ unsafe extern "C" fn khook_setup_hook(
 	crate::sys::khook::INVALID_HOOK
 }
 
+/// Inserts the hook at once, ignoring `async`. KHook adds a hook from its
+/// worker thread unless it created the slot's detour for it, so unlike in
+/// these tests, a hook added to a detoured slot can miss the next calls.
 unsafe extern "C" fn khook_setup_virtual_hook(
 	this: *mut IKHook,
 	vtable: *mut *mut c_void,
@@ -1498,7 +1509,7 @@ fn note_handler(superseded: Option<bool>) {
 }
 
 /// Runs `test` on a Metamod of each version.
-fn on_both(test: impl Fn(&Harness)) {
+pub(crate) fn on_both(test: impl Fn(&Harness)) {
 	for version in [MetamodVersion::Stable1226, MetamodVersion::Dev1469] {
 		let harness = Harness::new(version);
 

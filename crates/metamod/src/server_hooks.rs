@@ -23,7 +23,9 @@ use std::ptr::{self, NonNull};
 /// `void IServerGameDLL::GameFrame(bool simulating)`.
 type GameFrame = unsafe extern "C" fn(*mut sys::IServerGameDLL, bool);
 
-/// Runs once per server frame, before the game simulates it.
+/// Runs once per server frame: before the game's own frame when installed with
+/// [`MetamodApi::hook_game_frame`], and after it when installed with
+/// [`MetamodApi::hook_game_frame_post`].
 ///
 /// `simulating` can be false while the server is paused or empty, and during
 /// startup before the engine has client slots. Do not assume client slots are
@@ -39,6 +41,7 @@ type ProcessMessage = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
 const GAME_FRAME: VirtualFunction<GameFrame> = VirtualFunction::new(5);
 
 static GAME_FRAMES: Route<GameFrameFn> = Route::new();
+static GAME_FRAMES_POST: Route<GameFrameFn> = Route::new();
 static LEVELS: LevelRoute = LevelRoute(Cell::new(None));
 
 /// The handler of each kind of message, in [`IncomingKind::ALL`]'s order.
@@ -195,33 +198,55 @@ impl MetamodApi<'_> {
 	///
 	/// This hooks `IServerGameDLL::GameFrame`. The hook stops calling back while
 	/// the plugin is paused and when it unloads, and Metamod removes it after
-	/// unloading the plugin. Install it while loading.
+	/// unloading the plugin. Install it while loading. To run after the frame
+	/// instead, or as well, see [`Self::hook_game_frame_post`], which also
+	/// describes when Metamod 2.0 starts running either hook late.
 	pub fn hook_game_frame(
 		self,
 		game_dll: ServerGameDll<'_>,
 		binding: ServerBinding,
 		callback: GameFrameFn,
 	) -> Result<(), HookError> {
-		if GAME_FRAMES.installed(self) {
-			return Err(HookError::AlreadyInstalled);
-		}
+		hook_game_frames(
+			self,
+			&GAME_FRAMES,
+			HookTiming::Pre,
+			game_dll,
+			binding,
+			callback,
+		)
+	}
 
-		let game_dll = NonNull::new(game_dll.as_ptr()).ok_or(HookError::InvalidArgument)?;
-
-		// SAFETY: A `MetamodApi` only exists during a callback, on the main
-		// thread. `game_dll` is the game's interface, which outlives the plugin,
-		// and has `GameFrame` at the slot.
-		let hook = unsafe {
-			self.add_hook(
-				GAME_FRAME,
-				HookTarget::instance(game_dll),
-				HookTiming::Pre,
-				&GAME_FRAMES,
-			)
-		}?;
-
-		GAME_FRAMES.set([Some(hook)], binding, callback);
-		Ok(())
+	/// Calls `callback` once per server frame, after the game's own frame.
+	///
+	/// This hooks `IServerGameDLL::GameFrame` after the call, apart from
+	/// [`Self::hook_game_frame`]: either can be installed without the other.
+	/// With both, each frame runs that callback, then the game's frame, then
+	/// this one. This one also runs after a frame the game cut short, or that
+	/// another plugin's hook skipped. Entities removed during the frame may
+	/// already be freed by then.
+	///
+	/// The hook stops calling back while the plugin is paused and when it
+	/// unloads, and Metamod removes it after unloading the plugin. Install it
+	/// while loading. Under Metamod 2.0, when `GameFrame` is already detoured,
+	/// by another plugin or by this plugin's other `GameFrame` hook, KHook adds
+	/// the new hook from a worker thread, so it may miss the next few frames.
+	/// Of the two hooks, the one installed second is always added this way, so
+	/// callbacks that pair up must handle frames where only one of them ran.
+	pub fn hook_game_frame_post(
+		self,
+		game_dll: ServerGameDll<'_>,
+		binding: ServerBinding,
+		callback: GameFrameFn,
+	) -> Result<(), HookError> {
+		hook_game_frames(
+			self,
+			&GAME_FRAMES_POST,
+			HookTiming::Post,
+			game_dll,
+			binding,
+			callback,
+		)
 	}
 
 	/// Passes every message a client sends to `handler`, before the engine
@@ -250,7 +275,7 @@ impl MetamodApi<'_> {
 			let hooked = usize::try_from(slot)
 				.map_err(|_| HookError::InvalidArgument)
 				.and_then(|slot| {
-					// SAFETY: As for `hook_game_frame`. The target is a live handler
+					// SAFETY: As for `hook_game_frames`. The target is a live handler
 					// of the engine's, whose methods at the slots each take a message
 					// and return `bool`, and its class lasts as long as the engine.
 					unsafe {
@@ -316,6 +341,31 @@ impl MetamodApi<'_> {
 	}
 }
 
+/// Hooks `IServerGameDLL::GameFrame` at `timing`, and has the hook pass each
+/// call to `callback` through `route`.
+fn hook_game_frames(
+	api: MetamodApi<'_>,
+	route: &'static Route<GameFrameFn>,
+	timing: HookTiming,
+	game_dll: ServerGameDll<'_>,
+	binding: ServerBinding,
+	callback: GameFrameFn,
+) -> Result<(), HookError> {
+	if route.installed(api) {
+		return Err(HookError::AlreadyInstalled);
+	}
+
+	let game_dll = NonNull::new(game_dll.as_ptr()).ok_or(HookError::InvalidArgument)?;
+
+	// SAFETY: A `MetamodApi` only exists during a callback, on the main thread.
+	// `game_dll` is the game's interface, which outlives the plugin, and has
+	// `GameFrame` at the slot.
+	let hook = unsafe { api.add_hook(GAME_FRAME, HookTarget::instance(game_dll), timing, route) }?;
+
+	route.set([Some(hook)], binding, callback);
+	Ok(())
+}
+
 /// The shell's `OnLevelInit` callback.
 unsafe extern "C" fn level_init(context: *mut c_void, map: *const c_char) {
 	// SAFETY: `listen_level_events` passes the route's context.
@@ -358,4 +408,369 @@ fn with_server(binding: ServerBinding, f: impl FnOnce(Server<'_>)) {
 	let server = unsafe { binding.server(&scope) };
 
 	catch_unwind(AssertUnwindSafe(|| f(server))).ok();
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::api::MetamodVersion;
+
+	use crate::hook::tests::{
+		FOREIGN_KHOOK, ForeignDelegate, Harness, KhHook, foreign_is_equal, foreign_noop, on_both,
+	};
+
+	use crate::sys::khook::Action;
+	use crate::sys::sourcehook::{IShDelegate, MetaRes};
+	use source_sdk_2013::{Game, InterfaceFactory};
+	use std::cell::RefCell;
+	use std::mem::{self, offset_of, size_of};
+
+	/// The size of the mock `IServerGameDLL`'s vtable, every slot of which
+	/// holds [`game_frame`].
+	const SLOTS: usize = 8;
+
+	thread_local! {
+		/// What ran during the frames since the last [`run_frame`], in order.
+		static FRAMES: RefCell<Vec<(&'static str, bool)>> = const { RefCell::new(Vec::new()) };
+
+		/// The mock `IServerGameDLL` the game server's factory exports.
+		static GAME_DLL: Cell<*mut c_void> = const { Cell::new(ptr::null_mut()) };
+	}
+
+	fn after_frame(_server: Server<'_>, simulating: bool) {
+		FRAMES.with_borrow_mut(|frames| frames.push(("after", simulating)));
+	}
+
+	fn before_frame(_server: Server<'_>, simulating: bool) {
+		FRAMES.with_borrow_mut(|frames| frames.push(("before", simulating)));
+	}
+
+	/// A binding to factories exporting only the mock of [`game_dll`].
+	fn binding() -> ServerBinding {
+		// SAFETY: The tests leak the mock the factories export, and only turn
+		// the binding into servers on the thread running their hooks.
+		unsafe {
+			ServerBinding::new(
+				InterfaceFactory::new(no_interfaces),
+				InterfaceFactory::new(game_server_factory),
+				Game::TeamFortress2,
+			)
+		}
+	}
+
+	/// Another plugin's SourceHook delegate on `GameFrame`, reporting its
+	/// result.
+	unsafe extern "C" fn foreign_frame_call(delegate: *mut ForeignDelegate, _simulating: bool) {
+		// SAFETY: The test's foreign delegate is live while hooked.
+		let delegate = unsafe { &*delegate };
+
+		// SAFETY: SourceHook is calling the delegate.
+		unsafe {
+			((*(*delegate.sourcehook).vtable).set_res)(delegate.sourcehook, delegate.result.get())
+		};
+	}
+
+	/// Another plugin's `make_call_original` on `GameFrame`, as
+	/// `KHook::Virtual` makes it.
+	unsafe extern "C" fn foreign_khook_frame_call_original(
+		this: *mut sys::IServerGameDLL,
+		simulating: bool,
+	) {
+		let khook = FOREIGN_KHOOK.get();
+
+		// SAFETY: The mock KHook is running a detour of `GameFrame`.
+		unsafe {
+			let functions = &*(*khook).vtable;
+			let original =
+				mem::transmute::<*mut c_void, GameFrame>((functions.get_original_function)(khook));
+
+			original(this, simulating);
+
+			(functions.save_return_value)(
+				khook,
+				Action::IGNORE,
+				ptr::null_mut(),
+				0,
+				ptr::null_mut(),
+				ptr::null_mut(),
+				true,
+			);
+		}
+	}
+
+	/// Another plugin's `make_return` on `GameFrame`, as `KHook::Virtual`
+	/// makes it.
+	unsafe extern "C" fn foreign_khook_frame_make_return(
+		_this: *mut sys::IServerGameDLL,
+		_simulating: bool,
+	) {
+		let khook = FOREIGN_KHOOK.get();
+
+		// SAFETY: As above.
+		unsafe { ((*(*khook).vtable).destroy_return_value)(khook) };
+	}
+
+	/// Another plugin's pre hook on `GameFrame`, skipping every frame.
+	unsafe extern "C" fn foreign_khook_frame_supersede(
+		_this: *mut sys::IServerGameDLL,
+		_simulating: bool,
+	) {
+		let khook = FOREIGN_KHOOK.get();
+
+		// SAFETY: As above. `GameFrame` returns nothing, so there is no value
+		// to copy.
+		unsafe {
+			((*(*khook).vtable).save_return_value)(
+				khook,
+				Action::SUPERSEDE,
+				ptr::null_mut(),
+				0,
+				ptr::null_mut(),
+				ptr::null_mut(),
+				false,
+			);
+		}
+	}
+
+	/// A new mock of the game's `IServerGameDLL`, which the game server's
+	/// factory exports from then on.
+	fn game_dll(scope: &()) -> ServerGameDll<'_> {
+		let vtable = Vec::leak(vec![game_frame as GameFrame as *mut c_void; SLOTS]);
+
+		let object = Box::leak(Box::new(sys::IServerGameDLL {
+			vtable_: vtable.as_mut_ptr().cast(),
+		}));
+
+		FRAMES.take();
+		GAME_DLL.set(ptr::from_mut(object).cast());
+
+		// SAFETY: As for `binding`, within the test's call.
+		let server = unsafe { binding().server(scope) };
+
+		server
+			.server_game_dll()
+			.expect("the factory exports the mock")
+	}
+
+	unsafe extern "C" fn game_frame(_this: *mut sys::IServerGameDLL, simulating: bool) {
+		FRAMES.with_borrow_mut(|frames| frames.push(("game", simulating)));
+	}
+
+	#[test]
+	fn game_frame_has_its_generated_slot_and_signature() {
+		let _: fn(&sys::IServerGameDLL__bindgen_vtable) -> GameFrame =
+			|vtable| vtable.IServerGameDLL_GameFrame;
+
+		assert_eq!(
+			GAME_FRAME.index(),
+			offset_of!(
+				sys::IServerGameDLL__bindgen_vtable,
+				IServerGameDLL_GameFrame
+			) / size_of::<usize>()
+		);
+	}
+
+	#[test]
+	fn game_frame_hooks_install_once_each() {
+		on_both(|harness| {
+			let api = harness.api();
+			let scope = ();
+			let game_dll = game_dll(&scope);
+
+			api.hook_game_frame_post(game_dll, binding(), after_frame)
+				.unwrap();
+
+			assert_eq!(
+				api.hook_game_frame_post(game_dll, binding(), before_frame),
+				Err(HookError::AlreadyInstalled)
+			);
+
+			assert_eq!(
+				run_frame(harness, game_dll, true),
+				[("game", true), ("after", true)]
+			);
+
+			api.hook_game_frame(game_dll, binding(), before_frame)
+				.unwrap();
+
+			assert_eq!(
+				api.hook_game_frame(game_dll, binding(), after_frame),
+				Err(HookError::AlreadyInstalled)
+			);
+
+			assert_eq!(
+				run_frame(harness, game_dll, true),
+				[("before", true), ("game", true), ("after", true)]
+			);
+		});
+	}
+
+	#[test]
+	fn game_frame_hooks_run_around_the_frame() {
+		on_both(|harness| {
+			let api = harness.api();
+			let scope = ();
+			let game_dll = game_dll(&scope);
+
+			api.hook_game_frame(game_dll, binding(), before_frame)
+				.unwrap();
+			api.hook_game_frame_post(game_dll, binding(), after_frame)
+				.unwrap();
+
+			for simulating in [true, false] {
+				assert_eq!(
+					run_frame(harness, game_dll, simulating),
+					[
+						("before", simulating),
+						("game", simulating),
+						("after", simulating)
+					]
+				);
+			}
+		});
+	}
+
+	#[test]
+	fn game_frame_post_hooks_run_after_superseded_frames() {
+		on_both(|harness| {
+			let api = harness.api();
+			let scope = ();
+			let game_dll = game_dll(&scope);
+
+			api.hook_game_frame_post(game_dll, binding(), after_frame)
+				.unwrap();
+
+			// SAFETY: The mock starts with its vtable.
+			let vtable = unsafe { game_dll.as_ptr().cast::<*mut *mut c_void>().read() };
+
+			let foreign_vtable = [
+				foreign_is_equal as unsafe extern "C" fn(*mut IShDelegate, *mut IShDelegate) -> bool
+					as *mut c_void,
+				foreign_noop as unsafe extern "C" fn(*mut IShDelegate) as *mut c_void,
+				foreign_frame_call as unsafe extern "C" fn(*mut ForeignDelegate, bool)
+					as *mut c_void,
+			];
+
+			let foreign = ForeignDelegate {
+				vtable: foreign_vtable.as_ptr(),
+				sourcehook: harness.sourcehook_ptr(),
+				result: Cell::new(MetaRes::SUPERCEDE),
+				value: 0,
+			};
+
+			// Another plugin's hook, added after this one's, which skips every
+			// frame.
+			match api.version() {
+				MetamodVersion::Stable1226 => harness.sourcehook.add_foreign(
+					// SAFETY: The vtable has the slot.
+					unsafe { vtable.add(GAME_FRAME.index()) },
+					ptr::from_ref(&foreign).cast::<IShDelegate>().cast_mut(),
+				),
+
+				MetamodVersion::Dev1469 => harness.khook.add_foreign(
+					vtable,
+					GAME_FRAME.index(),
+					KhHook {
+						context: ptr::null_mut(),
+						pre: foreign_khook_frame_supersede as GameFrame as *mut c_void,
+						post: ptr::null_mut(),
+						make_return: foreign_khook_frame_make_return as GameFrame as *mut c_void,
+						call_original: foreign_khook_frame_call_original as GameFrame
+							as *mut c_void,
+						stack_size: 0,
+					},
+				),
+			}
+
+			// The game's frame is skipped, but this plugin's post hook still runs.
+			assert_eq!(run_frame(harness, game_dll, true), [("after", true)]);
+		});
+	}
+
+	#[test]
+	fn game_frame_post_hooks_stop_while_inactive() {
+		on_both(|harness| {
+			let api = harness.api();
+			let scope = ();
+			let game_dll = game_dll(&scope);
+
+			api.hook_game_frame_post(game_dll, binding(), after_frame)
+				.unwrap();
+
+			harness.set_status(true, true, harness.generation);
+			assert_eq!(run_frame(harness, game_dll, true), [("game", true)]);
+
+			harness.set_status(true, false, harness.generation);
+			assert_eq!(
+				run_frame(harness, game_dll, true),
+				[("game", true), ("after", true)]
+			);
+
+			harness.set_status(false, false, harness.generation);
+			assert_eq!(run_frame(harness, game_dll, true), [("game", true)]);
+
+			// A later load of the library, which still has the hooks of this one.
+			harness.set_status(true, false, harness.generation + 1);
+			assert_eq!(run_frame(harness, game_dll, true), [("game", true)]);
+		});
+	}
+
+	unsafe extern "C" fn game_server_factory(
+		name: *const c_char,
+		_return_code: *mut c_int,
+	) -> *mut c_void {
+		// SAFETY: Factories are called with NUL-terminated names.
+		let name = unsafe { CStr::from_ptr(name) };
+
+		if name == ServerGameDll::VERSION {
+			GAME_DLL.get()
+		} else {
+			ptr::null_mut()
+		}
+	}
+
+	unsafe extern "C" fn no_interfaces(
+		_name: *const c_char,
+		_return_code: *mut c_int,
+	) -> *mut c_void {
+		ptr::null_mut()
+	}
+
+	fn panicking_after_frame(_server: Server<'_>, simulating: bool) {
+		FRAMES.with_borrow_mut(|frames| frames.push(("after", simulating)));
+		panic!("a frame callback panicked, as this test means it to");
+	}
+
+	#[test]
+	fn panicking_game_frame_callbacks_are_contained() {
+		on_both(|harness| {
+			let api = harness.api();
+			let scope = ();
+			let game_dll = game_dll(&scope);
+
+			api.hook_game_frame(game_dll, binding(), before_frame)
+				.unwrap();
+			api.hook_game_frame_post(game_dll, binding(), panicking_after_frame)
+				.unwrap();
+
+			// The hooks keep running after a panic.
+			for _ in 0..2 {
+				assert_eq!(
+					run_frame(harness, game_dll, true),
+					[("before", true), ("game", true), ("after", true)]
+				);
+			}
+		});
+	}
+
+	/// Runs a frame through the mock's hooked `GameFrame`, and returns what ran
+	/// during it.
+	fn run_frame(
+		harness: &Harness,
+		game_dll: ServerGameDll<'_>,
+		simulating: bool,
+	) -> Vec<(&'static str, bool)> {
+		harness.call::<GameFrame>(game_dll.as_ptr(), GAME_FRAME.index(), (simulating,));
+		FRAMES.take()
+	}
 }

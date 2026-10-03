@@ -60,7 +60,7 @@ mod site;
 mod sourcehook;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use crate::MetamodApi;
 use crate::sys::sourcehook::{ISourceHook, MetaRes};
@@ -387,8 +387,11 @@ impl MetamodApi<'_> {
 	///
 	/// The hook lasts until [removed](Self::remove_hook), or until Metamod
 	/// unloads the plugin. It is installed on the vtable the target goes
-	/// through. KHook adds it from a worker thread, a few milliseconds later, if
-	/// another plugin hooked the function first.
+	/// through. When KHook has already detoured the function's slot, for another
+	/// plugin or for this plugin's hooks of the other [`HookTiming`], it adds the
+	/// hook from a worker thread. The worker polls every 5 milliseconds, and
+	/// tries again later while the function is being called, so the hook can
+	/// miss the calls made in the meantime.
 	///
 	/// # Safety
 	///
