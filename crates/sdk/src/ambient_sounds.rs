@@ -21,8 +21,7 @@ use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::CString;
 
 /// An `ambient_generic` entity.
-#[doc(alias = "CAmbientGeneric")]
-#[doc(alias = "ambient_generic")]
+#[doc(alias("ambient_generic", "CAmbientGeneric"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AmbientSound<'s> {
 	entity: Entity<'s>,
