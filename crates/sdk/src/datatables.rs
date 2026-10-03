@@ -35,117 +35,104 @@ use std::ptr::NonNull;
 /// How deep [`NetProp`] lookups descend into nested tables before giving up.
 const MAX_TABLE_DEPTH: usize = 32;
 
-/// The `SPROP_*` flags of a [`SendProp`], from `public/dt_common.h`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct PropFlags(c_int);
+bitflags::bitflags! {
+	/// The `SPROP_*` flags of a [`SendProp`], from `public/dt_common.h`.
+	///
+	/// Flags read from the engine, such as [`SendProp::flags`], keep every bit,
+	/// including those without a constant here. Every bit counts as a known
+	/// flag, so [`all`](Self::all) sets all 32, and `!` and
+	/// [`from_bits_truncate`](Self::from_bits_truncate) keep unnamed bits too.
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+	pub struct PropFlags: c_int {
+		/// `SPROP_CHANGES_OFTEN`: the variable changes often, so the engine
+		/// moves it to the start of its table, where it gets a small index.
+		#[doc(alias("SPROP_CHANGES_OFTEN"))]
+		const CHANGES_OFTEN = SPROP_CHANGES_OFTEN;
 
-impl PropFlags {
-	/// `SPROP_CHANGES_OFTEN`: the variable changes often, so the engine moves
-	/// it to the start of its table, where it gets a small index.
-	#[doc(alias("SPROP_CHANGES_OFTEN"))]
-	pub const CHANGES_OFTEN: Self = Self(SPROP_CHANGES_OFTEN);
+		/// `SPROP_COLLAPSIBLE`: the data table sits at offset 0 behind
+		/// `SendProxy_DataTableToDataTable`, as base class tables do, so the
+		/// engine can flatten it away.
+		#[doc(alias("SPROP_COLLAPSIBLE"))]
+		const COLLAPSIBLE = SPROP_COLLAPSIBLE;
 
-	/// `SPROP_COLLAPSIBLE`: the data table sits at offset 0 behind
-	/// `SendProxy_DataTableToDataTable`, as base class tables do, so the engine
-	/// can flatten it away.
-	#[doc(alias("SPROP_COLLAPSIBLE"))]
-	pub const COLLAPSIBLE: Self = Self(SPROP_COLLAPSIBLE);
+		/// `SPROP_COORD`: the float or vector is a world coordinate, and its
+		/// bit count is ignored.
+		#[doc(alias("SPROP_COORD"))]
+		const COORD = SPROP_COORD;
 
-	/// `SPROP_COORD`: the float or vector is a world coordinate, and its bit
-	/// count is ignored.
-	#[doc(alias("SPROP_COORD"))]
-	pub const COORD: Self = Self(SPROP_COORD);
+		/// `SPROP_COORD_MP`: like [`COORD`](Self::COORD), with special handling
+		/// for multiplayer games.
+		#[doc(alias("SPROP_COORD_MP"))]
+		const COORD_MP = SPROP_COORD_MP;
 
-	/// `SPROP_COORD_MP`: like [`COORD`](Self::COORD), with special handling for
-	/// multiplayer games.
-	#[doc(alias("SPROP_COORD_MP"))]
-	pub const COORD_MP: Self = Self(SPROP_COORD_MP);
+		/// `SPROP_COORD_MP_INTEGRAL`: like [`COORD_MP`](Self::COORD_MP), with
+		/// coordinates rounded to whole units.
+		#[doc(alias("SPROP_COORD_MP_INTEGRAL"))]
+		const COORD_MP_INTEGRAL = SPROP_COORD_MP_INTEGRAL;
 
-	/// `SPROP_COORD_MP_INTEGRAL`: like [`COORD_MP`](Self::COORD_MP), with
-	/// coordinates rounded to whole units.
-	#[doc(alias("SPROP_COORD_MP_INTEGRAL"))]
-	pub const COORD_MP_INTEGRAL: Self = Self(SPROP_COORD_MP_INTEGRAL);
+		/// `SPROP_COORD_MP_LOWPRECISION`: like [`COORD_MP`](Self::COORD_MP),
+		/// with 3 bits for the fractional part instead of 5.
+		#[doc(alias("SPROP_COORD_MP_LOWPRECISION"))]
+		const COORD_MP_LOW_PRECISION = SPROP_COORD_MP_LOWPRECISION;
 
-	/// `SPROP_COORD_MP_LOWPRECISION`: like [`COORD_MP`](Self::COORD_MP), with 3
-	/// bits for the fractional part instead of 5.
-	#[doc(alias("SPROP_COORD_MP_LOWPRECISION"))]
-	pub const COORD_MP_LOW_PRECISION: Self = Self(SPROP_COORD_MP_LOWPRECISION);
+		/// `SPROP_ENCODED_AGAINST_TICKCOUNT`: the integer's proxy encodes it
+		/// relative to the tick count, as for `m_flSimulationTime`. This flag
+		/// is only known to the server, and not networked.
+		#[doc(alias("SPROP_ENCODED_AGAINST_TICKCOUNT"))]
+		const ENCODED_AGAINST_TICK_COUNT = SPROP_ENCODED_AGAINST_TICKCOUNT;
 
-	/// `SPROP_ENCODED_AGAINST_TICKCOUNT`: the integer's proxy encodes it
-	/// relative to the tick count, as for `m_flSimulationTime`. This flag is
-	/// only known to the server, and not networked.
-	#[doc(alias("SPROP_ENCODED_AGAINST_TICKCOUNT"))]
-	pub const ENCODED_AGAINST_TICK_COUNT: Self = Self(SPROP_ENCODED_AGAINST_TICKCOUNT);
+		/// `SPROP_EXCLUDE`: the property names another property to exclude,
+		/// rather than a variable.
+		#[doc(alias("SPROP_EXCLUDE"))]
+		const EXCLUDE = SPROP_EXCLUDE;
 
-	/// `SPROP_EXCLUDE`: the property names another property to exclude, rather
-	/// than a variable.
-	#[doc(alias("SPROP_EXCLUDE"))]
-	pub const EXCLUDE: Self = Self(SPROP_EXCLUDE);
+		/// `SPROP_INSIDEARRAY`: the property describes the elements of the
+		/// array property after it.
+		#[doc(alias("SPROP_INSIDEARRAY"))]
+		const INSIDE_ARRAY = SPROP_INSIDEARRAY;
 
-	/// `SPROP_INSIDEARRAY`: the property describes the elements of the array
-	/// property after it.
-	#[doc(alias("SPROP_INSIDEARRAY"))]
-	pub const INSIDE_ARRAY: Self = Self(SPROP_INSIDEARRAY);
+		/// `SPROP_IS_A_VECTOR_ELEM`: the property is one component of a vector,
+		/// declared with `SENDINFO_VECTORELEM`.
+		#[doc(alias("SPROP_IS_A_VECTOR_ELEM"))]
+		const IS_A_VECTOR_ELEM = SPROP_IS_A_VECTOR_ELEM;
 
-	/// `SPROP_IS_A_VECTOR_ELEM`: the property is one component of a vector,
-	/// declared with `SENDINFO_VECTORELEM`.
-	#[doc(alias("SPROP_IS_A_VECTOR_ELEM"))]
-	pub const IS_A_VECTOR_ELEM: Self = Self(SPROP_IS_A_VECTOR_ELEM);
+		/// `SPROP_NOSCALE`: the float is sent as is, rather than scaled into
+		/// the range between its [low](SendProp::low_value) and
+		/// [high](SendProp::high_value) values.
+		#[doc(alias("SPROP_NOSCALE"))]
+		const NO_SCALE = SPROP_NOSCALE;
 
-	/// `SPROP_NOSCALE`: the float is sent as is, rather than scaled into the
-	/// range between its [low](SendProp::low_value) and
-	/// [high](SendProp::high_value) values.
-	#[doc(alias("SPROP_NOSCALE"))]
-	pub const NO_SCALE: Self = Self(SPROP_NOSCALE);
+		/// `SPROP_NORMAL`: the vector is a normal. Integer properties reuse the
+		/// bit as `SPROP_VARINT`.
+		#[doc(alias("SPROP_NORMAL", "SPROP_VARINT"))]
+		const NORMAL = SPROP_NORMAL;
 
-	/// `SPROP_NORMAL`: the vector is a normal. Integer properties reuse the bit
-	/// as `SPROP_VARINT`.
-	#[doc(alias("SPROP_NORMAL", "SPROP_VARINT"))]
-	pub const NORMAL: Self = Self(SPROP_NORMAL);
+		/// `SPROP_PROXY_ALWAYS_YES`: the data table's proxy is a standard one
+		/// that sends the table to every client.
+		#[doc(alias("SPROP_PROXY_ALWAYS_YES"))]
+		const PROXY_ALWAYS_YES = SPROP_PROXY_ALWAYS_YES;
 
-	/// `SPROP_PROXY_ALWAYS_YES`: the data table's proxy is a standard one that
-	/// sends the table to every client.
-	#[doc(alias("SPROP_PROXY_ALWAYS_YES"))]
-	pub const PROXY_ALWAYS_YES: Self = Self(SPROP_PROXY_ALWAYS_YES);
+		/// `SPROP_ROUNDDOWN`: the float's [high value](SendProp::high_value) is
+		/// lowered by one encoding step.
+		#[doc(alias("SPROP_ROUNDDOWN"))]
+		const ROUND_DOWN = SPROP_ROUNDDOWN;
 
-	/// `SPROP_ROUNDDOWN`: the float's [high value](SendProp::high_value) is
-	/// lowered by one encoding step.
-	#[doc(alias("SPROP_ROUNDDOWN"))]
-	pub const ROUND_DOWN: Self = Self(SPROP_ROUNDDOWN);
+		/// `SPROP_ROUNDUP`: the float's [low value](SendProp::low_value) is
+		/// raised by one encoding step.
+		#[doc(alias("SPROP_ROUNDUP"))]
+		const ROUND_UP = SPROP_ROUNDUP;
 
-	/// `SPROP_ROUNDUP`: the float's [low value](SendProp::low_value) is raised
-	/// by one encoding step.
-	#[doc(alias("SPROP_ROUNDUP"))]
-	pub const ROUND_UP: Self = Self(SPROP_ROUNDUP);
+		/// `SPROP_UNSIGNED`: the integer is networked unsigned. [`Storage`]
+		/// takes its signedness from this flag.
+		#[doc(alias("SPROP_UNSIGNED"))]
+		const UNSIGNED = SPROP_UNSIGNED;
 
-	/// `SPROP_UNSIGNED`: the integer is networked unsigned. [`Storage`] takes
-	/// its signedness from this flag.
-	#[doc(alias("SPROP_UNSIGNED"))]
-	pub const UNSIGNED: Self = Self(SPROP_UNSIGNED);
+		/// `SPROP_XYZE`: the vector uses XYZ/exponent encoding.
+		#[doc(alias("SPROP_XYZE"))]
+		const XYZE = SPROP_XYZE;
 
-	/// `SPROP_XYZE`: the vector uses XYZ/exponent encoding.
-	#[doc(alias("SPROP_XYZE"))]
-	pub const XYZE: Self = Self(SPROP_XYZE);
-
-	/// Wraps raw `SPROP_*` bits, keeping any this type has no constant for.
-	pub const fn from_bits(bits: c_int) -> Self {
-		Self(bits)
-	}
-
-	/// The raw `SPROP_*` bits.
-	pub const fn bits(self) -> c_int {
-		self.0
-	}
-
-	/// Whether every flag set in `flags` is also set in `self`.
-	pub const fn contains(self, flags: Self) -> bool {
-		self.0 & flags.0 == flags.0
-	}
-}
-
-impl Debug for PropFlags {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		write!(f, "PropFlags({:#x})", self.0)
+		// Bits without a constant here, which the engine may set.
+		const _ = !0;
 	}
 }
 
@@ -691,10 +678,10 @@ impl<'s> SendProp<'s> {
 		unsafe { borrow_cstr(table) }
 	}
 
-	/// The property's `SPROP_*` flags.
+	/// The property's `SPROP_*` flags, including those without a constant.
 	#[doc(alias("GetFlags"))]
 	pub fn flags(self) -> PropFlags {
-		PropFlags(prop_field!(self, m_Flags))
+		PropFlags::from_bits_retain(prop_field!(self, m_Flags))
 	}
 
 	/// The highest value a float is encoded to.

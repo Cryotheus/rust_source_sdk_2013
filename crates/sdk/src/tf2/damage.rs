@@ -10,7 +10,6 @@ use crate::entities::{Entity, EntityHandle};
 use sdk_raw::tf2::damage;
 use std::fmt;
 use std::mem::{MaybeUninit, offset_of};
-use std::ops::{BitAnd, BitOr, BitOrAssign, Not};
 use std::ptr::NonNull;
 
 /// Defines a documented getter and setter for one scalar `CTakeDamageInfo`
@@ -374,7 +373,9 @@ impl DamageInfo {
 	#[doc(alias("GetDamageType"))]
 	pub fn damage_type(&self) -> DamageType {
 		// SAFETY: Constructor-initialized scalar in owned memory.
-		DamageType(unsafe { (&raw const (*self.as_ptr()).m_bitsDamageType).read() } as u32)
+		DamageType::from_bits_retain(unsafe {
+			(&raw const (*self.as_ptr()).m_bitsDamageType).read()
+		} as u32)
 	}
 
 	/// Reads the `CBaseHandle` field at byte `offset` in the native record.
@@ -425,7 +426,7 @@ impl DamageInfo {
 	#[doc(alias("SetDamageType"))]
 	pub fn set_damage_type(&mut self, value: DamageType) {
 		// SAFETY: Scalar field in our allocated record; retain all 32 bits.
-		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_bitsDamageType).write(value.0 as i32) };
+		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_bitsDamageType).write(value.bits() as i32) };
 	}
 
 	/// Writes `handle` to the `CBaseHandle` field at byte `offset`.
@@ -459,7 +460,7 @@ impl DamageInfo {
 	#[doc(alias("SetCritType"))]
 	pub fn set_incoming_critical(&mut self, critical: CriticalHit) {
 		self.write_critical(critical);
-		let ordinary = self.damage_type() & !DamageType::CRITICAL;
+		let ordinary = self.damage_type().difference(DamageType::CRITICAL);
 		self.set_damage_type(if critical == CriticalHit::Full {
 			ordinary | DamageType::CRITICAL
 		} else {
@@ -518,118 +519,90 @@ impl fmt::Debug for DamageInfo {
 	}
 }
 
-/// Source's damage bitmask. Unknown and game-specific bits are preserved.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DamageType(pub u32);
+bitflags::bitflags! {
+	/// Source's damage bitmask. Unknown and game-specific bits are preserved.
+	///
+	/// Every bit counts as a known flag, so [`all`](Self::all) sets all 32,
+	/// and `!` and [`from_bits_truncate`](Self::from_bits_truncate) keep
+	/// unnamed bits too.
+	#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+	pub struct DamageType: u32 {
+		/// Lets any damage type gib the victim on death.
+		#[doc(alias("DMG_ALWAYSGIB"))]
+		const ALWAYS_GIB = damage::DMG_ALWAYSGIB as u32;
 
-impl DamageType {
-	/// Lets any damage type gib the victim on death.
-	#[doc(alias("DMG_ALWAYSGIB"))]
-	pub const ALWAYS_GIB: Self = Self(damage::DMG_ALWAYSGIB as u32);
+		/// Explosive blast damage.
+		#[doc(alias("DMG_BLAST"))]
+		const BLAST = damage::DMG_BLAST as u32;
 
-	/// Explosive blast damage.
-	#[doc(alias("DMG_BLAST"))]
-	pub const BLAST: Self = Self(damage::DMG_BLAST as u32);
+		/// Shotgun pellets, distinct from [`Self::BULLET`].
+		#[doc(alias("DMG_BUCKSHOT"))]
+		const BUCKSHOT = damage::DMG_BUCKSHOT as u32;
 
-	/// Shotgun pellets, distinct from [`Self::BULLET`].
-	#[doc(alias("DMG_BUCKSHOT"))]
-	pub const BUCKSHOT: Self = Self(damage::DMG_BUCKSHOT as u32);
+		/// Gunshot damage.
+		#[doc(alias("DMG_BULLET"))]
+		const BULLET = damage::DMG_BULLET as u32;
 
-	/// Gunshot damage.
-	#[doc(alias("DMG_BULLET"))]
-	pub const BULLET: Self = Self(damage::DMG_BULLET as u32);
+		/// Heat burns.
+		#[doc(alias("DMG_BURN"))]
+		const BURN = damage::DMG_BURN as u32;
 
-	/// Heat burns.
-	#[doc(alias("DMG_BURN"))]
-	pub const BURN: Self = Self(damage::DMG_BURN as u32);
+		/// Blunt impact, such as a crowbar or punch.
+		#[doc(alias("DMG_CLUB"))]
+		const CLUB = damage::DMG_CLUB as u32;
 
-	/// Blunt impact, such as a crowbar or punch.
-	#[doc(alias("DMG_CLUB"))]
-	pub const CLUB: Self = Self(damage::DMG_CLUB as u32);
+		/// TF2's `DMG_CRITICAL` aliases `DMG_ACID`. Both full and mini critical
+		/// hits carry it after TF2 has computed their damage bonus.
+		#[doc(alias("DMG_CRITICAL", "DMG_ACID"))]
+		const CRITICAL = damage::DMG_CRITICAL as u32;
 
-	/// TF2's `DMG_CRITICAL` aliases `DMG_ACID`. Both full and mini critical
-	/// hits carry it after TF2 has computed their damage bonus.
-	#[doc(alias("DMG_CRITICAL", "DMG_ACID"))]
-	pub const CRITICAL: Self = Self(damage::DMG_CRITICAL as u32);
+		/// Crushing by a falling or moving object.
+		#[doc(alias("DMG_CRUSH"))]
+		const CRUSH = damage::DMG_CRUSH as u32;
 
-	/// Crushing by a falling or moving object.
-	#[doc(alias("DMG_CRUSH"))]
-	pub const CRUSH: Self = Self(damage::DMG_CRUSH as u32);
+		/// Source's `DMG_DIRECT` bit. The SDK's `CEntityFlame` sets it
+		/// alongside [`Self::BURN`] for an attached fire's damage.
+		#[doc(alias("DMG_DIRECT"))]
+		const DIRECT = damage::DMG_DIRECT as u32;
 
-	/// Source's `DMG_DIRECT` bit. The SDK's `CEntityFlame` sets it alongside
-	/// [`Self::BURN`] for an attached fire's damage.
-	#[doc(alias("DMG_DIRECT"))]
-	pub const DIRECT: Self = Self(damage::DMG_DIRECT as u32);
+		/// Drowning.
+		#[doc(alias("DMG_DROWN"))]
+		const DROWN = damage::DMG_DROWN as u32;
 
-	/// Drowning.
-	#[doc(alias("DMG_DROWN"))]
-	pub const DROWN: Self = Self(damage::DMG_DROWN as u32);
+		/// Falling too far.
+		#[doc(alias("DMG_FALL"))]
+		const FALL = damage::DMG_FALL as u32;
 
-	/// Falling too far.
-	#[doc(alias("DMG_FALL"))]
-	pub const FALL: Self = Self(damage::DMG_FALL as u32);
+		/// The empty mask. Every mask [contains](Self::contains) it.
+		#[doc(alias("DMG_GENERIC"))]
+		const GENERIC = damage::DMG_GENERIC as u32;
 
-	/// The empty mask. Every mask [contains](Self::contains) it.
-	#[doc(alias("DMG_GENERIC"))]
-	pub const GENERIC: Self = Self(damage::DMG_GENERIC as u32);
+		/// Stops any damage type from gibbing the victim on death.
+		#[doc(alias("DMG_NEVERGIB"))]
+		const NEVER_GIB = damage::DMG_NEVERGIB as u32;
 
-	/// Stops any damage type from gibbing the victim on death.
-	#[doc(alias("DMG_NEVERGIB"))]
-	pub const NEVER_GIB: Self = Self(damage::DMG_NEVERGIB as u32);
+		/// Prevents the damage from applying a physics force.
+		#[doc(alias("DMG_PREVENT_PHYSICS_FORCE"))]
+		const PREVENT_PHYSICS_FORCE = damage::DMG_PREVENT_PHYSICS_FORCE as u32;
 
-	/// Prevents the damage from applying a physics force.
-	#[doc(alias("DMG_PREVENT_PHYSICS_FORCE"))]
-	pub const PREVENT_PHYSICS_FORCE: Self = Self(damage::DMG_PREVENT_PHYSICS_FORCE as u32);
+		/// Electric shock.
+		#[doc(alias("DMG_SHOCK"))]
+		const SHOCK = damage::DMG_SHOCK as u32;
 
-	/// Electric shock.
-	#[doc(alias("DMG_SHOCK"))]
-	pub const SHOCK: Self = Self(damage::DMG_SHOCK as u32);
+		/// Cutting, clawing or stabbing.
+		#[doc(alias("DMG_SLASH"))]
+		const SLASH = damage::DMG_SLASH as u32;
 
-	/// Cutting, clawing or stabbing.
-	#[doc(alias("DMG_SLASH"))]
-	pub const SLASH: Self = Self(damage::DMG_SLASH as u32);
+		/// TF2's `DMG_USEDISTANCEMOD`, which aliases `DMG_SLOWBURN`.
+		#[doc(alias("DMG_USEDISTANCEMOD", "DMG_SLOWBURN"))]
+		const USE_DISTANCE_MOD = damage::DMG_USEDISTANCEMOD as u32;
 
-	/// TF2's `DMG_USEDISTANCEMOD`, which aliases `DMG_SLOWBURN`.
-	#[doc(alias("DMG_USEDISTANCEMOD", "DMG_SLOWBURN"))]
-	pub const USE_DISTANCE_MOD: Self = Self(damage::DMG_USEDISTANCEMOD as u32);
+		/// TF2's `DMG_USE_HITLOCATIONS`, which aliases `DMG_AIRBOAT`.
+		#[doc(alias("DMG_USE_HITLOCATIONS", "DMG_AIRBOAT"))]
+		const USE_HIT_LOCATIONS = damage::DMG_USE_HITLOCATIONS as u32;
 
-	/// TF2's `DMG_USE_HITLOCATIONS`, which aliases `DMG_AIRBOAT`.
-	#[doc(alias("DMG_USE_HITLOCATIONS", "DMG_AIRBOAT"))]
-	pub const USE_HIT_LOCATIONS: Self = Self(damage::DMG_USE_HITLOCATIONS as u32);
-
-	/// Whether every bit of `other` is set in `self`.
-	pub const fn contains(self, other: Self) -> bool {
-		self.0 & other.0 == other.0
-	}
-}
-
-impl BitAnd for DamageType {
-	type Output = Self;
-
-	fn bitand(self, rhs: Self) -> Self {
-		Self(self.0 & rhs.0)
-	}
-}
-
-impl BitOr for DamageType {
-	type Output = Self;
-
-	fn bitor(self, rhs: Self) -> Self {
-		Self(self.0 | rhs.0)
-	}
-}
-
-impl BitOrAssign for DamageType {
-	fn bitor_assign(&mut self, rhs: Self) {
-		self.0 |= rhs.0;
-	}
-}
-
-impl Not for DamageType {
-	type Output = Self;
-
-	fn not(self) -> Self {
-		Self(!self.0)
+		// Bits without a constant here, which the engine and games may set.
+		const _ = !0;
 	}
 }
 
@@ -693,13 +666,16 @@ mod tests {
 
 	#[test]
 	fn copies_change_owned_data_and_preserve_unknown_bits_and_handles() {
-		let original = DamageInfo::new(24.0, DamageType::BULLET | DamageType(1 << 31));
+		let original = DamageInfo::new(
+			24.0,
+			DamageType::BULLET | DamageType::from_bits_retain(1 << 31),
+		);
 		let mut copy = original.clone();
 		copy.scale_amount(2.0);
 		copy.set_weapon(EntityHandle::from_raw(17 | 3 << 16));
 		assert_eq!(copy.amount(), 48.0);
 		assert_eq!(original.amount(), 24.0);
-		assert_eq!(copy.damage_type().0, (1 << 31) | 2);
+		assert_eq!(copy.damage_type().bits(), (1 << 31) | 2);
 		assert_eq!(original.weapon(), EntityHandle::INVALID);
 		assert_eq!(copy.weapon().serial_number(), 3);
 	}
@@ -715,7 +691,8 @@ mod tests {
 
 	#[test]
 	fn incoming_crit_changes_are_exclusive_and_do_not_scale_damage() {
-		let mut damage = DamageInfo::new(10.0, DamageType::BLAST);
+		let ordinary = DamageType::BLAST | DamageType::from_bits_retain(1 << 31);
+		let mut damage = DamageInfo::new(10.0, ordinary);
 		for critical in [CriticalHit::Full, CriticalHit::Mini, CriticalHit::None] {
 			damage.set_incoming_critical(critical);
 			assert_eq!(damage.critical_hit(), Some(critical));
@@ -723,7 +700,7 @@ mod tests {
 				damage.damage_type().contains(DamageType::CRITICAL),
 				critical == CriticalHit::Full
 			);
-			assert!(damage.damage_type().contains(DamageType::BLAST));
+			assert!(damage.damage_type().contains(ordinary));
 			assert_eq!(damage.amount(), 10.0);
 		}
 	}

@@ -1099,12 +1099,6 @@ fn remove_self(command: &CommandContext<'_>) -> CommandResult {
 fn replies_are_terminated_lines_without_nul() {
 	assert_eq!(line_from("a\0b"), c"ab\n");
 	assert_eq!(line_from(format_args!("{}", 3)), c"3\n");
-	assert!(
-		CommandFlags::CHEAT
-			.union(CommandFlags::HIDDEN)
-			.contains(CommandFlags::HIDDEN)
-	);
-	assert!(!CommandFlags::HIDDEN.contains(CommandFlags::CHEAT));
 }
 
 #[test]

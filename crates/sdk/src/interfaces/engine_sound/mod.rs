@@ -4,7 +4,8 @@
 //! [`EngineSound::emit_sound`] plays a precached sample to the clients a
 //! [`Recipients`] names. The engine sends each client a sound's parameters in
 //! a few bits apiece (`SoundInfo_t::WriteDelta` in `public/soundinfo.h`), so
-//! the value types here only hold what survives that encoding.
+//! the value types here only hold what survives that encoding, except
+//! [`SoundFlags`] built with [`SoundFlags::from_bits_retain`].
 
 use crate::entities::Entity;
 use crate::math::Vector;
@@ -14,8 +15,8 @@ use sdk_raw::interfaces::engine_sound::{
 	CHAN_AUTO, CHAN_BODY, CHAN_ITEM, CHAN_STATIC, CHAN_STREAM, CHAN_VOICE, CHAN_VOICE2,
 	CHAN_WEAPON, DEFAULT_SPECIAL_DSP, NO_SPEAKER_ENTITY, PITCH_HIGH, PITCH_LOW, PITCH_NORM,
 	SND_CHANGE_PITCH, SND_CHANGE_VOL, SND_DELAY, SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL,
-	SND_FLAG_BITS_ENCODE, SND_IGNORE_NAME, SND_IGNORE_PHONEMES, SND_NOFLAGS, SND_SHOULDPAUSE,
-	SND_SPAWNING, SND_SPEAKER, SND_STOP, SND_STOP_LOOPING, SOUND_FROM_WORLD, VOL_NORM,
+	SND_IGNORE_NAME, SND_IGNORE_PHONEMES, SND_NOFLAGS, SND_SHOULDPAUSE, SND_SPEAKER, SND_STOP,
+	SND_STOP_LOOPING, SOUND_FROM_WORLD, VOL_NORM,
 };
 
 use sdk_raw::vcall;
@@ -236,95 +237,64 @@ pub enum SoundError {
 	NotNetworked,
 }
 
-/// The `SND_*` flags a sound is emitted with, from `public/soundflags.h`.
-///
-/// `SND_SPAWNING` cannot be expressed: the game uses it only with the engine,
-/// which never sends it to clients.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct SoundFlags(c_int);
+bitflags::bitflags! {
+	/// The `SND_*` flags a sound is emitted with, from `public/soundflags.h`.
+	///
+	/// `SND_SPAWNING` has no constant: the game uses it only with the engine,
+	/// which never sends it to clients. [`from_bits`](Self::from_bits) returns
+	/// `None` for it, and for any bit from `SND_FLAG_BITS_ENCODE` (11) up,
+	/// which the engine does not send either.
+	/// [`from_bits_retain`](Self::from_bits_retain) keeps such bits, and the
+	/// engine is given them as they are.
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+	pub struct SoundFlags: c_int {
+		/// `SND_CHANGE_PITCH`: changes the pitch of the sound already playing.
+		#[doc(alias("SND_CHANGE_PITCH"))]
+		const CHANGE_PITCH = SND_CHANGE_PITCH;
 
-impl SoundFlags {
-	/// `SND_CHANGE_PITCH`: changes the pitch of the sound already playing.
-	#[doc(alias("SND_CHANGE_PITCH"))]
-	pub const CHANGE_PITCH: Self = Self(SND_CHANGE_PITCH);
+		/// `SND_CHANGE_VOL`: changes the volume of the sound already playing.
+		#[doc(alias("SND_CHANGE_VOL"))]
+		const CHANGE_VOLUME = SND_CHANGE_VOL;
 
-	/// `SND_CHANGE_VOL`: changes the volume of the sound already playing.
-	#[doc(alias("SND_CHANGE_VOL"))]
-	pub const CHANGE_VOLUME: Self = Self(SND_CHANGE_VOL);
+		/// `SND_DELAY`: the sound starts after a delay.
+		#[doc(alias("SND_DELAY"))]
+		const DELAY = SND_DELAY;
 
-	/// `SND_DELAY`: the sound starts after a delay.
-	#[doc(alias("SND_DELAY"))]
-	pub const DELAY: Self = Self(SND_DELAY);
+		/// `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: plays alongside the
+		/// sound already on the channel instead of replacing it.
+		#[doc(alias("SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL"))]
+		const DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL =
+			SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL;
 
-	/// `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: plays alongside the sound
-	/// already on the channel instead of replacing it.
-	#[doc(alias("SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL"))]
-	pub const DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL: Self =
-		Self(SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL);
+		/// `SND_IGNORE_NAME`: a change or stop applies to every sound of the
+		/// source, whatever its sample.
+		#[doc(alias("SND_IGNORE_NAME"))]
+		const IGNORE_NAME = SND_IGNORE_NAME;
 
-	/// `SND_IGNORE_NAME`: a change or stop applies to every sound of the
-	/// source, whatever its sample.
-	#[doc(alias("SND_IGNORE_NAME"))]
-	pub const IGNORE_NAME: Self = Self(SND_IGNORE_NAME);
+		/// `SND_IGNORE_PHONEMES`: clients ignore the sample's phonemes, the lip
+		/// sync data that moves a speaker's mouth.
+		#[doc(alias("SND_IGNORE_PHONEMES"))]
+		const IGNORE_PHONEMES = SND_IGNORE_PHONEMES;
 
-	/// `SND_IGNORE_PHONEMES`: clients ignore the sample's phonemes, the lip
-	/// sync data that moves a speaker's mouth.
-	#[doc(alias("SND_IGNORE_PHONEMES"))]
-	pub const IGNORE_PHONEMES: Self = Self(SND_IGNORE_PHONEMES);
+		/// `SND_NOFLAGS`: no flags, the default.
+		#[doc(alias("SND_NOFLAGS"))]
+		const NONE = SND_NOFLAGS;
 
-	/// `SND_NOFLAGS`: no flags, the default.
-	#[doc(alias("SND_NOFLAGS"))]
-	pub const NONE: Self = Self(SND_NOFLAGS);
+		/// `SND_SHOULDPAUSE`: the sound pauses while the game is paused.
+		#[doc(alias("SND_SHOULDPAUSE"))]
+		const SHOULD_PAUSE = SND_SHOULDPAUSE;
 
-	/// `SND_SHOULDPAUSE`: the sound pauses while the game is paused.
-	#[doc(alias("SND_SHOULDPAUSE"))]
-	pub const SHOULD_PAUSE: Self = Self(SND_SHOULDPAUSE);
+		/// `SND_SPEAKER`: the sound is replayed through a speaker.
+		#[doc(alias("SND_SPEAKER"))]
+		const SPEAKER = SND_SPEAKER;
 
-	/// `SND_SPEAKER`: the sound is replayed through a speaker.
-	#[doc(alias("SND_SPEAKER"))]
-	pub const SPEAKER: Self = Self(SND_SPEAKER);
+		/// `SND_STOP`: stops the sound.
+		#[doc(alias("SND_STOP"))]
+		const STOP = SND_STOP;
 
-	/// `SND_STOP`: stops the sound.
-	#[doc(alias("SND_STOP"))]
-	pub const STOP: Self = Self(SND_STOP);
-
-	/// `SND_STOP_LOOPING`: stops every looping sound of the source.
-	#[doc(alias("SND_STOP_LOOPING"))]
-	pub const STOP_LOOPING: Self = Self(SND_STOP_LOOPING);
-
-	/// Validates raw `SND_*` flags. Returns `None` if they include
-	/// `SND_SPAWNING`, or any bit from `SND_FLAG_BITS_ENCODE` (11) up, which
-	/// the engine does not send.
-	pub const fn from_bits(bits: c_int) -> Option<Self> {
-		if bits & SND_SPAWNING == 0 && bits >= 0 && bits >> SND_FLAG_BITS_ENCODE == 0 {
-			Some(Self(bits))
-		} else {
-			None
-		}
-	}
-
-	/// The flags as the engine takes them in `iFlags`.
-	pub const fn bits(self) -> c_int {
-		self.0
-	}
-
-	/// Whether every flag set in `other` is also set in `self`.
-	pub const fn contains(self, other: Self) -> bool {
-		self.0 & other.0 == other.0
-	}
-
-	/// The flags set in either `self` or `other`, as `|` gives, in `const`
-	/// contexts too.
-	pub const fn union(self, other: Self) -> Self {
-		Self(self.0 | other.0)
-	}
-}
-
-impl std::ops::BitOr for SoundFlags {
-	type Output = Self;
-
-	fn bitor(self, other: Self) -> Self {
-		self.union(other)
+		/// `SND_STOP_LOOPING`: stops every looping sound of the source.
+		#[doc(alias("SND_STOP_LOOPING"))]
+		const STOP_LOOPING = SND_STOP_LOOPING;
 	}
 }
 
@@ -982,24 +952,6 @@ mod tests {
 			DURATION.set(unknown);
 			assert_eq!(sound.sound_duration(c"vo/a.mp3"), None);
 		}
-	}
-
-	#[test]
-	fn sound_flags_exclude_what_the_engine_does_not_send() {
-		let flags = SoundFlags::STOP | SoundFlags::DELAY;
-
-		assert_eq!(flags.bits(), (1 << 2) | (1 << 4));
-		assert!(flags.contains(SoundFlags::STOP));
-		assert!(!flags.contains(SoundFlags::SPEAKER));
-		assert_eq!(SoundFlags::from_bits(flags.bits()), Some(flags));
-		assert_eq!(
-			SoundFlags::from_bits(0x7ff & !SND_SPAWNING).map(SoundFlags::bits),
-			Some(0x7ff & !SND_SPAWNING)
-		);
-		assert_eq!(SoundFlags::from_bits(SND_SPAWNING), None);
-		assert_eq!(SoundFlags::from_bits(1 << 11), None);
-		assert_eq!(SoundFlags::from_bits(-1), None);
-		assert_eq!(SoundFlags::default(), SoundFlags::NONE);
 	}
 
 	#[test]

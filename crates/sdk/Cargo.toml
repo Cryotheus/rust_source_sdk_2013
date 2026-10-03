@@ -20,6 +20,7 @@ tf2 = ["sdk_raw/tf2"]
 tf2_loadout = ["tf2"]
 
 [dependencies]
+bitflags.workspace = true
 glam = { version = "0.33.10", features = [] }
 source_sdk_2013_declmacros = { path = "../sdk_declmacros", version = "0.1.0-alpha.4" }
 sys = { path = "../sdk_sys", version = "0.1.0-alpha.4", package = "source_sdk_2013_sys" }

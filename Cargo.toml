@@ -12,6 +12,7 @@ version = "0.1.0-alpha.4"
 [workspace.dependencies]
 anyhow = "1.0.104"
 bindgen = "0.73.2"
+bitflags = "2.13.2"
 chrono = "0.4.45"
 crys_bricks = { version = "0.2.0", path = "crates/crys_bricks" }
 log = "0.4.34"

@@ -43,7 +43,7 @@ impl UserMessage for Fade {
 		// times over 64 seconds; clients read the same 16 bits either way.
 		out.write_u16(fade_time(self.duration));
 		out.write_u16(fade_time(self.hold));
-		out.write_u16(self.flags.0);
+		out.write_u16(self.flags.bits());
 		out.write_u8(self.color.r);
 		out.write_u8(self.color.g);
 		out.write_u8(self.color.b);
@@ -52,34 +52,29 @@ impl UserMessage for Fade {
 	}
 }
 
-/// How a [`Fade`] behaves (`FFADE_*`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct FadeFlags(pub u16);
+bitflags::bitflags! {
+	/// How a [`Fade`] behaves (`FFADE_*`).
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+	pub struct FadeFlags: u16 {
+		/// From the color to clear.
+		#[doc(alias("FFADE_IN"))]
+		const IN = 0x1;
 
-impl FadeFlags {
-	/// From the color to clear.
-	#[doc(alias("FFADE_IN"))]
-	pub const IN: Self = Self(0x1);
+		/// Multiplies the screen by the color instead of blending it.
+		#[doc(alias("FFADE_MODULATE"))]
+		const MODULATE = 0x4;
 
-	/// Multiplies the screen by the color instead of blending it.
-	#[doc(alias("FFADE_MODULATE"))]
-	pub const MODULATE: Self = Self(0x4);
+		/// From clear to the color.
+		#[doc(alias("FFADE_OUT"))]
+		const OUT = 0x2;
 
-	/// From clear to the color.
-	#[doc(alias("FFADE_OUT"))]
-	pub const OUT: Self = Self(0x2);
+		/// Replaces every other fade.
+		#[doc(alias("FFADE_PURGE"))]
+		const PURGE = 0x10;
 
-	/// Replaces every other fade.
-	#[doc(alias("FFADE_PURGE"))]
-	pub const PURGE: Self = Self(0x10);
-
-	/// Holds the color until another fade replaces it.
-	#[doc(alias("FFADE_STAYOUT"))]
-	pub const STAY_OUT: Self = Self(0x8);
-
-	/// The flags set in either.
-	pub const fn union(self, other: Self) -> Self {
-		Self(self.0 | other.0)
+		/// Holds the color until another fade replaces it.
+		#[doc(alias("FFADE_STAYOUT"))]
+		const STAY_OUT = 0x8;
 	}
 }
 

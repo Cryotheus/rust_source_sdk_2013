@@ -21,9 +21,8 @@ use std::ptr::{NonNull, null_mut};
 /// The player resource's arrays: name, bits, flags, and elements per slot.
 const ARRAYS: [(&CStr, c_int, PropFlags, usize); 17] = {
 	const U: PropFlags = PropFlags::UNSIGNED;
-	const S: PropFlags = PropFlags::from_bits(0);
-	const V: PropFlags =
-		PropFlags::from_bits(PropFlags::UNSIGNED.bits() | PropFlags::NORMAL.bits());
+	const S: PropFlags = PropFlags::empty();
+	const V: PropFlags = PropFlags::UNSIGNED.union(PropFlags::NORMAL);
 
 	[
 		// `DT_PlayerResource`, the base class's table.
@@ -1057,9 +1056,8 @@ fn encodable_ranges_follow_send_prop_int() {
 
 		encodable_range(unsafe { SendProp::from_raw(NonNull::from(&prop)) }).inclusive()
 	};
-	let varint = PropFlags::from_bits(PropFlags::NORMAL.bits());
-	let unsigned_varint =
-		PropFlags::from_bits(PropFlags::NORMAL.bits() | PropFlags::UNSIGNED.bits());
+	let varint = PropFlags::NORMAL;
+	let unsigned_varint = PropFlags::NORMAL | PropFlags::UNSIGNED;
 
 	assert_eq!(range(1, PropFlags::UNSIGNED), 0..=1);
 	assert_eq!(range(5, PropFlags::UNSIGNED), 0..=31);
