@@ -1,4 +1,6 @@
 [alias]
+
+# Base command for generating bindings
 _bind = [
 	"run",
 	"--package", "source_sdk_2013_bindgen_runner",
@@ -43,28 +45,32 @@ rscodefmt = [
 	"--all-features",
 ]
 
-# cargo publish-p1 && cargo publish-p2 && cargo publish-p3 && cargo publish-p4
+# cargo publish-p1 && cargo publish-p2 && cargo publish-p3 && cargo publish-p4 && cargo publish-p5
 publish-p1 = [
 	"publish",
-	"--package", "source_sdk_2013_sys_x64_windows",
-	"--package", "source_sdk_2013_sys_x64_linux",
-	"--package", "source_sdk_2013_declmacros",
 	"--package", "metamod_source_sys",
-	"--package", "source_sdk_2013_bindgen"
+	"--package", "source_sdk_2013_bindgen",
+	"--package", "source_sdk_2013_declmacros",
+	"--package", "source_sdk_2013_sys_x64_linux",
+	"--package", "source_sdk_2013_sys_x64_windows",
 ]
 
 publish-p2 = [
 	"publish",
 	"--package", "source_sdk_2013_sys",
-	"--package", "source_sdk_2013_raw",
 ]
 
 publish-p3 = [
 	"publish",
-	"--package", "source_sdk_2013",
+	"--package", "source_sdk_2013_raw",
 ]
 
 publish-p4 = [
+	"publish",
+	"--package", "source_sdk_2013",
+]
+
+publish-p5 = [
 	"publish",
 	"--package", "metamod_source",
 ]

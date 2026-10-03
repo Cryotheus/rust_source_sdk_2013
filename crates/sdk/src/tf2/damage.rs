@@ -212,113 +212,6 @@ impl DamageInfo {
 		value.is_finite() && (0.0..=Self::MAX_DAMAGE).contains(&value)
 	}
 
-	/// Native read-only pointer, valid until this value is moved or dropped.
-	pub fn as_ptr(&self) -> *const sys::CTakeDamageInfo {
-		self.raw.as_ptr()
-	}
-
-	scalar!(
-		/// The damage amount.
-		#[doc(alias("GetDamage"))]
-		amount,
-		/// Replaces the damage amount.
-		///
-		/// # Panics
-		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias("SetDamage"))]
-		set_amount,
-		m_flDamage,
-		f32,
-		Self::valid_damage
-	);
-
-	scalar!(
-		/// `m_flMaxDamage`, which native constructors and [`Self::new`]
-		/// initialize to the damage amount.
-		#[doc(alias("GetMaxDamage"))]
-		max_damage,
-		/// Replaces `m_flMaxDamage`.
-		///
-		/// # Panics
-		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias("SetMaxDamage"))]
-		set_max_damage,
-		m_flMaxDamage,
-		f32,
-		Self::valid_damage
-	);
-
-	scalar!(
-		/// The damage before skill-level adjustments, or `f32::MAX`
-		/// (`BASEDAMAGE_NOT_SPECIFIED`) when unspecified. Unlike the native
-		/// `GetBaseDamage`, this returns the sentinel instead of the amount.
-		#[doc(alias("GetBaseDamage", "m_flBaseDamage"))]
-		base_damage,
-		/// Replaces the base damage. `f32::MAX` marks it as unspecified.
-		///
-		/// # Panics
-		/// If `value` is neither `f32::MAX` nor a finite value within
-		/// `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias("m_flBaseDamage"))]
-		set_base_damage,
-		m_flBaseDamage,
-		f32,
-		|value: f32| value == damage::BASEDAMAGE_NOT_SPECIFIED || Self::valid_damage(value)
-	);
-
-	scalar!(
-		/// The recorded damage increase, such as TF2's critical-hit bonus.
-		#[doc(alias("GetDamageBonus"))]
-		damage_bonus,
-		/// Replaces the recorded damage increase. Unlike the native
-		/// `SetDamageBonus`, this leaves the bonus provider unchanged.
-		///
-		/// # Panics
-		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
-		#[doc(alias("SetDamageBonus"))]
-		set_damage_bonus,
-		m_flDamageBonus,
-		f32,
-		Self::valid_damage
-	);
-
-	scalar!(
-		/// The custom damage kind. In TF2 this is an `ETFDmgCustom` value, such
-		/// as `sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32`. The cast is
-		/// needed because the sys constant's type differs between ABIs.
-		#[doc(alias("GetDamageCustom"))]
-		custom_damage,
-		/// Replaces the custom damage kind.
-		#[doc(alias("SetDamageCustom"))]
-		set_custom_damage,
-		m_iDamageCustom,
-		i32
-	);
-
-	scalar!(
-		/// The ammo type of the weapon that caused the damage, or
-		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) for none.
-		#[doc(alias("GetAmmoType"))]
-		ammo_type,
-		/// Replaces the ammo type.
-		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) means none.
-		#[doc(alias("SetAmmoType"))]
-		set_ammo_type,
-		m_iAmmoType,
-		i32
-	);
-
-	scalar!(
-		/// Whether the damage bypasses the game rules' teammate damage check.
-		#[doc(alias("IsForceFriendlyFire"))]
-		force_friendly_fire,
-		/// Sets whether the damage bypasses the teammate damage check.
-		#[doc(alias("SetForceFriendlyFire"))]
-		set_force_friendly_fire,
-		m_bForceFriendlyFire,
-		bool
-	);
-
 	/// Removes a disallowed hit's recorded critical bonus after TF2's rules
 	/// have computed it. Returns whether the record changed. Full and mini
 	/// critical hits are independently controlled.
@@ -348,6 +241,11 @@ impl DamageInfo {
 		}
 
 		denied
+	}
+
+	/// Native read-only pointer, valid until this value is moved or dropped.
+	pub fn as_ptr(&self) -> *const sys::CTakeDamageInfo {
+		self.raw.as_ptr()
 	}
 
 	/// The entity that originated the attack, such as a player.
@@ -497,6 +395,108 @@ impl DamageInfo {
 	fn write_critical(&mut self, critical: CriticalHit) {
 		// SAFETY: Scalar field in our owned record, with a valid native value.
 		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_eCritType).write(critical as _) };
+	}
+
+	scalar! {
+		/// The damage amount.
+		#[doc(alias("GetDamage"))]
+		amount,
+		/// Replaces the damage amount.
+		///
+		/// # Panics
+		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
+		#[doc(alias("SetDamage"))]
+		set_amount,
+		m_flDamage,
+		f32,
+		Self::valid_damage
+	}
+
+	scalar! {
+		/// `m_flMaxDamage`, which native constructors and [`Self::new`]
+		/// initialize to the damage amount.
+		#[doc(alias("GetMaxDamage"))]
+		max_damage,
+		/// Replaces `m_flMaxDamage`.
+		///
+		/// # Panics
+		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
+		#[doc(alias("SetMaxDamage"))]
+		set_max_damage,
+		m_flMaxDamage,
+		f32,
+		Self::valid_damage
+	}
+
+	scalar! {
+		/// The damage before skill-level adjustments, or `f32::MAX`
+		/// (`BASEDAMAGE_NOT_SPECIFIED`) when unspecified. Unlike the native
+		/// `GetBaseDamage`, this returns the sentinel instead of the amount.
+		#[doc(alias("GetBaseDamage", "m_flBaseDamage"))]
+		base_damage,
+		/// Replaces the base damage. `f32::MAX` marks it as unspecified.
+		///
+		/// # Panics
+		/// If `value` is neither `f32::MAX` nor a finite value within
+		/// `0.0..=`[`Self::MAX_DAMAGE`].
+		#[doc(alias("m_flBaseDamage"))]
+		set_base_damage,
+		m_flBaseDamage,
+		f32,
+		|value: f32| value == damage::BASEDAMAGE_NOT_SPECIFIED || Self::valid_damage(value)
+	}
+
+	scalar! {
+		/// The recorded damage increase, such as TF2's critical-hit bonus.
+		#[doc(alias("GetDamageBonus"))]
+		damage_bonus,
+		/// Replaces the recorded damage increase. Unlike the native
+		/// `SetDamageBonus`, this leaves the bonus provider unchanged.
+		///
+		/// # Panics
+		/// If `value` is not finite or lies outside `0.0..=`[`Self::MAX_DAMAGE`].
+		#[doc(alias("SetDamageBonus"))]
+		set_damage_bonus,
+		m_flDamageBonus,
+		f32,
+		Self::valid_damage
+	}
+
+	scalar! {
+		/// The custom damage kind. In TF2 this is an `ETFDmgCustom` value, such
+		/// as `sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32`. The cast is
+		/// needed because the sys constant's type differs between ABIs.
+		#[doc(alias("GetDamageCustom"))]
+		custom_damage,
+		/// Replaces the custom damage kind.
+		#[doc(alias("SetDamageCustom"))]
+		set_custom_damage,
+		m_iDamageCustom,
+		i32
+	}
+
+	scalar! {
+		/// The ammo type of the weapon that caused the damage, or
+		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) for none.
+		#[doc(alias("GetAmmoType"))]
+		ammo_type,
+		/// Replaces the ammo type.
+		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) means none.
+		#[doc(alias("SetAmmoType"))]
+		set_ammo_type,
+		m_iAmmoType,
+		i32
+	}
+
+	scalar! {
+		/// Whether the damage bypasses the game rules' teammate damage check.
+		#[doc(alias("IsForceFriendlyFire"))]
+		force_friendly_fire,
+		/// Sets whether the damage bypasses the teammate damage check.
+		#[doc(alias("SetForceFriendlyFire"))]
+		set_force_friendly_fire,
+		m_bForceFriendlyFire,
+		bool
 	}
 }
 

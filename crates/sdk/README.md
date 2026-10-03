@@ -1,4 +1,5 @@
-# Source SDK 2013 ("Somewhat Higher" level Rust Bindings)
+# Source SDK 2013
+*"Somewhat Higher" level Rust Bindings*
 
 Safer and more ergonomic API over `source_sdk_2013_sys`.
 

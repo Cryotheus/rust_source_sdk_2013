@@ -1,9 +1,9 @@
-//! Helpers for tests that fake engine objects: mock vtables, and builders of
+﻿//! Helpers for tests that fake engine objects: mock vtables, and builders of
 //! the engine's data structures that this crate's tests and those of crates
 //! built on it share.
 //!
 //! These exist for tests only, of this crate and of crates built on it, which
-//! enable the `test-support` feature as a dev-dependency. They are not part of
+//! enable the `_test-support` feature as a dev-dependency. They are not part of
 //! the crate's API.
 
 pub mod commands;

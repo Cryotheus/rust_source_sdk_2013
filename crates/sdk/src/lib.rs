@@ -1,4 +1,4 @@
-//! Safer access to a running Source SDK 2013 server from a plugin.
+﻿//! Safer access to a running Source SDK 2013 server from a plugin.
 //!
 //! # Entry point
 //!
@@ -54,7 +54,7 @@ pub mod server;
 pub mod soundscapes;
 pub mod user_messages;
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "_test-support"))]
 #[doc(hidden)]
 #[path = "tests/support/mod.rs"]
 pub mod test_support;

@@ -1,4 +1,4 @@
-//! Hand-written low-level FFI and utilities for the Source SDK 2013, for what
+﻿//! Hand-written low-level FFI and utilities for the Source SDK 2013, for what
 //! [`sys`] does not generate.
 //!
 //! # The three crates
@@ -56,7 +56,7 @@ pub mod tier0;
 pub mod user_messages;
 pub mod util;
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "_test-support"))]
 #[doc(hidden)]
 #[path = "tests/support/mod.rs"]
 pub mod test_support;
