@@ -28,7 +28,6 @@ pub const ABSOLUTE_PLAYER_LIMIT: c_int = 255;
 ///
 /// This is `FIRST_GAME_TEAM` from `game/shared/shareddefs.h`, one past
 /// `LAST_SHARED_TEAM`, which is [`TEAM_SPECTATOR`].
-#[doc(alias = "LAST_SHARED_TEAM")]
 pub const FIRST_GAME_TEAM: c_int = TEAM_SPECTATOR + 1;
 
 /// The `m_lifeState` of a living entity.
@@ -54,9 +53,11 @@ pub const LIFE_DYING: u8 = 1;
 /// This is `LIFE_RESPAWNABLE` from `public/const.h`.
 pub const LIFE_RESPAWNABLE: u8 = 3;
 
-/// The team number of spectators.
+/// The team number of spectators, the last of the teams every game shares.
 ///
-/// This is `TEAM_SPECTATOR` from `game/shared/shareddefs.h`.
+/// This is `TEAM_SPECTATOR` from `game/shared/shareddefs.h`, which also names
+/// it `LAST_SHARED_TEAM`.
+#[doc(alias = "LAST_SHARED_TEAM")]
 pub const TEAM_SPECTATOR: c_int = 1;
 
 /// The team number of a player not assigned to any team yet.
