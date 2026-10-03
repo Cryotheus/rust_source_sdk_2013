@@ -68,7 +68,7 @@
 //! [`GameEventId::PostInventoryApplication`]: crate::tf2::game_events::GameEventId::PostInventoryApplication
 
 use crate::datatables::{NetProp, NetPropError, NetValue, PropKind};
-use crate::entities::{Entity, EntityHandle, data_map_class};
+use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::ServerTools;
 use crate::math::Vector;
 use crate::tf2::weapons::ItemDefinitionIndex;
@@ -177,7 +177,7 @@ impl<'s> PlayerWearables<'s> {
 	/// Wraps a player's wearables, or returns [`WearableError::NotTfPlayer`]
 	/// unless the server runs TF2 and `player`'s datamaps include `CTFPlayer`.
 	pub fn new(server: Server<'s>, player: Entity<'s>) -> Result<Self, WearableError> {
-		if server.game() != Game::TeamFortress2 || !has_class(player, c"CTFPlayer") {
+		if server.game() != Game::TeamFortress2 || !player.has_data_map_class(c"CTFPlayer") {
 			return Err(WearableError::NotTfPlayer);
 		}
 
@@ -669,7 +669,7 @@ impl<'s> Wearable<'s> {
 	/// 4-byte `EHANDLE` `m_hOwnerEntity` or `m_hMoveParent` at a plausible
 	/// offset.
 	pub fn new(server: Server<'s>, entity: Entity<'s>) -> Result<Self, WearableError> {
-		if server.game() != Game::TeamFortress2 || !has_class(entity, c"CTFWearable") {
+		if server.game() != Game::TeamFortress2 || !entity.has_data_map_class(c"CTFWearable") {
 			return Err(WearableError::NotWearable);
 		}
 
@@ -995,12 +995,6 @@ fn check_live(entity: Entity<'_>) -> Result<(), WearableError> {
 	} else {
 		Ok(())
 	}
-}
-
-fn has_class(entity: Entity<'_>, class: &CStr) -> bool {
-	entity
-		.data_maps()
-		.any(|map| data_map_class(map) == Some(class))
 }
 
 /// Converts an error about how `m_hMyWearables` is networked, rather than about

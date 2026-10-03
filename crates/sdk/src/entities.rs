@@ -203,6 +203,17 @@ impl<'s> Entity<'s> {
 			.unwrap_or_default()
 	}
 
+	/// Whether a data description map of the entity's class or one of its
+	/// bases is named `class`, such as `CTFPlayer`.
+	#[cfg_attr(
+		not(feature = "tf2"),
+		expect(dead_code, reason = "only the tf2 module checks classes so far")
+	)]
+	pub(crate) fn has_data_map_class(self, class: &CStr) -> bool {
+		self.data_maps()
+			.any(|map| data_map_class(map) == Some(class))
+	}
+
 	/// The entity's data description maps, from its own class to its bases.
 	pub(crate) fn data_maps(self) -> DataMaps<'s> {
 		type GetDataDescMap = unsafe extern "C" fn(*mut sys::CBaseEntity) -> *mut sys::datamap_t;

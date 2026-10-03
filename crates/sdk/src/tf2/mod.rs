@@ -8,6 +8,7 @@
 
 pub mod achievements;
 pub mod attributes;
+mod class;
 pub mod conditions;
 pub mod damage;
 pub mod game_events;
@@ -21,3 +22,5 @@ pub mod voice;
 pub mod voting;
 pub mod weapons;
 pub mod wearables;
+
+pub use class::PlayerClass;

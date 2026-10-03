@@ -90,6 +90,7 @@ use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::ffi::NotThreadSafe;
 use crate::interfaces::{ServerGameDll, ServerTools, ValveEngine};
 use crate::players::UserId;
+use crate::tf2::PlayerClass;
 use crate::{Game, InterfaceError, Server};
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_int};
@@ -566,87 +567,6 @@ enum Phase {
 	/// [`Scoreboard::after_frame`] ran last, after a
 	/// [`Scoreboard::before_frame`].
 	Applied,
-}
-
-/// A class the scoreboard can show, numbered as TF2's `ETFClass`
-/// (`tf_shareddefs.h:203-215`).
-///
-/// The Civilian and the values past it are left out: clients show class icons
-/// only for the Scout to the Engineer, and look up class names with the
-/// scoreboard's class without checking it (`tf_hud_winpanel.cpp:569`).
-#[doc(alias = "ETFClass")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[repr(i32)]
-pub enum PlayerClass {
-	/// No class, as before a player first picks one.
-	#[doc(alias = "TF_CLASS_UNDEFINED")]
-	Undefined = 0,
-
-	/// The Scout.
-	#[doc(alias = "TF_CLASS_SCOUT")]
-	Scout = 1,
-
-	/// The Sniper.
-	#[doc(alias = "TF_CLASS_SNIPER")]
-	Sniper = 2,
-
-	/// The Soldier.
-	#[doc(alias = "TF_CLASS_SOLDIER")]
-	Soldier = 3,
-
-	/// The Demoman.
-	#[doc(alias = "TF_CLASS_DEMOMAN")]
-	Demoman = 4,
-
-	/// The Medic.
-	#[doc(alias = "TF_CLASS_MEDIC")]
-	Medic = 5,
-
-	/// The Heavy.
-	#[doc(alias = "TF_CLASS_HEAVYWEAPONS")]
-	Heavy = 6,
-
-	/// The Pyro.
-	#[doc(alias = "TF_CLASS_PYRO")]
-	Pyro = 7,
-
-	/// The Spy.
-	#[doc(alias = "TF_CLASS_SPY")]
-	Spy = 8,
-
-	/// The Engineer.
-	#[doc(alias = "TF_CLASS_ENGINEER")]
-	Engineer = 9,
-}
-
-impl PlayerClass {
-	/// Every class, in `ETFClass` order.
-	pub const ALL: [Self; 10] = [
-		Self::Undefined,
-		Self::Scout,
-		Self::Sniper,
-		Self::Soldier,
-		Self::Demoman,
-		Self::Medic,
-		Self::Heavy,
-		Self::Pyro,
-		Self::Spy,
-		Self::Engineer,
-	];
-
-	/// The class with this `ETFClass` number, or `None` outside
-	/// `TF_CLASS_UNDEFINED` to `TF_CLASS_ENGINEER`.
-	pub const fn from_raw(raw: i32) -> Option<Self> {
-		match raw {
-			0..=9 => Some(Self::ALL[raw as usize]),
-			_ => None,
-		}
-	}
-
-	/// The class's `ETFClass` number.
-	pub const fn to_raw(self) -> i32 {
-		self as i32
-	}
 }
 
 /// A player column the store can override: a [`PlayerStat`], the class, or
@@ -1900,13 +1820,6 @@ fn find_team<'s>(context: Context<'s>, team: ScoringTeam) -> Result<Entity<'s>, 
 	Err(ScoreboardError::NoTeam(team))
 }
 
-/// Whether `entity`'s datamaps include `class`'s.
-fn has_class(entity: Entity<'_>, class: &CStr) -> bool {
-	entity
-		.data_maps()
-		.any(|map| data_map_class(map) == Some(class))
-}
-
 /// The range of an `int` variable named `name`, or an error if it is not one.
 fn int_range(
 	prop: SendProp<'_>,
@@ -1971,7 +1884,7 @@ fn networking(entity: Entity<'_>) -> Result<(ServerClass<'_>, Edict<'_>), Scoreb
 pub fn reset_scores(server: Server<'_>, player: Entity<'_>) -> Result<(), ScoreboardError> {
 	check_game(server)?;
 
-	if !has_class(player, c"CTFPlayer") {
+	if !player.has_data_map_class(c"CTFPlayer") {
 		return Err(ScoreboardError::NotTfPlayer);
 	}
 
@@ -2088,7 +2001,7 @@ fn set_player_count(
 ) -> Result<(), ScoreboardError> {
 	check_game(server)?;
 
-	if !has_class(player, c"CTFPlayer") {
+	if !player.has_data_map_class(c"CTFPlayer") {
 		return Err(ScoreboardError::NotTfPlayer);
 	}
 

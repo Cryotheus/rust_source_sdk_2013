@@ -60,7 +60,7 @@ impl<'s> PlayerWeapons<'s> {
 	/// Wraps a player's inventory, or returns [`WeaponError::NotTfPlayer`]
 	/// unless the server runs TF2 and `player`'s datamaps include `CTFPlayer`.
 	pub fn new(server: Server<'s>, player: Entity<'s>) -> Result<Self, WeaponError> {
-		if server.game() != Game::TeamFortress2 || !has_class(player, c"CTFPlayer") {
+		if server.game() != Game::TeamFortress2 || !player.has_data_map_class(c"CTFPlayer") {
 			return Err(WeaponError::NotTfPlayer);
 		}
 
@@ -520,7 +520,7 @@ impl<'s> Weapon<'s> {
 	/// [`WeaponError::UnsupportedLayout`] if `CBaseCombatWeapon`'s datamap lacks
 	/// a usable `m_hOwner` EHANDLE.
 	pub fn new(server: Server<'s>, entity: Entity<'s>) -> Result<Self, WeaponError> {
-		if server.game() != Game::TeamFortress2 || !has_class(entity, c"CTFWeaponBase") {
+		if server.game() != Game::TeamFortress2 || !entity.has_data_map_class(c"CTFWeaponBase") {
 			return Err(WeaponError::NotWeapon);
 		}
 
@@ -767,12 +767,6 @@ fn check_live(entity: Entity<'_>) -> Result<(), WeaponError> {
 	} else {
 		Ok(())
 	}
-}
-
-fn has_class(entity: Entity<'_>, class: &CStr) -> bool {
-	entity
-		.data_maps()
-		.any(|map| data_map_class(map) == Some(class))
 }
 
 #[cfg(test)]

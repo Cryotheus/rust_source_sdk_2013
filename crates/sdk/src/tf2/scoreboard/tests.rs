@@ -916,16 +916,6 @@ unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const 
 
 #[test]
 fn classes_and_teams_are_bounded() {
-	for (raw, class) in (0..).zip(PlayerClass::ALL) {
-		assert_eq!(PlayerClass::from_raw(raw), Some(class));
-		assert_eq!(class.to_raw(), raw);
-	}
-
-	for raw in [-1, 10, 11, 12, 31, i32::MAX] {
-		assert_eq!(PlayerClass::from_raw(raw), None);
-	}
-
-	assert_eq!(PlayerClass::from_raw(8), Some(PlayerClass::Spy));
 	assert_eq!(ScoringTeam::from_raw(2), Some(ScoringTeam::Red));
 	assert_eq!(ScoringTeam::from_raw(3), Some(ScoringTeam::Blue));
 	assert_eq!(ScoringTeam::from_raw(1), None);
