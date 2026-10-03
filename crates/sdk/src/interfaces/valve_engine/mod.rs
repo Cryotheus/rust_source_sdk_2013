@@ -1,8 +1,10 @@
 //! `IVEngineServer`, the engine's services for the game server.
 
-use crate::edicts::{Edict, MAX_EDICTS};
+use crate::edicts::Edict;
 use crate::net::NetChannel;
-use crate::players::{ABSOLUTE_PLAYER_LIMIT, UserId};
+use crate::players::UserId;
+use sdk_raw::edicts::MAX_EDICTS;
+use sdk_raw::players::ABSOLUTE_PLAYER_LIMIT;
 use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
@@ -145,7 +147,8 @@ impl<'s> ValveEngine<'s> {
 	///
 	/// A client's edict resolves as soon as it connects, before its player
 	/// entity spawns, and until its disconnection completes, so the edict may
-	/// have no entity yet. A lookup scans up to [`ABSOLUTE_PLAYER_LIMIT`] slots.
+	/// have no entity yet. A lookup scans up to
+	/// [`ABSOLUTE_PLAYER_LIMIT`](crate::players::ABSOLUTE_PLAYER_LIMIT) slots.
 	pub fn edict_of_user_id(self, user_id: UserId) -> Option<Edict<'s>> {
 		(1..=ABSOLUTE_PLAYER_LIMIT)
 			.filter_map(|index| self.edict_of_index(index))

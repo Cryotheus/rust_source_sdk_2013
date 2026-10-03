@@ -101,12 +101,13 @@ mod tests;
 
 use crate::NotThreadSafe;
 use crate::datatables::{NetPropError, PropFlags, PropKind, SendProp, ServerClass, Storage};
-use crate::edicts::{Edict, MAX_CHANGE_OFFSETS};
+use crate::edicts::Edict;
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::interfaces::{ServerGameDll, ServerTools, ValveEngine};
 use crate::players::UserId;
 use crate::tf2::PlayerClass;
 use crate::{Game, InterfaceError, Server};
+use sdk_raw::edicts::MAX_CHANGE_OFFSETS;
 use sdk_raw::vcall;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_int};

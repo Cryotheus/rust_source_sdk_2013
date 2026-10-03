@@ -3,32 +3,19 @@
 use crate::NotThreadSafe;
 use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
+
+use sdk_raw::edicts::{
+	FL_EDICT_CHANGED, FL_EDICT_FREE, FL_FULL_EDICT_CHANGED, MAX_CHANGE_OFFSETS,
+	MAX_EDICT_CHANGE_INFOS,
+};
+
 use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-/// `FL_EDICT_CHANGED` from `public/edict.h`, set when a networked variable changes.
-const FL_EDICT_CHANGED: c_int = 1 << 0;
-
-/// `FL_EDICT_FREE` from `public/edict.h`, set while a slot holds no entity.
-const FL_EDICT_FREE: c_int = 1 << 1;
-
-/// `FL_FULL_EDICT_CHANGED` from `public/edict.h`, set when every networked
-/// variable must be compared rather than only the recorded offsets.
-const FL_FULL_EDICT_CHANGED: c_int = 1 << 8;
-
-/// `MAX_CHANGE_OFFSETS` from `public/edict.h`.
-pub(crate) const MAX_CHANGE_OFFSETS: u16 = 19;
-
-/// `MAX_EDICT_CHANGE_INFOS` from `public/edict.h`.
-const MAX_EDICT_CHANGE_INFOS: u16 = 100;
-
-/// Number of slots in the edict table.
-///
-/// This is `MAX_EDICTS` from `public/const.h`.
-pub const MAX_EDICTS: c_int = 1 << 11;
+pub use sdk_raw::edicts::MAX_EDICTS;
 
 /// One slot of the engine's edict table, as referred to by an `edict_t *`.
 ///

@@ -284,7 +284,7 @@ impl<'s> ServerTools<'s> {
 	/// [`Self::entities`] or [`Self::entity_by_handle`].
 	#[doc(alias = "GetBaseEntityByEntIndex")]
 	pub fn entity_by_index(self, index: c_int) -> Option<Entity<'s>> {
-		if !(0..crate::edicts::MAX_EDICTS).contains(&index) {
+		if !(0..sdk_raw::edicts::MAX_EDICTS).contains(&index) {
 			return None;
 		}
 

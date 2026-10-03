@@ -10,6 +10,7 @@ use crate::datatables::test_support::{
 use crate::entities::test_support::{data_map, field, leak};
 use crate::server::test_support::{export, mock_server};
 use crate::{InterfaceFactory, Module};
+use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
 use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CString, c_char, c_void};
@@ -61,12 +62,6 @@ const DEATHS: usize = 1;
 
 /// Slots in the fake edict table.
 const EDICT_COUNT: usize = 128;
-
-/// `FL_EDICT_CHANGED` from `public/edict.h`.
-const FL_EDICT_CHANGED: c_int = 1 << 0;
-
-/// `FL_FULL_EDICT_CHANGED` from `public/edict.h`.
-const FL_FULL_EDICT_CHANGED: c_int = 1 << 8;
 
 /// Where players keep `m_iFrags` and `m_iDeaths`, in words of their data.
 const FRAGS: usize = 0;

@@ -6,12 +6,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::hint;
 use std::num::NonZero;
 
-/// The most clients the engine can host at once.
-///
-/// This is `ABSOLUTE_PLAYER_LIMIT` from `public/const.h`. The player of each
-/// client uses the edict one past the client's slot, so no player's edict
-/// index exceeds this limit.
-pub const ABSOLUTE_PLAYER_LIMIT: c_int = 255;
+pub use sdk_raw::players::ABSOLUTE_PLAYER_LIMIT;
 
 /// The largest `int` that is a [`UserId`], which stores user IDs in 16 bits.
 const RAW_USER_ID_MAX: c_int = u16::MAX as c_int;
