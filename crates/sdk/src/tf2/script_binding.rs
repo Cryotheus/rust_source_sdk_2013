@@ -227,10 +227,6 @@ pub(crate) unsafe fn call(
 /// a NUL-terminated string that is still allocated when the method returns,
 /// such as a member array, a pooled `string_t` or a static buffer, but not
 /// storage the method frees before returning.
-#[cfg_attr(
-	not(test),
-	expect(dead_code, reason = "no wrapper reads a string result yet")
-)]
 pub(crate) unsafe fn call_string(
 	entity: Entity<'_>,
 	class: &CStr,
