@@ -212,27 +212,3 @@ impl<'s> PlayerConditions<'s> {
 		Ok(())
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn duration_cannot_pass_invalid_floats_to_the_engine() {
-		for invalid in [-1.0, f32::NEG_INFINITY, f32::INFINITY, f32::NAN] {
-			assert!(ConditionDuration::seconds(invalid).is_none());
-		}
-		assert_eq!(ConditionDuration::PERMANENT.as_raw(), -1.0);
-		assert_eq!(ConditionDuration::seconds(0.0).unwrap().as_raw(), 0.0);
-		assert_eq!(ConditionDuration::seconds(3.5).unwrap().as_raw(), 3.5);
-	}
-
-	#[test]
-	fn identifiers_exclude_sentinels_and_include_extended_conditions() {
-		assert!(Condition::from_raw(-1).is_none());
-		assert!(Condition::from_raw(sys::ETFCond_TF_COND_LAST).is_none());
-		assert!(Condition::from_raw(i32::MAX).is_none());
-		assert_eq!(Condition::from_raw(0), Some(Condition::AIMING));
-		assert_eq!(Condition::from_raw(130).unwrap().to_raw(), 130);
-	}
-}

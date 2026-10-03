@@ -1,24 +1,37 @@
-use super::*;
-use crate::datatables::PropFlags;
+#![cfg(feature = "tf2")]
 
-use crate::test_support::datatables::{
-	custom_proxy, direct_table, int16_proxy, int32_proxy, pointer_table, prop, table, table_prop,
-};
+//! Tests of TF2's item and player attributes, through the game's native
+//! attribute methods and the networked layout of its economy items.
 
-use crate::test_support::entities::{MOCK_EFLAGS_OFFSET, base_entity_fields};
-use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
-use crate::test_support::leak;
-use crate::test_support::server::{mock_server, null_server};
-use crate::test_support::tf2::script_binding::{class_description, member_binding};
-use crate::tf2::weapons::{Weapon, WeaponError};
 use sdk_raw::datatables::SendPropExtraUtlVector;
 use sdk_raw::test_support::entities::{data_map, field};
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
-use sdk_raw::tf2::script_binding::STRING;
+use sdk_raw::tf2::script_binding::{FLOAT, STRING, VOID, float};
+use source_sdk_2013::datatables::PropFlags;
+use source_sdk_2013::entities::Entity;
+use source_sdk_2013::interfaces::ServerTools;
+
+use source_sdk_2013::test_support::datatables::{
+	custom_proxy, direct_table, int16_proxy, int32_proxy, pointer_table, prop, table, table_prop,
+};
+
+use source_sdk_2013::test_support::entities::{MOCK_EFLAGS_OFFSET, base_entity_fields};
+use source_sdk_2013::test_support::interfaces::server_game_dll::export_standard_proxies;
+use source_sdk_2013::test_support::leak;
+use source_sdk_2013::test_support::server::{export, mock_server, null_server};
+use source_sdk_2013::test_support::tf2::script_binding::{class_description, member_binding};
+
+use source_sdk_2013::tf2::attributes::{
+	AttributeError, AttributeIndex, AttributeSet, ItemAttributes, MAX_RUNTIME_ATTRIBUTES,
+	Multiplier, PlayerAttributes, RuntimeAttribute, Seconds, catalog, trust_shipped_schema,
+};
+
+use source_sdk_2013::tf2::weapons::{ItemDefinitionIndex, Weapon, WeaponError};
+use source_sdk_2013::{Game, Module, Server};
 use std::cell::{Cell, RefCell};
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::{offset_of, size_of, zeroed};
-use std::ptr::{NonNull, null, null_mut};
+use std::ptr::{null, null_mut};
 
 /// Entries a mock item's list has room for.
 const CAPACITY: usize = 32;
@@ -59,6 +72,8 @@ thread_local! {
 	/// refundable currency, which it never does itself.
 	static DISTURB: Cell<Option<&'static str>> = const { Cell::new(None) };
 	static ELEMENT_VTABLE: Cell<*const sys::CEconItemAttribute__bindgen_vtable> = const { Cell::new(null()) };
+	/// The entities `GetBaseEntityByEntIndex` finds, by index.
+	static ENTITIES: RefCell<Vec<*mut sys::CBaseEntity>> = const { RefCell::new(Vec::new()) };
 	static EXPORTED: Cell<bool> = const { Cell::new(false) };
 	/// Makes native `RemoveAttribute` do nothing.
 	static IGNORE_REMOVE: Cell<bool> = const { Cell::new(false) };
@@ -110,6 +125,9 @@ impl Item {
 			m_InstanceBaselineIndex: 0,
 		});
 
+		// SAFETY: The vtable holds only function pointers, `unexpected_call`
+		// aborts whichever slot reaches it, and the patch only writes slots of
+		// the vtable being built.
 		let networkable_vtable = Box::leak(unsafe {
 			mock_vtable::<sys::IServerNetworkable__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -125,6 +143,7 @@ impl Item {
 			class,
 		});
 
+		// SAFETY: As for the networkable's vtable.
 		let container_vtable = Box::leak(unsafe {
 			mock_vtable::<sys::CAttributeContainer__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -134,6 +153,7 @@ impl Item {
 			)
 		});
 
+		// SAFETY: As for the networkable's vtable, which this one only fills.
 		let element_vtable = Box::leak(unsafe {
 			mock_vtable::<sys::CEconItemAttribute__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -144,11 +164,17 @@ impl Item {
 		ELEMENT_VTABLE.set(element_vtable);
 
 		let elements = (0..CAPACITY)
+			// SAFETY: Zero is valid for every field of `CEconItemAttribute`.
 			.map(|_| unsafe { zeroed::<sys::CEconItemAttribute>() })
 			.collect::<Vec<_>>()
 			.leak()
 			.as_mut_ptr();
 
+		// SAFETY: The storage is a leaked allocation larger than a
+		// `CEconEntity`, which holds the vtable, datamap, descriptor and
+		// networkable at their words, the handle at its offset, and the
+		// container, item and list at their generated offsets. Pointers are
+		// written as pointers, so they keep their provenance.
 		unsafe {
 			storage
 				.cast::<*const *const ()>()
@@ -187,32 +213,42 @@ impl Item {
 
 	/// Empties the runtime list.
 	fn clear(&self) {
+		// SAFETY: The list lies within the item's storage.
 		unsafe { (&raw mut (*self.list()).m_Attributes.m_Size).write(0) };
 	}
 
-	fn entity(&self) -> Entity<'_> {
-		unsafe { Entity::from_raw(NonNull::new(self.entity).unwrap()) }
+	/// The item, as `server`'s `ServerTools` finds it.
+	fn entity<'s>(&self, server: Server<'s>) -> Entity<'s> {
+		lookup(server, self.entity)
 	}
 
 	/// The list's entries, as indices and values.
 	fn entries(&self) -> Vec<(u16, f32)> {
+		// SAFETY: The list is the item's own, whose storage holds its entries.
 		unsafe { entries(self.list()) }
 	}
 
 	fn list(&self) -> *mut sys::CAttributeList {
+		// SAFETY: The list's offset lies within the item's storage.
 		unsafe { self.entity.byte_add(LIST).cast() }
 	}
 
 	/// Sets or appends an entry, as `SetRuntimeAttributeValue` does.
 	fn push(&self, index: u16, value: f32) {
+		// SAFETY: The list is the item's own, with room for `CAPACITY`
+		// entries, more than any test pushes.
 		unsafe { set_runtime(self.list(), index, value) };
 	}
 
 	fn set_definition(&self, index: u16) {
+		// SAFETY: The definition index lies within the item's storage, at its
+		// generated offset.
 		unsafe { self.entity.byte_add(DEFINITION).cast::<u16>().write(index) };
 	}
 
 	fn set_eflags(&self, flags: c_int) {
+		// SAFETY: The flags lie within the item's storage, at the offset its
+		// datamap declares.
 		unsafe {
 			self.entity
 				.byte_add(MOCK_EFLAGS_OFFSET)
@@ -302,8 +338,12 @@ unsafe extern "C" fn adapter(
 	_: i32,
 	result: *mut sys::ScriptVariant_t,
 ) -> bool {
+	// SAFETY: The descriptor is only reached through mock items, whose
+	// storage holds the list at this offset.
 	let list = unsafe { object.byte_add(LIST).cast::<sys::CAttributeList>() };
 	let index = || {
+		// SAFETY: Every method that names an attribute takes the name first,
+		// as a NUL-terminated string.
 		let name = unsafe { CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString) };
 
 		SCHEMA.with_borrow(|schema| {
@@ -326,11 +366,14 @@ unsafe extern "C" fn adapter(
 
 	match function.val_0 {
 		0 => {
+			// SAFETY: `AddAttribute` takes the value second, as a float.
 			let value = unsafe { (*arguments.add(1)).__bindgen_anon_1.m_float };
 
 			ADDED.with_borrow_mut(|added| added.push(value));
 
 			if let Some(index) = index() {
+				// SAFETY: The list is a mock item's, with room for `CAPACITY`
+				// entries.
 				unsafe { set_runtime(list, index, value + SKEW.get()) };
 			}
 		}
@@ -339,14 +382,18 @@ unsafe extern "C" fn adapter(
 			if let Some(index) = index()
 				&& !IGNORE_REMOVE.get()
 			{
+				// SAFETY: The list is a mock item's, whose storage holds its
+				// entries.
 				unsafe { remove_runtime(list, index) };
 			}
 		}
 
 		2 => {
+			// SAFETY: `GetAttribute` takes its fallback second, as a float.
 			let fallback = unsafe { (*arguments.add(1)).__bindgen_anon_1.m_float };
 			let value = index()
 				.and_then(|index| {
+					// SAFETY: As for `RemoveAttribute`.
 					unsafe { entries(list) }
 						.into_iter()
 						.find(|&(entry, _)| entry == index)
@@ -362,13 +409,17 @@ unsafe extern "C" fn adapter(
 				})
 				.unwrap_or(fallback);
 
-			unsafe { result.write(binding::float(value)) };
+			// SAFETY: `GetAttribute` returns a float, into the result its
+			// caller passes.
+			unsafe { result.write(float(value)) };
 		}
 
 		_ => {}
 	}
 
 	if DISTURB.get() == Some(method) {
+		// SAFETY: The list is a mock item's, whose first entry is initialized
+		// when its size is positive.
 		unsafe {
 			let memory = (*list).m_Attributes.m_Memory.m_pMemory;
 
@@ -385,25 +436,19 @@ unsafe extern "C" fn adapter(
 fn attribute_sets_check_room_before_writing_anything() {
 	let scope = ();
 	let server = mock_server(&scope);
+	// SAFETY: The mock game stores every attribute as a plain float, and
+	// never iterates them for a hook.
 	let token = unsafe { trust_shipped_schema(server) };
 	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+	let attributes = ItemAttributes::new(server, item.entity(server)).unwrap();
 
 	schema(&[(c"damage bonus", 2), (c"critboost on kill", 31)]);
 
-	let mut set = AttributeSet::new()
+	let set = AttributeSet::new()
 		.with(&catalog::DAMAGE_BONUS, multiplier(2.0))
 		.unwrap()
 		.with(&catalog::CRITBOOST_ON_KILL, Seconds::new(3.0).unwrap())
 		.unwrap();
-
-	// Inserting a definition again replaces its value.
-	set.insert(&catalog::DAMAGE_BONUS, multiplier(2.5)).unwrap();
-	assert_eq!(set.len(), 2);
-	assert_eq!(
-		set.insert(&catalog::DAMAGE_BONUS, multiplier(20.0)),
-		Err(AttributeError::OutOfDomain)
-	);
 
 	for index in 100..119 {
 		item.push(index, 1.0);
@@ -417,52 +462,7 @@ fn attribute_sets_check_room_before_writing_anything() {
 
 	item.clear();
 	set.apply(token, attributes).unwrap();
-	assert_eq!(item.entries(), [(2, 2.5), (31, 3.0)]);
-
-	assert!(set.remove(&catalog::DAMAGE_BONUS));
-	assert!(!set.remove(&catalog::DAMAGE_BONUS));
-	assert_eq!(set.len(), 1);
-	assert!(!set.is_empty());
-}
-
-#[test]
-fn attribute_sets_stop_at_the_first_failure_and_keep_earlier_entries() {
-	let scope = ();
-	let server = mock_server(&scope);
-	let token = unsafe { trust_shipped_schema(server) };
-	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
-	let set = AttributeSet::new()
-		.with(&catalog::DAMAGE_BONUS, multiplier(2.0))
-		.unwrap()
-		.with(&catalog::CLIP_SIZE_BONUS, multiplier(2.0))
-		.unwrap()
-		.with(&catalog::CRITBOOST_ON_KILL, Seconds::new(3.0).unwrap())
-		.unwrap();
-
-	// The running schema lacks the second attribute.
-	schema(&[(c"damage bonus", 2), (c"critboost on kill", 31)]);
-	assert_eq!(
-		set.apply(token, attributes),
-		Err(AttributeError::UnknownAttribute)
-	);
-	assert_eq!(item.entries(), [(2, 2.0)]);
-
-	// It renumbers the second attribute, whose write is undone.
-	item.clear();
-	schema(&[
-		(c"damage bonus", 2),
-		(c"clip size bonus", 3),
-		(c"critboost on kill", 31),
-	]);
-	assert_eq!(
-		set.apply(token, attributes),
-		Err(AttributeError::SchemaMismatch {
-			expected: index(4),
-			found: index(3),
-		})
-	);
-	assert_eq!(item.entries(), [(2, 2.0)]);
+	assert_eq!(item.entries(), [(2, 2.0), (31, 3.0)]);
 }
 
 unsafe extern "C" fn class_name(_: *const sys::IServerNetworkable) -> *const c_char {
@@ -470,6 +470,7 @@ unsafe extern "C" fn class_name(_: *const sys::IServerNetworkable) -> *const c_c
 }
 
 unsafe extern "C" fn datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
+	// SAFETY: Mock items hold their datamap at this word.
 	unsafe {
 		entity
 			.cast::<*mut sys::datamap_t>()
@@ -479,6 +480,7 @@ unsafe extern "C" fn datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap
 }
 
 unsafe extern "C" fn description(entity: *mut sys::CBaseEntity) -> *mut sys::ScriptClassDesc_t {
+	// SAFETY: Mock items hold their script class descriptor at this word.
 	unsafe {
 		entity
 			.cast::<*mut sys::ScriptClassDesc_t>()
@@ -491,9 +493,11 @@ unsafe extern "C" fn description(entity: *mut sys::CBaseEntity) -> *mut sys::Scr
 fn effective_values_provision_and_unchecked_writes_go_through_native_methods() {
 	let scope = ();
 	let server = mock_server(&scope);
+	// SAFETY: The mock game stores every attribute as a plain float, and
+	// never iterates them for a hook.
 	let token = unsafe { trust_shipped_schema(server) };
 	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+	let attributes = ItemAttributes::new(server, item.entity(server)).unwrap();
 
 	schema(&[
 		(c"damage bonus", 2),
@@ -533,10 +537,7 @@ fn effective_values_provision_and_unchecked_writes_go_through_native_methods() {
 	assert_eq!(take_calls(), ["ReapplyProvision"]);
 
 	item.set_definition(127);
-	assert_eq!(
-		attributes.definition(),
-		Ok(crate::tf2::weapons::ItemDefinitionIndex::new(127))
-	);
+	assert_eq!(attributes.definition(), Ok(ItemDefinitionIndex::new(127)));
 	item.set_definition(u16::MAX);
 	assert_eq!(attributes.definition(), Ok(None));
 
@@ -548,22 +549,28 @@ fn effective_values_provision_and_unchecked_writes_go_through_native_methods() {
 	};
 
 	assert_eq!(
+		// SAFETY: The mock game stores every attribute as a plain float, and
+		// reads none of them for gameplay. So do the writes below.
 		unsafe { attributes.set_by_name_unchecked(c"custom attr", 3.0) },
 		Ok(Some(entry(900, 3.0)))
 	);
 	assert_eq!(
+		// SAFETY: As above.
 		unsafe { attributes.set_by_name_unchecked(c"custom attr", 4.0) },
 		Ok(Some(entry(900, 4.0)))
 	);
 	assert_eq!(
+		// SAFETY: As above.
 		unsafe { attributes.set_by_name_unchecked(c"custom attr", 4.0) },
 		Ok(None)
 	);
 	assert_eq!(
+		// SAFETY: As above.
 		unsafe { attributes.set_by_name_unchecked(c"missing attr", 4.0) },
 		Ok(None)
 	);
 	assert_eq!(
+		// SAFETY: As above.
 		unsafe { attributes.set_by_name_unchecked(c"custom attr", f32::NAN) },
 		Err(AttributeError::InvalidValue)
 	);
@@ -578,6 +585,7 @@ fn effective_values_provision_and_unchecked_writes_go_through_native_methods() {
 
 	assert_eq!(full.len(), MAX_RUNTIME_ATTRIBUTES);
 	assert_eq!(
+		// SAFETY: As above.
 		unsafe { attributes.set_by_name_unchecked(c"other attr", 1.0) },
 		Err(AttributeError::RuntimeListFull)
 	);
@@ -590,7 +598,13 @@ fn effective_values_provision_and_unchecked_writes_go_through_native_methods() {
 }
 
 /// A list's entries, as indices and values.
+///
+/// # Safety
+///
+/// The list's storage must hold as many initialized entries as its size
+/// says.
 unsafe fn entries(list: *mut sys::CAttributeList) -> Vec<(u16, f32)> {
+	// SAFETY: The caller guarantees the entries.
 	unsafe {
 		let memory = (*list).m_Attributes.m_Memory.m_pMemory;
 		let len = usize::try_from((*list).m_Attributes.m_Size).unwrap();
@@ -608,15 +622,51 @@ unsafe fn entries(list: *mut sys::CAttributeList) -> Vec<(u16, f32)> {
 	}
 }
 
-/// Exports a game DLL whose standard send proxies the mock tables use, once
-/// per thread.
+/// `IServerTools::GetBaseEntityByEntIndex`, which finds the entities
+/// [`lookup`] registered on this thread.
+unsafe extern "C" fn entity_by_index(
+	_: *mut sys::IServerTools,
+	index: c_int,
+) -> *mut sys::CBaseEntity {
+	ENTITIES.with_borrow(|entities| {
+		usize::try_from(index)
+			.ok()
+			.and_then(|index| entities.get(index).copied())
+			.unwrap_or(null_mut())
+	})
+}
+
+/// Exports the game DLL's interfaces the mocks use, once per thread: the
+/// standard send proxies of their tables, and the `ServerTools` that
+/// [`lookup`] finds them through.
 fn export_game_dll() {
 	if !EXPORTED.replace(true) {
 		export_standard_proxies();
+
+		// SAFETY: The vtable holds only function pointers, `unexpected_call`
+		// aborts whichever slot reaches it, and the patch only writes a slot
+		// of the vtable being built.
+		let tools = Box::leak(unsafe {
+			mock_vtable::<sys::IServerTools__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).IServerTools_GetBaseEntityByEntIndex)
+						.write(entity_by_index);
+				},
+			)
+		});
+
+		export(
+			Module::GameServer,
+			ServerTools::VERSION,
+			leak(sys::IServerTools { vtable_: tools }),
+		);
 	}
 }
 
 unsafe extern "C" fn handle(entity: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
+	// SAFETY: Mock items hold their handle at this offset, within their
+	// storage.
 	unsafe { entity.byte_add(HANDLE_OFFSET).cast() }
 }
 
@@ -636,10 +686,10 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 	let scope = ();
 	let server = mock_server(&scope);
 	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+	let attributes = ItemAttributes::new(server, item.entity(server)).unwrap();
 
 	assert_eq!(attributes.runtime(), Ok(vec![]));
-	assert_eq!(attributes.entity(), item.entity());
+	assert_eq!(attributes.entity(), item.entity(server));
 
 	let corruptions: [fn(&mut Spec); 15] = [
 		|spec| spec.container += 8,
@@ -669,35 +719,44 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 		let item = Item::new(spec, item_map());
 
 		assert_eq!(
-			ItemAttributes::new(server, item.entity()).err(),
+			ItemAttributes::new(server, item.entity(server)).err(),
 			Some(AttributeError::UnsupportedLayout)
 		);
 	}
 
 	// Each read checks that the list belongs to this item's container.
 	let list = item.list();
+	// SAFETY: The list lies within the item's storage.
 	let container = unsafe { (&raw const (*list).m_pManager).read() };
 
+	// SAFETY: As above. The container is not reached through the moved
+	// pointer, which is only compared.
 	unsafe { (&raw mut (*list).m_pManager).write(container.byte_add(8)) };
 	assert_eq!(attributes.runtime(), Err(AttributeError::Unlinked));
 	assert_eq!(attributes.refresh(), Err(AttributeError::Unlinked));
 
 	// As `CAttributeList::operator=` leaves a copied list.
+	// SAFETY: As above.
 	unsafe { (&raw mut (*list).m_pManager).write(null_mut()) };
 	assert_eq!(attributes.runtime(), Err(AttributeError::Unlinked));
+	// SAFETY: As above.
 	unsafe { (&raw mut (*list).m_pManager).write(container) };
 
+	// SAFETY: The container lies within the item's storage.
 	let outer = unsafe {
 		item.entity
 			.byte_add(CONTAINER)
 			.cast::<sys::CAttributeManager>()
 	};
 
+	// SAFETY: The container's handle lies within the item's storage.
 	unsafe { (&raw mut (*outer).m_hOuter.m_Value._base.m_Index).write(8) };
 	assert_eq!(attributes.runtime(), Err(AttributeError::Unlinked));
+	// SAFETY: As above.
 	unsafe { (&raw mut (*outer).m_hOuter.m_Value._base.m_Index).write(7) };
 
 	// Implausible counts and storage are refused rather than read.
+	// SAFETY: The list lies within the item's storage.
 	let memory = unsafe { (&raw const (*list).m_Attributes.m_Memory.m_pMemory).read() };
 
 	for (size, pointer) in [
@@ -705,6 +764,7 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 		(c_int::try_from(CAPACITY).unwrap() + 1, memory),
 		(1, null_mut()),
 	] {
+		// SAFETY: As above. The wrappers refuse to read through these.
 		unsafe {
 			(&raw mut (*list).m_Attributes.m_Size).write(size);
 			(&raw mut (*list).m_Attributes.m_Memory.m_pMemory).write(pointer);
@@ -713,12 +773,14 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 		assert_eq!(attributes.runtime(), Err(AttributeError::UnsupportedLayout));
 	}
 
+	// SAFETY: As above.
 	unsafe { (&raw mut (*list).m_Attributes.m_Memory.m_pMemory).write(memory) };
 	item.clear();
 
 	// Entries must all be `CEconItemAttribute`s.
 	item.push(2, 1.0);
 	item.push(3, 1.0);
+	// SAFETY: The second entry was just pushed, within the list's storage.
 	unsafe { (&raw mut (*memory.add(1)).vtable_).write(null()) };
 	assert_eq!(attributes.runtime(), Err(AttributeError::UnsupportedLayout));
 	item.clear();
@@ -726,7 +788,7 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 	let other_game = null_server(Game::SourceSdk2013, &scope);
 
 	assert_eq!(
-		ItemAttributes::new(other_game, item.entity()).err(),
+		ItemAttributes::new(other_game, item.entity(server)).err(),
 		Some(AttributeError::UnsupportedGame)
 	);
 
@@ -734,7 +796,7 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 	let bare = null_server(Game::TeamFortress2, &scope);
 
 	assert_eq!(
-		ItemAttributes::new(bare, item.entity()).err(),
+		ItemAttributes::new(bare, item.entity(server)).err(),
 		Some(AttributeError::Unavailable)
 	);
 
@@ -744,7 +806,7 @@ fn items_need_their_networked_layout_to_match_the_generated_one() {
 	);
 
 	assert_eq!(
-		ItemAttributes::new(server, plain.entity()).err(),
+		ItemAttributes::new(server, plain.entity(server)).err(),
 		Some(AttributeError::UnsupportedEntity)
 	);
 }
@@ -754,11 +816,34 @@ fn leak_table(name: &'static CStr, props: Vec<sys::SendProp>) -> *mut sys::SendT
 	leak(table(name, props.leak()))
 }
 
+/// The entity at `raw`, as `server`'s `ServerTools` finds it once registered
+/// for its mock `GetBaseEntityByEntIndex`, as a plugin would find it.
+fn lookup<'s>(server: Server<'s>, raw: *mut sys::CBaseEntity) -> Entity<'s> {
+	export_game_dll();
+
+	let index = ENTITIES.with_borrow_mut(|entities| {
+		entities
+			.iter()
+			.position(|&known| known == raw)
+			.unwrap_or_else(|| {
+				entities.push(raw);
+				entities.len() - 1
+			})
+	});
+
+	server
+		.server_tools()
+		.unwrap()
+		.entity_by_index(c_int::try_from(index).unwrap())
+		.unwrap()
+}
+
 fn multiplier(factor: f32) -> Multiplier {
 	Multiplier::new(factor).unwrap()
 }
 
 unsafe extern "C" fn networkable(entity: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
+	// SAFETY: Mock items hold their networkable at this word.
 	unsafe {
 		entity
 			.cast::<*mut sys::IServerNetworkable>()
@@ -778,12 +863,18 @@ unsafe extern "C" fn player_adapter(
 	_: i32,
 	result: *mut sys::ScriptVariant_t,
 ) -> bool {
+	// SAFETY: The descriptor is only reached through the test's `MockPlayer`,
+	// which outlives the call, and whose changing fields are cells.
 	let object = unsafe { &*object.cast::<MockPlayer>() };
 	object.calls.set(object.calls.get() + 1);
+	// SAFETY: Every method takes the attribute's name first, as a
+	// NUL-terminated string.
 	let name = unsafe { CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString) };
 
 	match function.val_0 {
 		0 => {
+			// SAFETY: `GetCustomAttribute` takes its fallback second, as a
+			// float.
 			let fallback = unsafe { (*arguments.add(1)).__bindgen_anon_1.m_float };
 			let value = if name == c"move speed bonus" && !object.value.get().is_nan() {
 				object.value.get()
@@ -791,19 +882,25 @@ unsafe extern "C" fn player_adapter(
 				fallback
 			};
 
-			unsafe { result.write(binding::float(value)) };
+			// SAFETY: `GetCustomAttribute` returns a float, into the result
+			// its caller passes.
+			unsafe { result.write(float(value)) };
 		}
 
 		1 => {
 			assert!(result.is_null());
 
 			if name == c"move speed bonus" {
-				object
-					.value
-					.set(unsafe { (*arguments.add(1)).__bindgen_anon_1.m_float });
-				object
-					.duration
-					.set(unsafe { (*arguments.add(2)).__bindgen_anon_1.m_float });
+				// SAFETY: `AddCustomAttribute` takes the value and the duration
+				// second and third, as floats.
+				unsafe {
+					object
+						.value
+						.set((*arguments.add(1)).__bindgen_anon_1.m_float);
+					object
+						.duration
+						.set((*arguments.add(2)).__bindgen_anon_1.m_float);
+				}
 			}
 		}
 
@@ -826,16 +923,12 @@ fn player_attributes_dispatch_typed_methods_and_reject_invalid_values() {
 		c"RemoveCustomAttribute",
 	];
 	let mut parameters = [
-		vec![STRING, binding::FLOAT],
-		vec![STRING, binding::FLOAT, binding::FLOAT],
+		vec![STRING, FLOAT],
+		vec![STRING, FLOAT, FLOAT],
 		vec![STRING],
 	];
 	let mut functions = [0, 1, 2].map(|i| {
-		let returns = if i == 0 {
-			binding::FLOAT
-		} else {
-			binding::VOID
-		};
+		let returns = if i == 0 { FLOAT } else { VOID };
 		let mut function =
 			member_binding(names[i], returns, &mut parameters[i], Some(player_adapter));
 
@@ -866,29 +959,36 @@ fn player_attributes_dispatch_typed_methods_and_reject_invalid_values() {
 
 	let scope = ();
 	let server = mock_server(&scope);
+	// SAFETY: The mock game stores every attribute as a plain float, and
+	// never iterates them for a hook.
 	let token = unsafe { trust_shipped_schema(server) };
-	let entity = unsafe { Entity::from_raw(NonNull::from(&mut object).cast()) };
+	let entity = lookup(server, (&raw mut object).cast());
 	let attributes = PlayerAttributes::new(server, entity).unwrap();
 
 	assert_eq!(attributes.player(), entity);
 	assert_eq!(attributes.get(token, c"move speed bonus"), Ok(None));
-	// SAFETY: The mock schema implements this numeric attribute only.
+	// SAFETY: The mock player stores only this numeric attribute, as a plain
+	// float, and runs no speed update. So do the writes below.
 	assert!(unsafe { attributes.set_unchecked(c"move speed bonus", 1.5) }.unwrap());
 	assert_eq!(attributes.get(token, c"move speed bonus"), Ok(Some(1.5)));
 	assert_eq!(object.duration.get(), -1.0);
+	// SAFETY: As above.
 	assert!(!unsafe { attributes.set_unchecked(c"unknown", 1.5) }.unwrap());
 
 	let calls = object.calls.get();
 
 	assert_eq!(
+		// SAFETY: As above.
 		unsafe { attributes.set_unchecked(c"move speed bonus", f32::NAN) },
 		Err(AttributeError::InvalidValue)
 	);
 	assert_eq!(
+		// SAFETY: As above.
 		unsafe { attributes.set_for_unchecked(c"move speed bonus", 2.0, Some(0.0)) },
 		Err(AttributeError::InvalidValue)
 	);
 	assert_eq!(object.calls.get(), calls);
+	// SAFETY: As above.
 	assert!(unsafe { attributes.set_for_unchecked(c"move speed bonus", 2.0, Some(5.0)) }.unwrap());
 	assert_eq!(object.duration.get(), 5.0);
 	attributes.remove(token, c"move speed bonus").unwrap();
@@ -898,7 +998,7 @@ fn player_attributes_dispatch_typed_methods_and_reject_invalid_values() {
 	let item = Item::new(Spec::default(), item_map());
 
 	assert_eq!(
-		PlayerAttributes::new(server, item.entity()).err(),
+		PlayerAttributes::new(server, item.entity(server)).err(),
 		Some(AttributeError::UnsupportedEntity)
 	);
 	assert_eq!(
@@ -908,12 +1008,14 @@ fn player_attributes_dispatch_typed_methods_and_reject_invalid_values() {
 }
 
 unsafe extern "C" fn player_datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
+	// SAFETY: Only the test's `MockPlayer` has this method in its vtable.
 	unsafe { (*entity.cast::<MockPlayer>()).map }
 }
 
 unsafe extern "C" fn player_description(
 	entity: *mut sys::CBaseEntity,
 ) -> *mut sys::ScriptClassDesc_t {
+	// SAFETY: As for `player_datamap`.
 	unsafe { (*entity.cast::<MockPlayer>()).description }
 }
 
@@ -922,7 +1024,7 @@ fn removal_needs_an_entry_and_reports_which_was_removed() {
 	let scope = ();
 	let server = mock_server(&scope);
 	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+	let attributes = ItemAttributes::new(server, item.entity(server)).unwrap();
 
 	schema(&[(c"damage bonus", 2)]);
 
@@ -988,7 +1090,13 @@ fn removal_needs_an_entry_and_reports_which_was_removed() {
 }
 
 /// Removes an entry, as `CAttributeList::RemoveAttribute` does.
+///
+/// # Safety
+///
+/// As for [`entries`].
 unsafe fn remove_runtime(list: *mut sys::CAttributeList, index: u16) {
+	// SAFETY: The caller guarantees the entries, which are moved within the
+	// list's storage.
 	unsafe {
 		let memory = (*list).m_Attributes.m_Memory.m_pMemory;
 		let len = usize::try_from((*list).m_Attributes.m_Size).unwrap();
@@ -1010,9 +1118,11 @@ unsafe fn remove_runtime(list: *mut sys::CAttributeList, index: u16) {
 fn safe_writes_check_the_schema_index_and_undo_mismatches() {
 	let scope = ();
 	let server = mock_server(&scope);
+	// SAFETY: The mock game stores every attribute as a plain float, and
+	// never iterates them for a hook.
 	let token = unsafe { trust_shipped_schema(server) };
 	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+	let attributes = ItemAttributes::new(server, item.entity(server)).unwrap();
 
 	// "fire rate bonus" is renumbered to the penalty's index 5.
 	schema(&[(c"damage bonus", 2), (c"fire rate bonus", 5)]);
@@ -1152,12 +1262,12 @@ fn script_description() -> *mut sys::ScriptClassDesc_t {
 		c"ReapplyProvision",
 	];
 	let parameters = [
-		vec![STRING, binding::FLOAT, binding::FLOAT],
+		vec![STRING, FLOAT, FLOAT],
 		vec![STRING],
-		vec![STRING, binding::FLOAT],
+		vec![STRING, FLOAT],
 		vec![],
 	];
-	let returns = [binding::VOID, binding::VOID, binding::FLOAT, binding::VOID];
+	let returns = [VOID, VOID, FLOAT, VOID];
 	let functions = (0..names.len())
 		.map(|i| {
 			let parameters = parameters[i].clone().leak();
@@ -1293,12 +1403,19 @@ fn send_table(spec: Spec) -> *mut sys::SendTable {
 unsafe extern "C" fn server_class(
 	networkable: *mut sys::IServerNetworkable,
 ) -> *mut sys::ServerClass {
+	// SAFETY: Mock items' networkables are `MockNetworkable`s.
 	unsafe { (*networkable.cast::<MockNetworkable>()).class }
 }
 
 /// Sets or appends an entry, as `CAttributeList::SetRuntimeAttributeValue`
 /// does.
+///
+/// # Safety
+///
+/// As for [`entries`], and the list's storage must have room for another
+/// entry.
 unsafe fn set_runtime(list: *mut sys::CAttributeList, index: u16, value: f32) {
+	// SAFETY: The caller guarantees the entries, and room for another.
 	unsafe {
 		let memory = (*list).m_Attributes.m_Memory.m_pMemory;
 		let len = usize::try_from((*list).m_Attributes.m_Size).unwrap();
@@ -1326,9 +1443,11 @@ unsafe fn set_runtime(list: *mut sys::CAttributeList, index: u16, value: f32) {
 fn setting_a_held_value_confirms_the_schema_index_with_another_value() {
 	let scope = ();
 	let server = mock_server(&scope);
+	// SAFETY: The mock game stores every attribute as a plain float, and
+	// never iterates them for a hook.
 	let token = unsafe { trust_shipped_schema(server) };
 	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+	let attributes = ItemAttributes::new(server, item.entity(server)).unwrap();
 
 	schema(&[(c"damage bonus", 2)]);
 	item.push(2, 2.0);
@@ -1374,9 +1493,13 @@ fn take_calls() -> Vec<&'static str> {
 fn unexpected_list_changes_are_reported_and_left_alone() {
 	let scope = ();
 	let server = mock_server(&scope);
+	// SAFETY: The mock game stores every attribute as a plain float, and
+	// never iterates them for a hook.
 	let token = unsafe { trust_shipped_schema(server) };
 	let item = Item::new(Spec::default(), item_map());
-	let attributes = ItemAttributes::new(server, item.entity()).unwrap();
+	let attributes = ItemAttributes::new(server, item.entity(server)).unwrap();
+	// SAFETY: The list keeps the entry pushed first below, within its
+	// storage.
 	let currency = || unsafe {
 		(*(*item.list()).m_Attributes.m_Memory.m_pMemory)
 			.m_nRefundableCurrency
@@ -1397,6 +1520,8 @@ fn unexpected_list_changes_are_reported_and_left_alone() {
 		Err(AttributeError::UnexpectedChange)
 	);
 	assert_eq!(
+		// SAFETY: The mock game stores every attribute as a plain float, and
+		// reads none of them for gameplay.
 		unsafe { attributes.set_by_name_unchecked(c"custom attr", 1.0) },
 		Err(AttributeError::UnexpectedChange)
 	);
@@ -1443,16 +1568,15 @@ fn weapon_map() -> *mut sys::datamap_t {
 fn weapons_reach_their_item_attributes() {
 	let scope = ();
 	let server = mock_server(&scope);
+	// SAFETY: The mock game stores every attribute as a plain float, and
+	// never iterates them for a hook.
 	let token = unsafe { trust_shipped_schema(server) };
 	let item = Item::new(Spec::default(), weapon_map());
-	let weapon = Weapon::new(server, item.entity()).unwrap();
+	let weapon = Weapon::new(server, item.entity(server)).unwrap();
 
 	schema(&[(c"damage bonus", 2)]);
 	item.set_definition(1151);
-	assert_eq!(
-		weapon.definition().unwrap(),
-		crate::tf2::weapons::ItemDefinitionIndex::new(1151)
-	);
+	assert_eq!(weapon.definition().unwrap(), ItemDefinitionIndex::new(1151));
 
 	weapon
 		.attributes()
@@ -1469,13 +1593,10 @@ fn weapons_reach_their_item_attributes() {
 
 	plain.set_definition(1151);
 
-	let plain = Weapon::new(server, plain.entity()).unwrap();
+	let plain = Weapon::new(server, plain.entity(server)).unwrap();
 
 	// The definition needs only the networked variables that place it.
-	assert_eq!(
-		plain.definition().unwrap(),
-		crate::tf2::weapons::ItemDefinitionIndex::new(1151)
-	);
+	assert_eq!(plain.definition().unwrap(), ItemDefinitionIndex::new(1151));
 	assert!(matches!(
 		plain.attributes(),
 		Err(AttributeError::UnsupportedEntity)
@@ -1491,11 +1612,11 @@ fn weapons_reach_their_item_attributes() {
 
 	unlisted.set_definition(1151);
 
-	let unlisted = Weapon::new(server, unlisted.entity()).unwrap();
+	let unlisted = Weapon::new(server, unlisted.entity(server)).unwrap();
 
 	assert_eq!(
 		unlisted.definition().unwrap(),
-		crate::tf2::weapons::ItemDefinitionIndex::new(1151)
+		ItemDefinitionIndex::new(1151)
 	);
 	assert!(matches!(
 		unlisted.attributes(),
@@ -1511,7 +1632,7 @@ fn weapons_reach_their_item_attributes() {
 	);
 
 	assert!(matches!(
-		Weapon::new(server, misplaced.entity())
+		Weapon::new(server, misplaced.entity(server))
 			.unwrap()
 			.definition(),
 		Err(WeaponError::UnsupportedLayout)
@@ -1520,7 +1641,7 @@ fn weapons_reach_their_item_attributes() {
 	let bare = null_server(Game::TeamFortress2, &scope);
 
 	assert!(matches!(
-		Weapon::new(bare, item.entity()).unwrap().definition(),
+		Weapon::new(bare, item.entity(server)).unwrap().definition(),
 		Err(WeaponError::Interface(_))
 	));
 

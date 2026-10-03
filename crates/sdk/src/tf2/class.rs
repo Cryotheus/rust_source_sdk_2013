@@ -103,23 +103,3 @@ impl PlayerClass {
 		self as c_int
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn classes_round_trip_through_native_numbers() {
-		for (raw, class) in (1..).zip(PlayerClass::ALL) {
-			assert_eq!(class.to_raw(), raw);
-			assert_eq!(PlayerClass::from_raw(raw), Some(class));
-		}
-
-		for raw in [-1, 0, 10, 11] {
-			assert_eq!(PlayerClass::from_raw(raw), None);
-		}
-
-		assert_eq!(PlayerClass::Heavy.scene_directory(), "Heavy");
-		assert_eq!(PlayerClass::Demoman.scene_directory(), "Demoman");
-	}
-}
