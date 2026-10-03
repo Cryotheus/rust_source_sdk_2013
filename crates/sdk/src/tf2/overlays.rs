@@ -486,6 +486,11 @@ mod tests {
 	/// The function [`get_overlay`] implements.
 	const GET: isize = 1;
 
+	/// The vtable slot of `CBaseEntity::GetScriptDesc`, which [`description`]
+	/// takes.
+	const SCRIPT_DESCRIPTION: usize =
+		sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc);
+
 	/// The function [`set_overlay`] implements.
 	const SET: isize = 0;
 
@@ -783,10 +788,10 @@ mod tests {
 			chain = data_map(class, vec![], chain);
 		}
 
-		let vtable = Box::leak(Box::new([null::<()>(); 16]));
+		let vtable = Box::leak(Box::new([null::<()>(); SCRIPT_DESCRIPTION + 1]));
 
 		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = map as *const ();
-		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 1] = description as *const ();
+		vtable[SCRIPT_DESCRIPTION] = description as *const ();
 
 		let object = NonNull::from(Box::leak(Box::new(FakeEntity {
 			vtable: vtable.as_ptr(),

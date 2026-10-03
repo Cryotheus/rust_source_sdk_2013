@@ -330,7 +330,7 @@ mod tests {
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char, c_void};
 	use std::marker::PhantomData;
-	use std::mem::{offset_of, size_of, zeroed};
+	use std::mem::zeroed;
 	use std::ptr::{NonNull, null_mut};
 
 	/// The ID the mock manager encodes the event with.
@@ -885,8 +885,7 @@ mod tests {
 		let mut world = MockEntity::new(0);
 		let world_ptr = world.as_ptr();
 		let get_description =
-			offset_of!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc)
-				/ size_of::<usize>();
+			sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc);
 		let mut vtable = vec![unexpected_call as *const (); get_description + 1];
 
 		// The mock's own vtable answers every slot before the descriptor's,

@@ -66,15 +66,14 @@ use crate::entities::Entity;
 use crate::tf2::PlayerClass;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
+use sdk_raw::players::LIFE_ALIVE;
+use sdk_raw::tf2::voice::MAX_SCENE_FILENAME;
 use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::ptr::null_mut;
 use std::time::Duration;
-
-/// `LIFE_ALIVE` from `public/const.h`: the `m_lifeState` of a living entity.
-const LIFE_ALIVE: u8 = 0;
 
 /// An exclusive bound on the offsets of `CBaseEntity`'s own fields, past which
 /// an offset its datamap gives is not trusted.
@@ -116,7 +115,7 @@ impl ScenePath {
 	/// The longest path, in bytes, that the game keeps whole: 127, leaving
 	/// room for the terminator in its 128-byte buffer.
 	#[doc(alias = "MAX_SCENE_FILENAME")]
-	pub const MAX_LEN: usize = 127;
+	pub const MAX_LEN: usize = MAX_SCENE_FILENAME - 1;
 
 	/// Checks and copies a path.
 	pub fn new(path: &CStr) -> Result<Self, ScenePathError> {
@@ -201,7 +200,10 @@ pub enum ScenePathError {
 	NotVcd,
 
 	/// The path is longer than [`ScenePath::MAX_LEN`] bytes.
-	#[error("the scene path is {len} bytes long, but the game keeps at most 127")]
+	#[error(
+		"the scene path is {len} bytes long, but the game keeps at most {max}",
+		max = ScenePath::MAX_LEN
+	)]
 	TooLong {
 		/// The path's length in bytes, less its terminator.
 		len: usize,
@@ -477,19 +479,19 @@ mod tests {
 	use crate::InterfaceFactory;
 	use crate::entities::test_support::{MOCK_EFLAGS_OFFSET, base_entity_fields, data_map, field};
 	use crate::server::test_support::mock_server;
+	use sdk_raw::players::{LIFE_DEAD, LIFE_DYING};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::c_int;
 	use std::ffi::{c_char, c_void};
 	use std::marker::PhantomData;
-	use std::mem::{offset_of, size_of, zeroed};
+	use std::mem::{offset_of, zeroed};
 	use std::ptr::NonNull;
 
 	const PLAY_SCENE: usize =
-		offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PlayScene) / size_of::<usize>();
+		sdk_raw::vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PlayScene);
 
 	const SCRIPT_DESCRIPTION: usize =
-		offset_of!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc)
-			/ size_of::<usize>();
+		sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc);
 
 	thread_local! {
 		static DATA_MAP: Cell<*mut sys::datamap_t> = const { Cell::new(null_mut()) };
@@ -581,7 +583,7 @@ mod tests {
 		PLAYED.take();
 
 		// Dead or deleted players are refused before the game is called.
-		unsafe { (&raw mut (*player).life_state).write(2) };
+		unsafe { (&raw mut (*player).life_state).write(LIFE_DEAD) };
 		assert!(!speaker.is_alive());
 		assert_eq!(speaker.play_scene(&thanks), Err(VoiceError::NotAlive));
 		unsafe {
@@ -772,7 +774,7 @@ mod tests {
 		);
 		REJECT.set(false);
 
-		unsafe { (&raw mut (*player).life_state).write(1) };
+		unsafe { (&raw mut (*player).life_state).write(LIFE_DYING) };
 		assert_eq!(
 			speaker.play_scene_scripted(&line),
 			Err(VoiceError::NotAlive)

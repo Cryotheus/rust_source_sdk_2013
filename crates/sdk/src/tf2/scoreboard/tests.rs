@@ -304,21 +304,20 @@ impl World {
 
 		// The entities' vtables.
 		let reset_slot =
-			offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_ResetScores) / size_of::<usize>();
-		let slot = |field: usize| field / size_of::<usize>();
+			sdk_raw::vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_ResetScores);
 		let mut vtable = vec![
 			unexpected_call as *const ();
 			reset_slot.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT) + 1
 		];
 
-		vtable[slot(offset_of!(
+		vtable[sdk_raw::vtable_slot!(
 			sys::IServerUnknown__bindgen_vtable,
 			IServerUnknown_GetNetworkable
-		))] = networkable as *const ();
-		vtable[slot(offset_of!(
+		)] = networkable as *const ();
+		vtable[sdk_raw::vtable_slot!(
 			sys::IServerUnknown__bindgen_vtable,
 			IServerUnknown_GetRefEHandle
-		))] = handle as *const ();
+		)] = handle as *const ();
 		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		vtable[reset_slot] = reset_player_scores as *const ();
 

@@ -108,27 +108,21 @@ use crate::players::UserId;
 use crate::tf2::PlayerClass;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::edicts::MAX_CHANGE_OFFSETS;
+
+use sdk_raw::tf2::scoreboard::{
+	ELEMENT_SIZE, KILL_STREAK, STREAKS_PER_SLOT, TF_TEAM_BLUE, TF_TEAM_RED,
+};
+
 use sdk_raw::vcall;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_int};
 use std::ops::RangeInclusive;
-
-/// Bytes between the elements of the player resource's arrays, which all hold
-/// `int`s.
-const ELEMENT_SIZE: usize = size_of::<i32>();
-
-/// The element of a player slot's `m_iStreaks` group the scoreboard shows:
-/// `CTFPlayerShared::kTFStreak_Kills`.
-const KILL_STREAK: usize = sys::CTFPlayerShared_ETFStreak_kTFStreak_Kills as usize;
 
 /// An exclusive bound on the datamap offsets trusted for a player's fields.
 const MAX_FIELD_OFFSET: usize = 1 << 16;
 
 /// The class name of TF2's `CTFPlayerResource` (`tf_player_resource.cpp:52`).
 const RESOURCE_CLASS_NAME: &CStr = c"tf_player_manager";
-
-/// `m_iStreaks` elements per player slot: `CTFPlayerShared::kTFStreak_COUNT`.
-const STREAKS_PER_SLOT: usize = sys::CTFPlayerShared_ETFStreak_kTFStreak_COUNT as usize;
 
 /// The class name of TF2's `CTFTeam` (`tf_team.cpp:61`).
 const TEAM_CLASS_NAME: &CStr = c"tf_team";
@@ -1671,11 +1665,11 @@ pub enum ScoreboardError {
 pub enum ScoringTeam {
 	/// RED.
 	#[doc(alias = "TF_TEAM_RED")]
-	Red = 2,
+	Red = TF_TEAM_RED,
 
 	/// BLU.
 	#[doc(alias = "TF_TEAM_BLUE")]
-	Blue = 3,
+	Blue = TF_TEAM_BLUE,
 }
 
 impl ScoringTeam {
@@ -1685,8 +1679,8 @@ impl ScoringTeam {
 	/// The team with this team number, or `None` for any other number.
 	pub const fn from_raw(raw: i32) -> Option<Self> {
 		match raw {
-			2 => Some(Self::Red),
-			3 => Some(Self::Blue),
+			TF_TEAM_RED => Some(Self::Red),
+			TF_TEAM_BLUE => Some(Self::Blue),
 			_ => None,
 		}
 	}
