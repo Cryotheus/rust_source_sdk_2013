@@ -13,6 +13,53 @@ use std::mem::{MaybeUninit, offset_of};
 use std::ops::{BitAnd, BitOr, BitOrAssign, Not};
 use std::ptr::NonNull;
 
+/// Defines a documented getter and setter for one scalar `CTakeDamageInfo`
+/// field. The setter panics unless the optional validity predicate accepts
+/// the value.
+macro_rules! scalar {
+	(
+		$(#[$get_meta:meta])* $get:ident,
+		$(#[$set_meta:meta])* $set:ident,
+		$field:ident,
+		$ty:ty
+	) => {
+		scalar!(
+			$(#[$get_meta])* $get,
+			$(#[$set_meta])* $set,
+			$field,
+			$ty,
+			|_: $ty| true
+		);
+	};
+
+	(
+		$(#[$get_meta:meta])* $get:ident,
+		$(#[$set_meta:meta])* $set:ident,
+		$field:ident,
+		$ty:ty,
+		$valid:expr
+	) => {
+		$(#[$get_meta])*
+		pub fn $get(&self) -> $ty {
+			// SAFETY: Native constructors initialize this field, and our
+			// constructor initializes the complete record. This is owned memory.
+			unsafe { (&raw const (*self.raw.as_ptr()).$field).read() }
+		}
+
+		$(#[$set_meta])*
+		pub fn $set(&mut self, value: $ty) {
+			assert!(
+				($valid)(value),
+				"invalid damage field: {}",
+				stringify!($field)
+			);
+
+			// SAFETY: This field lies in our allocated native record.
+			unsafe { (&raw mut (*self.raw.as_mut_ptr()).$field).write(value) };
+		}
+	};
+}
+
 /// The classification in `CTakeDamageInfo::ECritType`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 #[doc(alias = "ECritType")]
@@ -66,182 +113,6 @@ impl Default for CriticalPolicy {
 	}
 }
 
-/// A native damage record owned by Rust. It contains serial-numbered entity
-/// handles, not borrowed entity pointers, so a copy can be retained for logs.
-/// Setters panic on non-finite floats or handles whose entity index is outside
-/// the engine's table. Damage amount must also fit the engine's signed health
-/// arithmetic. Damage callbacks contain these panics before returning to C++.
-///
-/// The SDK's constructor leaves its unused statistics field and padding
-/// uninitialized. Keeping a `MaybeUninit` record and copying bytes preserves
-/// them without ever claiming the entire native record is initialized.
-#[doc(alias = "CTakeDamageInfo")]
-pub struct DamageInfo {
-	raw: MaybeUninit<sys::CTakeDamageInfo>,
-}
-
-/// Source's damage bitmask. Unknown and game-specific bits are preserved.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DamageType(pub u32);
-
-impl DamageType {
-	/// Lets any damage type gib the victim on death.
-	#[doc(alias = "DMG_ALWAYSGIB")]
-	pub const ALWAYS_GIB: Self = Self(damage::DMG_ALWAYSGIB as u32);
-
-	/// Explosive blast damage.
-	#[doc(alias = "DMG_BLAST")]
-	pub const BLAST: Self = Self(damage::DMG_BLAST as u32);
-
-	/// Shotgun pellets, distinct from [`Self::BULLET`].
-	#[doc(alias = "DMG_BUCKSHOT")]
-	pub const BUCKSHOT: Self = Self(damage::DMG_BUCKSHOT as u32);
-
-	/// Gunshot damage.
-	#[doc(alias = "DMG_BULLET")]
-	pub const BULLET: Self = Self(damage::DMG_BULLET as u32);
-
-	/// Heat burns.
-	#[doc(alias = "DMG_BURN")]
-	pub const BURN: Self = Self(damage::DMG_BURN as u32);
-
-	/// Blunt impact, such as a crowbar or punch.
-	#[doc(alias = "DMG_CLUB")]
-	pub const CLUB: Self = Self(damage::DMG_CLUB as u32);
-
-	/// TF2's `DMG_CRITICAL` aliases `DMG_ACID`. Both full and mini critical
-	/// hits carry it after TF2 has computed their damage bonus.
-	#[doc(alias = "DMG_CRITICAL")]
-	#[doc(alias = "DMG_ACID")]
-	pub const CRITICAL: Self = Self(damage::DMG_CRITICAL as u32);
-
-	/// Crushing by a falling or moving object.
-	#[doc(alias = "DMG_CRUSH")]
-	pub const CRUSH: Self = Self(damage::DMG_CRUSH as u32);
-
-	/// Source's `DMG_DIRECT` bit. The SDK's `CEntityFlame` sets it alongside
-	/// [`Self::BURN`] for an attached fire's damage.
-	#[doc(alias = "DMG_DIRECT")]
-	pub const DIRECT: Self = Self(damage::DMG_DIRECT as u32);
-
-	/// Drowning.
-	#[doc(alias = "DMG_DROWN")]
-	pub const DROWN: Self = Self(damage::DMG_DROWN as u32);
-
-	/// Falling too far.
-	#[doc(alias = "DMG_FALL")]
-	pub const FALL: Self = Self(damage::DMG_FALL as u32);
-
-	/// The empty mask. Every mask [contains](Self::contains) it.
-	#[doc(alias = "DMG_GENERIC")]
-	pub const GENERIC: Self = Self(damage::DMG_GENERIC as u32);
-
-	/// Stops any damage type from gibbing the victim on death.
-	#[doc(alias = "DMG_NEVERGIB")]
-	pub const NEVER_GIB: Self = Self(damage::DMG_NEVERGIB as u32);
-
-	/// Prevents the damage from applying a physics force.
-	#[doc(alias = "DMG_PREVENT_PHYSICS_FORCE")]
-	pub const PREVENT_PHYSICS_FORCE: Self = Self(damage::DMG_PREVENT_PHYSICS_FORCE as u32);
-
-	/// Electric shock.
-	#[doc(alias = "DMG_SHOCK")]
-	pub const SHOCK: Self = Self(damage::DMG_SHOCK as u32);
-
-	/// Cutting, clawing or stabbing.
-	#[doc(alias = "DMG_SLASH")]
-	pub const SLASH: Self = Self(damage::DMG_SLASH as u32);
-
-	/// TF2's `DMG_USEDISTANCEMOD`, which aliases `DMG_SLOWBURN`.
-	#[doc(alias = "DMG_USEDISTANCEMOD")]
-	#[doc(alias = "DMG_SLOWBURN")]
-	pub const USE_DISTANCE_MOD: Self = Self(damage::DMG_USEDISTANCEMOD as u32);
-
-	/// TF2's `DMG_USE_HITLOCATIONS`, which aliases `DMG_AIRBOAT`.
-	#[doc(alias = "DMG_USE_HITLOCATIONS")]
-	#[doc(alias = "DMG_AIRBOAT")]
-	pub const USE_HIT_LOCATIONS: Self = Self(damage::DMG_USE_HITLOCATIONS as u32);
-
-	/// Whether every bit of `other` is set in `self`.
-	pub const fn contains(self, other: Self) -> bool {
-		self.0 & other.0 == other.0
-	}
-}
-
-impl BitAnd for DamageType {
-	type Output = Self;
-
-	fn bitand(self, rhs: Self) -> Self {
-		Self(self.0 & rhs.0)
-	}
-}
-
-impl BitOr for DamageType {
-	type Output = Self;
-
-	fn bitor(self, rhs: Self) -> Self {
-		Self(self.0 | rhs.0)
-	}
-}
-
-impl BitOrAssign for DamageType {
-	fn bitor_assign(&mut self, rhs: Self) {
-		self.0 |= rhs.0;
-	}
-}
-
-impl Not for DamageType {
-	type Output = Self;
-
-	fn not(self) -> Self {
-		Self(!self.0)
-	}
-}
-
-/// Defines a documented getter and setter for one scalar `CTakeDamageInfo`
-/// field. The setter panics unless the optional validity predicate accepts
-/// the value.
-macro_rules! scalar {
-	(
-		$(#[$get_meta:meta])* $get:ident,
-		$(#[$set_meta:meta])* $set:ident,
-		$field:ident,
-		$ty:ty
-	) => {
-		scalar!(
-			$(#[$get_meta])* $get,
-			$(#[$set_meta])* $set,
-			$field,
-			$ty,
-			|_: $ty| true
-		);
-	};
-	(
-		$(#[$get_meta:meta])* $get:ident,
-		$(#[$set_meta:meta])* $set:ident,
-		$field:ident,
-		$ty:ty,
-		$valid:expr
-	) => {
-		$(#[$get_meta])*
-		pub fn $get(&self) -> $ty {
-			// SAFETY: Native constructors initialize this field, and our
-			// constructor initializes the complete record. This is owned memory.
-			unsafe { (&raw const (*self.raw.as_ptr()).$field).read() }
-		}
-		$(#[$set_meta])*
-		pub fn $set(&mut self, value: $ty) {
-			assert!(
-				($valid)(value),
-				"invalid damage field: {}",
-				stringify!($field)
-			);
-			// SAFETY: This field lies in our allocated native record.
-			unsafe { (&raw mut (*self.raw.as_mut_ptr()).$field).write(value) };
-		}
-	};
-}
-
 /// A scoped victim plus an owned copy of its damage arguments.
 #[derive(Debug)]
 pub struct DamageEvent<'s> {
@@ -273,6 +144,20 @@ impl<'s> DamageEvent<'s> {
 			info: unsafe { DamageInfo::copy_from_raw(info) },
 		}
 	}
+}
+
+/// A native damage record owned by Rust. It contains serial-numbered entity
+/// handles, not borrowed entity pointers, so a copy can be retained for logs.
+/// Setters panic on non-finite floats or handles whose entity index is outside
+/// the engine's table. Damage amount must also fit the engine's signed health
+/// arithmetic. Damage callbacks contain these panics before returning to C++.
+///
+/// The SDK's constructor leaves its unused statistics field and padding
+/// uninitialized. Keeping a `MaybeUninit` record and copying bytes preserves
+/// them without ever claiming the entire native record is initialized.
+#[doc(alias = "CTakeDamageInfo")]
+pub struct DamageInfo {
+	raw: MaybeUninit<sys::CTakeDamageInfo>,
 }
 
 impl DamageInfo {
@@ -347,6 +232,7 @@ impl DamageInfo {
 		f32,
 		Self::valid_damage
 	);
+
 	scalar!(
 		/// `m_flMaxDamage`, which native constructors and [`Self::new`]
 		/// initialize to the damage amount.
@@ -362,6 +248,7 @@ impl DamageInfo {
 		f32,
 		Self::valid_damage
 	);
+
 	scalar!(
 		/// The damage before skill-level adjustments, or `f32::MAX`
 		/// (`BASEDAMAGE_NOT_SPECIFIED`) when unspecified. Unlike the native
@@ -380,6 +267,7 @@ impl DamageInfo {
 		f32,
 		|value: f32| value == damage::BASEDAMAGE_NOT_SPECIFIED || Self::valid_damage(value)
 	);
+
 	scalar!(
 		/// The recorded damage increase, such as TF2's critical-hit bonus.
 		#[doc(alias = "GetDamageBonus")]
@@ -395,6 +283,7 @@ impl DamageInfo {
 		f32,
 		Self::valid_damage
 	);
+
 	scalar!(
 		/// The custom damage kind. In TF2 this is an `ETFDmgCustom` value, such
 		/// as `sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32`. The cast is
@@ -407,6 +296,7 @@ impl DamageInfo {
 		m_iDamageCustom,
 		i32
 	);
+
 	scalar!(
 		/// The ammo type of the weapon that caused the damage, or
 		/// [`NO_AMMO_TYPE`](sdk_raw::tf2::damage::NO_AMMO_TYPE) for none.
@@ -419,6 +309,7 @@ impl DamageInfo {
 		m_iAmmoType,
 		i32
 	);
+
 	scalar!(
 		/// Whether the damage bypasses the game rules' teammate damage check.
 		#[doc(alias = "IsForceFriendlyFire")]
@@ -450,12 +341,14 @@ impl DamageInfo {
 			Some(CriticalHit::Mini) => !policy.mini,
 			_ => false,
 		};
+
 		if denied {
 			self.set_amount((self.amount() - self.damage_bonus()).max(0.0));
 			self.set_damage_bonus(0.0);
 			self.set_bonus_provider(EntityHandle::INVALID);
 			self.set_incoming_critical(CriticalHit::None);
 		}
+
 		denied
 	}
 
@@ -623,6 +516,124 @@ impl fmt::Debug for DamageInfo {
 			.field("attacker", &self.attacker())
 			.field("weapon", &self.weapon())
 			.finish_non_exhaustive()
+	}
+}
+
+/// Source's damage bitmask. Unknown and game-specific bits are preserved.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DamageType(pub u32);
+
+impl DamageType {
+	/// Lets any damage type gib the victim on death.
+	#[doc(alias = "DMG_ALWAYSGIB")]
+	pub const ALWAYS_GIB: Self = Self(damage::DMG_ALWAYSGIB as u32);
+
+	/// Explosive blast damage.
+	#[doc(alias = "DMG_BLAST")]
+	pub const BLAST: Self = Self(damage::DMG_BLAST as u32);
+
+	/// Shotgun pellets, distinct from [`Self::BULLET`].
+	#[doc(alias = "DMG_BUCKSHOT")]
+	pub const BUCKSHOT: Self = Self(damage::DMG_BUCKSHOT as u32);
+
+	/// Gunshot damage.
+	#[doc(alias = "DMG_BULLET")]
+	pub const BULLET: Self = Self(damage::DMG_BULLET as u32);
+
+	/// Heat burns.
+	#[doc(alias = "DMG_BURN")]
+	pub const BURN: Self = Self(damage::DMG_BURN as u32);
+
+	/// Blunt impact, such as a crowbar or punch.
+	#[doc(alias = "DMG_CLUB")]
+	pub const CLUB: Self = Self(damage::DMG_CLUB as u32);
+
+	/// TF2's `DMG_CRITICAL` aliases `DMG_ACID`. Both full and mini critical
+	/// hits carry it after TF2 has computed their damage bonus.
+	#[doc(alias = "DMG_CRITICAL")]
+	#[doc(alias = "DMG_ACID")]
+	pub const CRITICAL: Self = Self(damage::DMG_CRITICAL as u32);
+
+	/// Crushing by a falling or moving object.
+	#[doc(alias = "DMG_CRUSH")]
+	pub const CRUSH: Self = Self(damage::DMG_CRUSH as u32);
+
+	/// Source's `DMG_DIRECT` bit. The SDK's `CEntityFlame` sets it alongside
+	/// [`Self::BURN`] for an attached fire's damage.
+	#[doc(alias = "DMG_DIRECT")]
+	pub const DIRECT: Self = Self(damage::DMG_DIRECT as u32);
+
+	/// Drowning.
+	#[doc(alias = "DMG_DROWN")]
+	pub const DROWN: Self = Self(damage::DMG_DROWN as u32);
+
+	/// Falling too far.
+	#[doc(alias = "DMG_FALL")]
+	pub const FALL: Self = Self(damage::DMG_FALL as u32);
+
+	/// The empty mask. Every mask [contains](Self::contains) it.
+	#[doc(alias = "DMG_GENERIC")]
+	pub const GENERIC: Self = Self(damage::DMG_GENERIC as u32);
+
+	/// Stops any damage type from gibbing the victim on death.
+	#[doc(alias = "DMG_NEVERGIB")]
+	pub const NEVER_GIB: Self = Self(damage::DMG_NEVERGIB as u32);
+
+	/// Prevents the damage from applying a physics force.
+	#[doc(alias = "DMG_PREVENT_PHYSICS_FORCE")]
+	pub const PREVENT_PHYSICS_FORCE: Self = Self(damage::DMG_PREVENT_PHYSICS_FORCE as u32);
+
+	/// Electric shock.
+	#[doc(alias = "DMG_SHOCK")]
+	pub const SHOCK: Self = Self(damage::DMG_SHOCK as u32);
+
+	/// Cutting, clawing or stabbing.
+	#[doc(alias = "DMG_SLASH")]
+	pub const SLASH: Self = Self(damage::DMG_SLASH as u32);
+
+	/// TF2's `DMG_USEDISTANCEMOD`, which aliases `DMG_SLOWBURN`.
+	#[doc(alias = "DMG_USEDISTANCEMOD")]
+	#[doc(alias = "DMG_SLOWBURN")]
+	pub const USE_DISTANCE_MOD: Self = Self(damage::DMG_USEDISTANCEMOD as u32);
+
+	/// TF2's `DMG_USE_HITLOCATIONS`, which aliases `DMG_AIRBOAT`.
+	#[doc(alias = "DMG_USE_HITLOCATIONS")]
+	#[doc(alias = "DMG_AIRBOAT")]
+	pub const USE_HIT_LOCATIONS: Self = Self(damage::DMG_USE_HITLOCATIONS as u32);
+
+	/// Whether every bit of `other` is set in `self`.
+	pub const fn contains(self, other: Self) -> bool {
+		self.0 & other.0 == other.0
+	}
+}
+
+impl BitAnd for DamageType {
+	type Output = Self;
+
+	fn bitand(self, rhs: Self) -> Self {
+		Self(self.0 & rhs.0)
+	}
+}
+
+impl BitOr for DamageType {
+	type Output = Self;
+
+	fn bitor(self, rhs: Self) -> Self {
+		Self(self.0 | rhs.0)
+	}
+}
+
+impl BitOrAssign for DamageType {
+	fn bitor_assign(&mut self, rhs: Self) {
+		self.0 |= rhs.0;
+	}
+}
+
+impl Not for DamageType {
+	type Output = Self;
+
+	fn not(self) -> Self {
+		Self(!self.0)
 	}
 }
 
