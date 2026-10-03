@@ -45,9 +45,10 @@
 //!   cosmetics, outside that holiday.
 //! - Bots have no item server inventory, so they wear nothing unless given
 //!   wearables.
-//! - Neither the player's class nor the item's equip regions are checked: an
-//!   item for another class, or one overlapping another item, may not draw
-//!   correctly.
+//! - Neither the item's classes nor its equip regions are checked, but
+//!   [`PlayerWearables::give`] refuses an item the player's class has no
+//!   model for. An item for another class that has one, or an item
+//!   overlapping another, may not draw correctly.
 //!
 //! # Wearable loops
 //!
@@ -64,6 +65,21 @@
 //! removal callbacks of the entities they delete.
 //! [`GameEventId::PostInventoryApplication`] listeners run outside these
 //! loops. Reading the list and its wearables is always allowed.
+//!
+//! # Unverified
+//!
+//! On TF2's 64-bit Windows server, `EquipWearable` has been observed to put a
+//! created wearable at the head of a puppet bot's list, owned by and parented
+//! to the bot, and `RemoveWearable` to unlist it and delete it, deferred. The
+//! networked entries read as [`PlayerWearables::list`] decodes them, and
+//! [`PlayerWearables::give`] refused an item restricted to other classes on a
+//! bot with [`WearableError::MissingModel`]. A retail client drew a wearable
+//! given to its own player and hid the bodygroup it covers, and a resupply
+//! locker removed the given wearables. What other players' clients, SourceTV
+//! and demos draw of a given wearable, removal on respawn, re-giving from a
+//! [`GameEventId::PostInventoryApplication`] listener, Mann vs. Machine, and
+//! Linux servers, whose vtables are laid out differently, have not been
+//! tested.
 //!
 //! [`GameEventId::PostInventoryApplication`]: crate::tf2::game_events::GameEventId::PostInventoryApplication
 
@@ -349,8 +365,9 @@ impl<'s> PlayerWearables<'s> {
 	/// game refuses items restricted to a holiday outside it, which fails with
 	/// [`WearableError::Rejected`]. An item the player's class has no model
 	/// for, such as an item restricted to other classes, fails with
-	/// [`WearableError::MissingModel`]: clients would draw nothing for it,
-	/// although it would still hide parts of the player's model. Whatever was
+	/// [`WearableError::MissingModel`]: equipped on TF2's 64-bit Windows
+	/// server, such an item was observed to draw nothing on its owner's retail
+	/// client while still hiding parts of the player's model. Whatever was
 	/// created is deleted on failure.
 	///
 	/// See the [module documentation](crate::tf2::wearables) for what keeps
