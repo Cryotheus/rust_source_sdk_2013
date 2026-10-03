@@ -1,3 +1,6 @@
+#[cfg(target_os = "windows")]
+use super::Module;
+
 use super::{Error, SignaturePattern, pattern, platform, relative};
 
 /// An owned snapshot of a module's readable image regions.
@@ -8,6 +11,16 @@ pub struct Image {
 }
 
 impl Image {
+	/// Snapshot the module that `module` keeps loaded.
+	///
+	/// Addresses in the result are only usable while the module remains
+	/// loaded.
+	#[cfg(target_os = "windows")]
+	#[cfg_attr(docsrs, doc(cfg(target_os = "windows")))]
+	pub fn from_module(module: &Module) -> Result<Self, Error> {
+		platform::snapshot(module)
+	}
+
 	/// Snapshot the module containing an executable address.
 	///
 	/// # Safety

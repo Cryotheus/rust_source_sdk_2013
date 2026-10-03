@@ -1,9 +1,13 @@
 use super::{Error, Image, MAX_IMAGE_BYTES, Section, pe};
 use std::ffi::{CStr, c_char, c_void};
+use std::io;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
 const _: () = assert!(size_of::<MemoryInformation>() == 48);
+
+/// `PAGE_EXECUTE_READWRITE`: pages that may be executed, read and written.
+pub(super) const PAGE_EXECUTE_READWRITE: u32 = 0x40;
 
 #[repr(C)]
 struct MemoryInformation {
@@ -73,6 +77,30 @@ impl Module {
 		Ok(Self(handle))
 	}
 
+	/// Acquire the already loaded module named `name`, such as `engine.dll`,
+	/// without loading it.
+	///
+	/// Fails with the error Windows reports if no module of that name is
+	/// loaded, and with [`io::ErrorKind::InvalidInput`] if `name` contains a
+	/// NUL.
+	pub fn loaded(name: &str) -> Result<Self, Error> {
+		if name.contains('\0') {
+			return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
+		}
+
+		let name = name.encode_utf16().chain([0]).collect::<Vec<_>>();
+		let mut handle = std::ptr::null_mut();
+
+		// SAFETY: Without flags, this only finds a module that is already
+		// loaded, by its NUL-terminated name, and adds a loader reference to
+		// it; the output is valid.
+		if unsafe { GetModuleHandleExW(0, name.as_ptr(), &mut handle) } == 0 {
+			return Err(io::Error::last_os_error().into());
+		}
+
+		Ok(Self(handle))
+	}
+
 	/// The module's live load address.
 	pub fn base(&self) -> usize {
 		self.0 as usize
@@ -91,10 +119,11 @@ impl Drop for Module {
 
 #[link(name = "kernel32")]
 unsafe extern "system" {
+	fn FlushInstructionCache(process: *mut c_void, address: *const c_void, size: usize) -> i32;
 	fn FreeLibrary(module: *mut c_void) -> i32;
 	fn GetCurrentProcess() -> *mut c_void;
 	fn GetModuleHandleExA(flags: u32, name: *const c_char, module: *mut *mut c_void) -> i32;
-	fn GetModuleHandleExW(flags: u32, address: *const u16, module: *mut *mut c_void) -> i32;
+	fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut *mut c_void) -> i32;
 	fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
 
 	fn ReadProcessMemory(
@@ -105,11 +134,25 @@ unsafe extern "system" {
 		read: *mut usize,
 	) -> i32;
 
+	fn VirtualProtect(address: *const c_void, size: usize, protection: u32, old: *mut u32) -> i32;
+
 	fn VirtualQuery(
 		address: *const c_void,
 		information: *mut MemoryInformation,
 		size: usize,
 	) -> usize;
+}
+
+/// Makes the instruction fetches of this process see the code changed in
+/// `len` bytes at `address`.
+pub(super) fn flush_instruction_cache(address: *const c_void, len: usize) -> io::Result<()> {
+	// SAFETY: The process pseudo-handle is valid, and flushing reads no
+	// memory through `address`.
+	if unsafe { FlushInstructionCache(GetCurrentProcess(), address, len) } == 0 {
+		return Err(io::Error::last_os_error());
+	}
+
+	Ok(())
 }
 
 /// Whether the OS currently reports committed executable memory at `address`.
@@ -137,25 +180,7 @@ pub fn is_executable(address: usize) -> bool {
 pub(super) unsafe fn load(address: usize) -> Result<Image, Error> {
 	// SAFETY: Forwarded keep-loaded guarantee from Image::load.
 	let module = unsafe { Module::at(address)? };
-	let memory = MemoryReader::open()?;
-	let base = module.base();
-	let headers = pe::Headers::read(|offset, len| {
-		memory.copy(base.checked_add(offset).ok_or(Error::InvalidImage)?, len)
-	})?;
-	base.checked_add(headers.size).ok_or(Error::InvalidImage)?;
-	let mut sections = Vec::new();
-	for section in headers.sections {
-		let start = base
-			.checked_add(section.offset)
-			.ok_or(Error::InvalidImage)?;
-		sections.push(Section {
-			address: start,
-			bytes: memory.copy(start, section.len)?,
-			executable: section.executable,
-			writable: section.writable,
-		});
-	}
-	let image = Image { base, sections };
+	let image = snapshot(&module)?;
 	if !image.executable(address) {
 		return Err(Error::InvalidImage);
 	}
@@ -185,9 +210,73 @@ pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
 	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
 }
 
+/// Sets the protection of the pages holding `len` bytes at `address` to
+/// `protection`, a `PAGE_*` value, returning the previous protection of the
+/// first.
+///
+/// # Safety
+///
+/// The pages must belong to a module or allocation that stays mapped for the
+/// call, and nothing may rely on their previous protection while it is
+/// changed, such as code executing from them that the new protection forbids.
+pub(super) unsafe fn protect(
+	address: *const c_void,
+	len: usize,
+	protection: u32,
+) -> io::Result<u32> {
+	let mut old = 0;
+
+	// SAFETY: As the caller promises; `old` is a valid output.
+	if unsafe { VirtualProtect(address, len, protection, &mut old) } == 0 {
+		return Err(io::Error::last_os_error());
+	}
+
+	Ok(old)
+}
+
+/// Snapshots the image of the module that `module` keeps loaded.
+pub(super) fn snapshot(module: &Module) -> Result<Image, Error> {
+	let memory = MemoryReader::open()?;
+	let base = module.base();
+	let headers = pe::Headers::read(|offset, len| {
+		memory.copy(base.checked_add(offset).ok_or(Error::InvalidImage)?, len)
+	})?;
+	base.checked_add(headers.size).ok_or(Error::InvalidImage)?;
+	let mut sections = Vec::new();
+	for section in headers.sections {
+		let start = base
+			.checked_add(section.offset)
+			.ok_or(Error::InvalidImage)?;
+		sections.push(Section {
+			address: start,
+			bytes: memory.copy(start, section.len)?,
+			executable: section.executable,
+			writable: section.writable,
+		});
+	}
+	Ok(Image { base, sections })
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn modules_are_found_by_name_only_when_loaded() {
+		let address = GetCurrentProcess as *const () as usize;
+		// SAFETY: This process's linked kernel32 module remains loaded.
+		let by_address = unsafe { Module::at(address) }.unwrap();
+		let by_name = Module::loaded("kernel32.dll").unwrap();
+		assert_eq!(by_name.base(), by_address.base());
+		let image = Image::from_module(&by_name).unwrap();
+		assert_eq!(image.base, by_name.base());
+		assert!(image.executable(address));
+		assert!(Module::loaded("source_sdk_2013_raw_absent.dll").is_err());
+		assert!(matches!(
+			Module::loaded("kernel32.dll\0"),
+			Err(Error::Io(error)) if error.kind() == io::ErrorKind::InvalidInput
+		));
+	}
 
 	#[test]
 	fn snapshots_live_module_and_rejects_unreadable_memory() {
