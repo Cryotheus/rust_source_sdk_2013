@@ -3,10 +3,12 @@
 //! [`PlayerWeapons::give`] creates a stock weapon by classname;
 //! [`PlayerWeapons::give_item`] selects an economy item definition, such as the
 //! Iron Bomber. Native item generation initializes item definitions, schema
-//! attributes, and models before spawning. Attributes can also be changed
-//! through the [`attributes`](crate::tf2::attributes) module.
+//! attributes, and models before spawning. [`PlayerWeapons::give_item_with`]
+//! also applies an [`AttributeSet`], and [`Weapon::attributes`] reads and
+//! changes a weapon's attributes afterwards, through [`ItemAttributes`].
 
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
+use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::weapons::WeaponCreationFailed;
 use std::ffi::{CStr, c_int};
@@ -201,16 +203,20 @@ impl<'s> PlayerWeapons<'s> {
 
 		// SAFETY: GiveNamedItem returns a newly created callback-live entity.
 		unsafe {
-			self.give_with(None, || {
-				NonNull::new(give(
-					player,
-					classname.as_ptr(),
-					subtype,
-					std::ptr::null(),
-					true,
-				))
-				.ok_or(WeaponError::CreationFailed)
-			})
+			self.give_with(
+				None,
+				|| {
+					NonNull::new(give(
+						player,
+						classname.as_ptr(),
+						subtype,
+						std::ptr::null(),
+						true,
+					))
+					.ok_or(WeaponError::CreationFailed)
+				},
+				|_| Ok(()),
+			)
 		}
 	}
 
@@ -232,7 +238,7 @@ impl<'s> PlayerWeapons<'s> {
 		definition: ItemDefinitionIndex,
 	) -> Result<Weapon<'s>, WeaponError> {
 		// SAFETY: The caller supplies the native creation guarantees.
-		unsafe { self.spawn_item(definition, None) }
+		unsafe { self.spawn_item(definition, None, |_| Ok(())) }
 	}
 
 	/// As [`Self::give_item`], using an exact classname instead of the schema's
@@ -249,14 +255,52 @@ impl<'s> PlayerWeapons<'s> {
 		classname: &CStr,
 	) -> Result<Weapon<'s>, WeaponError> {
 		// SAFETY: The caller supplies the native creation/class guarantees.
-		unsafe { self.spawn_item(definition, Some(classname)) }
+		unsafe { self.spawn_item(definition, Some(classname), |_| Ok(())) }
+	}
+
+	/// As [`Self::give_item`], then sets `attributes` on the equipped weapon
+	/// as [`AttributeSet::apply`] does, and reapplies its provision
+	/// ([`ItemAttributes::reapply_provision`]). The game decides whether a
+	/// weapon provides its attributes to its owner when equipping it, before
+	/// the set's attributes exist; without reapplying, a weapon given
+	/// [`PROVIDE_ON_ACTIVE`] would keep providing while holstered until it
+	/// was next deployed and holstered.
+	///
+	/// If either step fails, the new weapon is detached and deleted, and the
+	/// error returned as [`WeaponError::Attribute`]. An empty set changes
+	/// nothing, as with [`Self::give_item`].
+	///
+	/// The game replaces weapons it did not hand out itself on resupply and
+	/// respawn, so apply the set again to the new weapons it hands out.
+	///
+	/// # Safety
+	/// The guarantees of `give_item` apply.
+	///
+	/// [`PROVIDE_ON_ACTIVE`]: crate::tf2::attributes::catalog::PROVIDE_ON_ACTIVE
+	#[doc(alias = "SpawnItem")]
+	#[doc(alias = "AddAttribute")]
+	pub unsafe fn give_item_with(
+		self,
+		token: SchemaToken<'s>,
+		definition: ItemDefinitionIndex,
+		attributes: &AttributeSet,
+	) -> Result<Weapon<'s>, WeaponError> {
+		// SAFETY: The caller supplies the native creation guarantees.
+		unsafe {
+			self.spawn_item(definition, None, |weapon| {
+				apply_attributes(token, weapon, attributes)
+			})
+		}
 	}
 
 	/// `create` must return a newly created entity, live through this callback.
+	/// `finish` runs once the weapon is equipped; if it fails, the weapon is
+	/// detached and deleted as if equipping it had failed.
 	unsafe fn give_with(
 		self,
 		expected_classname: Option<&CStr>,
 		create: impl FnOnce() -> Result<NonNull<sys::CBaseEntity>, WeaponError>,
+		finish: impl FnOnce(Weapon<'s>) -> Result<(), WeaponError>,
 	) -> Result<Weapon<'s>, WeaponError> {
 		check_live(self.player)?;
 		let tools = self.server.server_tools()?;
@@ -293,15 +337,18 @@ impl<'s> PlayerWeapons<'s> {
 			}
 		};
 
-		let equipped = weapon.slot_raw().and_then(|slot| {
-			let slot = u8::try_from(slot).map_err(|_| WeaponError::WrongSlot)?;
+		let equipped = weapon
+			.slot_raw()
+			.and_then(|slot| {
+				let slot = u8::try_from(slot).map_err(|_| WeaponError::WrongSlot)?;
 
-			if occupied[usize::from(slot)] {
-				Err(WeaponError::SlotOccupied)
-			} else {
-				self.equip(weapon)
-			}
-		});
+				if occupied[usize::from(slot)] {
+					Err(WeaponError::SlotOccupied)
+				} else {
+					self.equip(weapon)
+				}
+			})
+			.and_then(|()| finish(weapon));
 
 		if let Err(error) = equipped {
 			let owner = weapon.owner()?;
@@ -422,7 +469,8 @@ impl<'s> PlayerWeapons<'s> {
 		}
 	}
 
-	/// Creates an economy item through native item generation, then equips it.
+	/// Creates an economy item through native item generation, then equips it
+	/// and runs `finish` as [`Self::give_with`] does.
 	///
 	/// # Safety
 	/// The guarantees of `give_item`, or of `give_item_as` with a classname.
@@ -430,6 +478,7 @@ impl<'s> PlayerWeapons<'s> {
 		self,
 		definition: ItemDefinitionIndex,
 		classname: Option<&CStr>,
+		finish: impl FnOnce(Weapon<'s>) -> Result<(), WeaponError>,
 	) -> Result<Weapon<'s>, WeaponError> {
 		check_live(self.player)?;
 
@@ -439,15 +488,19 @@ impl<'s> PlayerWeapons<'s> {
 		// initializes CEconItemView before Spawn/Activate and returns a fresh
 		// callback-live entity; it must not be passed through DispatchSpawn again.
 		unsafe {
-			self.give_with(classname, || {
-				sdk_raw::weapons::spawn(
-					self.server.game_server_factory().as_raw(),
-					definition.get(),
-					origin.into(),
-					classname,
-				)
-				.map_err(WeaponError::CreationFailedNative)
-			})
+			self.give_with(
+				classname,
+				|| {
+					sdk_raw::weapons::spawn(
+						self.server.game_server_factory().as_raw(),
+						definition.get(),
+						origin.into(),
+						classname,
+					)
+					.map_err(WeaponError::CreationFailedNative)
+				},
+				finish,
+			)
 		}
 	}
 }
@@ -456,6 +509,7 @@ impl<'s> PlayerWeapons<'s> {
 #[doc(alias = "CTFWeaponBase")]
 #[derive(Debug, Clone, Copy)]
 pub struct Weapon<'s> {
+	server: Server<'s>,
 	entity: Entity<'s>,
 	owner_offset: usize,
 }
@@ -478,9 +532,33 @@ impl<'s> Weapon<'s> {
 			.ok_or(WeaponError::UnsupportedLayout)?;
 
 		Ok(Self {
+			server,
 			entity,
 			owner_offset,
 		})
+	}
+
+	/// The weapon's item attributes, as [`ItemAttributes::new`] wraps them.
+	pub fn attributes(self) -> Result<ItemAttributes<'s>, AttributeError> {
+		ItemAttributes::new(self.server, self.entity)
+	}
+
+	/// The weapon's item definition index (`m_iItemDefinitionIndex`), such as
+	/// the Iron Bomber's, or `None` for a weapon without one.
+	///
+	/// Only the networked variables placing the index are checked, not the
+	/// rest of the item's attribute storage that [`Self::attributes`] checks.
+	/// Fails with [`WeaponError::UnsupportedLayout`] unless they place it
+	/// where the SDK's layout does, and with [`WeaponError::Interface`]
+	/// without the game DLL's interface.
+	#[doc(alias = "m_iItemDefinitionIndex")]
+	#[doc(alias = "GetItemDefIndex")]
+	pub fn definition(self) -> Result<Option<ItemDefinitionIndex>, WeaponError> {
+		check_live(self.entity)?;
+
+		let dll = self.server.server_game_dll()?;
+
+		attributes::item_definition(dll, self.entity).map_err(|_| WeaponError::UnsupportedLayout)
 	}
 
 	/// The weapon's entity.
@@ -539,6 +617,11 @@ impl<'s> Weapon<'s> {
 /// Why a weapon or inventory operation failed.
 #[derive(Debug, thiserror::Error)]
 pub enum WeaponError {
+	/// Reading the weapon's attributes failed, or
+	/// [`PlayerWeapons::give_item_with`] could not apply its attributes.
+	#[error(transparent)]
+	Attribute(#[from] AttributeError),
+
 	/// `GiveNamedItem` returned no entity (for example, because the player
 	/// already has that weapon type), or a classname override produced an
 	/// entity of another classname.
@@ -585,8 +668,10 @@ pub enum WeaponError {
 	#[error("the weapon slot is already occupied; use replace to exchange its weapon")]
 	SlotOccupied,
 
-	/// The weapon's datamap lacks a usable `m_hOwner` field.
-	#[error("the weapon's datamap does not describe its combat owner handle")]
+	/// The weapon's datamap lacks a usable `m_hOwner` field, or, for
+	/// [`Weapon::definition`], its networked variables do not place its item
+	/// definition index where the SDK's layout does.
+	#[error("the weapon's datamap or networked variables do not match the sdk's layout")]
 	UnsupportedLayout,
 
 	/// A replacement's native slot is not the requested slot, or a new
@@ -656,6 +741,26 @@ impl IntoWeaponSlot for WeaponSlot {
 	}
 }
 
+/// Sets `attributes` on a newly equipped weapon, then reapplies its
+/// provision, which the game decided when equipping it. An empty set changes
+/// nothing.
+fn apply_attributes<'s>(
+	token: SchemaToken<'s>,
+	weapon: Weapon<'s>,
+	attributes: &AttributeSet,
+) -> Result<(), WeaponError> {
+	if attributes.is_empty() {
+		return Ok(());
+	}
+
+	let item = weapon.attributes()?;
+
+	attributes.apply(token, item)?;
+	item.reapply_provision(token)?;
+
+	Ok(())
+}
+
 fn check_live(entity: Entity<'_>) -> Result<(), WeaponError> {
 	if entity.is_marked_for_deletion() {
 		Err(WeaponError::MarkedForDeletion)
@@ -676,6 +781,7 @@ mod tests {
 	use crate::InterfaceFactory;
 	use crate::entities::test_support::{base_entity_fields, data_map, field};
 	use crate::ffi::test_support::{mock_vtable, unexpected_call};
+	use crate::tf2::attributes::{Multiplier, catalog, trust_shipped_schema};
 	use std::cell::Cell;
 	use std::ffi::{c_char, c_void};
 	use std::mem::{offset_of, size_of};
@@ -970,7 +1076,7 @@ mod tests {
 		}
 		let fresh_ptr = NonNull::from(&mut fresh).cast();
 		assert!(matches!(
-			unsafe { inventory.give_with(None, || Ok(fresh_ptr)) },
+			unsafe { inventory.give_with(None, || Ok(fresh_ptr), |_| Ok(())) },
 			Err(WeaponError::SlotOccupied)
 		));
 		assert_eq!(player.weapon, old_ptr);
@@ -992,7 +1098,7 @@ mod tests {
 		}
 		assert!(matches!(
 			inventory.replace_with(WeaponSlot::Melee, || unsafe {
-				inventory.give_with(None, || Ok(fresh_ptr))
+				inventory.give_with(None, || Ok(fresh_ptr), |_| Ok(()))
 			}),
 			Err(WeaponError::WrongSlot)
 		));
@@ -1007,7 +1113,7 @@ mod tests {
 			(&raw mut fresh.flags).write(0);
 		}
 		let rejected_detach = inventory.replace_with(WeaponSlot::Melee, || {
-			let replacement = unsafe { inventory.give_with(None, || Ok(fresh_ptr)) }?;
+			let replacement = unsafe { inventory.give_with(None, || Ok(fresh_ptr), |_| Ok(())) }?;
 			REJECT_DETACH.set(true);
 			Ok(replacement)
 		});
@@ -1036,7 +1142,7 @@ mod tests {
 		}
 		assert!(matches!(
 			inventory.replace_with(WeaponSlot::Melee, || unsafe {
-				inventory.give_with(None, || Ok(fresh_ptr))
+				inventory.give_with(None, || Ok(fresh_ptr), |_| Ok(()))
 			}),
 			Err(WeaponError::NotWeapon)
 		));
@@ -1054,7 +1160,7 @@ mod tests {
 		}
 		assert!(matches!(
 			inventory.replace_with(WeaponSlot::Melee, || unsafe {
-				inventory.give_with(Some(c"tf_weapon_sdk_missing"), || Ok(fresh_ptr))
+				inventory.give_with(Some(c"tf_weapon_sdk_missing"), || Ok(fresh_ptr), |_| Ok(()))
 			}),
 			Err(WeaponError::CreationFailed)
 		));
@@ -1068,7 +1174,7 @@ mod tests {
 		}
 		let replacement = inventory
 			.replace_with(WeaponSlot::Melee, || unsafe {
-				inventory.give_with(Some(c"tf_weapon_bottle"), || Ok(fresh_ptr))
+				inventory.give_with(Some(c"tf_weapon_bottle"), || Ok(fresh_ptr), |_| Ok(()))
 			})
 			.unwrap();
 		assert_eq!(replacement.entity().as_ptr(), fresh_ptr.as_ptr());
@@ -1094,10 +1200,96 @@ mod tests {
 		inventory.detach(weapon).unwrap();
 		let untracked = NonNull::new(old_ptr).unwrap();
 		assert!(matches!(
-			unsafe { inventory.give_with(None, || Ok(untracked)) },
+			unsafe { inventory.give_with(None, || Ok(untracked), |_| Ok(())) },
 			Err(WeaponError::WrongSlot)
 		));
 		assert_eq!(old.flags, 1, "an untracked-slot weapon is removed");
+
+		// A failed step after equipping, such as applying attributes, detaches
+		// and removes the new weapon, which was already equipped.
+		unsafe {
+			(&raw mut player.weapon).write(null_mut());
+			(&raw mut player.second_weapon).write(null_mut());
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+			(&raw mut fresh.slot).write(2);
+		}
+		assert!(matches!(
+			unsafe {
+				inventory.give_with(
+					None,
+					|| Ok(fresh_ptr),
+					|weapon| {
+						assert_eq!(weapon.owner().unwrap(), Some(entity.handle()));
+						Err(WeaponError::Rejected)
+					},
+				)
+			},
+			Err(WeaponError::Rejected)
+		));
+		assert!(player.weapon.is_null(), "the failed weapon is detached");
+		assert_eq!(fresh.owner, EntityHandle::INVALID.to_raw());
+		assert_eq!(fresh.flags, 1, "the failed weapon is removed");
+
+		// Attribute failures keep their cause and clean up the same way.
+		unsafe {
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+		}
+		assert!(matches!(
+			unsafe {
+				inventory.give_with(
+					None,
+					|| Ok(fresh_ptr),
+					|_| Err(AttributeError::RuntimeListFull.into()),
+				)
+			},
+			Err(WeaponError::Attribute(AttributeError::RuntimeListFull))
+		));
+		assert!(player.weapon.is_null(), "the failed weapon is detached");
+		assert_eq!(fresh.owner, EntityHandle::INVALID.to_raw());
+		assert_eq!(fresh.flags, 1, "the failed weapon is removed");
+
+		// `give_item_with`'s own step needs the weapon's item attributes, which
+		// this weapon's datamaps lack.
+		let token = unsafe { trust_shipped_schema(server) };
+		let set = AttributeSet::new()
+			.with(&catalog::DAMAGE_BONUS, Multiplier::new(2.0).unwrap())
+			.unwrap();
+
+		unsafe {
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+		}
+		assert!(matches!(
+			unsafe {
+				inventory.give_with(
+					None,
+					|| Ok(fresh_ptr),
+					|weapon| apply_attributes(token, weapon, &set),
+				)
+			},
+			Err(WeaponError::Attribute(AttributeError::UnsupportedEntity))
+		));
+		assert!(player.weapon.is_null(), "the failed weapon is detached");
+		assert_eq!(fresh.flags, 1, "the failed weapon is removed");
+
+		// An empty set leaves the weapon as `give_item` would.
+		unsafe {
+			(&raw mut fresh.flags).write(0);
+			(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+		}
+		let given = unsafe {
+			inventory.give_with(
+				None,
+				|| Ok(fresh_ptr),
+				|weapon| apply_attributes(token, weapon, &AttributeSet::new()),
+			)
+		}
+		.unwrap();
+		assert_eq!(given.entity().as_ptr(), fresh_ptr.as_ptr());
+		assert_eq!(player.weapon, fresh_ptr.as_ptr());
+		assert_eq!(fresh.flags, 0);
 		TOOLS.set(null_mut());
 		GIVE_RESULT.set(null_mut());
 		NETWORKABLE.set(null_mut());
