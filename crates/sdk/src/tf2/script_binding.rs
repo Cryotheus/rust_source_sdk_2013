@@ -3,10 +3,16 @@
 //! This does not evaluate script text or invoke a VM. The class descriptors
 //! retain the compiler-generated adapters and member-function pointers, which
 //! avoids guessing TF2 layouts or the platform's member-pointer ABI.
+//!
+//! Results come back in a `ScriptVariant_t` that the member adapter assigns
+//! (`public/vscript/vscript_templates.h`). With the default allocator's
+//! `ALWAYS_COPY` of 0 (`public/vscript/variant.h`), a returned `const char *`
+//! is stored as is, without a copy and without `SV_FREE`, so a string result
+//! borrows whatever storage the method returned it from.
 
 use crate::entities::Entity;
-use crate::ffi::borrow_cstr;
-use std::ffi::{CStr, c_int, c_uint};
+use crate::ffi::{borrow_cstr, copy_cstr};
+use std::ffi::{CStr, CString, c_int, c_uint};
 use std::mem::{offset_of, size_of, transmute, zeroed};
 
 /// The script type of a `bool` (`FIELD_BOOLEAN`).
@@ -36,8 +42,16 @@ const SF_MEMBER_FUNC: c_uint = 0x01;
 /// The script type of a C string (`FIELD_CSTRING`).
 pub(crate) const STRING: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_CSTRING as _;
 
+/// `SV_FREE` from `public/vscript/variant.h`: the variant owns its pointed-to
+/// data, which only the game's allocator may free.
+const SV_FREE: u16 = 0x01;
+
 /// The script type of no value (`FIELD_VOID`), for methods returning nothing.
 pub(crate) const VOID: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_VOID as _;
+
+// The member adapter stores a returned `const char *` without a copy, and so
+// without `SV_FREE`, only while the default allocator does not always copy.
+const _: () = assert!(sys::CVariantDefaultAllocator_ALWAYS_COPY == 0);
 
 /// Why [`call`] did not return a native method's result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -50,7 +64,8 @@ pub(crate) enum BindingError {
 	/// The class's binding list looks malformed, or the binding's parameter or
 	/// return types, its flags, or the returned variant differ from what the
 	/// caller expects. When only the returned variant differs, the method has
-	/// already run.
+	/// already run; a variant that owns an allocation (`SV_FREE`) is then
+	/// leaked, since only the game's allocator may free it.
 	#[error("the native method's runtime signature does not match the SDK")]
 	SignatureMismatch,
 	/// The binding's adapter returned false.
@@ -72,14 +87,20 @@ pub(crate) fn boolean(value: bool) -> sys::ScriptVariant_t {
 /// binding's adapter. The binding must declare the types of `arguments` and
 /// return `result_type`; a [`VOID`] call returns an empty variant.
 ///
+/// The returned variant must not own an allocation: any flag, of which
+/// `SV_FREE` is the only one, fails with [`BindingError::SignatureMismatch`]
+/// after the method has run, leaking the allocation. Scalar results (bool,
+/// int, float, or HSCRIPT) are values. A [`STRING`] result is the pointer the
+/// method returned, without a copy or ownership: it may be null, and it stays
+/// valid only as long as the storage the method returned it from. Prefer
+/// [`call_string`], which copies it before any other game code runs.
+///
 /// # Safety
 ///
 /// The selected method must accept this live entity and argument values.
 /// Pointer arguments must remain valid for the call and any lifetime the
 /// method retains them for. The method and any callbacks it reaches must
 /// uphold [`Server::new`]'s entity-deletion and callback-scope requirements.
-/// Return values must be non-owning scalar variants (void, bool, int, float,
-/// or HSCRIPT); allocated variants need the game's allocator to free them.
 ///
 /// [`Server::new`]: crate::Server::new
 pub(crate) unsafe fn call(
@@ -157,6 +178,8 @@ pub(crate) unsafe fn call(
 					}
 				}
 				let adapter = adapter.ok_or(BindingError::Unavailable)?;
+				// Without SV_FREE, the `Free` that precedes each assignment to the
+				// result frees nothing.
 				let mut result = variant(VOID);
 				// The void specialization explicitly requires a null return pointer.
 				let result_ptr = if result_type == VOID {
@@ -178,6 +201,7 @@ pub(crate) unsafe fn call(
 				} {
 					return Err(BindingError::Rejected);
 				}
+				// Any flag, including SV_FREE, marks data only the game may free.
 				if i32::from(result.m_type) != result_type || result.m_flags != 0 {
 					return Err(BindingError::SignatureMismatch);
 				}
@@ -189,6 +213,56 @@ pub(crate) unsafe fn call(
 		descriptor = unsafe { (*descriptor).m_pBaseDesc };
 	}
 	Err(BindingError::Unavailable)
+}
+
+/// Calls a native member that returns a C string, and copies the string.
+///
+/// As [`call`] with a [`STRING`] result, whose borrowed pointer is copied
+/// before any other game code runs. Returns `None` when the method returned a
+/// null pointer, and an empty string when it returned `""`.
+///
+/// # Safety
+///
+/// As for [`call`]. A non-null pointer the method returns must also reference
+/// a NUL-terminated string that is still allocated when the method returns,
+/// such as a member array, a pooled `string_t` or a static buffer, but not
+/// storage the method frees before returning.
+#[cfg_attr(
+	not(test),
+	expect(dead_code, reason = "no wrapper reads a string result yet")
+)]
+pub(crate) unsafe fn call_string(
+	entity: Entity<'_>,
+	class: &CStr,
+	name: &CStr,
+	arguments: &mut [sys::ScriptVariant_t],
+) -> Result<Option<CString>, BindingError> {
+	// SAFETY: The caller upholds `call`'s contract.
+	let result = unsafe { call(entity, class, name, arguments, STRING) }?;
+
+	// SAFETY: The caller vouches that the returned pointer outlives the method,
+	// and no game code has run since it returned.
+	unsafe { copy_string(result) }
+}
+
+/// Copies a non-owning [`STRING`] result, or returns `None` for null.
+///
+/// Fails with [`BindingError::SignatureMismatch`] for any other type, and for
+/// a string that owns its allocation (`SV_FREE`), which only the game's
+/// allocator may free.
+///
+/// # Safety
+///
+/// A non-null string pointer must reference a NUL-terminated string for the
+/// duration of the call.
+unsafe fn copy_string(result: sys::ScriptVariant_t) -> Result<Option<CString>, BindingError> {
+	if i32::from(result.m_type) != STRING || result.m_flags & SV_FREE != 0 {
+		return Err(BindingError::SignatureMismatch);
+	}
+
+	// SAFETY: The checked type selects the string union member, which the
+	// caller vouches for.
+	Ok(unsafe { copy_cstr(result.__bindgen_anon_1.m_pszString) })
 }
 
 /// An `f32` argument.
@@ -234,14 +308,19 @@ fn variant(kind: sys::ScriptDataType_t) -> sys::ScriptVariant_t {
 mod tests {
 	use super::*;
 	use std::cell::Cell;
+	use std::ffi::c_char;
 	use std::marker::PhantomData;
-	use std::ptr::{NonNull, null_mut};
+	use std::ptr::{NonNull, null, null_mut};
 
 	#[repr(C)]
 	struct Object {
 		vtable: *const *const (),
 		description: *mut sys::ScriptClassDesc_t,
 		calls: Cell<usize>,
+		/// The string [`string_adapter`] returns.
+		text: Cell<*const c_char>,
+		/// The variant flags [`string_adapter`] returns.
+		flags: Cell<u16>,
 	}
 
 	unsafe extern "C" fn adapter(
@@ -265,6 +344,50 @@ mod tests {
 		object: *mut sys::CBaseEntity,
 	) -> *mut sys::ScriptClassDesc_t {
 		unsafe { (*object.cast::<Object>()).description }
+	}
+
+	/// A member adapter for `const char *Object::GetText()`. Like the SDK's
+	/// `*pReturn = const char *`, it stores the pointer without a copy.
+	unsafe extern "C" fn string_adapter(
+		function: sys::ScriptFunctionBindingStorageType_t,
+		object: *mut std::ffi::c_void,
+		_: *mut sys::ScriptVariant_t,
+		count: i32,
+		result: *mut sys::ScriptVariant_t,
+	) -> bool {
+		assert_eq!(function.val_0, 0x5678);
+		assert_eq!(count, 0);
+		assert!(!result.is_null());
+		let object = unsafe { &*object.cast::<Object>() };
+		object.calls.set(object.calls.get() + 1);
+		let mut value = variant(STRING);
+		value.__bindgen_anon_1.m_pszString = object.text.get();
+		value.m_flags = object.flags.get();
+		unsafe { result.write(value) };
+		true
+	}
+
+	#[test]
+	fn copy_string_refuses_other_types_and_owned_strings() {
+		assert_eq!(
+			unsafe { copy_string(string(c"borrowed")) },
+			Ok(Some(c"borrowed".to_owned()))
+		);
+		assert_eq!(unsafe { copy_string(variant(STRING)) }, Ok(None));
+		assert_eq!(
+			unsafe { copy_string(int(1)) },
+			Err(BindingError::SignatureMismatch)
+		);
+		assert_eq!(
+			unsafe { copy_string(variant(VOID)) },
+			Err(BindingError::SignatureMismatch)
+		);
+		let mut owned = string(c"owned");
+		owned.m_flags = SV_FREE;
+		assert_eq!(
+			unsafe { copy_string(owned) },
+			Err(BindingError::SignatureMismatch)
+		);
 	}
 
 	#[test]
@@ -293,6 +416,8 @@ mod tests {
 			vtable: vtable.as_ptr(),
 			description: &raw mut derived,
 			calls: Cell::new(0),
+			text: Cell::new(null()),
+			flags: Cell::new(0),
 		};
 		let object = NonNull::from(&mut object);
 		let entity = unsafe { Entity::from_raw(object.cast()) };
@@ -326,6 +451,89 @@ mod tests {
 			unsafe { call(entity, c"Base", c"SetValue", &mut [float(3.0)], VOID) }.err(),
 			Some(BindingError::Unavailable)
 		);
+	}
+
+	#[test]
+	fn string_results_are_copied_before_returning_and_owned_strings_refused() {
+		let mut bindings: [sys::ScriptFunctionBinding_t; 1] = unsafe { zeroed() };
+		bindings[0].m_desc.m_pszScriptName = c"GetText".as_ptr();
+		bindings[0].m_desc.m_ReturnType = STRING;
+		bindings[0].m_flags = SF_MEMBER_FUNC;
+		bindings[0].m_pfnBinding = Some(string_adapter);
+		bindings[0].m_pFunction.val_0 = 0x5678;
+		let mut description: sys::ScriptClassDesc_t = unsafe { zeroed() };
+		description.m_pszClassname = c"Base".as_ptr();
+		description.m_FunctionBindings = vector(&mut bindings);
+		// Changed below only through the pointer `call` reads it by.
+		let binding = description.m_FunctionBindings.m_Memory.m_pMemory;
+		let mut vtable = [null(); 16];
+		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 1] = get_description as *const ();
+		let mut text = *b"effects/jarate_overlay\0";
+		// Written only through this pointer, which the object also returns.
+		let storage = text.as_mut_ptr();
+		let mut object = Object {
+			vtable: vtable.as_ptr(),
+			description: &raw mut description,
+			calls: Cell::new(0),
+			text: Cell::new(storage.cast_const().cast()),
+			flags: Cell::new(0),
+		};
+		let object = NonNull::from(&mut object);
+		let entity = unsafe { Entity::from_raw(object.cast()) };
+		let calls = || unsafe { object.as_ref() }.calls.get();
+		let set_text = |value: *const c_char| unsafe { object.as_ref() }.text.set(value);
+
+		let copied = unsafe { call_string(entity, c"Base", c"GetText", &mut []) }.unwrap();
+		// The game may change its storage once the call returns.
+		unsafe { storage.write(b'X') };
+		assert_eq!(copied.as_deref(), Some(c"effects/jarate_overlay"));
+		assert_eq!(
+			unsafe { call_string(entity, c"Base", c"GetText", &mut []) }
+				.unwrap()
+				.as_deref(),
+			Some(c"Xffects/jarate_overlay")
+		);
+		assert_eq!(calls(), 2);
+
+		set_text(c"".as_ptr());
+		assert_eq!(
+			unsafe { call_string(entity, c"Base", c"GetText", &mut []) },
+			Ok(Some(CString::default()))
+		);
+		set_text(null());
+		assert_eq!(
+			unsafe { call_string(entity, c"Base", c"GetText", &mut []) },
+			Ok(None)
+		);
+		// `call` itself passes the method's pointer through without a copy.
+		let overlay = c"effects/imcookin";
+		set_text(overlay.as_ptr());
+		let result = unsafe { call(entity, c"Base", c"GetText", &mut [], STRING) }.unwrap();
+		assert_eq!(
+			unsafe { result.__bindgen_anon_1.m_pszString },
+			overlay.as_ptr()
+		);
+		assert_eq!(calls(), 5);
+
+		// An owned string has already been returned, but cannot be freed.
+		unsafe { object.as_ref() }.flags.set(SV_FREE);
+		assert_eq!(
+			unsafe { call_string(entity, c"Base", c"GetText", &mut []) },
+			Err(BindingError::SignatureMismatch)
+		);
+		assert_eq!(
+			unsafe { call(entity, c"Base", c"GetText", &mut [], STRING) }.err(),
+			Some(BindingError::SignatureMismatch)
+		);
+		assert_eq!(calls(), 7);
+
+		unsafe { object.as_ref() }.flags.set(0);
+		unsafe { (*binding).m_desc.m_ReturnType = FLOAT };
+		assert_eq!(
+			unsafe { call_string(entity, c"Base", c"GetText", &mut []) },
+			Err(BindingError::SignatureMismatch)
+		);
+		assert_eq!(calls(), 7);
 	}
 
 	/// A vector over `values`. Both element pointers come from one
