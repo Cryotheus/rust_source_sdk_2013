@@ -10,7 +10,7 @@
 use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
 use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
 use crate::{Game, InterfaceError, Server};
-use sdk_raw::weapons::WeaponCreationFailed;
+use sdk_raw::tf2::item_generation::WeaponCreationFailed;
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
 
@@ -491,7 +491,7 @@ impl<'s> PlayerWeapons<'s> {
 			self.give_with(
 				classname,
 				|| {
-					sdk_raw::weapons::spawn(
+					sdk_raw::tf2::item_generation::spawn(
 						self.server.game_server_factory().as_raw(),
 						definition.get(),
 						origin.into(),

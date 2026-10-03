@@ -36,5 +36,22 @@
 )))]
 compile_error!("source_sdk_2013_raw requires Windows x64 MSVC or Linux x64 GNU");
 
+pub mod abi;
+pub mod ambient_sounds;
+pub mod bitbuf;
+pub mod commands;
+pub mod datatables;
+pub mod edicts;
+pub mod entities;
+pub mod inputs;
+pub mod interfaces;
+pub mod net;
+pub mod players;
+pub mod soundscapes;
+pub mod tier0;
+pub mod user_messages;
 pub mod util;
-pub mod weapons;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod tf2;

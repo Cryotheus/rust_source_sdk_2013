@@ -45,7 +45,7 @@ impl Headers {
 		}
 		let mut sections = Vec::new();
 		let mut total = 0_usize;
-		for header in headers.chunks_exact(40) {
+		for header in headers.as_chunks::<40>().0 {
 			let len = u32_at(header, 8).ok_or_else(invalid)? as usize;
 			let offset = u32_at(header, 12).ok_or_else(invalid)? as usize;
 			let flags = u32_at(header, 36).ok_or_else(invalid)?;

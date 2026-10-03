@@ -1,3 +1,6 @@
+//! Byte signatures with single-byte wildcards, and matching them against
+//! code.
+
 /// One byte of a signature, either unconstrained or matched exactly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SignaturePattern {

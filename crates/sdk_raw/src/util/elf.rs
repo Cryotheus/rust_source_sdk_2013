@@ -59,7 +59,7 @@ impl<'a> Elf<'a> {
 			if symbols.len() % 24 != 0 {
 				return None;
 			}
-			for symbol in symbols.chunks_exact(24) {
+			for symbol in symbols.as_chunks::<24>().0 {
 				let offset = u32_at(symbol, 0)? as usize;
 				let tail = names.get(offset..)?;
 				let end = tail.iter().position(|b| *b == 0)?;

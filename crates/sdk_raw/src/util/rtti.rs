@@ -230,7 +230,7 @@ mod tests {
 		word(&mut image, 0x100 + 8 * 8, trampoline as *const () as usize);
 		assert!(image.valid_table(BASE + 0x100, 8));
 		// An ordinary data allocation is never a valid replacement for code.
-		let data = vec![0_u8; 32];
+		let data = [0_u8; 32];
 		word(&mut image, 0x100 + 8 * 8, data.as_ptr() as usize);
 		assert!(!image.valid_table(BASE + 0x100, 8));
 	}

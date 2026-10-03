@@ -1,14 +1,23 @@
-//! Checked image readers, signature scans, and primary C++ vtable discovery.
+//! Generic low-level utilities: checked image readers, signature scans,
+//! run-time type information, C strings, vtable calls, and code patching.
 //!
 //! Snapshots own their bytes; they never borrow mutable engine memory. Returned
 //! addresses describe the snapshot and can become stale when a module unloads.
 
 mod bytes;
+pub mod cstr;
 pub mod elf;
 mod image;
+pub mod patch;
 pub mod pe;
-mod rtti;
-mod signature;
+pub mod printf;
+pub mod rtti;
+pub mod signature;
+pub mod vtable;
+
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub mod mock;
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]

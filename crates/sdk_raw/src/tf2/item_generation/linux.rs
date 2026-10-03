@@ -1,8 +1,12 @@
 use super::Targets;
 use crate::util::{elf::LoadedElf, relative};
 
+/// Resolves the item generation functions from the game module's symbols.
+///
+/// # Safety
+///
 /// The caller keeps the factory's game module loaded for all resolution and
-/// subsequent native calls, under the callback-scoped Server contract.
+/// subsequent native calls.
 pub(super) unsafe fn resolve(factory: usize) -> Option<Targets> {
 	// SAFETY: The caller guarantees the factory module remains loaded and its
 	// image mappings remain valid throughout this snapshot and the calls.

@@ -89,7 +89,7 @@ use crate::interfaces::ServerTools;
 use crate::math::Vector;
 use crate::tf2::weapons::ItemDefinitionIndex;
 use crate::{Game, InterfaceError, Server};
-use sdk_raw::weapons::WeaponCreationFailed;
+use sdk_raw::tf2::item_generation::WeaponCreationFailed;
 use std::ffi::{CStr, c_int};
 use std::mem::{offset_of, size_of};
 use std::ptr::NonNull;
@@ -395,7 +395,7 @@ impl<'s> PlayerWearables<'s> {
 		// fresh callback-live entity, which must not be spawned again.
 		let wearable = unsafe {
 			self.give_with(|origin| {
-				sdk_raw::weapons::spawn(
+				sdk_raw::tf2::item_generation::spawn(
 					self.server.game_server_factory().as_raw(),
 					definition.get(),
 					origin.into(),

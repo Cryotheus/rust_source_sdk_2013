@@ -26,15 +26,28 @@ struct Targets {
 #[error("Failed to create weapon")]
 pub struct WeaponCreationFailed(());
 
-/// The caller supplies the same spawn/callback lifetime guarantees as `give`.
+/// Creates the economy item `definition` at `origin` through the game's
+/// `CItemGeneration::SpawnItem`, as level 1 and Unique quality, optionally
+/// with another entity `classname`.
+///
+/// # Safety
+///
+/// - `factory` is the `CreateInterface` export of the loaded TF2 game server
+///   module, which stays loaded, with its image mappings unchanged, for the
+///   whole call.
+/// - The call is made on the server's main thread, from a callback in which
+///   the game may create and spawn entities.
+/// - The game code the call runs, such as the item's constructor, `Spawn`, and
+///   `Activate` and everything they reach, frees entities only through the
+///   engine's deferred deletion.
 pub unsafe fn spawn(
 	factory: unsafe extern "C" fn(name: *const c_char, return_code: *mut c_int) -> *mut c_void,
 	definition: u16,
 	origin: sys::Vector,
 	classname: Option<&CStr>,
 ) -> Result<NonNull<sys::CBaseEntity>, WeaponCreationFailed> {
-	// SAFETY: Server guarantees its game factory and module stay loaded for
-	// this callback, including loader metadata inspected during resolution.
+	// SAFETY: The caller keeps the factory's game module loaded for this call,
+	// including loader metadata inspected during resolution.
 	let targets = unsafe { platform::resolve(factory as usize) }.expect("Failed to find ");
 
 	type Schema = unsafe extern "C" fn() -> *mut c_void;
@@ -79,9 +92,10 @@ pub unsafe fn spawn(
 	};
 
 	// SAFETY: Native generation initializes the embedded CEconItemView and
-	// invokes Spawn/Activate. The caller guarantees those callbacks preserve
-	// Server's lifetime contract. Level one / unique quality match the native
-	// GenerateItemFromDefIndex wrapper. Inputs live through this call.
+	// invokes Spawn/Activate. The caller guarantees those callbacks free
+	// entities only through deferred deletion. Level one / unique quality
+	// match the native GenerateItemFromDefIndex wrapper. Inputs live through
+	// this call.
 	let entity = unsafe {
 		generate(
 			targets.singleton as *mut c_void,
