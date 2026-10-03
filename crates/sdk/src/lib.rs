@@ -38,7 +38,6 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub mod abi;
 pub mod ambient_sounds;
 pub mod bitbuf;
 pub mod commands;

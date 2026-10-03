@@ -1,9 +1,9 @@
 //! `IGameEventManager2` and the game events it creates, fires, and delivers.
 
-use crate::abi::{CppDestructors, WChar};
 use crate::bitbuf::{BitWriter, RawBfWrite};
 use crate::ffi::{NotThreadSafe, borrow_cstr, copy_cstr, vcall};
 use crate::players::UserId;
+use sdk_raw::abi::{CppDestructors, WChar};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString, c_char, c_float, c_int, c_void};
 use std::fmt::{Display, Formatter};

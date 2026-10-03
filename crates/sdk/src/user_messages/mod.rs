@@ -11,7 +11,6 @@
 
 pub mod messages;
 
-use crate::abi::CppDestructors;
 use crate::bitbuf::{BitWriter, RawBfWrite};
 use crate::edicts::Edict;
 use crate::entities::Entity;
@@ -19,6 +18,7 @@ use crate::ffi::vcall;
 use crate::net::EncodeError;
 use crate::net::messages::MAX_MESSAGE_DATA_BYTES;
 use crate::server::{InterfaceError, Server};
+use sdk_raw::abi::CppDestructors;
 use std::ffi::{CStr, CString, c_int};
 use std::mem::offset_of;
 use std::ptr::NonNull;

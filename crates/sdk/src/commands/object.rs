@@ -7,9 +7,9 @@ use super::error::{
 
 use super::registrar::{CommandRegistrar, UnlinksBeforeUnload};
 use super::{CommandAccess, CommandContext, CommandFlags, CommandHandler, CommandResult, route};
-use crate::abi::CppDestructors;
 use crate::ffi::{NotThreadSafe, vcall};
 use crate::server::{Server, ServerBinding};
+use sdk_raw::abi::{CppDestructors, VtablePage};
 use std::cell::{Cell, UnsafeCell};
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::marker::{PhantomData, PhantomPinned};
@@ -59,9 +59,10 @@ const _: () = {
 	assert!(offset_of!(ConCommandVtable, dispatch) == offset_of!(Engine, ConCommand_Dispatch));
 };
 
-const _: () = assert!(size_of::<VtablePage>() == 4096);
-
-static VTABLE: VtablePage = VtablePage(UnsafeCell::new(ConCommandVtable {
+/// The vtable every [`ConsoleCommand`] points at, alone on its page, since
+/// other plugins hook a command by overwriting entries of its vtable in place.
+/// Rust never reads the table; the engine only gets its address.
+static VTABLE: VtablePage<ConCommandVtable> = VtablePage::new(ConCommandVtable {
 	destructors: CppDestructors::new_noop(),
 	is_command,
 	is_flag_set,
@@ -75,7 +76,7 @@ static VTABLE: VtablePage = VtablePage(UnsafeCell::new(ConCommandVtable {
 	auto_complete_suggest,
 	can_auto_complete,
 	dispatch,
-}));
+});
 
 /// The type-erased start of every [`ConsoleCommand`]. `ConCommand *`,
 /// `CommandHeader *`, and `ConsoleCommand<H> *` share an address.
@@ -439,22 +440,6 @@ impl std::ops::Deref for RegisteredCommand {
 	}
 }
 
-/// The vtable every [`ConsoleCommand`] points at, alone on its page.
-///
-/// Other plugins hook a command by overwriting entries of its vtable in
-/// place, so the table is interior-mutable, which also places it in writable
-/// memory. KHook sets a page it patched back to read-and-execute, which would
-/// fault the next write to any other static on that page; the alignment makes
-/// the table fill its page. Rust never reads the table; the engine only gets
-/// its address.
-#[repr(C, align(4096))]
-struct VtablePage(UnsafeCell<ConCommandVtable>);
-
-// SAFETY: Rust never accesses the table after initialization, except to take
-// its address. Only the engine and hooking libraries read or write it, on the
-// server's main thread.
-unsafe impl Sync for VtablePage {}
-
 unsafe extern "C" fn add_flags(this: *mut sys::ConCommand, flags: c_int) {
 	// SAFETY: See above.
 	unsafe {
@@ -667,5 +652,5 @@ pub(super) unsafe fn unregister_base(
 /// The address of the table in [`VTABLE`], which every prepared command points
 /// at.
 fn vtable() -> *const ConCommandVtable {
-	VTABLE.0.get()
+	VTABLE.get()
 }

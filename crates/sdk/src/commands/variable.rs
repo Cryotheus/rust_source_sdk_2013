@@ -16,10 +16,10 @@ use super::error::{
 use super::object::{base_is_registered, register_base, unregister_base};
 use super::registrar::{CommandRegistrar, UnlinksBeforeUnload};
 use super::route::drop_payload;
-use crate::abi::CppDestructors;
 use crate::ffi::{NotThreadSafe, borrow_cstr};
 use crate::interfaces::Cvar;
 use crate::server::{Server, ServerBinding};
+use sdk_raw::abi::{CppDestructors, VtablePage};
 use std::cell::{Cell, UnsafeCell};
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::marker::{PhantomData, PhantomPinned};
@@ -83,8 +83,6 @@ const _: () = {
 	}
 };
 
-const _: () = assert!(size_of::<VtablePage>() == 4096);
-
 /// Where the `IConVar` subobject sits in a `ConVar`. Callers holding an
 /// `IConVar *` point here.
 const INTERFACE_OFFSET: usize = offset_of!(sys::ConVar, _base_1);
@@ -92,7 +90,11 @@ const INTERFACE_OFFSET: usize = offset_of!(sys::ConVar, _base_1);
 /// The size of one vtable slot, a pointer.
 const SLOT: usize = size_of::<*const ()>();
 
-static VTABLES: VtablePage = VtablePage(UnsafeCell::new(Vtables {
+/// The vtables every [`ConsoleVariable`] points at, alone on their page, as
+/// for [`ConsoleCommand`](super::ConsoleCommand)'s: other plugins may patch
+/// them in place. Rust never reads the tables; the engine only gets their
+/// addresses.
+static VTABLES: VtablePage<Vtables> = VtablePage::new(Vtables {
 	#[cfg(target_os = "windows")]
 	primary_locator: type_information::locator(type_information::PRIMARY),
 
@@ -144,7 +146,7 @@ static VTABLES: VtablePage = VtablePage(UnsafeCell::new(Vtables {
 		IConVar_GetName: interface_get_name,
 		IConVar_IsFlagSet: interface_is_flag_set,
 	},
-}));
+});
 
 /// A console variable implemented in Rust, laid out so the engine sees a
 /// `ConVar`.
@@ -681,17 +683,6 @@ struct PrimaryVtable {
 		unsafe extern "C" fn(this: *mut sys::ConVar, value: f32, force: bool),
 }
 
-/// The vtables every [`ConsoleVariable`] points at, alone on their page, as
-/// for [`ConsoleCommand`](super::ConsoleCommand)'s: other plugins may patch
-/// them in place, and KHook sets a page it patched back to read-and-execute.
-#[repr(C, align(4096))]
-struct VtablePage(UnsafeCell<Vtables>);
-
-// SAFETY: Rust never accesses the tables after initialization, except to take
-// their addresses. Only the engine and hooking libraries read or write them, on
-// the server's main thread.
-unsafe impl Sync for VtablePage {}
-
 /// Both vtables, each after the type information its ABI reads before it.
 #[repr(C)]
 struct Vtables {
@@ -1065,13 +1056,13 @@ pub(super) const fn parse_int(text: &[u8]) -> c_int {
 /// The address of the primary table in [`VTABLES`].
 fn primary_vtable() -> *const PrimaryVtable {
 	// SAFETY: Only the address is taken; nothing is read.
-	unsafe { &raw const (*VTABLES.0.get()).primary }
+	unsafe { &raw const (*VTABLES.get()).primary }
 }
 
 /// The address of the `IConVar` table in [`VTABLES`].
 fn secondary_vtable() -> *const sys::IConVar__bindgen_vtable {
 	// SAFETY: Only the address is taken; nothing is read.
-	unsafe { &raw const (*VTABLES.0.get()).secondary }
+	unsafe { &raw const (*VTABLES.get()).secondary }
 }
 
 unsafe extern "C" fn set_value_float(this: *mut sys::ConVar, value: f32) {
