@@ -308,7 +308,7 @@ impl World {
 		let slot = |field: usize| field / size_of::<usize>();
 		let mut vtable = vec![
 			unexpected_call as *const ();
-			reset_slot.max(sys::CBASEENTITY_DATAMAP_VTABLE_SLOT) + 1
+			reset_slot.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT) + 1
 		];
 
 		vtable[slot(offset_of!(
@@ -319,7 +319,7 @@ impl World {
 			sys::IServerUnknown__bindgen_vtable,
 			IServerUnknown_GetRefEHandle
 		))] = handle as *const ();
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		vtable[reset_slot] = reset_player_scores as *const ();
 
 		let networkable_vtable = unsafe {

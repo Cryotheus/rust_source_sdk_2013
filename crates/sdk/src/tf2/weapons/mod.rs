@@ -870,7 +870,7 @@ mod tests {
 		let player_map = data_map(c"CTFPlayer", vec![], base);
 		let weapon_map = weapon_map(base);
 		let mut player_table = vec![std::ptr::null(); GIVE + 1];
-		player_table[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		player_table[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		player_table[GET_SLOT] = inventory_slot as *const ();
 		player_table[GIVE] = give as *const ();
 		player_table[EQUIP] = equip as *const ();
@@ -881,7 +881,7 @@ mod tests {
 		) / size_of::<usize>();
 		player_table[handle_slot] = handle as *const ();
 		let mut weapon_table = vec![std::ptr::null(); WEAPON_SLOT + 1];
-		weapon_table[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		weapon_table[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		weapon_table[WEAPON_SLOT] = weapon_slot as *const ();
 		weapon_table[handle_slot] = handle as *const ();
 		let networkable_slot = offset_of!(
@@ -1326,10 +1326,10 @@ mod tests {
 		let player_map = data_map(c"CTFPlayer", vec![], base);
 		let weapon_map = weapon_map(base);
 		let mut player_table = vec![std::ptr::null(); GIVE + 1];
-		player_table[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		player_table[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		player_table[GET_SLOT] = inventory_slot as *const ();
 		let mut weapon_table = vec![std::ptr::null(); WEAPON_SLOT + 1];
-		weapon_table[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		weapon_table[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		weapon_table[WEAPON_SLOT] = weapon_slot as *const ();
 		let mut weapon = FakeEntity {
 			vtable: weapon_table.as_ptr(),

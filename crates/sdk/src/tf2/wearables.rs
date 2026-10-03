@@ -1173,10 +1173,13 @@ mod tests {
 			let slot = |field: usize| field / size_of::<usize>();
 			let mut vtable = vec![
 				unexpected_call as *const ();
-				EQUIP.max(REMOVE).max(sys::CBASEENTITY_DATAMAP_VTABLE_SLOT) + 1
+				EQUIP
+					.max(REMOVE)
+					.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
+					+ 1
 			];
 
-			vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+			vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 			vtable[slot(offset_of!(
 				sys::IServerUnknown__bindgen_vtable,
 				IServerUnknown_GetRefEHandle

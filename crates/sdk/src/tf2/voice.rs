@@ -543,7 +543,7 @@ mod tests {
 
 		let mut vtable = vec![std::ptr::null(); PLAY_SCENE + 1];
 
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		vtable[PLAY_SCENE] = play_scene as *const ();
 
 		let player = Box::into_raw(FakePlayer::new(&vtable));
@@ -729,7 +729,7 @@ mod tests {
 		// The vtable slot `play_scene` would call fails the test if reached.
 		let mut vtable = vec![std::ptr::null(); PLAY_SCENE + 1];
 
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		vtable[SCRIPT_DESCRIPTION] = script_description as *const ();
 		vtable[PLAY_SCENE] = sdk_raw::util::mock::unexpected_call as *const ();
 
@@ -798,7 +798,7 @@ mod tests {
 	fn speakers_require_tf_players_with_a_life_state() {
 		let mut vtable = vec![std::ptr::null(); PLAY_SCENE + 1];
 
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 
 		let player = Box::into_raw(FakePlayer::new(&vtable));
 		let entity = unsafe { Entity::from_raw(NonNull::new(player.cast()).unwrap()) };

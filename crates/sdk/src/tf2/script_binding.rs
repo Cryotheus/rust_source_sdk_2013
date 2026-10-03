@@ -114,7 +114,7 @@ pub(crate) unsafe fn call(
 	const SLOT: usize = offset_of!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetScriptDesc)
 		/ size_of::<usize>();
 	// GetScriptDesc precedes all TF2-specific additions to CBaseEntity.
-	const _: () = assert!(SLOT == sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 1);
+	const _: () = assert!(SLOT == sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 1);
 	// SAFETY: Entity is live, and the generated primary-vtable slot has this
 	// signature under both supported 64-bit ABIs.
 	let get_desc: GetScriptDesc = unsafe {
@@ -386,7 +386,7 @@ mod tests {
 		derived.m_pszClassname = c"Derived".as_ptr();
 		derived.m_pBaseDesc = &raw mut base;
 		let mut vtable = [std::ptr::null(); 16];
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 1] = get_description as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 1] = get_description as *const ();
 		let mut object = Object {
 			vtable: vtable.as_ptr(),
 			description: &raw mut derived,
@@ -463,7 +463,7 @@ mod tests {
 		// Changed below only through the pointer `call` reads it by.
 		let binding = description.m_FunctionBindings.m_Memory.m_pMemory;
 		let mut vtable = [null(); 16];
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 1] = get_description as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 1] = get_description as *const ();
 		let mut text = *b"effects/jarate_overlay\0";
 		// Written only through this pointer, which the object also returns.
 		let storage = text.as_mut_ptr();

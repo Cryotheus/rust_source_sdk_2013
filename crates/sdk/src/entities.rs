@@ -169,7 +169,7 @@ impl<'s> Entity<'s> {
 
 		// SAFETY: `AcceptInput` occupies this slot in every game's vtable.
 		let accept_input: AcceptInput =
-			unsafe { transmute(self.vtable_slot(sys::CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT)) };
+			unsafe { transmute(self.vtable_slot(sdk_raw::entities::ACCEPT_INPUT_SLOT)) };
 
 		// SAFETY: The entities are live, the name is only read during the call,
 		// and the value is a local. The output ID is 0, as for the game's own
@@ -211,7 +211,7 @@ impl<'s> Entity<'s> {
 
 		// SAFETY: `GetDataDescMap` occupies this slot under both ABIs.
 		let get_map: GetDataDescMap =
-			unsafe { transmute(self.vtable_slot(sys::CBASEENTITY_DATAMAP_VTABLE_SLOT)) };
+			unsafe { transmute(self.vtable_slot(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)) };
 
 		// SAFETY: The entity is live.
 		DataMaps::starting_at(unsafe { get_map(self.as_ptr()) })
@@ -724,9 +724,9 @@ pub(crate) mod test_support {
 		/// origin, teleport count, server class, and edict that mock entities on
 		/// this thread report.
 		pub(crate) fn new(handle: u32) -> Self {
-			let slot_count = sys::CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT
-				.max(sys::CBASEENTITY_DATAMAP_VTABLE_SLOT)
-				.max(sys::CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT)
+			let slot_count = sdk_raw::entities::TF2_TELEPORT_SLOT
+				.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
+				.max(sdk_raw::entities::ACCEPT_INPUT_SLOT)
 				+ 1;
 			let mut vtable = vec![unexpected_call as *const (); slot_count];
 			let slot = |field: usize| field / size_of::<usize>();
@@ -743,9 +743,9 @@ pub(crate) mod test_support {
 				sys::IServerUnknown__bindgen_vtable,
 				IServerUnknown_GetRefEHandle
 			))] = get_handle as *const ();
-			vtable[sys::CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT] = teleport_entity as *const ();
-			vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = get_datamap as *const ();
-			vtable[sys::CBASEENTITY_ACCEPTINPUT_VTABLE_SLOT] = accept_input as *const ();
+			vtable[sdk_raw::entities::TF2_TELEPORT_SLOT] = teleport_entity as *const ();
+			vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = get_datamap as *const ();
+			vtable[sdk_raw::entities::ACCEPT_INPUT_SLOT] = accept_input as *const ();
 
 			let storage = leak([0usize; 64]);
 			let vtable = vtable.leak();
@@ -1048,7 +1048,7 @@ mod tests {
 		assert_eq!(entity.index(), Some(5));
 		assert!(!entity.is_marked_for_deletion());
 
-		let slot = sys::CBASEENTITY_TF2_TELEPORT_VTABLE_SLOT;
+		let slot = sdk_raw::entities::TF2_TELEPORT_SLOT;
 
 		assert_eq!(
 			entity.teleport(

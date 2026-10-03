@@ -785,8 +785,8 @@ mod tests {
 
 		let vtable = Box::leak(Box::new([null::<()>(); 16]));
 
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = map as *const ();
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 1] = description as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = map as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 1] = description as *const ();
 
 		let object = NonNull::from(Box::leak(Box::new(FakeEntity {
 			vtable: vtable.as_ptr(),

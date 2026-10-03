@@ -89,10 +89,10 @@ impl Item {
 		let entity = storage.cast::<sys::CBaseEntity>();
 		let slot = |field: usize| field / size_of::<usize>();
 		let mut vtable =
-			vec![unexpected_call as *const (); sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 2];
+			vec![unexpected_call as *const (); sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 2];
 
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = datamap as *const ();
-		vtable[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 1] = description as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
+		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 1] = description as *const ();
 		vtable[slot(offset_of!(
 			sys::IServerUnknown__bindgen_vtable,
 			IServerUnknown_GetNetworkable
@@ -889,8 +889,8 @@ fn player_attributes_dispatch_typed_methods_and_reject_invalid_values() {
 	let map = data_map(c"CTFPlayer", vec![], base);
 	let mut table = [null(); 16];
 
-	table[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT] = player_datamap as *const ();
-	table[sys::CBASEENTITY_DATAMAP_VTABLE_SLOT + 1] = player_description as *const ();
+	table[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = player_datamap as *const ();
+	table[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT + 1] = player_description as *const ();
 
 	let mut object = MockPlayer {
 		vtable: table.as_ptr(),
