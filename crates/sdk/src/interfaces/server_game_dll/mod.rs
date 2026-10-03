@@ -33,9 +33,9 @@ use crate::datatables::{NetProp, NetPropError, ServerClass, ServerClasses, Stand
 use crate::entities::Entity;
 use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::{buffer_from_cstr, copy_cstr, cstring_from_buffer};
+use sdk_raw::util::printf::capture_printf;
 use sdk_raw::vcall;
-use std::cell::RefCell;
-use std::ffi::{CStr, CString, VaList, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
@@ -48,9 +48,6 @@ const MAX_WORKSHOP_MAPS: u32 = 1 << 16;
 
 /// The longest save comment read, including its terminator.
 const SAVE_COMMENT_CAPACITY: usize = 256;
-
-/// The longest formatted `Status` line read, including its terminator.
-const STATUS_LINE_CAPACITY: usize = 1024;
 
 /// The longest user message name read, including its terminator.
 const USER_MESSAGE_NAME_CAPACITY: usize = 256;
@@ -492,15 +489,13 @@ impl<'s> ServerGameDll<'s> {
 	/// Each line is formatted as the game prints it, truncated to 1023 bytes.
 	#[doc(alias = "Status")]
 	pub fn status(self) -> CString {
-		let previous = STATUS_OUTPUT.replace(Some(Vec::new()));
+		let ((), output) = capture_printf(|print| {
+			// SAFETY: As for `tick_interval`. The game only calls the callback
+			// during the call, with `printf` formats and their arguments.
+			unsafe { vcall!(self.as_ptr() => IServerGameDLL_Status(Some(print))) }
+		});
 
-		// SAFETY: As for `tick_interval`. The callback only runs during the call.
-		unsafe { vcall!(self.as_ptr() => IServerGameDLL_Status(Some(append_status))) };
-
-		let output = STATUS_OUTPUT.replace(previous).unwrap_or_default();
-
-		// SAFETY: `append_status` only appends the bytes before each terminator.
-		unsafe { CString::from_vec_unchecked(output) }
+		output
 	}
 
 	/// Seconds per simulation tick.
@@ -589,91 +584,6 @@ fn steam_id_of(steam_id: u64) -> sys::CSteamID {
 		m_steamid: sys::CSteamID_SteamID_t {
 			m_unAll64Bits: steam_id,
 		},
-	}
-}
-
-thread_local! {
-	/// Output of the `Status` call in progress on this thread.
-	static STATUS_OUTPUT: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
-}
-
-unsafe extern "C" {
-	/// The UCRT's formatter, which its inline `vsnprintf` calls.
-	#[cfg(target_os = "windows")]
-	fn __stdio_common_vsprintf(
-		options: u64,
-		buffer: *mut c_char,
-		count: usize,
-		format: *const c_char,
-		locale: *mut std::ffi::c_void,
-		arguments: VaList<'_>,
-	) -> c_int;
-
-	/// The C library's `vsnprintf`.
-	#[cfg(not(target_os = "windows"))]
-	fn vsnprintf(
-		buffer: *mut c_char,
-		count: usize,
-		format: *const c_char,
-		arguments: VaList<'_>,
-	) -> c_int;
-}
-
-/// The `print` callback `Status` receives, appending to [`STATUS_OUTPUT`].
-unsafe extern "C" fn append_status(format: *const c_char, arguments: ...) {
-	if format.is_null() {
-		return;
-	}
-
-	let mut line = [0 as c_char; STATUS_LINE_CAPACITY];
-
-	// SAFETY: The game passes a `printf` format and matching arguments.
-	if unsafe { format_into(&mut line, format, arguments) } < 0 {
-		return;
-	}
-
-	let line = cstring_from_buffer(&line);
-
-	STATUS_OUTPUT.with_borrow_mut(|output| {
-		if let Some(output) = output {
-			output.extend_from_slice(line.as_bytes());
-		}
-	});
-}
-
-/// Formats a `printf` call into `buffer`, truncating and terminating it.
-///
-/// # Safety
-///
-/// `format` and `arguments` must be a valid `printf` format and its arguments.
-unsafe fn format_into(
-	buffer: &mut [c_char],
-	format: *const c_char,
-	arguments: VaList<'_>,
-) -> c_int {
-	cfg_select! {
-		target_os = "windows" => {
-			/// `_CRT_INTERNAL_PRINTF_STANDARD_SNPRINTF_BEHAVIOR`, which makes the
-			/// formatter behave as C99's `vsnprintf`.
-			const STANDARD_SNPRINTF_BEHAVIOR: u64 = 1 << 1;
-
-			// SAFETY: The caller upholds the contract, and the length is passed.
-			unsafe {
-				__stdio_common_vsprintf(
-					STANDARD_SNPRINTF_BEHAVIOR,
-					buffer.as_mut_ptr(),
-					buffer.len(),
-					format,
-					ptr::null_mut(),
-					arguments,
-				)
-			}
-		}
-
-		_ => {
-			// SAFETY: The caller upholds the contract, and the length is passed.
-			unsafe { vsnprintf(buffer.as_mut_ptr(), buffer.len(), format, arguments) }
-		}
 	}
 }
 

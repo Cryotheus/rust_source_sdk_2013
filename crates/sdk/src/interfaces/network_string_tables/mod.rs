@@ -14,6 +14,7 @@
 
 use crate::NotThreadSafe;
 use crate::server::{InterfaceError, Server};
+use sdk_raw::interfaces::network_string_tables::INVALID_STRING_INDEX;
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
@@ -23,9 +24,6 @@ use std::ptr::{self, NonNull};
 /// The name of the table listing the files clients download while they
 /// connect.
 pub const DOWNLOADABLES: &CStr = c"downloadables";
-
-/// `INVALID_STRING_INDEX` from `public/networkstringtabledefs.h`.
-const INVALID_STRING_INDEX: c_int = u16::MAX as c_int;
 
 /// The name of the table listing the precached sounds, which clients load
 /// before playing them.
@@ -125,7 +123,7 @@ impl<'s> NetworkStringTable<'s> {
 
 		usize::try_from(index)
 			.ok()
-			.filter(|_| index != INVALID_STRING_INDEX)
+			.filter(|_| index != c_int::from(INVALID_STRING_INDEX))
 			.ok_or(AddStringError)
 	}
 
@@ -145,7 +143,7 @@ impl<'s> NetworkStringTable<'s> {
 
 		usize::try_from(index)
 			.ok()
-			.filter(|_| index != INVALID_STRING_INDEX)
+			.filter(|_| index != c_int::from(INVALID_STRING_INDEX))
 	}
 
 	/// Whether the table holds no strings.
@@ -478,7 +476,7 @@ mod tests {
 			known
 				.iter()
 				.position(|known| known.as_c_str() == string)
-				.map_or(INVALID_STRING_INDEX, |index| index as c_int)
+				.map_or(INVALID_STRING_INDEX.into(), |index| index as c_int)
 		})
 	}
 
@@ -497,7 +495,7 @@ mod tests {
 		let mut mocks = Mocks::exported();
 		let scope = ();
 		FOUND_TABLE.set(&raw mut *mocks.table);
-		ADD_RESULT.set(INVALID_STRING_INDEX);
+		ADD_RESULT.set(INVALID_STRING_INDEX.into());
 
 		assert_eq!(
 			add_downloadable(mock_server(&scope), c"sound/example.wav"),
@@ -589,7 +587,7 @@ mod tests {
 		let (_vtable, mut raw) = mock_table();
 		let table = unsafe { NetworkStringTable::from_raw(NonNull::from(&mut *raw)) };
 
-		for refusal in [INVALID_STRING_INDEX, -1] {
+		for refusal in [INVALID_STRING_INDEX.into(), -1] {
 			ADD_RESULT.set(refusal);
 
 			assert_eq!(table.add(c"example"), Err(AddStringError));

@@ -2,29 +2,18 @@
 
 use sdk_raw::vcall;
 use std::ffi::c_int;
-use std::mem::{offset_of, size_of};
 
 interface! {
 	/// The game's handling of connected clients (`IServerGameClients`).
+	///
+	/// A plugin hooks its `ClientCommand`, at
+	/// [`CLIENT_COMMAND_SLOT`](sdk_raw::interfaces::server_game_clients::CLIENT_COMMAND_SLOT),
+	/// to run clients' commands through
+	/// [`route_client_command`](crate::commands::route_client_command).
 	#[doc(alias = "IServerGameClients")]
 	#[doc(alias = "CServerGameClients")]
 	pub struct ServerGameClients(sys::IServerGameClients) = GameServer c"ServerGameClients005";
 }
-
-const _: () = assert!(
-	offset_of!(
-		sys::IServerGameClients__bindgen_vtable,
-		IServerGameClients_ClientCommand
-	) == size_of::<*const ()>() * CLIENT_COMMAND_VTABLE_SLOT
-);
-
-/// The vtable slot of `IServerGameClients::ClientCommand`, which a plugin hooks
-/// to run clients' commands through
-/// [`route_client_command`](crate::commands::route_client_command).
-///
-/// The interface declares no virtual destructor, so the slot is the same under
-/// the MSVC and Itanium ABIs.
-pub const CLIENT_COMMAND_VTABLE_SLOT: usize = 5;
 
 /// The player counts a game supports, from [`ServerGameClients::player_limits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -17,31 +17,10 @@ use crate::entities::Entity;
 use crate::net::EncodeError;
 use crate::net::messages::MAX_MESSAGE_DATA_BYTES;
 use crate::server::{InterfaceError, Server};
-use sdk_raw::abi::CppDestructors;
+use sdk_raw::user_messages::RecipientFilter;
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
-use std::mem::offset_of;
 use std::ptr::NonNull;
-
-const _: () = {
-	assert!(
-		offset_of!(RecipientFilterVtable, is_reliable)
-			== offset_of!(
-				sys::IRecipientFilter__bindgen_vtable,
-				IRecipientFilter_IsReliable
-			)
-	);
-	assert!(
-		offset_of!(RecipientFilterVtable, recipient_index)
-			== offset_of!(
-				sys::IRecipientFilter__bindgen_vtable,
-				IRecipientFilter_GetRecipientIndex
-			)
-	);
-	assert!(
-		size_of::<RecipientFilterVtable>() == size_of::<sys::IRecipientFilter__bindgen_vtable>()
-	);
-};
 
 /// Any user message, from its name and payload.
 ///
@@ -64,90 +43,6 @@ impl UserMessage for RawUserMessage<'_> {
 		out.write_bits(self.data);
 		Ok(())
 	}
-}
-
-/// A [`Recipients`] with the layout of an `IRecipientFilter`, which the engine
-/// calls through its vtable while it sends a message or sound.
-///
-/// Only the interface's virtual methods are implemented, so it must not be
-/// given to game code that casts it to the game's `CRecipientFilter`.
-#[repr(C)]
-pub(crate) struct RecipientFilter<'a> {
-	vtable: &'static RecipientFilterVtable,
-	recipients: &'a Recipients,
-}
-
-impl<'a> RecipientFilter<'a> {
-	/// The engine never deletes a filter it is given.
-	const VTABLE: RecipientFilterVtable = RecipientFilterVtable {
-		destructor: CppDestructors::new_noop(),
-		is_reliable: Self::is_reliable,
-		is_init_message: Self::is_init_message,
-		recipient_count: Self::recipient_count,
-		recipient_index: Self::recipient_index,
-	};
-
-	/// A filter that lends `recipients` to the engine for as long as it lives.
-	pub(crate) fn new(recipients: &'a Recipients) -> Self {
-		Self {
-			vtable: &Self::VTABLE,
-			recipients,
-		}
-	}
-
-	unsafe extern "C" fn is_init_message(_: *const sys::IRecipientFilter) -> bool {
-		false
-	}
-
-	unsafe extern "C" fn is_reliable(this: *const sys::IRecipientFilter) -> bool {
-		// SAFETY: The engine calls it on the filter it was given.
-		unsafe { Self::recipients(this) }.reliable
-	}
-
-	unsafe extern "C" fn recipient_count(this: *const sys::IRecipientFilter) -> c_int {
-		// SAFETY: As for `is_reliable`.
-		let players = &unsafe { Self::recipients(this) }.players;
-
-		c_int::try_from(players.len()).unwrap_or(c_int::MAX)
-	}
-
-	unsafe extern "C" fn recipient_index(this: *const sys::IRecipientFilter, slot: c_int) -> c_int {
-		// SAFETY: As for `is_reliable`.
-		let players = &unsafe { Self::recipients(this) }.players;
-
-		usize::try_from(slot)
-			.ok()
-			.and_then(|slot| players.get(slot))
-			.copied()
-			.unwrap_or(-1)
-	}
-
-	/// # Safety
-	///
-	/// `this` must be a live filter made by [`RecipientFilter::new`].
-	unsafe fn recipients<'b>(this: *const sys::IRecipientFilter) -> &'b Recipients {
-		// SAFETY: As the caller promises. The filter only lends out what it
-		// borrows, for the call.
-		unsafe { (*this.cast::<RecipientFilter<'b>>()).recipients }
-	}
-
-	/// The filter as the `IRecipientFilter` the engine takes, valid while it
-	/// lives.
-	pub(crate) fn as_raw(&self) -> *mut sys::IRecipientFilter {
-		// The engine only reads through the pointer.
-		(&raw const *self).cast_mut().cast()
-	}
-}
-
-/// `IRecipientFilter`'s vtable, whose slots the assertions at the top of the
-/// module check against the bindings' for the target's ABI.
-#[repr(C)]
-struct RecipientFilterVtable {
-	destructor: CppDestructors,
-	is_reliable: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> bool,
-	is_init_message: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> bool,
-	recipient_count: unsafe extern "C" fn(this: *const sys::IRecipientFilter) -> c_int,
-	recipient_index: unsafe extern "C" fn(this: *const sys::IRecipientFilter, slot: c_int) -> c_int,
 }
 
 /// The clients a user message or sound goes to, by player index, for the
@@ -251,6 +146,12 @@ impl Recipients {
 		if !self.players.contains(&index) {
 			self.players.push(index);
 		}
+	}
+
+	/// The `IRecipientFilter` the engine calls through its vtable while it
+	/// sends a message or sound, which lends it these recipients.
+	pub(crate) const fn filter(&self) -> RecipientFilter<'_> {
+		RecipientFilter::new(self.players.as_slice(), self.reliable)
 	}
 
 	/// Whether no client was added.
@@ -409,7 +310,7 @@ pub fn send(
 		.filter(|&id| id <= u8::MAX.into())
 		.ok_or_else(|| UserMessageError::Unknown(name.to_owned()))?;
 	let engine = server.valve_engine()?;
-	let filter = RecipientFilter::new(recipients);
+	let filter = recipients.filter();
 
 	// SAFETY: `Server::new` guarantees the interface is live. The filter
 	// outlives the message, which ends before this returns, and nothing runs
@@ -531,29 +432,6 @@ mod tests {
 			Ok(slot) if slot < len => unsafe { table.add(slot) },
 
 			_ => null_mut(),
-		}
-	}
-
-	#[test]
-	fn filters_report_their_recipients_through_the_vtable() {
-		let recipients = Recipients {
-			players: vec![3, 7],
-			reliable: true,
-		};
-		let filter = RecipientFilter::new(&recipients);
-		let raw = filter.as_raw();
-
-		// SAFETY: `raw` is the live filter, called through the bindings' vtable
-		// as the engine calls it.
-		unsafe {
-			let vtable = (*raw).vtable_;
-
-			assert!(((*vtable).IRecipientFilter_IsReliable)(raw));
-			assert!(!((*vtable).IRecipientFilter_IsInitMessage)(raw));
-			assert_eq!(((*vtable).IRecipientFilter_GetRecipientCount)(raw), 2);
-			assert_eq!(((*vtable).IRecipientFilter_GetRecipientIndex)(raw, 1), 7);
-			assert_eq!(((*vtable).IRecipientFilter_GetRecipientIndex)(raw, 2), -1);
-			assert_eq!(((*vtable).IRecipientFilter_GetRecipientIndex)(raw, -1), -1);
 		}
 	}
 

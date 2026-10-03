@@ -8,54 +8,24 @@
 
 use crate::entities::Entity;
 use crate::math::Vector;
-use crate::user_messages::{RecipientFilter, Recipients};
+use crate::user_messages::Recipients;
+
+use sdk_raw::interfaces::engine_sound::{
+	CHAN_AUTO, CHAN_BODY, CHAN_ITEM, CHAN_STATIC, CHAN_STREAM, CHAN_VOICE, CHAN_VOICE2,
+	CHAN_WEAPON, PITCH_HIGH, PITCH_LOW, PITCH_NORM, SND_CHANGE_PITCH, SND_CHANGE_VOL, SND_DELAY,
+	SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL, SND_FLAG_BITS_ENCODE, SND_IGNORE_NAME,
+	SND_IGNORE_PHONEMES, SND_NOFLAGS, SND_SHOULDPAUSE, SND_SPAWNING, SND_SPEAKER, SND_STOP,
+	SND_STOP_LOOPING, SOUND_FROM_WORLD, VOL_NORM,
+};
+
 use sdk_raw::vcall;
-use std::ffi::{CStr, c_char, c_int};
+use std::ffi::{CStr, c_int};
 use std::num::NonZero;
 use std::ptr::{self, null_mut};
 
-/// The `soundlevel_t` overload of `IEngineSound::EmitSound`.
-type EmitSound = unsafe extern "C" fn(
-	this: *mut sys::IEngineSound,
-	filter: *mut sys::IRecipientFilter,
-	entity: c_int,
-	channel: c_int,
-	sample: *const c_char,
-	volume: f32,
-	level: sys::soundlevel_t,
-	flags: c_int,
-	pitch: c_int,
-	special_dsp: c_int,
-	origin: *const sys::Vector,
-	direction: *const sys::Vector,
-	origins: *mut sys::CUtlVector<sys::Vector, sys::CUtlMemory<sys::Vector>>,
-	update_positions: bool,
-	sound_time: f32,
-	speaker: c_int,
-);
-
-// MSVC and Itanium order `EmitSound`'s two overloads' slots differently, so
-// the overload is reached by its generated field, which takes `soundlevel_t`
-// under both ABIs. A regeneration that renamed the overloads would fail to
-// compile here, instead of passing a sound level as the other overload's
-// float attenuation.
-const _: fn(&sys::IEngineSound__bindgen_vtable) -> EmitSound =
-	|vtable| vtable.IEngineSound_EmitSound1;
-
-/// `CHAN_VOICE2` from `public/soundflags.h`, the highest channel the engine's
-/// 3-bit encoding of a sound's channel can carry.
-const MAX_CHANNEL: c_int = 7;
-
-/// `SND_FLAG_BITS_ENCODE` from `public/soundflags.h`: the engine sends the
-/// flags below this bit.
-const SND_FLAG_BITS_ENCODE: u32 = 11;
-
-/// `SND_SPAWNING` from `public/soundflags.h`, a hint between the game and the
-/// engine that is never sent to clients.
-const SND_SPAWNING: c_int = 1 << 3;
-
-/// `SOUND_FROM_WORLD` from `public/engine/IEngineSound.h`.
-const SOUND_FROM_WORLD: c_int = 0;
+/// The highest channel the engine's 3-bit encoding of a sound's channel can
+/// carry.
+const MAX_CHANNEL: c_int = CHAN_VOICE2;
 
 interface! {
 	/// The server's sound system (`IEngineSound`).
@@ -84,36 +54,36 @@ pub struct Channel(c_int);
 impl Channel {
 	/// `CHAN_AUTO`: any free channel.
 	#[doc(alias = "CHAN_AUTO")]
-	pub const AUTO: Self = Self(0);
+	pub const AUTO: Self = Self(CHAN_AUTO);
 
 	/// `CHAN_BODY`: footsteps and other body sounds.
 	#[doc(alias = "CHAN_BODY")]
-	pub const BODY: Self = Self(4);
+	pub const BODY: Self = Self(CHAN_BODY);
 
 	/// `CHAN_ITEM`: item pickups and use.
 	#[doc(alias = "CHAN_ITEM")]
-	pub const ITEM: Self = Self(3);
+	pub const ITEM: Self = Self(CHAN_ITEM);
 
 	/// `CHAN_STATIC`: a channel allocated from the static area.
 	#[doc(alias = "CHAN_STATIC")]
-	pub const STATIC: Self = Self(6);
+	pub const STATIC: Self = Self(CHAN_STATIC);
 
 	/// `CHAN_STREAM`: a stream channel allocated from the static or dynamic
 	/// area.
 	#[doc(alias = "CHAN_STREAM")]
-	pub const STREAM: Self = Self(5);
+	pub const STREAM: Self = Self(CHAN_STREAM);
 
 	/// `CHAN_VOICE`: speech, as the game plays its voice lines on.
 	#[doc(alias = "CHAN_VOICE")]
-	pub const VOICE: Self = Self(2);
+	pub const VOICE: Self = Self(CHAN_VOICE);
 
 	/// `CHAN_VOICE2`: a second voice channel.
 	#[doc(alias = "CHAN_VOICE2")]
-	pub const VOICE2: Self = Self(7);
+	pub const VOICE2: Self = Self(CHAN_VOICE2);
 
 	/// `CHAN_WEAPON`: weapon sounds.
 	#[doc(alias = "CHAN_WEAPON")]
-	pub const WEAPON: Self = Self(1);
+	pub const WEAPON: Self = Self(CHAN_WEAPON);
 
 	/// Validates a raw `CHAN_*` value. Returns `None` for any channel the
 	/// engine cannot send, outside `CHAN_AUTO` (0) to `CHAN_VOICE2` (7).
@@ -142,21 +112,34 @@ pub struct Pitch(NonZero<u8>);
 impl Pitch {
 	/// `PITCH_HIGH`: 120.
 	#[doc(alias = "PITCH_HIGH")]
-	pub const HIGH: Self = Self(NonZero::new(120).unwrap());
+	pub const HIGH: Self = Self::from_header(PITCH_HIGH);
 
 	/// `PITCH_LOW`: 95.
 	#[doc(alias = "PITCH_LOW")]
-	pub const LOW: Self = Self(NonZero::new(95).unwrap());
+	pub const LOW: Self = Self::from_header(PITCH_LOW);
 
 	/// `PITCH_NORM`: 100, the sample's own pitch.
 	#[doc(alias = "PITCH_NORM")]
-	pub const NORM: Self = Self(NonZero::new(100).unwrap());
+	pub const NORM: Self = Self::from_header(PITCH_NORM);
 
 	/// Validates a pitch. Returns `None` for 0.
 	pub const fn new(pitch: u8) -> Option<Self> {
 		match NonZero::new(pitch) {
 			Some(pitch) => Some(Self(pitch)),
 			None => None,
+		}
+	}
+
+	/// A `PITCH_*` value, which fails to compile in a constant unless it is
+	/// from 1 to 255.
+	const fn from_header(pitch: c_int) -> Self {
+		let narrowed = pitch as u8;
+
+		assert!(narrowed as c_int == pitch);
+
+		match Self::new(narrowed) {
+			Some(pitch) => pitch,
+			None => panic!("a pitch must not be 0"),
 		}
 	}
 
@@ -263,50 +246,51 @@ pub struct SoundFlags(c_int);
 impl SoundFlags {
 	/// `SND_CHANGE_PITCH`: changes the pitch of the sound already playing.
 	#[doc(alias = "SND_CHANGE_PITCH")]
-	pub const CHANGE_PITCH: Self = Self(1 << 1);
+	pub const CHANGE_PITCH: Self = Self(SND_CHANGE_PITCH);
 
 	/// `SND_CHANGE_VOL`: changes the volume of the sound already playing.
 	#[doc(alias = "SND_CHANGE_VOL")]
-	pub const CHANGE_VOLUME: Self = Self(1 << 0);
+	pub const CHANGE_VOLUME: Self = Self(SND_CHANGE_VOL);
 
 	/// `SND_DELAY`: the sound starts after a delay.
 	#[doc(alias = "SND_DELAY")]
-	pub const DELAY: Self = Self(1 << 4);
+	pub const DELAY: Self = Self(SND_DELAY);
 
 	/// `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: plays alongside the sound
 	/// already on the channel instead of replacing it.
 	#[doc(alias = "SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL")]
-	pub const DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL: Self = Self(1 << 10);
+	pub const DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL: Self =
+		Self(SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL);
 
 	/// `SND_IGNORE_NAME`: a change or stop applies to every sound of the
 	/// source, whatever its sample.
 	#[doc(alias = "SND_IGNORE_NAME")]
-	pub const IGNORE_NAME: Self = Self(1 << 9);
+	pub const IGNORE_NAME: Self = Self(SND_IGNORE_NAME);
 
 	/// `SND_IGNORE_PHONEMES`: clients ignore the sample's phonemes, the lip
 	/// sync data that moves a speaker's mouth.
 	#[doc(alias = "SND_IGNORE_PHONEMES")]
-	pub const IGNORE_PHONEMES: Self = Self(1 << 8);
+	pub const IGNORE_PHONEMES: Self = Self(SND_IGNORE_PHONEMES);
 
 	/// `SND_NOFLAGS`: no flags, the default.
 	#[doc(alias = "SND_NOFLAGS")]
-	pub const NONE: Self = Self(0);
+	pub const NONE: Self = Self(SND_NOFLAGS);
 
 	/// `SND_SHOULDPAUSE`: the sound pauses while the game is paused.
 	#[doc(alias = "SND_SHOULDPAUSE")]
-	pub const SHOULD_PAUSE: Self = Self(1 << 7);
+	pub const SHOULD_PAUSE: Self = Self(SND_SHOULDPAUSE);
 
 	/// `SND_SPEAKER`: the sound is replayed through a speaker.
 	#[doc(alias = "SND_SPEAKER")]
-	pub const SPEAKER: Self = Self(1 << 6);
+	pub const SPEAKER: Self = Self(SND_SPEAKER);
 
 	/// `SND_STOP`: stops the sound.
 	#[doc(alias = "SND_STOP")]
-	pub const STOP: Self = Self(1 << 2);
+	pub const STOP: Self = Self(SND_STOP);
 
 	/// `SND_STOP_LOOPING`: stops every looping sound of the source.
 	#[doc(alias = "SND_STOP_LOOPING")]
-	pub const STOP_LOOPING: Self = Self(1 << 5);
+	pub const STOP_LOOPING: Self = Self(SND_STOP_LOOPING);
 
 	/// Validates raw `SND_*` flags. Returns `None` if they include
 	/// `SND_SPAWNING`, or any bit from `SND_FLAG_BITS_ENCODE` (11) up, which
@@ -356,30 +340,39 @@ pub struct SoundLevel(u8);
 impl SoundLevel {
 	/// `SNDLVL_GUNFIRE`: 140 dB.
 	#[doc(alias = "SNDLVL_GUNFIRE")]
-	pub const GUNFIRE: Self = Self(140);
+	pub const GUNFIRE: Self = Self::from_header(sys::soundlevel_t_SNDLVL_GUNFIRE);
 
 	/// `SNDLVL_IDLE`: 60 dB.
 	#[doc(alias = "SNDLVL_IDLE")]
-	pub const IDLE: Self = Self(60);
+	pub const IDLE: Self = Self::from_header(sys::soundlevel_t_SNDLVL_IDLE);
 
 	/// `SNDLVL_NONE`: 0, heard at the same volume at any distance.
 	#[doc(alias = "SNDLVL_NONE")]
-	pub const NONE: Self = Self(0);
+	pub const NONE: Self = Self::from_header(sys::soundlevel_t_SNDLVL_NONE);
 
 	/// `SNDLVL_NORM`: 75 dB.
 	#[doc(alias = "SNDLVL_NORM")]
-	pub const NORM: Self = Self(75);
+	pub const NORM: Self = Self::from_header(sys::soundlevel_t_SNDLVL_NORM);
 
 	/// `SNDLVL_STATIC`: 66 dB.
 	#[doc(alias = "SNDLVL_STATIC")]
-	pub const STATIC: Self = Self(66);
+	pub const STATIC: Self = Self::from_header(sys::soundlevel_t_SNDLVL_STATIC);
 
 	/// `SNDLVL_TALKING`: 80 dB.
 	#[doc(alias = "SNDLVL_TALKING")]
-	pub const TALKING: Self = Self(80);
+	pub const TALKING: Self = Self::from_header(sys::soundlevel_t_SNDLVL_TALKING);
 
 	/// A level in decibels, as the `SNDLVL_<n>dB` constants give them.
 	pub const fn new(decibels: u8) -> Self {
+		Self(decibels)
+	}
+
+	/// A generated `SNDLVL_*` value, which fails to compile in a constant
+	/// unless it is from 0 to 255.
+	const fn from_header(level: sys::soundlevel_t) -> Self {
+		let decibels = level as u8;
+
+		assert!(decibels as sys::soundlevel_t == level);
 		Self(decibels)
 	}
 
@@ -431,7 +424,7 @@ pub struct Volume(f32);
 impl Volume {
 	/// `VOL_NORM`: the sample's own volume.
 	#[doc(alias = "VOL_NORM")]
-	pub const NORM: Self = Self(1.0);
+	pub const NORM: Self = Self(VOL_NORM);
 
 	/// Validates a volume. Returns `None` unless it is from 0 to 1.
 	pub const fn new(volume: f32) -> Option<Self> {
@@ -515,7 +508,7 @@ impl<'s> EngineSound<'s> {
 			return Ok(());
 		}
 
-		let filter = RecipientFilter::new(recipients);
+		let filter = recipients.filter();
 
 		// SAFETY: `Server::new` guarantees the interface is live, and binds any
 		// code the call reaches, such as other plugins' sound hooks, to free
@@ -629,9 +622,10 @@ mod tests {
 	use crate::edicts::test_support::mock_edict;
 	use crate::entities::test_support::{MockEntity, set_networking};
 	use crate::user_messages::test_support::recipients;
+	use sdk_raw::interfaces::engine_sound::{CHAN_REPLACE, CHAN_USER_BASE, CHAN_VOICE_BASE};
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
-	use std::ffi::CString;
+	use std::ffi::{CString, c_char};
 	use std::ptr::NonNull;
 
 	thread_local! {
@@ -725,8 +719,7 @@ mod tests {
 			assert_eq!(channel.to_raw(), raw);
 		}
 
-		// `CHAN_REPLACE`, `CHAN_VOICE_BASE`, and `CHAN_USER_BASE`.
-		for raw in [-1, 8, 136] {
+		for raw in [CHAN_REPLACE, CHAN_VOICE_BASE, CHAN_USER_BASE] {
 			assert_eq!(Channel::from_raw(raw), None);
 		}
 	}

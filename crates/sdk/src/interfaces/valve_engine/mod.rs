@@ -9,7 +9,6 @@ use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_char, c_int};
-use std::mem::{offset_of, size_of};
 use std::ptr::{self, NonNull};
 
 interface! {
@@ -17,44 +16,6 @@ interface! {
 	#[doc(alias = "IVEngineServer")]
 	pub struct ValveEngine(sys::IVEngineServer) = Engine c"VEngineServer023";
 }
-
-// `IVEngineServer` declares no virtual destructor, so its methods occupy the
-// same slots under both the MSVC and Itanium ABIs. Keep these beside the
-// wrappers so a regenerated binding cannot silently dispatch to another method.
-const _: () = {
-	let slot = size_of::<*const ()>();
-
-	assert!(
-		offset_of!(
-			sys::IVEngineServer__bindgen_vtable,
-			IVEngineServer_ChangeLevel
-		) == 0
-	);
-	assert!(
-		offset_of!(
-			sys::IVEngineServer__bindgen_vtable,
-			IVEngineServer_GetPlayerUserId
-		) == slot * 15
-	);
-	assert!(
-		offset_of!(
-			sys::IVEngineServer__bindgen_vtable,
-			IVEngineServer_PEntityOfEntIndex
-		) == slot * 19
-	);
-	assert!(
-		offset_of!(
-			sys::IVEngineServer__bindgen_vtable,
-			IVEngineServer_ServerCommand
-		) == slot * 36
-	);
-	assert!(
-		offset_of!(
-			sys::IVEngineServer__bindgen_vtable,
-			IVEngineServer_LockNetworkStringTables
-		) == slot * 53
-	);
-};
 
 impl<'s> ValveEngine<'s> {
 	/// The engine's change-tracking record for an edict.

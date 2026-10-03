@@ -1,1 +1,567 @@
 //! Hand-written ABI of the engine's game event listener and visitor objects.
+//!
+//! [`RawGameEventListener`] is an `IGameEventListener2` implemented in Rust,
+//! which the game event manager calls with the events it fires, and
+//! [`for_event_data`] walks an event's data with an `IGameEventVisitor2`
+//! implemented in Rust.
+
+use crate::abi::{CppDestructors, VTABLE_SLOT_SIZE, WChar};
+use crate::util::cstr::{borrow_cstr, borrow_wide_cstr};
+use crate::{vcall, vtable_slot};
+use std::ffi::{CStr, c_char, c_float, c_int, c_void};
+use std::fmt::{Debug, Formatter};
+use std::mem::offset_of;
+use std::ptr::NonNull;
+
+/// `void IGameEventListener2::FireGameEvent(IGameEvent *event)`.
+type FireGameEventFn =
+	unsafe extern "C" fn(this: *mut sys::IGameEventListener2, event: *mut sys::IGameEvent);
+
+// The listener's hand-written vtable lines up with the generated one under the
+// target's ABI, whose destructor slots `CppDestructors` selects.
+const _: () = {
+	assert!(
+		offset_of!(GameEventListenerVtable, fire_game_event)
+			== offset_of!(
+				sys::IGameEventListener2__bindgen_vtable,
+				IGameEventListener2_FireGameEvent
+			)
+	);
+	assert!(
+		size_of::<GameEventListenerVtable>()
+			== size_of::<sys::IGameEventListener2__bindgen_vtable>()
+	);
+};
+
+// `IGameEventVisitor2` declares no destructor, so its seven methods fill the
+// vtable from its start under both ABIs, and `VISITOR_VTABLE` is built as the
+// generated vtable itself.
+const _: () = {
+	assert!(
+		offset_of!(
+			sys::IGameEventVisitor2__bindgen_vtable,
+			IGameEventVisitor2_VisitLocal
+		) == 0
+	);
+	assert!(size_of::<sys::IGameEventVisitor2__bindgen_vtable>() == VTABLE_SLOT_SIZE * 7);
+};
+
+// `IGameEvent` and `IGameEventManager2` declare a virtual destructor first,
+// which occupies one slot under MSVC and two under the Itanium ABI. The slots
+// of the methods after it are checked against the generated vtables, so a
+// regenerated binding cannot turn a call into a destructive dispatch.
+const _: () = {
+	let destructor = CppDestructors::VTABLE_SLOTS;
+
+	assert!(vtable_slot!(sys::IGameEvent__bindgen_vtable, IGameEvent_GetName) == destructor);
+	assert!(vtable_slot!(sys::IGameEvent__bindgen_vtable, IGameEvent_IsReliable) == destructor + 1);
+	assert!(vtable_slot!(sys::IGameEvent__bindgen_vtable, IGameEvent_IsLocal) == destructor + 2);
+	assert!(
+		vtable_slot!(
+			sys::IGameEventManager2__bindgen_vtable,
+			IGameEventManager2_LoadEventsFromFile
+		) == destructor
+	);
+	assert!(
+		vtable_slot!(
+			sys::IGameEventManager2__bindgen_vtable,
+			IGameEventManager2_AddListener
+		) == destructor + 2
+	);
+	assert!(
+		vtable_slot!(
+			sys::IGameEventManager2__bindgen_vtable,
+			IGameEventManager2_RemoveListener
+		) == destructor + 4
+	);
+};
+
+// The generated binding has this signature.
+const _: fn(&sys::IGameEventListener2__bindgen_vtable) -> FireGameEventFn =
+	|vtable| vtable.IGameEventListener2_FireGameEvent;
+
+/// The most bytes the engine serializes of one event.
+///
+/// This is `MAX_EVENT_BYTES` from `public/igameevents.h`.
+pub const MAX_EVENT_BYTES: usize = 1024;
+
+/// The vtable of every [`EventVisitor`], whose methods pass what the engine
+/// visits to the visitor's callback.
+static VISITOR_VTABLE: sys::IGameEventVisitor2__bindgen_vtable =
+	sys::IGameEventVisitor2__bindgen_vtable {
+		IGameEventVisitor2_VisitLocal: visit_local,
+		IGameEventVisitor2_VisitString: visit_string,
+		IGameEventVisitor2_VisitFloat: visit_float,
+		IGameEventVisitor2_VisitInt: visit_int,
+		IGameEventVisitor2_VisitUint64: visit_uint64,
+		IGameEventVisitor2_VisitWString: visit_wstring,
+		IGameEventVisitor2_VisitBool: visit_bool,
+	};
+
+/// The `IGameEventVisitor2` [`for_event_data`] lends the engine.
+#[repr(C)]
+struct EventVisitor<'a> {
+	interface: sys::IGameEventVisitor2,
+	visit: &'a mut dyn FnMut(&CStr, RawEventValue<'_>) -> bool,
+}
+
+/// The `IGameEventListener2` vtable of a [`RawGameEventListener`].
+#[repr(C)]
+struct GameEventListenerVtable {
+	destructor: CppDestructors,
+	fire_game_event: FireGameEventFn,
+}
+
+/// Receives the events the engine fires a [`RawGameEventListener`].
+pub trait OnFireGameEvent {
+	/// Called for each event the engine fires the listener, as the listener's
+	/// `FireGameEvent`.
+	///
+	/// The call comes from C++, so a panic cannot unwind out of it and aborts
+	/// the process.
+	///
+	/// # Safety
+	///
+	/// `event` must point to a live `IGameEvent`, which stays live for the
+	/// duration of the call, and the call must be made on the thread the
+	/// engine fires events on, the server's main thread.
+	#[doc(alias = "FireGameEvent")]
+	unsafe fn fire_game_event(&self, event: NonNull<sys::IGameEvent>);
+}
+
+/// A value of an event's data, as an `IGameEventVisitor2` method delivered
+/// it.
+///
+/// Strings borrow the event's data, so they are only valid during the visit
+/// that delivered them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RawEventValue<'a> {
+	/// From `VisitLocal`: an opaque pointer, or `None` for null.
+	///
+	/// The pointee's type and lifetime are not part of the visitor's
+	/// contract.
+	Local(Option<NonNull<c_void>>),
+
+	/// From `VisitString`, or `None` for null.
+	String(Option<&'a CStr>),
+
+	/// From `VisitFloat`.
+	Float(c_float),
+
+	/// From `VisitInt`.
+	Int(c_int),
+
+	/// From `VisitUint64`.
+	UInt64(u64),
+
+	/// From `VisitWString`, without its terminator, or `None` for null.
+	WString(Option<&'a [WChar]>),
+
+	/// From `VisitBool`.
+	Bool(bool),
+}
+
+/// An `IGameEventListener2` implemented in Rust, which passes the events the
+/// engine fires it to an [`OnFireGameEvent`].
+///
+/// `IGameEventManager2::AddListener` keeps the address it is given, from
+/// [`Self::as_raw`], and the manager calls the listener through it until
+/// `RemoveListener` removes it. A registered listener must therefore stay
+/// live, at the same address, and the module containing its code must stay
+/// loaded, until it is removed. The manager only reads the listener, and never
+/// deletes it, so its destructor slots do nothing.
+#[doc(alias = "IGameEventListener2")]
+#[repr(C)]
+pub struct RawGameEventListener<T> {
+	vtable: &'static GameEventListenerVtable,
+	inner: T,
+}
+
+impl<T: OnFireGameEvent> RawGameEventListener<T> {
+	const VTABLE: GameEventListenerVtable = GameEventListenerVtable {
+		destructor: CppDestructors::new_noop(),
+		fire_game_event: Self::fire_game_event,
+	};
+
+	/// A listener that passes the events it is fired to `inner`.
+	pub const fn new(inner: T) -> Self {
+		Self {
+			vtable: &Self::VTABLE,
+			inner,
+		}
+	}
+
+	/// `FireGameEvent`, which passes non-null events to the listener's
+	/// [`OnFireGameEvent`].
+	unsafe extern "C" fn fire_game_event(
+		this: *mut sys::IGameEventListener2,
+		event: *mut sys::IGameEvent,
+	) {
+		let Some(event) = NonNull::new(event) else {
+			return;
+		};
+
+		// SAFETY: The manager only calls the listeners registered with it,
+		// which stay live until removed, as `RawGameEventListener` requires,
+		// and only reads them.
+		let listener = unsafe { &*this.cast::<Self>() };
+
+		// SAFETY: The manager fires a live event for the duration of the call,
+		// on the server's main thread.
+		unsafe { listener.inner.fire_game_event(event) };
+	}
+}
+
+impl<T> RawGameEventListener<T> {
+	/// The address the manager registers and calls the listener by.
+	pub const fn as_raw(&self) -> *mut sys::IGameEventListener2 {
+		(&raw const *self).cast_mut().cast()
+	}
+
+	/// The value the listener passes events to.
+	pub const fn inner(&self) -> &T {
+		&self.inner
+	}
+}
+
+impl<T: Debug> Debug for RawGameEventListener<T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("RawGameEventListener")
+			.field("inner", &self.inner)
+			.finish_non_exhaustive()
+	}
+}
+
+/// Runs `IGameEvent::ForEventData`, which passes the name and value of each
+/// key of the event's data to `visit`, in order, until `visit` returns
+/// `false`, and returns the engine's result.
+///
+/// The name and value only borrow the event for the call of `visit` they are
+/// passed to. `visit` is called from C++, so a panic cannot unwind out of it
+/// and aborts the process, as does the engine passing a null name.
+///
+/// # Safety
+///
+/// `event` must point to a live `IGameEvent`, which stays live with its data
+/// unchanged until the call returns, including while `visit` runs, and the
+/// call must be made on the server's main thread.
+#[doc(alias = "ForEventData")]
+pub unsafe fn for_event_data(
+	event: NonNull<sys::IGameEvent>,
+	visit: &mut dyn FnMut(&CStr, RawEventValue<'_>) -> bool,
+) -> bool {
+	let mut visitor = EventVisitor {
+		interface: sys::IGameEventVisitor2 {
+			vtable_: &raw const VISITOR_VTABLE,
+		},
+		visit,
+	};
+
+	// SAFETY: The caller guarantees a live event, on the main thread. The
+	// visitor outlives the call, which is the only time the engine uses it,
+	// and nothing else uses it meanwhile.
+	unsafe { vcall!(event.as_ptr() => IGameEvent_ForEventData((&raw mut visitor).cast())) }
+}
+
+/// Passes a key's name and value to the [`EventVisitor`] at `this`, returning
+/// whether the engine should visit the next key.
+///
+/// # Panics
+///
+/// If `this` or `name` is null. The engine calls the visitor through C++, so
+/// the panic aborts the process.
+///
+/// # Safety
+///
+/// `this` must be null or point to an [`EventVisitor`] that nothing else uses
+/// during the call, and a non-null `name` must point to a NUL-terminated
+/// string that stays unchanged during the call.
+unsafe fn visit(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: RawEventValue<'_>,
+) -> bool {
+	// SAFETY: The caller guarantees that a non-null name is terminated and
+	// unchanged during the call.
+	let name = unsafe { borrow_cstr(name) }.expect("IGameEventVisitor2 was passed a null name");
+
+	// SAFETY: The caller guarantees that `this` is null or an unaliased
+	// `EventVisitor`.
+	let visitor =
+		unsafe { this.cast::<EventVisitor<'_>>().as_mut() }.expect("Visitor object is null");
+
+	(visitor.visit)(name, value)
+}
+
+/// `VisitBool`.
+unsafe extern "C" fn visit_bool(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: bool,
+) -> bool {
+	// SAFETY: The engine calls the visitor `for_event_data` lent it, during
+	// `ForEventData`, with the key's terminated name.
+	unsafe { visit(this, name, RawEventValue::Bool(value)) }
+}
+
+/// `VisitFloat`.
+unsafe extern "C" fn visit_float(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: c_float,
+) -> bool {
+	// SAFETY: As for `visit_bool`.
+	unsafe { visit(this, name, RawEventValue::Float(value)) }
+}
+
+/// `VisitInt`.
+unsafe extern "C" fn visit_int(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: c_int,
+) -> bool {
+	// SAFETY: As for `visit_bool`.
+	unsafe { visit(this, name, RawEventValue::Int(value)) }
+}
+
+/// `VisitLocal`.
+unsafe extern "C" fn visit_local(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: *const c_void,
+) -> bool {
+	// SAFETY: As for `visit_bool`.
+	unsafe {
+		visit(
+			this,
+			name,
+			RawEventValue::Local(NonNull::new(value.cast_mut())),
+		)
+	}
+}
+
+/// `VisitString`.
+unsafe extern "C" fn visit_string(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: *const c_char,
+) -> bool {
+	// SAFETY: As for `visit_bool`, and the value is null or a terminated
+	// string of the event's, unchanged during the call.
+	unsafe { visit(this, name, RawEventValue::String(borrow_cstr(value))) }
+}
+
+/// `VisitUint64`.
+unsafe extern "C" fn visit_uint64(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: u64,
+) -> bool {
+	// SAFETY: As for `visit_bool`.
+	unsafe { visit(this, name, RawEventValue::UInt64(value)) }
+}
+
+/// `VisitWString`.
+unsafe extern "C" fn visit_wstring(
+	this: *mut sys::IGameEventVisitor2,
+	name: *const c_char,
+	value: *const WChar,
+) -> bool {
+	// SAFETY: As for `visit_bool`, and the value is null or an aligned,
+	// terminated wide string of the event's, unchanged during the call.
+	unsafe { visit(this, name, RawEventValue::WString(borrow_wide_cstr(value))) }
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::util::mock::{mock_vtable, unexpected_call};
+	use std::cell::RefCell;
+	use std::ffi::CString;
+	use std::ptr::{null, null_mut};
+
+	/// The address `VisitLocal` passes.
+	static LOCAL: u8 = 0;
+
+	/// A key's value, copied out of the visit.
+	#[derive(Debug, PartialEq)]
+	enum Copied {
+		Local(Option<usize>),
+		String(Option<CString>),
+		Float(f32),
+		Int(c_int),
+		UInt64(u64),
+		WString(Option<Vec<WChar>>),
+		Bool(bool),
+	}
+
+	impl From<RawEventValue<'_>> for Copied {
+		fn from(value: RawEventValue<'_>) -> Self {
+			match value {
+				RawEventValue::Local(local) => {
+					Self::Local(local.map(NonNull::addr).map(Into::into))
+				}
+
+				RawEventValue::String(string) => Self::String(string.map(CStr::to_owned)),
+				RawEventValue::Float(float) => Self::Float(float),
+				RawEventValue::Int(int) => Self::Int(int),
+				RawEventValue::UInt64(uint) => Self::UInt64(uint),
+				RawEventValue::WString(wide) => Self::WString(wide.map(<[WChar]>::to_vec)),
+				RawEventValue::Bool(bool) => Self::Bool(bool),
+			}
+		}
+	}
+
+	/// Records the events it is fired.
+	#[derive(Debug, Default)]
+	struct Recorder(RefCell<Vec<*mut sys::IGameEvent>>);
+
+	impl OnFireGameEvent for Recorder {
+		unsafe fn fire_game_event(&self, event: NonNull<sys::IGameEvent>) {
+			self.0.borrow_mut().push(event.as_ptr());
+		}
+	}
+
+	#[test]
+	fn event_data_is_visited_until_the_callback_stops() {
+		// SAFETY: The vtable holds only function pointers.
+		let vtable = unsafe {
+			mock_vtable::<sys::IGameEvent__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+				(&raw mut (*vtable).IGameEvent_ForEventData).write(for_event_data_mock);
+			})
+		};
+		let mut event = sys::IGameEvent {
+			vtable_: &raw const *vtable,
+		};
+		let event = NonNull::from(&mut event);
+		let visit = |stop: &CStr| {
+			let mut visited = Vec::new();
+
+			// SAFETY: The mock event lives for the call.
+			let finished = unsafe {
+				for_event_data(event, &mut |name, value| {
+					visited.push((name.to_owned(), Copied::from(value)));
+					name != stop
+				})
+			};
+
+			(finished, visited)
+		};
+
+		let (finished, visited) = visit(c"");
+
+		assert!(finished);
+		assert_eq!(
+			visited,
+			[
+				(
+					c"local".to_owned(),
+					Copied::Local(Some((&raw const LOCAL).addr()))
+				),
+				(c"no_local".to_owned(), Copied::Local(None)),
+				(
+					c"string".to_owned(),
+					Copied::String(Some(c"scout".to_owned()))
+				),
+				(c"no_string".to_owned(), Copied::String(None)),
+				(c"float".to_owned(), Copied::Float(2.5)),
+				(c"int".to_owned(), Copied::Int(-7)),
+				(c"uint64".to_owned(), Copied::UInt64(u64::MAX)),
+				(
+					c"wstring".to_owned(),
+					Copied::WString(Some(vec![b'h'.into(), b'i'.into()]))
+				),
+				(c"no_wstring".to_owned(), Copied::WString(None)),
+				(c"bool".to_owned(), Copied::Bool(true)),
+			]
+		);
+
+		let (finished, visited) = visit(c"float");
+
+		assert!(!finished);
+		assert_eq!(
+			visited.last(),
+			Some(&(c"float".to_owned(), Copied::Float(2.5)))
+		);
+		assert_eq!(visited.len(), 5);
+	}
+
+	/// Visits keys of each type, with null and non-null pointers, in order, as
+	/// the engine does: until the visitor returns `false`.
+	unsafe extern "C" fn for_event_data_mock(
+		_: *const sys::IGameEvent,
+		visitor: *mut sys::IGameEventVisitor2,
+	) -> bool {
+		let wide: [WChar; 3] = [b'h'.into(), b'i'.into(), 0];
+
+		// SAFETY: `for_event_data` passes its live visitor.
+		unsafe {
+			let vtable = (*visitor).vtable_;
+
+			((*vtable).IGameEventVisitor2_VisitLocal)(
+				visitor,
+				c"local".as_ptr(),
+				(&raw const LOCAL).cast(),
+			) && ((*vtable).IGameEventVisitor2_VisitLocal)(visitor, c"no_local".as_ptr(), null())
+				&& ((*vtable).IGameEventVisitor2_VisitString)(
+					visitor,
+					c"string".as_ptr(),
+					c"scout".as_ptr(),
+				)
+				&& ((*vtable).IGameEventVisitor2_VisitString)(
+					visitor,
+					c"no_string".as_ptr(),
+					null(),
+				)
+				&& ((*vtable).IGameEventVisitor2_VisitFloat)(visitor, c"float".as_ptr(), 2.5)
+				&& ((*vtable).IGameEventVisitor2_VisitInt)(visitor, c"int".as_ptr(), -7)
+				&& ((*vtable).IGameEventVisitor2_VisitUint64)(visitor, c"uint64".as_ptr(), u64::MAX)
+				&& ((*vtable).IGameEventVisitor2_VisitWString)(
+					visitor,
+					c"wstring".as_ptr(),
+					wide.as_ptr(),
+				)
+				&& ((*vtable).IGameEventVisitor2_VisitWString)(
+					visitor,
+					c"no_wstring".as_ptr(),
+					null(),
+				)
+				&& ((*vtable).IGameEventVisitor2_VisitBool)(visitor, c"bool".as_ptr(), true)
+		}
+	}
+
+	#[test]
+	fn listeners_pass_fired_events_and_outlive_their_destructors() {
+		let listener = RawGameEventListener::new(Recorder::default());
+		let raw = listener.as_raw();
+		let mut event = sys::IGameEvent { vtable_: null() };
+		let event = &raw mut event;
+
+		// SAFETY: `raw` is the live listener, called through the bindings'
+		// vtable as the manager calls it. The recorder never reads the event.
+		unsafe {
+			let vtable = (*raw).vtable_;
+
+			((*vtable).IGameEventListener2_FireGameEvent)(raw, event);
+			((*vtable).IGameEventListener2_FireGameEvent)(raw, null_mut());
+
+			cfg_select! {
+				target_os = "windows" => {
+					assert_eq!(
+						((*vtable).IGameEventListener2_destructor)(raw, 1),
+						raw.cast()
+					);
+				}
+
+				target_os = "linux" => {
+					((*vtable).IGameEventListener2_complete_destructor)(raw);
+					((*vtable).IGameEventListener2_deleting_destructor)(raw);
+				}
+			}
+
+			((*vtable).IGameEventListener2_FireGameEvent)(raw, event);
+		}
+
+		assert_eq!(*listener.inner().0.borrow(), [event, event]);
+	}
+}

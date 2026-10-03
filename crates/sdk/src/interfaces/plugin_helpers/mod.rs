@@ -1,11 +1,9 @@
 //! `IServerPluginHelpers`, the engine's services for server plugins.
 
 use crate::edicts::Edict;
+use sdk_raw::interfaces::plugin_helpers::INVALID_QUERY_CVAR_COOKIE;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
-
-/// `InvalidQueryCvarCookie` from `public/engine/iserverplugin.h`.
-const INVALID_QUERY_CVAR_COOKIE: c_int = -1;
 
 interface! {
 	/// The engine's services for server plugins (`IServerPluginHelpers`).

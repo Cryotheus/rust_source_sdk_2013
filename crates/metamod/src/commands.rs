@@ -11,18 +11,18 @@ use crate::sys::plugin as raw;
 use source_sdk_2013::ServerBinding;
 use source_sdk_2013::commands::{CommandRegistrar, UnlinksBeforeUnload, route_client_command};
 use source_sdk_2013::interfaces::ServerGameClients;
-use source_sdk_2013::sys::{self, ConCommandBase};
+
+use source_sdk_2013::raw::interfaces::server_game_clients::{
+	CLIENT_COMMAND_SLOT, ClientCommandFn as ClientCommand,
+};
+
+use source_sdk_2013::sys::ConCommandBase;
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
-/// `void IServerGameClients::ClientCommand(edict_t *, const CCommand &)`.
-type ClientCommand =
-	unsafe extern "C" fn(*mut sys::IServerGameClients, *mut sys::edict_t, *const sys::CCommand);
-
-/// `IServerGameClients` declares no virtual destructor, so `ClientCommand` has
-/// this slot under the MSVC and Itanium ABIs alike.
-const CLIENT_COMMAND: VirtualFunction<ClientCommand> = VirtualFunction::new(5);
+/// `IServerGameClients::ClientCommand`, which runs a command a client sent.
+const CLIENT_COMMAND: VirtualFunction<ClientCommand> = VirtualFunction::new(CLIENT_COMMAND_SLOT);
 
 static ROUTED_SERVER: RoutedServer = RoutedServer(Cell::new(None));
 

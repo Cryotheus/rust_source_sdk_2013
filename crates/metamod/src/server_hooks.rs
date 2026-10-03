@@ -14,14 +14,15 @@ use source_sdk_2013::net::incoming::{
 	HookTargetError, IncomingHandler, IncomingKind, Verdict, hook_target, route_incoming,
 };
 
-use source_sdk_2013::{Server, ServerBinding, sys};
+use source_sdk_2013::raw::interfaces::server_game_dll::{
+	GAME_FRAME_SLOT, GameFrameFn as GameFrame,
+};
+
+use source_sdk_2013::{Server, ServerBinding};
 use std::cell::Cell;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{self, NonNull};
-
-/// `void IServerGameDLL::GameFrame(bool simulating)`.
-type GameFrame = unsafe extern "C" fn(*mut sys::IServerGameDLL, bool);
 
 /// Runs once per server frame: before the game's own frame when installed with
 /// [`MetamodApi::hook_game_frame`], and after it when installed with
@@ -36,9 +37,8 @@ pub type GameFrameFn = fn(server: Server<'_>, simulating: bool);
 /// message.
 type ProcessMessage = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
 
-/// `IServerGameDLL` declares no virtual destructor, so `GameFrame` has this
-/// slot under the MSVC and Itanium ABIs alike.
-const GAME_FRAME: VirtualFunction<GameFrame> = VirtualFunction::new(5);
+/// `IServerGameDLL::GameFrame`, which runs the game's frame.
+const GAME_FRAME: VirtualFunction<GameFrame> = VirtualFunction::new(GAME_FRAME_SLOT);
 
 static GAME_FRAMES: Route<GameFrameFn> = Route::new();
 static GAME_FRAMES_POST: Route<GameFrameFn> = Route::new();
@@ -421,7 +421,7 @@ mod tests {
 
 	use crate::sys::khook::Action;
 	use crate::sys::sourcehook::{IShDelegate, MetaRes};
-	use source_sdk_2013::{Game, InterfaceFactory};
+	use source_sdk_2013::{Game, InterfaceFactory, sys};
 	use std::cell::RefCell;
 	use std::mem::{self, offset_of, size_of};
 
