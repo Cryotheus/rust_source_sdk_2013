@@ -13,18 +13,22 @@ use crate::hook::{
 };
 
 use source_sdk_2013::entities::Entity;
+
+use source_sdk_2013::raw::tf2::damage::{
+	ON_TAKE_DAMAGE_ALIVE_SLOT, ON_TAKE_DAMAGE_SLOT, TakeDamage,
+};
+
+use source_sdk_2013::raw::util::vtable::vtable_pointer;
 use source_sdk_2013::tf2::damage::DamageEvent;
 use source_sdk_2013::{Game, Server, ServerBinding, sys};
 use std::cell::Cell;
-use std::ffi::c_int;
+use std::ffi::{c_int, c_void};
 use std::ptr::NonNull;
 
 /// A callback-scoped server and victim with an independently owned record.
 /// A panic is contained by the hook dispatcher and lets the game continue
 /// with the original damage arguments.
 pub type DamageFn = for<'s> fn(Server<'s>, DamageStage, &mut DamageEvent<'s>) -> DamageAction;
-
-type TakeDamage = unsafe extern "C" fn(*mut sys::CBaseEntity, *const sys::CTakeDamageInfo) -> c_int;
 
 static ROUTES: [DamageRoute; 32] = [const { DamageRoute::new() }; 32];
 
@@ -115,14 +119,12 @@ pub enum DamageStage {
 }
 
 impl DamageStage {
-	/// TF2's slots from SourceMod's
-	/// `gamedata/sdkhooks.games/engine.ep2v.txt`, the `tf` section.
+	/// The stage's method in a TF2 player's primary vtable.
 	const fn function(self) -> VirtualFunction<TakeDamage> {
-		let windows_slot = match self {
-			Self::Incoming => 64,
-			Self::Alive => 283,
-		};
-		VirtualFunction::new(windows_slot + if cfg!(target_os = "linux") { 1 } else { 0 })
+		VirtualFunction::new(match self {
+			Self::Incoming => ON_TAKE_DAMAGE_SLOT,
+			Self::Alive => ON_TAKE_DAMAGE_ALIVE_SLOT,
+		})
 	}
 }
 
@@ -169,8 +171,9 @@ impl MetamodApi<'_> {
 		{
 			return Err(DamageHookError::NotTfPlayer);
 		}
-		// SAFETY: Every live CBaseEntity starts with its primary vtable pointer.
-		let vtable = unsafe { player.as_ptr().cast::<usize>().read() };
+		// SAFETY: Every live CBaseEntity starts with its primary vtable pointer,
+		// of which only the address is used.
+		let vtable = unsafe { vtable_pointer::<c_void>(player.as_ptr()) }.addr();
 		if ROUTES.iter().any(|route| {
 			route.state.get().is_some_and(|state| {
 				state.vtable == vtable && state.stage == stage && self.has_hook(state.hook)
@@ -239,7 +242,7 @@ mod tests {
 	use super::*;
 	use source_sdk_2013::InterfaceFactory;
 	use source_sdk_2013::tf2::damage::{DamageInfo, DamageType};
-	use std::ffi::{c_char, c_void};
+	use std::ffi::c_char;
 	use std::mem::{MaybeUninit, offset_of, size_of};
 
 	thread_local! { static CALLS: Cell<usize> = const { Cell::new(0) }; }
@@ -265,17 +268,6 @@ mod tests {
 		assert_eq!(
 			probe(|_, _, _| DamageAction::Block),
 			(HookAction::Supersede(0), 0)
-		);
-	}
-
-	#[test]
-	fn incoming_signature_and_slot_match_generated_base_entity() {
-		let _: fn(&sys::CBaseEntity__bindgen_vtable) -> TakeDamage =
-			|vtable| vtable.CBaseEntity_OnTakeDamage;
-		assert_eq!(
-			DamageStage::Incoming.function().index(),
-			offset_of!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_OnTakeDamage)
-				/ size_of::<usize>()
 		);
 	}
 
@@ -319,5 +311,21 @@ mod tests {
 			"a const source record must never be overwritten"
 		);
 		(action, CALLS.with(Cell::get))
+	}
+
+	#[test]
+	fn stages_hook_the_generated_player_damage_slots() {
+		for (stage, offset) in [
+			(
+				DamageStage::Incoming,
+				offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage),
+			),
+			(
+				DamageStage::Alive,
+				offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage_Alive),
+			),
+		] {
+			assert_eq!(stage.function().index(), offset / size_of::<usize>());
+		}
 	}
 }

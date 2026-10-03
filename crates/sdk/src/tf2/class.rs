@@ -1,5 +1,10 @@
 //! TF2's playable classes.
 
+use sdk_raw::tf2::class::{
+	TF_CLASS_DEMOMAN, TF_CLASS_ENGINEER, TF_CLASS_HEAVYWEAPONS, TF_CLASS_MEDIC, TF_CLASS_PYRO,
+	TF_CLASS_SCOUT, TF_CLASS_SNIPER, TF_CLASS_SOLDIER, TF_CLASS_SPY,
+};
+
 use std::ffi::c_int;
 
 /// One of TF2's nine playable classes, numbered as the `TF_CLASS_*` constants
@@ -11,39 +16,39 @@ use std::ffi::c_int;
 pub enum PlayerClass {
 	/// `TF_CLASS_SCOUT`: 1.
 	#[doc(alias = "TF_CLASS_SCOUT")]
-	Scout = 1,
+	Scout = TF_CLASS_SCOUT as isize,
 
 	/// `TF_CLASS_SNIPER`: 2.
 	#[doc(alias = "TF_CLASS_SNIPER")]
-	Sniper = 2,
+	Sniper = TF_CLASS_SNIPER as isize,
 
 	/// `TF_CLASS_SOLDIER`: 3.
 	#[doc(alias = "TF_CLASS_SOLDIER")]
-	Soldier = 3,
+	Soldier = TF_CLASS_SOLDIER as isize,
 
 	/// `TF_CLASS_DEMOMAN`: 4.
 	#[doc(alias = "TF_CLASS_DEMOMAN")]
-	Demoman = 4,
+	Demoman = TF_CLASS_DEMOMAN as isize,
 
 	/// `TF_CLASS_MEDIC`: 5.
 	#[doc(alias = "TF_CLASS_MEDIC")]
-	Medic = 5,
+	Medic = TF_CLASS_MEDIC as isize,
 
 	/// `TF_CLASS_HEAVYWEAPONS`: 6.
 	#[doc(alias = "TF_CLASS_HEAVYWEAPONS")]
-	Heavy = 6,
+	Heavy = TF_CLASS_HEAVYWEAPONS as isize,
 
 	/// `TF_CLASS_PYRO`: 7.
 	#[doc(alias = "TF_CLASS_PYRO")]
-	Pyro = 7,
+	Pyro = TF_CLASS_PYRO as isize,
 
 	/// `TF_CLASS_SPY`: 8.
 	#[doc(alias = "TF_CLASS_SPY")]
-	Spy = 8,
+	Spy = TF_CLASS_SPY as isize,
 
 	/// `TF_CLASS_ENGINEER`: 9.
 	#[doc(alias = "TF_CLASS_ENGINEER")]
-	Engineer = 9,
+	Engineer = TF_CLASS_ENGINEER as isize,
 }
 
 impl PlayerClass {
@@ -64,15 +69,15 @@ impl PlayerClass {
 	/// number, including `TF_CLASS_UNDEFINED` (0) and the Civilian (10).
 	pub const fn from_raw(raw: c_int) -> Option<Self> {
 		match raw {
-			1 => Some(Self::Scout),
-			2 => Some(Self::Sniper),
-			3 => Some(Self::Soldier),
-			4 => Some(Self::Demoman),
-			5 => Some(Self::Medic),
-			6 => Some(Self::Heavy),
-			7 => Some(Self::Pyro),
-			8 => Some(Self::Spy),
-			9 => Some(Self::Engineer),
+			TF_CLASS_SCOUT => Some(Self::Scout),
+			TF_CLASS_SNIPER => Some(Self::Sniper),
+			TF_CLASS_SOLDIER => Some(Self::Soldier),
+			TF_CLASS_DEMOMAN => Some(Self::Demoman),
+			TF_CLASS_MEDIC => Some(Self::Medic),
+			TF_CLASS_HEAVYWEAPONS => Some(Self::Heavy),
+			TF_CLASS_PYRO => Some(Self::Pyro),
+			TF_CLASS_SPY => Some(Self::Spy),
+			TF_CLASS_ENGINEER => Some(Self::Engineer),
 			_ => None,
 		}
 	}

@@ -6,24 +6,17 @@ use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
+use source_sdk_2013::raw::tf2::voting::{REQUEST_CALL_VOTE_SLOT, RequestCallVote};
+
 use source_sdk_2013::tf2::voting::{
-	REQUEST_CALL_VOTE_SLOT, VoteDecision, VoteHookTargetError, VoteIssue, VoteRequest,
-	VoteStartHandler, vote_issue_vtables,
+	VoteDecision, VoteHookTargetError, VoteIssue, VoteRequest, VoteStartHandler, vote_issue_vtables,
 };
 
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
-use std::ffi::{CStr, c_char, c_int};
+use std::ffi::{CStr, c_int};
 use std::marker::PhantomData;
 use std::rc::Rc;
-
-type RequestCallVote = unsafe extern "C" fn(
-	*mut sys::CBaseIssue,
-	c_int,
-	*const c_char,
-	*mut sys::vote_create_failed_t,
-	*mut c_int,
-) -> bool;
 
 const REQUEST: VirtualFunction<RequestCallVote> = VirtualFunction::new(REQUEST_CALL_VOTE_SLOT);
 
@@ -218,14 +211,15 @@ unsafe fn dispatch(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use source_sdk_2013::raw::tf2::voting::DEDICATED_SERVER;
 	use source_sdk_2013::{Game, InterfaceFactory};
-	use std::ffi::c_void;
+	use std::ffi::{c_char, c_void};
 
 	struct Policy;
 
 	impl VoteStartHandler for Policy {
 		fn vote_start(&self, _: Server<'_>, request: VoteRequest<'_>) -> VoteDecision {
-			assert_eq!(request.caller_entity_index, 99);
+			assert_eq!(request.caller_entity_index, DEDICATED_SERVER);
 			assert!(request.is_server_request());
 			assert_eq!(request.details, c"test");
 			if request.issue == VoteIssue::RestartGame {
@@ -274,7 +268,7 @@ mod tests {
 			let (mut failure, mut time) = (25, 42);
 			let request = VoteRequest {
 				issue,
-				caller_entity_index: 99,
+				caller_entity_index: DEDICATED_SERVER,
 				details: c"test",
 			};
 			// SAFETY: These two stack outputs remain allocated for the call.

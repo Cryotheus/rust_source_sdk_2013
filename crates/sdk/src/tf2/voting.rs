@@ -16,26 +16,13 @@
 //! Behavior follows Valve's `game/server/vote_controller.cpp`, specifically
 //! `CVoteController::CreateVote` and `TryCastVote`.
 
-mod vtables;
-
 use crate::interfaces::game_event::GameEvent;
-use crate::tf2::voting::vtables::VotingOvft;
 use crate::{Game, Server};
+use sdk_raw::tf2::voting::{DEDICATED_SERVER, IssueVtables, MAX_VOTE_OPTIONS};
+use sdk_raw::util;
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-
-/// The caller index TF2 uses for server-initiated and automatic votes.
-const DEDICATED_SERVER: c_int = 99;
-
-/// The most options a TF2 vote can offer.
-const MAX_VOTE_OPTIONS: u8 = 5;
-
-/// `CBaseIssue::RequestCallVote`'s slot, generated from Valve's declaration.
-#[doc(alias = "RequestCallVote")]
-pub const REQUEST_CALL_VOTE_SLOT: usize =
-	std::mem::offset_of!(sys::CBaseIssue__bindgen_vtable, CBaseIssue_RequestCallVote)
-		/ size_of::<usize>();
 
 /// An accepted choice, indexed from zero (yes is 0, no is 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -50,7 +37,7 @@ impl VoteChoice {
 
 	/// An option index, or `None` past TF2's five options.
 	pub const fn new(index: u8) -> Option<Self> {
-		if index < MAX_VOTE_OPTIONS {
+		if (index as usize) < MAX_VOTE_OPTIONS {
 			Some(Self(index))
 		} else {
 			None
@@ -145,6 +132,15 @@ pub enum VoteHookTargetError {
 	/// The issue's class has no unique primary vtable in the game module.
 	#[error("no unique primary vtable found for TF2 vote issue {0:?}")]
 	UnsupportedIssue(VoteIssue),
+}
+
+impl From<util::Error> for VoteHookTargetError {
+	fn from(error: util::Error) -> Self {
+		match error {
+			util::Error::InvalidImage => Self::InvalidImage,
+			util::Error::Io(error) => Self::Image(error),
+		}
+	}
 }
 
 /// TF2's concrete built-in vote issues.
@@ -306,7 +302,8 @@ fn decode(
 	let vote_id = integer(c"voteidx").ok_or(VoteEventError("voteidx"))?;
 
 	if name == c"vote_options" {
-		let keys = [c"option1", c"option2", c"option3", c"option4", c"option5"];
+		let keys: [&CStr; MAX_VOTE_OPTIONS] =
+			[c"option1", c"option2", c"option3", c"option4", c"option5"];
 
 		let count = integer(c"count")
 			.and_then(|count| usize::try_from(count).ok())
@@ -353,13 +350,13 @@ pub fn vote_issue_vtables(
 
 	// SAFETY: The game server factory lies inside the game module, which the
 	// Server's callback scope keeps loaded while its sections are inspected.
-	let virtuals = unsafe { VotingOvft::load(server.game_server_factory().as_raw() as usize) }?;
+	let vtables = unsafe { IssueVtables::load(server.game_server_factory().as_raw() as usize) }?;
 
 	VoteIssue::ALL
 		.into_iter()
 		.map(|issue| {
-			let pointer = virtuals
-				.find(issue.class(), REQUEST_CALL_VOTE_SLOT)
+			let pointer = vtables
+				.find(issue.class())
 				.ok_or(VoteHookTargetError::UnsupportedIssue(issue))?;
 
 			Ok(VoteIssueVtable {
