@@ -7,7 +7,7 @@
 //! also applies an [`AttributeSet`], and [`Weapon::attributes`] reads and
 //! changes a weapon's attributes afterwards, through [`ItemAttributes`].
 
-use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
+use crate::entities::{Entity, EntityHandle};
 use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::item_generation::WeaponCreationFailed;
@@ -518,8 +518,8 @@ impl<'s> Weapon<'s> {
 
 		let owner_offset = entity
 			.data_maps()
-			.find(|map| data_map_class(map) == Some(c"CBaseCombatWeapon"))
-			.and_then(|map| data_field_offset(map, c"m_hOwner", sys::_fieldtypes_FIELD_EHANDLE))
+			.find(|map| map.class_name() == Some(c"CBaseCombatWeapon"))
+			.and_then(|map| map.field_offset(c"m_hOwner", sys::_fieldtypes_FIELD_EHANDLE))
 			.filter(|offset| *offset < 65_536 && offset.is_multiple_of(align_of::<u32>()))
 			.ok_or(WeaponError::UnsupportedLayout)?;
 

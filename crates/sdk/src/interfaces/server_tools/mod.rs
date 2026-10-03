@@ -512,12 +512,12 @@ unsafe impl<'s> Interface<'s> for ServerTools<'s> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::entities::FTYPEDESC_KEY;
 
 	use crate::entities::test_support::{
 		MockEntity, base_entity_fields, data_map, field, set_datamap,
 	};
 
+	use sdk_raw::entities::datamap::FTYPEDESC_KEY;
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ptr::null_mut;

@@ -8,12 +8,12 @@
 //!
 //! [`ServerTools::accept_input`]: crate::interfaces::ServerTools::accept_input
 
-use crate::entities::{Entity, EntityHandle, data_fields, data_map_class};
+use crate::entities::{Entity, EntityHandle};
 use crate::math::{Color32, Vector};
-use sdk_raw::util::cstr::borrow_cstr;
-use std::ffi::{CStr, c_int, c_short};
+use sdk_raw::entities::datamap::FTYPEDESC_INPUT;
+use sdk_raw::inputs::Variant;
+use std::ffi::{CStr, c_int};
 use std::fmt::{self, Display, Formatter};
-use std::mem::MaybeUninit;
 
 /// Inputs that run code the caller chooses or spawn entities from templates.
 /// Both can free entities immediately: a template entity that fails to spawn
@@ -26,9 +26,6 @@ const CODE_OR_SPAWN_INPUTS: [&[u8]; 5] = [
 	b"ForceSpawn",
 	b"ForceSpawnAtEntityOrigin",
 ];
-
-/// `FTYPEDESC_INPUT` from `public/datamap.h`: the field is an input.
-const FTYPEDESC_INPUT: c_short = 0x0008;
 
 /// Inputs that remove their target. The engine keeps using a player's or the
 /// world's entity, so removing one crashes the server once it is freed.
@@ -307,20 +304,6 @@ pub enum InputValue<'a> {
 }
 
 impl InputValue<'_> {
-	/// The `fieldtype_t` the `variant_t` holding this value records.
-	const fn field_type(self) -> sys::fieldtype_t {
-		match self {
-			Self::Void => sys::_fieldtypes_FIELD_VOID,
-			Self::Bool(_) => sys::_fieldtypes_FIELD_BOOLEAN,
-			Self::Int(_) => sys::_fieldtypes_FIELD_INTEGER,
-			Self::Float(_) => sys::_fieldtypes_FIELD_FLOAT,
-			Self::String(_) => sys::_fieldtypes_FIELD_STRING,
-			Self::Vector(_) => sys::_fieldtypes_FIELD_VECTOR,
-			Self::Color(_) => sys::_fieldtypes_FIELD_COLOR32,
-			Self::Entity(_) => sys::_fieldtypes_FIELD_EHANDLE,
-		}
-	}
-
 	/// Whether every float component is finite. Values without floats are.
 	fn is_finite(self) -> bool {
 		match self {
@@ -333,26 +316,22 @@ impl InputValue<'_> {
 	/// Builds the `variant_t` the game's setters would, with `string` as the
 	/// form of a string value to pass.
 	fn to_variant(self, string: sys::string_t) -> sys::variant_t {
-		// SAFETY: Zero is valid for every field: a null string, a null handle
-		// index, and `FIELD_VOID`.
-		let mut variant = unsafe { MaybeUninit::<sys::variant_t>::zeroed().assume_init() };
-		let mut handle = EntityHandle::INVALID;
-
 		match self {
-			Self::Void => {}
-			Self::Bool(value) => variant.__bindgen_anon_1.bVal = value,
-			Self::Int(value) => variant.__bindgen_anon_1.iVal = value,
-			Self::Float(value) => variant.__bindgen_anon_1.flVal = value,
-			Self::String(_) => variant.__bindgen_anon_1.iszVal = string,
-			Self::Vector(value) => variant.__bindgen_anon_1.vecVal = [value.x, value.y, value.z],
-			Self::Color(value) => variant.__bindgen_anon_1.rgbaVal = value.into(),
-			Self::Entity(entity) => handle = entity.map_or(EntityHandle::INVALID, Entity::handle),
-		}
+			Self::Void => Variant::Void,
+			Self::Bool(value) => Variant::Bool(value),
+			Self::Int(value) => Variant::Int(value),
+			Self::Float(value) => Variant::Float(value),
+			Self::String(_) => Variant::String(string),
+			Self::Vector(value) => Variant::Vector([value.x, value.y, value.z]),
+			Self::Color(value) => Variant::Color(value.into()),
 
-		// As `CHandle`'s default constructor leaves it for other types.
-		variant.eVal._base.m_Index = handle.to_raw();
-		variant.fieldType = self.field_type();
-		variant
+			Self::Entity(entity) => Variant::Entity(
+				entity
+					.map_or(EntityHandle::INVALID, Entity::handle)
+					.to_raw(),
+			),
+		}
+		.to_raw()
 	}
 }
 
@@ -411,7 +390,7 @@ pub(crate) fn check_input<'s>(
 	// `AcceptInput` searches from the entity's own class towards its bases, and
 	// takes the first input with the name, ignoring ASCII case.
 	for map in target.data_maps() {
-		let class = data_map_class(map).map_or(&[][..], CStr::to_bytes);
+		let class = map.class_name().map_or(&[][..], CStr::to_bytes);
 
 		is_protected |= class == b"CBasePlayer" || class == b"CEnvSoundscape";
 		is_npc_maker |= class == b"CBaseNPCMaker";
@@ -420,9 +399,8 @@ pub(crate) fn check_input<'s>(
 			continue;
 		}
 
-		found = data_fields(map).iter().find_map(|field| {
-			// SAFETY: Input names are string literals of the game DLL.
-			let external = unsafe { borrow_cstr::<'s>(field.externalName) }?;
+		found = map.fields().iter().find_map(|field| {
+			let external = field.external_name()?;
 
 			(field.flags & FTYPEDESC_INPUT != 0 && external.to_bytes().eq_ignore_ascii_case(name))
 				.then_some((external, field.fieldType))
@@ -489,7 +467,6 @@ pub(crate) fn to_variant(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::entities::FTYPEDESC_KEY;
 
 	use crate::entities::test_support::{
 		MOCK_NAME_OFFSET, MockEntity, ReceivedInput, base_entity_fields, data_map as map, field,
@@ -498,6 +475,7 @@ mod tests {
 
 	use crate::interfaces::ServerTools;
 	use crate::server::Game;
+	use sdk_raw::entities::datamap::FTYPEDESC_KEY;
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::{Cell, RefCell};
 	use std::ffi::{CString, c_char};

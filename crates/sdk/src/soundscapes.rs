@@ -14,63 +14,13 @@
 //! client keeps playing its soundscape until it is given another.
 
 use crate::datatables::NetPropError;
-use crate::entities::{Entity, data_field_offset, data_map_class};
+use crate::entities::Entity;
 use crate::interfaces::ServerTools;
 use crate::server::{InterfaceError, Server};
+use sdk_raw::soundscapes::EnvSoundscapeLayout;
 use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::{CStr, CString, c_int};
 use std::num::NonZero;
-
-/// The number of position names `CEnvSoundscape` keeps, as many as there are
-/// local sounds (`localSound`) in a player's audio parameters.
-const POSITION_NAMES: usize = 8;
-
-/// Where `CEnvSoundscape` keeps the fields its datamap leaves out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Layout {
-	/// The offset of the soundscape's name, `m_soundscapeName`.
-	name: usize,
-
-	/// The offset of the disabled flag, `m_bDisabled`.
-	disabled: usize,
-}
-
-impl Layout {
-	/// `game/server/soundscape.h` declares the name, the index, the ID, eight
-	/// position names, the proxy's handle, then the disabled flag. The datamap
-	/// has all but the index and ID, whose place the others pin down.
-	fn of(entity: Entity<'_>) -> Option<Self> {
-		let map = entity
-			.data_maps()
-			.find(|&map| data_map_class(map) == Some(c"CEnvSoundscape"))?;
-
-		let offset = |name, field_type| data_field_offset(map, name, field_type);
-		let string = size_of::<sys::string_t>();
-		let name = offset(c"m_soundscapeName", sys::_fieldtypes_FIELD_STRING)?;
-		let positions = offset(c"m_positionNames[0]", sys::_fieldtypes_FIELD_STRING)?;
-		let proxy = offset(c"m_hProxySoundscape", sys::_fieldtypes_FIELD_EHANDLE)?;
-		let disabled = offset(c"m_bDisabled", sys::_fieldtypes_FIELD_BOOLEAN)?;
-
-		let fits = name.is_multiple_of(align_of::<sys::string_t>())
-			&& positions == name + string + 2 * size_of::<c_int>()
-			&& proxy == positions + POSITION_NAMES * string
-			&& disabled == proxy + size_of::<sys::CBaseHandle>()
-			// Well within any entity, as the datamap's other offsets are.
-			&& disabled < 1 << 16;
-
-		fits.then_some(Self { name, disabled })
-	}
-
-	/// The offset of the ID, `m_soundscapeEntityId`, right after the index.
-	const fn id(self) -> usize {
-		self.index() + size_of::<c_int>()
-	}
-
-	/// The offset of the index, `m_soundscapeIndex`, right after the name.
-	const fn index(self) -> usize {
-		self.name + size_of::<sys::string_t>()
-	}
-}
 
 /// The soundscape a player's client was last told of, in the player's audio
 /// parameters (`m_Local.m_audio`), which only that client receives.
@@ -98,7 +48,7 @@ pub struct PlayerSoundscape {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Soundscape<'s> {
 	entity: Entity<'s>,
-	layout: Layout,
+	layout: EnvSoundscapeLayout,
 }
 
 impl<'s> Soundscape<'s> {
@@ -107,7 +57,7 @@ impl<'s> Soundscape<'s> {
 	pub fn new(entity: Entity<'s>) -> Option<Self> {
 		Some(Self {
 			entity,
-			layout: Layout::of(entity)?,
+			layout: EnvSoundscapeLayout::find(entity.data_maps())?,
 		})
 	}
 
@@ -116,18 +66,11 @@ impl<'s> Soundscape<'s> {
 		self.entity
 	}
 
-	/// Points to the field `offset` bytes into the entity.
-	fn field<T>(self, offset: usize) -> *mut T {
-		// SAFETY: `Layout::of` found the offset in the entity's own datamap
-		// chain, so it lies within the live entity.
-		unsafe { self.entity.as_ptr().byte_add(offset).cast() }
-	}
-
 	/// Its ID in the soundscape system, or `None` if it has none.
 	#[doc(alias = "m_soundscapeEntityId")]
 	pub fn id(self) -> Option<SoundscapeId> {
 		// SAFETY: As for `index`.
-		SoundscapeId::new(unsafe { self.field::<c_int>(self.layout.id()).read() })
+		SoundscapeId::new(unsafe { self.layout.entity_id(self.entity.as_ptr()).read() })
 	}
 
 	/// The soundscape it gives players (`m_soundscapeIndex`).
@@ -136,16 +79,17 @@ impl<'s> Soundscape<'s> {
 	/// soundscape's when the level starts.
 	#[doc(alias = "m_soundscapeIndex")]
 	pub fn index(self) -> SoundscapeIndex {
-		// SAFETY: The field lies within the live entity, and is read without
-		// forming a reference, as the game writes it too.
-		SoundscapeIndex(unsafe { self.field::<c_int>(self.layout.index()).read() })
+		// SAFETY: The layout was found in the live entity's own maps, so the
+		// field lies within it, and is read without forming a reference, as
+		// the game writes it too.
+		SoundscapeIndex(unsafe { self.layout.index(self.entity.as_ptr()).read() })
 	}
 
 	/// Whether the game may choose it for players (not `StartDisabled`).
 	#[doc(alias = "m_bDisabled")]
 	pub fn is_enabled(self) -> bool {
 		// SAFETY: As for `index`. The game only stores 0 or 1.
-		unsafe { self.field::<u8>(self.layout.disabled).read() == 0 }
+		unsafe { self.layout.disabled(self.entity.as_ptr()).read() == 0 }
 	}
 
 	/// The name of the soundscape it was given, such as `Halloween.Outside`.
@@ -154,13 +98,7 @@ impl<'s> Soundscape<'s> {
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: As for `index`. The name is a pooled string or null, and is
 		// copied at once.
-		unsafe {
-			copy_cstr(
-				self.field::<sys::string_t>(self.layout.name)
-					.read()
-					.pszValue,
-			)
-		}
+		unsafe { copy_cstr(self.layout.name(self.entity.as_ptr()).read().pszValue) }
 	}
 
 	/// Changes the soundscape it gives players from now on. Players it already
@@ -170,7 +108,7 @@ impl<'s> Soundscape<'s> {
 		// SAFETY: As for `index`. The game only copies the index into players'
 		// audio parameters, and every value it can hold is one the game could
 		// assign itself.
-		unsafe { self.field::<c_int>(self.layout.index()).write(index.0) };
+		unsafe { self.layout.index(self.entity.as_ptr()).write(index.0) };
 	}
 }
 
@@ -328,39 +266,16 @@ mod tests {
 
 	const NAME: usize = 200;
 
-	/// Where a fixture's datamap puts `CEnvSoundscape`'s fields.
-	#[derive(Debug, Clone, Copy)]
-	struct Offsets {
-		name: usize,
-		positions: usize,
-		proxy: usize,
-		disabled: usize,
-	}
-
-	impl Offsets {
-		/// The layout `game/server/soundscape.h` declares, from `NAME`.
-		const EXPECTED: Self = Self {
-			name: NAME,
-			positions: NAME + 16,
-			proxy: NAME + 80,
-			disabled: NAME + 84,
-		};
-
-		/// Moves every field `bytes` further into the entity.
-		const fn shifted(self, bytes: usize) -> Self {
-			Self {
-				name: self.name + bytes,
-				positions: self.positions + bytes,
-				proxy: self.proxy + bytes,
-				disabled: self.disabled + bytes,
-			}
-		}
-	}
-
+	/// The layout's refusals are tested in `sdk_raw::soundscapes`; this checks
+	/// that the fields are reached through it.
 	#[test]
 	fn fields_outside_the_datamap_are_read_and_written_in_place() {
 		let mut mock = MockEntity::new(1);
-		serve_soundscape_map(Offsets::EXPECTED);
+
+		// Other classes are refused.
+		assert!(Soundscape::new(mock.entity()).is_none());
+
+		serve_soundscape_map();
 
 		let base = mock.as_ptr();
 
@@ -391,8 +306,9 @@ mod tests {
 		assert!(soundscape.index().is_none());
 	}
 
-	/// Serves `CEnvSoundscape`'s datamap, with its fields at `offsets`.
-	fn serve_soundscape_map(offsets: Offsets) {
+	/// Serves `CEnvSoundscape`'s datamap, with its fields where
+	/// `game/server/soundscape.h` declares them, from `NAME`.
+	fn serve_soundscape_map() {
 		let base = data_map(
 			c"CBaseEntity",
 			base_entity_fields().to_vec(),
@@ -402,26 +318,18 @@ mod tests {
 			c"CEnvSoundscape",
 			vec![
 				soundscape_field(c"m_flRadius", sys::_fieldtypes_FIELD_FLOAT, NAME - 8),
-				soundscape_field(
-					c"m_soundscapeName",
-					sys::_fieldtypes_FIELD_STRING,
-					offsets.name,
-				),
+				soundscape_field(c"m_soundscapeName", sys::_fieldtypes_FIELD_STRING, NAME),
 				soundscape_field(
 					c"m_hProxySoundscape",
 					sys::_fieldtypes_FIELD_EHANDLE,
-					offsets.proxy,
+					NAME + 80,
 				),
 				soundscape_field(
 					c"m_positionNames[0]",
 					sys::_fieldtypes_FIELD_STRING,
-					offsets.positions,
+					NAME + 16,
 				),
-				soundscape_field(
-					c"m_bDisabled",
-					sys::_fieldtypes_FIELD_BOOLEAN,
-					offsets.disabled,
-				),
+				soundscape_field(c"m_bDisabled", sys::_fieldtypes_FIELD_BOOLEAN, NAME + 84),
 			],
 			base,
 		);
@@ -445,7 +353,7 @@ mod tests {
 	#[test]
 	fn soundscapes_cannot_be_removed() {
 		let mut mock = MockEntity::new(1);
-		serve_soundscape_map(Offsets::EXPECTED);
+		serve_soundscape_map();
 
 		assert!(mock.entity().is_protected());
 	}
@@ -453,55 +361,10 @@ mod tests {
 	#[test]
 	fn unassigned_ids_are_none() {
 		let mut mock = MockEntity::new(1);
-		serve_soundscape_map(Offsets::EXPECTED);
+		serve_soundscape_map();
 
 		unsafe { mock.as_ptr().byte_add(NAME + 12).cast::<c_int>().write(-1) };
 
 		assert_eq!(Soundscape::new(mock.entity()).unwrap().id(), None);
-	}
-
-	#[test]
-	fn unexpected_layouts_and_other_classes_are_refused() {
-		let mut mock = MockEntity::new(1);
-
-		assert!(Soundscape::new(mock.entity()).is_none());
-
-		// Moved as a whole, the layout still fits, so each layout below is
-		// refused for its one difference.
-		serve_soundscape_map(Offsets::EXPECTED.shifted(8));
-
-		assert!(Soundscape::new(mock.entity()).is_some());
-
-		let expected = Offsets::EXPECTED;
-		let layouts = [
-			// A misaligned name.
-			expected.shifted(4),
-			// Something other than the index and ID before the position names.
-			Offsets {
-				positions: NAME + 24,
-				proxy: NAME + 88,
-				disabled: NAME + 92,
-				..expected
-			},
-			// Other than eight position names.
-			Offsets {
-				proxy: NAME + 88,
-				disabled: NAME + 92,
-				..expected
-			},
-			// Something between the proxy's handle and the disabled flag.
-			Offsets {
-				disabled: NAME + 88,
-				..expected
-			},
-			// Further into the entity than any of its fields could be.
-			expected.shifted(1 << 16),
-		];
-
-		for offsets in layouts {
-			serve_soundscape_map(offsets);
-
-			assert!(Soundscape::new(mock.entity()).is_none(), "{offsets:?}");
-		}
 	}
 }

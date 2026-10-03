@@ -76,7 +76,7 @@
 //! [`InputValue::String`]: crate::inputs::InputValue::String
 //! [`ServerTools::accept_input`]: crate::interfaces::ServerTools::accept_input
 
-use crate::entities::{Entity, data_map_class};
+use crate::entities::Entity;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
 use std::borrow::Cow;
@@ -326,7 +326,7 @@ impl<'s> ScreenOverlay<'s> {
 
 		if !player
 			.data_maps()
-			.any(|map| data_map_class(map) == Some(c"CBasePlayer"))
+			.any(|map| map.class_name() == Some(c"CBasePlayer"))
 		{
 			return Err(OverlayError::NotAPlayer);
 		}

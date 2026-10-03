@@ -3,12 +3,7 @@
 use crate::NotThreadSafe;
 use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
-
-use sdk_raw::edicts::{
-	FL_EDICT_CHANGED, FL_EDICT_FREE, FL_FULL_EDICT_CHANGED, MAX_CHANGE_OFFSETS,
-	MAX_EDICT_CHANGE_INFOS,
-};
-
+use sdk_raw::edicts::FL_EDICT_FREE;
 use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
@@ -98,7 +93,12 @@ impl<'s> Edict<'s> {
 	/// This is `CBaseEdict::StateChanged()`.
 	#[doc(alias = "StateChanged")]
 	pub fn full_state_changed(self, engine: ValveEngine<'_>) {
-		self.mark_fully_changed(engine.change_accessor(self).map(NonNull::as_ptr));
+		let accessor = engine.change_accessor(self);
+
+		// SAFETY: The slot belongs to the engine's edict table, which outlives
+		// `'s`, and the accessor is the engine's for it. This runs on the main
+		// thread (`Server::new`).
+		unsafe { sdk_raw::edicts::full_state_changed(self.as_ptr(), accessor) };
 	}
 
 	/// The slot's position in the edict table, which is also its entity's index.
@@ -122,24 +122,6 @@ impl<'s> Edict<'s> {
 		self.state_flags() & FL_EDICT_FREE != 0
 	}
 
-	/// Flags the entity as changed as a whole and, given the edict's change
-	/// accessor, invalidates the change info it claims for this frame, as
-	/// `CBaseEdict::StateChanged()` does.
-	fn mark_fully_changed(self, accessor: Option<*mut sys::IChangeInfoAccessor>) {
-		self.set_state_flags(self.state_flags() | FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED);
-
-		if let Some(accessor) = accessor {
-			// SAFETY: The accessor is the engine's record for this edict.
-			unsafe { (&raw mut (*accessor).m_iChangeInfoSerialNumber).write(0) };
-		}
-	}
-
-	/// Overwrites the slot's `m_fStateFlags`.
-	fn set_state_flags(self, flags: c_int) {
-		// SAFETY: As for `index`. The game writes these flags the same way.
-		unsafe { (&raw mut (*self.as_ptr())._base.m_fStateFlags).write(flags) };
-	}
-
 	/// Records that the networked variable at `offset` bytes into the entity
 	/// changed, so the engine sends it to clients.
 	///
@@ -149,75 +131,15 @@ impl<'s> Edict<'s> {
 	/// compared instead.
 	#[doc(alias = "StateChanged")]
 	pub fn state_changed(self, engine: ValveEngine<'_>, offset: u16) {
-		let flags = self.state_flags();
-
-		if flags & FL_FULL_EDICT_CHANGED != 0 {
-			return;
-		}
-
-		self.set_state_flags(flags | FL_EDICT_CHANGED);
-
-		let (Some(accessor), Some(shared)) = (
-			engine.change_accessor(self),
-			engine.shared_edict_change_info(),
-		) else {
-			return self.mark_fully_changed(None);
-		};
-
-		let accessor = accessor.as_ptr();
-		let shared = shared.as_ptr();
-
-		// SAFETY: Both structures are engine-owned and only touched on the main
-		// thread. Indices are validated against the fixed array lengths before
-		// use, and no references are formed.
+		// SAFETY: As for `full_state_changed`, and the shared change info is the
+		// engine's.
 		unsafe {
-			let serial_number = (&raw const (*shared).m_iSerialNumber).read();
-			let infos = (&raw mut (*shared).m_ChangeInfos).cast::<sys::CEdictChangeInfo>();
-
-			if (&raw const (*accessor).m_iChangeInfoSerialNumber).read() == serial_number {
-				// The entity already has change info this frame, so add the offset.
-				let index = (&raw const (*accessor).m_iChangeInfo).read();
-
-				if index >= MAX_EDICT_CHANGE_INFOS {
-					return self.mark_fully_changed(Some(accessor));
-				}
-
-				let info = infos.add(usize::from(index));
-				let count = (&raw const (*info).m_nChangeOffsets).read();
-				let offsets = (&raw mut (*info).m_ChangeOffsets).cast::<u16>();
-
-				for slot in 0..count.min(MAX_CHANGE_OFFSETS) {
-					if offsets.add(usize::from(slot)).read() == offset {
-						return;
-					}
-				}
-
-				if count >= MAX_CHANGE_OFFSETS {
-					self.mark_fully_changed(Some(accessor));
-				} else {
-					offsets.add(usize::from(count)).write(offset);
-					(&raw mut (*info).m_nChangeOffsets).write(count + 1);
-				}
-			} else {
-				// Claim a new change info for this frame.
-				let count = (&raw const (*shared).m_nChangeInfos).read();
-
-				if count >= MAX_EDICT_CHANGE_INFOS {
-					return self.mark_fully_changed(Some(accessor));
-				}
-
-				(&raw mut (*accessor).m_iChangeInfo).write(count);
-				(&raw mut (*shared).m_nChangeInfos).write(count + 1);
-				(&raw mut (*accessor).m_iChangeInfoSerialNumber).write(serial_number);
-
-				let info = infos.add(usize::from(count));
-
-				(&raw mut (*info).m_ChangeOffsets)
-					.cast::<u16>()
-					.write(offset);
-				(&raw mut (*info).m_nChangeOffsets).write(1);
-			}
-		}
+			sdk_raw::edicts::state_changed(self.as_ptr(), offset, || {
+				engine
+					.change_accessor(self)
+					.zip(engine.shared_edict_change_info())
+			})
+		};
 	}
 
 	/// Reads the slot's `m_fStateFlags`, a set of `FL_EDICT_*` flags.
@@ -251,6 +173,7 @@ pub(crate) mod test_support {
 mod tests {
 	use super::test_support::mock_edict;
 	use super::*;
+	use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
 	use std::cell::Cell;
 	use std::ptr::null_mut;
@@ -294,8 +217,10 @@ mod tests {
 		SHARED.get()
 	}
 
+	/// The algorithm itself is tested in `sdk_raw::edicts`; this checks that
+	/// the engine's change tracking reaches it.
 	#[test]
-	fn state_changes_follow_the_engines_change_tracking() {
+	fn state_changes_reach_the_engines_change_tracking() {
 		let vtable = unsafe {
 			mock_vtable::<sys::IVEngineServer__bindgen_vtable>(
 				unexpected_call as *const (),
@@ -342,26 +267,25 @@ mod tests {
 		assert_eq!(shared.m_ChangeInfos[3].m_nChangeOffsets, 2);
 		assert_eq!(shared.m_ChangeInfos[3].m_ChangeOffsets[1], 44);
 
-		// Overflowing the offsets falls back to a full comparison.
-		for offset in 0..MAX_CHANGE_OFFSETS {
-			edict.state_changed(engine, 100 + offset);
-		}
-
+		// A full change releases the change info through the accessor.
+		edict.full_state_changed(engine);
 		assert_eq!(
 			slot._base.m_fStateFlags,
 			FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED
 		);
 		assert_eq!(accessor.m_iChangeInfoSerialNumber, 0);
 
-		// Once fully changed, offsets are no longer recorded.
-		let recorded = shared.m_ChangeInfos[3];
-		edict.state_changed(engine, 2);
-		assert_eq!(
-			shared.m_ChangeInfos[3].m_nChangeOffsets,
-			recorded.m_nChangeOffsets
-		);
-
+		// Without the engine's change tracking, every change is a full one.
 		ACCESSOR.set(null_mut());
 		SHARED.set(null_mut());
+
+		let mut slot = mock_edict(5, false);
+		let edict = unsafe { Edict::from_raw(NonNull::from(&mut slot)) };
+
+		edict.state_changed(engine, 40);
+		assert_eq!(
+			slot._base.m_fStateFlags,
+			FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED
+		);
 	}
 }

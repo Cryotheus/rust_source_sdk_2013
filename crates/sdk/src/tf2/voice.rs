@@ -62,7 +62,7 @@
 //! late-precached line, and either way of playing a scene on Linux, whose
 //! vtables are laid out differently, have not been tested.
 
-use crate::entities::{Entity, data_fields, data_map_class};
+use crate::entities::Entity;
 use crate::tf2::PlayerClass;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::{Game, Server};
@@ -446,8 +446,8 @@ impl From<BindingError> for VoiceError {
 fn life_state_offset(entity: Entity<'_>) -> Option<usize> {
 	let map = entity
 		.data_maps()
-		.find(|map| data_map_class(map) == Some(c"CBaseEntity"))?;
-	let field = data_fields(map).iter().find(|field| {
+		.find(|map| map.class_name() == Some(c"CBaseEntity"))?;
+	let field = map.fields().iter().find(|field| {
 		field.fieldType == sys::_fieldtypes_FIELD_CHARACTER
 			// SAFETY: Field names are string literals of the game DLL.
 			&& unsafe { borrow_cstr(field.fieldName) } == Some(c"m_lifeState")

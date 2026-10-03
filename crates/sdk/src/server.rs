@@ -8,6 +8,7 @@ use crate::interfaces::{
 	ServerTools, ValveEngine, VoiceServer,
 };
 
+use sdk_raw::entities::TeleportSlot;
 use sdk_raw::interfaces::{CreateInterfaceFn, create_interface};
 
 #[cfg(test)]
@@ -31,10 +32,10 @@ pub enum Game {
 
 impl Game {
 	/// `CBaseEntity::Teleport` in the game DLL's primary `CBaseEntity` vtable.
-	pub(crate) const fn teleport_vtable_slot(self) -> usize {
+	pub(crate) const fn teleport_vtable_slot(self) -> TeleportSlot {
 		match self {
-			Self::TeamFortress2 => sdk_raw::entities::TF2_TELEPORT_SLOT,
-			Self::SourceSdk2013 => sdk_raw::entities::SDK2013_TELEPORT_SLOT,
+			Self::TeamFortress2 => TeleportSlot::TeamFortress2,
+			Self::SourceSdk2013 => TeleportSlot::SourceSdk2013,
 		}
 	}
 }

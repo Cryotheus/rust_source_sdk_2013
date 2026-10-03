@@ -9,103 +9,21 @@ use crate::NotThreadSafe;
 use crate::datatables::ServerClass;
 use crate::edicts::Edict;
 use crate::math::{QAngle, Vector};
+use sdk_raw::entities::datamap::DataMaps;
+
+use sdk_raw::entities::{
+	EFL_KILLME, ENT_ENTRY_MASK, INVALID_EHANDLE_INDEX, NUM_ENT_ENTRIES, NUM_SERIAL_NUM_SHIFT_BITS,
+	TeleportSlot,
+};
+
 use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
-use std::ffi::{CStr, c_char, c_int, c_short};
+use std::ffi::{CStr, c_int};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
-use std::mem::{align_of, size_of, transmute};
 use std::num::NonZero;
 use std::ptr::{self, NonNull};
 use std::sync::OnceLock;
-
-/// An exclusive bound on the offsets of `CBaseEntity`'s own fields, past which
-/// an offset its datamap gives is not trusted.
-const BASE_ENTITY_FIELD_OFFSET_LIMIT: usize = 8192;
-
-/// `EFL_KILLME` from `game/shared/shareddefs.h`.
-const EFL_KILLME: c_int = 1 << 0;
-
-/// `FTYPEDESC_KEY` from `public/datamap.h`: the field is set by a key value.
-pub(crate) const FTYPEDESC_KEY: c_short = 0x0004;
-
-/// The most fields a data description map is trusted to hold.
-const MAX_DATA_FIELDS: usize = 4096;
-
-/// The most data description maps an entity's chain is followed through.
-const MAX_DATA_MAPS: usize = 64;
-
-/// The deepest nesting of embedded objects searched for key fields.
-const MAX_EMBEDDING_DEPTH: usize = 16;
-
-/// An entity's data description maps, from [`Entity::data_maps`].
-pub(crate) struct DataMaps<'s> {
-	next: *const sys::datamap_t,
-	remaining: usize,
-	_scope: PhantomData<&'s ()>,
-}
-
-impl<'s> DataMaps<'s> {
-	/// Follows the chain from `first`, a map of the game DLL, or null.
-	fn starting_at(first: *const sys::datamap_t) -> Self {
-		Self {
-			next: first,
-			remaining: MAX_DATA_MAPS,
-			_scope: PhantomData,
-		}
-	}
-
-	/// Finds the field `ExtractKeyvalue` reads for a key in the object these
-	/// maps describe, and its offset in that object.
-	fn find_key_field(
-		self,
-		key: &[u8],
-		depth: usize,
-	) -> Option<(&'s sys::typedescription_t, usize)> {
-		for map in self {
-			for field in data_fields(map) {
-				let offset = usize::try_from(field.fieldOffset[0]).ok();
-
-				// Embedded objects are searched before the field itself, but not
-				// arrays of them.
-				if field.fieldType == sys::_fieldtypes_FIELD_EMBEDDED
-					&& field.fieldSize == 1
-					&& depth < MAX_EMBEDDING_DEPTH
-					&& let Some((found, inner)) =
-						DataMaps::starting_at(field.td).find_key_field(key, depth + 1)
-				{
-					return Some((found, offset?.checked_add(inner)?));
-				}
-
-				// SAFETY: Key names are string literals of the game DLL.
-				let name = unsafe { borrow_cstr(field.externalName) };
-
-				if field.flags & FTYPEDESC_KEY != 0
-					&& name.is_some_and(|name| name.to_bytes().eq_ignore_ascii_case(key))
-				{
-					return Some((field, offset?));
-				}
-			}
-		}
-
-		None
-	}
-}
-
-impl<'s> Iterator for DataMaps<'s> {
-	type Item = &'s sys::datamap_t;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		self.remaining = self.remaining.checked_sub(1)?;
-
-		// SAFETY: Datamaps are statics of the game DLL, which are complete once
-		// the first entity of their class exists and never change afterwards.
-		let map = unsafe { self.next.as_ref() }?;
-
-		self.next = map.baseMap;
-		Some(map)
-	}
-}
 
 /// An entity in the server's entity list, as referred to by a `CBaseEntity *`.
 ///
@@ -151,33 +69,14 @@ impl<'s> Entity<'s> {
 		activator: Option<Entity<'_>>,
 		caller: Option<Entity<'_>>,
 	) -> bool {
-		// `variant_t` has a user-provided copy constructor through its handle,
-		// so both ABIs pass it as a pointer to a copy the caller owns, which
-		// `AcceptInput` converts in place.
-		type AcceptInput = unsafe extern "C" fn(
-			this: *mut sys::CBaseEntity,
-			input: *const c_char,
-			activator: *mut sys::CBaseEntity,
-			caller: *mut sys::CBaseEntity,
-			value: *mut sys::variant_t,
-			output_id: c_int,
-		) -> bool;
-
-		// The generated slot has the same signature.
-		let _: fn(&sys::CBaseEntity__bindgen_vtable) -> AcceptInput =
-			|vtable| vtable.CBaseEntity_AcceptInput;
-
-		// SAFETY: `AcceptInput` occupies this slot in every game's vtable.
-		let accept_input: AcceptInput =
-			unsafe { transmute(self.vtable_slot(sdk_raw::entities::ACCEPT_INPUT_SLOT)) };
-
-		// SAFETY: The entities are live, the name is only read during the call,
-		// and the value is a local. The output ID is 0, as for the game's own
-		// calls and VScript's `AcceptInput`. The caller upholds the rest.
+		// SAFETY: The entities are live during `'s`, on the main thread, and the
+		// value is a local the call may convert in place. The output ID is 0,
+		// as for the game's own calls and VScript's `AcceptInput`. The caller
+		// upholds the rest.
 		unsafe {
-			accept_input(
+			sdk_raw::entities::accept_input(
 				self.as_ptr(),
-				input.as_ptr(),
+				input,
 				activator.map_or(ptr::null_mut(), Entity::as_ptr),
 				caller.map_or(ptr::null_mut(), Entity::as_ptr),
 				&raw mut value,
@@ -207,14 +106,10 @@ impl<'s> Entity<'s> {
 
 	/// The entity's data description maps, from its own class to its bases.
 	pub(crate) fn data_maps(self) -> DataMaps<'s> {
-		type GetDataDescMap = unsafe extern "C" fn(*mut sys::CBaseEntity) -> *mut sys::datamap_t;
-
-		// SAFETY: `GetDataDescMap` occupies this slot under both ABIs.
-		let get_map: GetDataDescMap =
-			unsafe { transmute(self.vtable_slot(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)) };
-
-		// SAFETY: The entity is live.
-		DataMaps::starting_at(unsafe { get_map(self.as_ptr()) })
+		// SAFETY: The entity is live. Its maps are statics of the game DLL,
+		// complete since the first entity of its class exists, and the DLL stays
+		// loaded for `'s` (`Server::new`).
+		unsafe { DataMaps::new(sdk_raw::entities::data_desc_map(self.as_ptr())) }
 	}
 
 	/// The entity's edict, or `None` for a server-only entity.
@@ -236,21 +131,7 @@ impl<'s> Entity<'s> {
 		field_type: sys::fieldtype_t,
 		size: usize,
 	) -> Option<usize> {
-		let map = self
-			.data_maps()
-			.find(|&map| data_map_class(map) == Some(c"CBaseEntity"))?;
-
-		let field = data_fields(map).iter().find(|field| {
-			field.fieldType == field_type
-				&& usize::try_from(field.fieldSizeInBytes) == Ok(size)
-				// SAFETY: Field names are string literals of the game DLL.
-				&& unsafe { borrow_cstr(field.fieldName) } == Some(name)
-		})?;
-
-		let offset = usize::try_from(field.fieldOffset[0]).ok()?;
-		let is_aligned = offset.is_multiple_of(size.min(align_of::<*const ()>()));
-
-		(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && is_aligned).then_some(offset)
+		sdk_raw::entities::find_base_entity_field(self.data_maps(), name, field_type, size)
 	}
 
 	/// The ID Hammer gave the entity in the map's source file
@@ -281,9 +162,8 @@ impl<'s> Entity<'s> {
 	/// The handle that identifies this entity across frames.
 	#[doc(alias = "GetRefEHandle")]
 	pub fn handle(self) -> EntityHandle {
-		// SAFETY: `CBaseEntity`'s primary base is `IServerEntity`, which derives
-		// from `IServerUnknown`, so the pointers coincide.
-		let handle = unsafe { vcall!(self.unknown() => IServerUnknown_GetRefEHandle()) };
+		// SAFETY: The entity is live.
+		let handle = unsafe { vcall!(self.server_entity() => IServerEntity_GetRefEHandle()) };
 
 		// SAFETY: The handle is a member of the live entity.
 		NonNull::new(handle.cast_mut()).map_or(EntityHandle::INVALID, |handle| {
@@ -298,8 +178,7 @@ impl<'s> Entity<'s> {
 		expect(dead_code, reason = "only the tf2 module checks classes so far")
 	)]
 	pub(crate) fn has_data_map_class(self, class: &CStr) -> bool {
-		self.data_maps()
-			.any(|map| data_map_class(map) == Some(class))
+		self.data_maps().any(|map| map.class_name() == Some(class))
 	}
 
 	/// The entity's slot in the entity list, which is its edict index if it is
@@ -346,7 +225,7 @@ impl<'s> Entity<'s> {
 		self.index() == Some(0)
 			|| self.data_maps().any(|map| {
 				matches!(
-					data_map_class(map).map(CStr::to_bytes),
+					map.class_name().map(CStr::to_bytes),
 					Some(b"CBasePlayer" | b"CEnvSoundscape")
 				)
 			})
@@ -374,7 +253,7 @@ impl<'s> Entity<'s> {
 	/// The entity's `IServerNetworkable`, or `None` if Source reports none.
 	fn networkable(self) -> Option<NonNull<sys::IServerNetworkable>> {
 		// SAFETY: As for `handle`.
-		NonNull::new(unsafe { vcall!(self.unknown() => IServerUnknown_GetNetworkable()) })
+		NonNull::new(unsafe { vcall!(self.server_entity() => IServerEntity_GetNetworkable()) })
 	}
 
 	/// Reads the absolute origin without key-value conversion.
@@ -385,8 +264,9 @@ impl<'s> Entity<'s> {
 	#[doc(alias = "GetCollisionOrigin")]
 	pub fn position(self) -> Option<Vector> {
 		// SAFETY: As for `handle`.
-		let collideable =
-			NonNull::new(unsafe { vcall!(self.unknown() => IServerUnknown_GetCollideable()) })?;
+		let collideable = NonNull::new(unsafe {
+			vcall!(self.server_entity() => IServerEntity_GetCollideable())
+		})?;
 
 		// SAFETY: The collideable belongs to the live entity.
 		let origin = NonNull::new(
@@ -410,15 +290,21 @@ impl<'s> Entity<'s> {
 		NonNull::new(class).map(|class| unsafe { ServerClass::from_raw(class) })
 	}
 
+	/// The entity as its primary base, `IServerEntity`, whose generated vtable
+	/// starts with the methods of its own bases, `IHandleEntity` and
+	/// `IServerUnknown`.
+	fn server_entity(self) -> *mut sys::IServerEntity {
+		// SAFETY: The entity is live, and its base is only projected to.
+		unsafe { &raw mut (*self.as_ptr())._base }
+	}
+
 	/// The `string_t` field `GetKeyValue` reads for a key, or `None` if the key
 	/// finds no field, or one of another type.
 	///
-	/// Fields are searched as `ExtractKeyvalue` does: from the entity's own
-	/// class towards its bases, and through each embedded object before the
-	/// fields after it, for the first key field whose name matches, ignoring
-	/// ASCII case.
+	/// Fields are searched as `ExtractKeyvalue` does, as
+	/// [`DataMaps::find_key_field`] describes.
 	pub(crate) fn string_key_field(self, key: &CStr) -> Option<*const sys::string_t> {
-		let (field, offset) = self.data_maps().find_key_field(key.to_bytes(), 0)?;
+		let (field, offset) = self.data_maps().find_key_field(key.to_bytes())?;
 
 		let is_string = matches!(
 			field.fieldType,
@@ -436,18 +322,11 @@ impl<'s> Entity<'s> {
 	/// its vtable. Each argument left as `None` is unchanged.
 	pub(crate) fn teleport(
 		self,
-		slot: usize,
+		slot: TeleportSlot,
 		origin: Option<Vector>,
 		angles: Option<QAngle>,
 		velocity: Option<Vector>,
 	) -> Result<(), TeleportError> {
-		type Teleport = unsafe extern "C" fn(
-			*mut sys::CBaseEntity,
-			*const sys::Vector,
-			*const sys::QAngle,
-			*const sys::Vector,
-		);
-
 		let finite_angles = |angles: QAngle| {
 			angles.pitch.is_finite() && angles.yaw.is_finite() && angles.roll.is_finite()
 		};
@@ -467,13 +346,15 @@ impl<'s> Entity<'s> {
 		let angles = angles.map(sys::QAngle::from);
 		let velocity = velocity.map(sys::Vector::from);
 
-		// SAFETY: `Game` selected the slot of `Teleport` in the game's vtable.
-		let teleport: Teleport = unsafe { transmute(self.vtable_slot(slot)) };
-
-		// SAFETY: The entity is live and every pointer is null or a local.
+		// SAFETY: The entity is live during `'s`, on the main thread, and `Game`
+		// selected the slot of `Teleport` in the game DLL's vtable
+		// (`Server::new` condition 2). Every pointer is null or a local, and
+		// what the move runs frees entities only through deferred deletion
+		// (condition 4).
 		unsafe {
-			teleport(
+			sdk_raw::entities::teleport(
 				self.as_ptr(),
+				slot,
 				origin.as_ref().map_or(ptr::null(), ptr::from_ref),
 				angles.as_ref().map_or(ptr::null(), ptr::from_ref),
 				velocity.as_ref().map_or(ptr::null(), ptr::from_ref),
@@ -481,21 +362,6 @@ impl<'s> Entity<'s> {
 		};
 
 		Ok(())
-	}
-
-	/// The entity as its `IServerUnknown` base, which it starts with.
-	fn unknown(self) -> *mut sys::IServerUnknown {
-		self.raw.as_ptr().cast()
-	}
-
-	/// Reads entry `slot` of the entity's primary vtable.
-	fn vtable_slot(self, slot: usize) -> *const () {
-		// SAFETY: `CBaseEntity` has `IServerEntity` as its primary, zero-offset
-		// base, so the entity starts with its primary vtable pointer.
-		let vtable = unsafe { self.as_ptr().cast::<*const *const ()>().read() };
-
-		// SAFETY: Callers only pass slots within `CBaseEntity`'s vtable.
-		unsafe { vtable.add(slot).read() }
 	}
 }
 
@@ -510,20 +376,16 @@ impl<'s> Entity<'s> {
 #[doc(alias = "CBaseHandle")]
 #[doc(alias = "EHANDLE")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(transparent)]
 pub struct EntityHandle(u32);
 
 impl EntityHandle {
 	/// `INVALID_EHANDLE_INDEX`, which refers to no entity.
 	#[doc(alias = "INVALID_EHANDLE_INDEX")]
-	pub const INVALID: Self = Self(u32::MAX);
-
-	/// `NUM_SERIAL_NUM_SHIFT_BITS`.
-	const SERIAL_NUMBER_SHIFT: u32 = 16;
+	pub const INVALID: Self = Self(INVALID_EHANDLE_INDEX);
 
 	/// `NUM_ENT_ENTRIES`, the number of slots in the entity list.
 	#[doc(alias = "NUM_ENT_ENTRIES")]
-	pub const SLOTS: usize = 1 << 13;
+	pub const SLOTS: usize = NUM_ENT_ENTRIES;
 
 	/// Wraps a handle's raw value, the `m_Index` a `CBaseHandle` stores.
 	pub const fn from_raw(raw: u32) -> Self {
@@ -534,7 +396,7 @@ impl EntityHandle {
 	#[doc(alias = "GetEntryIndex")]
 	pub const fn index(self) -> Option<usize> {
 		if self.is_valid() {
-			Some((self.0 & ((1 << Self::SERIAL_NUMBER_SHIFT) - 1)) as usize)
+			Some((self.0 & ENT_ENTRY_MASK) as usize)
 		} else {
 			None
 		}
@@ -551,7 +413,7 @@ impl EntityHandle {
 	/// which tells it apart from later entities in the same slot.
 	#[doc(alias = "GetSerialNumber")]
 	pub const fn serial_number(self) -> u32 {
-		self.0 >> Self::SERIAL_NUMBER_SHIFT
+		self.0 >> NUM_SERIAL_NUM_SHIFT_BITS
 	}
 
 	/// The handle's raw value, the `m_Index` a `CBaseHandle` stores.
@@ -625,42 +487,6 @@ pub enum TeleportError {
 	MarkedForDeletion,
 }
 
-/// The offset of the field of `field_type` named `name` that a map declares,
-/// not counting its bases' fields.
-pub(crate) fn data_field_offset(
-	map: &sys::datamap_t,
-	name: &CStr,
-	field_type: sys::fieldtype_t,
-) -> Option<usize> {
-	data_fields(map)
-		.iter()
-		.find(|field| {
-			field.fieldType == field_type
-				// SAFETY: Field names are string literals of the game DLL.
-				&& unsafe { borrow_cstr(field.fieldName) } == Some(name)
-		})
-		.and_then(|field| usize::try_from(field.fieldOffset[0]).ok())
-}
-
-/// The fields a data description map declares, not including its bases'.
-pub(crate) fn data_fields(map: &sys::datamap_t) -> &[sys::typedescription_t] {
-	match usize::try_from(map.dataNumFields) {
-		Ok(count @ 1..=MAX_DATA_FIELDS) if !map.dataDesc.is_null() => {
-			// SAFETY: The map holds `dataNumFields` fields, as immutable as the
-			// map itself.
-			unsafe { std::slice::from_raw_parts(map.dataDesc, count) }
-		}
-
-		_ => &[],
-	}
-}
-
-/// The name of the class a data description map describes.
-pub(crate) fn data_map_class(map: &sys::datamap_t) -> Option<&CStr> {
-	// SAFETY: Class names are string literals of the game DLL.
-	unsafe { borrow_cstr(map.dataClassName) }
-}
-
 #[cfg(test)]
 pub(crate) mod test_support {
 	use super::*;
@@ -732,16 +558,16 @@ pub(crate) mod test_support {
 			let slot = |field: usize| field / size_of::<usize>();
 
 			vtable[slot(offset_of!(
-				sys::IServerUnknown__bindgen_vtable,
-				IServerUnknown_GetCollideable
+				sys::IServerEntity__bindgen_vtable,
+				IServerEntity_GetCollideable
 			))] = get_collideable as *const ();
 			vtable[slot(offset_of!(
-				sys::IServerUnknown__bindgen_vtable,
-				IServerUnknown_GetNetworkable
+				sys::IServerEntity__bindgen_vtable,
+				IServerEntity_GetNetworkable
 			))] = get_networkable as *const ();
 			vtable[slot(offset_of!(
-				sys::IServerUnknown__bindgen_vtable,
-				IServerUnknown_GetRefEHandle
+				sys::IServerEntity__bindgen_vtable,
+				IServerEntity_GetRefEHandle
 			))] = get_handle as *const ();
 			vtable[sdk_raw::entities::TF2_TELEPORT_SLOT] = teleport_entity as *const ();
 			vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = get_datamap as *const ();
@@ -950,7 +776,7 @@ pub(crate) mod test_support {
 		c"tf_player".as_ptr()
 	}
 
-	unsafe extern "C" fn get_collideable(_: *mut sys::IServerUnknown) -> *mut sys::ICollideable {
+	unsafe extern "C" fn get_collideable(_: *mut sys::IServerEntity) -> *mut sys::ICollideable {
 		COLLIDEABLE.get()
 	}
 
@@ -962,12 +788,12 @@ pub(crate) mod test_support {
 		EDICT.get()
 	}
 
-	unsafe extern "C" fn get_handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
+	unsafe extern "C" fn get_handle(this: *const sys::IServerEntity) -> *const sys::CBaseHandle {
 		unsafe { this.byte_add(MOCK_HANDLE_OFFSET).cast() }
 	}
 
 	unsafe extern "C" fn get_networkable(
-		_: *mut sys::IServerUnknown,
+		_: *mut sys::IServerEntity,
 	) -> *mut sys::IServerNetworkable {
 		NETWORKABLE.get()
 	}
@@ -1048,7 +874,7 @@ mod tests {
 		assert_eq!(entity.index(), Some(5));
 		assert!(!entity.is_marked_for_deletion());
 
-		let slot = sdk_raw::entities::TF2_TELEPORT_SLOT;
+		let slot = TeleportSlot::TeamFortress2;
 
 		assert_eq!(
 			entity.teleport(

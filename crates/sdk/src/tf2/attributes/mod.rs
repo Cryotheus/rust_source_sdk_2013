@@ -67,7 +67,7 @@ mod layout;
 mod tests;
 
 use crate::NotThreadSafe;
-use crate::entities::{Entity, data_map_class};
+use crate::entities::Entity;
 use crate::tf2::attributes::definition::RawDef;
 use crate::tf2::attributes::layout::ItemLayout;
 use crate::tf2::script_binding::{self as binding, BindingError};
@@ -392,7 +392,7 @@ impl<'s> ItemAttributes<'s> {
 
 		if !entity
 			.data_maps()
-			.any(|map| data_map_class(map) == Some(c"CEconEntity"))
+			.any(|map| map.class_name() == Some(c"CEconEntity"))
 		{
 			return Err(AttributeError::UnsupportedEntity);
 		}
@@ -893,7 +893,7 @@ impl<'s> PlayerAttributes<'s> {
 
 		if !player
 			.data_maps()
-			.any(|map| data_map_class(map) == Some(c"CTFPlayer"))
+			.any(|map| map.class_name() == Some(c"CTFPlayer"))
 		{
 			return Err(AttributeError::UnsupportedEntity);
 		}

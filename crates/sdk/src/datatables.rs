@@ -16,17 +16,21 @@ use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
 use crate::math::{QAngle, Vector};
 use glam::Vec2;
+
+use sdk_raw::datatables::{
+	SPROP_CHANGES_OFTEN, SPROP_COLLAPSIBLE, SPROP_COORD, SPROP_COORD_MP, SPROP_COORD_MP_INTEGRAL,
+	SPROP_COORD_MP_LOWPRECISION, SPROP_ENCODED_AGAINST_TICKCOUNT, SPROP_EXCLUDE, SPROP_INSIDEARRAY,
+	SPROP_IS_A_VECTOR_ELEM, SPROP_NORMAL, SPROP_NOSCALE, SPROP_PROXY_ALWAYS_YES, SPROP_ROUNDDOWN,
+	SPROP_ROUNDUP, SPROP_UNSIGNED, SPROP_XYZE, call_var_proxy, is_direct_table_proxy,
+	standard_var_proxies,
+};
+
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use std::any::type_name;
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::marker::PhantomData;
-use std::mem::zeroed;
 use std::ptr::NonNull;
-
-/// How many non-modifying proxies [`StandardSendProxies`] reads before
-/// assuming the list is corrupt.
-const MAX_NON_MODIFIED_PROXIES: usize = 256;
 
 /// How deep [`NetProp`] lookups descend into nested tables before giving up.
 const MAX_TABLE_DEPTH: usize = 32;
@@ -39,90 +43,90 @@ impl PropFlags {
 	/// `SPROP_CHANGES_OFTEN`: the variable changes often, so the engine moves
 	/// it to the start of its table, where it gets a small index.
 	#[doc(alias = "SPROP_CHANGES_OFTEN")]
-	pub const CHANGES_OFTEN: Self = Self(1 << 10);
+	pub const CHANGES_OFTEN: Self = Self(SPROP_CHANGES_OFTEN);
 
 	/// `SPROP_COLLAPSIBLE`: the data table sits at offset 0 behind
 	/// `SendProxy_DataTableToDataTable`, as base class tables do, so the engine
 	/// can flatten it away.
 	#[doc(alias = "SPROP_COLLAPSIBLE")]
-	pub const COLLAPSIBLE: Self = Self(1 << 12);
+	pub const COLLAPSIBLE: Self = Self(SPROP_COLLAPSIBLE);
 
 	/// `SPROP_COORD`: the float or vector is a world coordinate, and its bit
 	/// count is ignored.
 	#[doc(alias = "SPROP_COORD")]
-	pub const COORD: Self = Self(1 << 1);
+	pub const COORD: Self = Self(SPROP_COORD);
 
 	/// `SPROP_COORD_MP`: like [`COORD`](Self::COORD), with special handling for
 	/// multiplayer games.
 	#[doc(alias = "SPROP_COORD_MP")]
-	pub const COORD_MP: Self = Self(1 << 13);
+	pub const COORD_MP: Self = Self(SPROP_COORD_MP);
 
 	/// `SPROP_COORD_MP_INTEGRAL`: like [`COORD_MP`](Self::COORD_MP), with
 	/// coordinates rounded to whole units.
 	#[doc(alias = "SPROP_COORD_MP_INTEGRAL")]
-	pub const COORD_MP_INTEGRAL: Self = Self(1 << 15);
+	pub const COORD_MP_INTEGRAL: Self = Self(SPROP_COORD_MP_INTEGRAL);
 
 	/// `SPROP_COORD_MP_LOWPRECISION`: like [`COORD_MP`](Self::COORD_MP), with 3
 	/// bits for the fractional part instead of 5.
 	#[doc(alias = "SPROP_COORD_MP_LOWPRECISION")]
-	pub const COORD_MP_LOW_PRECISION: Self = Self(1 << 14);
+	pub const COORD_MP_LOW_PRECISION: Self = Self(SPROP_COORD_MP_LOWPRECISION);
 
 	/// `SPROP_ENCODED_AGAINST_TICKCOUNT`: the integer's proxy encodes it
 	/// relative to the tick count, as for `m_flSimulationTime`. This flag is
 	/// only known to the server, and not networked.
 	#[doc(alias = "SPROP_ENCODED_AGAINST_TICKCOUNT")]
-	pub const ENCODED_AGAINST_TICK_COUNT: Self = Self(1 << 16);
+	pub const ENCODED_AGAINST_TICK_COUNT: Self = Self(SPROP_ENCODED_AGAINST_TICKCOUNT);
 
 	/// `SPROP_EXCLUDE`: the property names another property to exclude, rather
 	/// than a variable.
 	#[doc(alias = "SPROP_EXCLUDE")]
-	pub const EXCLUDE: Self = Self(1 << 6);
+	pub const EXCLUDE: Self = Self(SPROP_EXCLUDE);
 
 	/// `SPROP_INSIDEARRAY`: the property describes the elements of the array
 	/// property after it.
 	#[doc(alias = "SPROP_INSIDEARRAY")]
-	pub const INSIDE_ARRAY: Self = Self(1 << 8);
+	pub const INSIDE_ARRAY: Self = Self(SPROP_INSIDEARRAY);
 
 	/// `SPROP_IS_A_VECTOR_ELEM`: the property is one component of a vector,
 	/// declared with `SENDINFO_VECTORELEM`.
 	#[doc(alias = "SPROP_IS_A_VECTOR_ELEM")]
-	pub const IS_A_VECTOR_ELEM: Self = Self(1 << 11);
+	pub const IS_A_VECTOR_ELEM: Self = Self(SPROP_IS_A_VECTOR_ELEM);
 
 	/// `SPROP_NOSCALE`: the float is sent as is, rather than scaled into the
 	/// range between its [low](SendProp::low_value) and
 	/// [high](SendProp::high_value) values.
 	#[doc(alias = "SPROP_NOSCALE")]
-	pub const NO_SCALE: Self = Self(1 << 2);
+	pub const NO_SCALE: Self = Self(SPROP_NOSCALE);
 
 	/// `SPROP_NORMAL`: the vector is a normal. Integer properties reuse the bit
 	/// as `SPROP_VARINT`.
 	#[doc(alias = "SPROP_NORMAL")]
 	#[doc(alias = "SPROP_VARINT")]
-	pub const NORMAL: Self = Self(1 << 5);
+	pub const NORMAL: Self = Self(SPROP_NORMAL);
 
 	/// `SPROP_PROXY_ALWAYS_YES`: the data table's proxy is a standard one that
 	/// sends the table to every client.
 	#[doc(alias = "SPROP_PROXY_ALWAYS_YES")]
-	pub const PROXY_ALWAYS_YES: Self = Self(1 << 9);
+	pub const PROXY_ALWAYS_YES: Self = Self(SPROP_PROXY_ALWAYS_YES);
 
 	/// `SPROP_ROUNDDOWN`: the float's [high value](SendProp::high_value) is
 	/// lowered by one encoding step.
 	#[doc(alias = "SPROP_ROUNDDOWN")]
-	pub const ROUND_DOWN: Self = Self(1 << 3);
+	pub const ROUND_DOWN: Self = Self(SPROP_ROUNDDOWN);
 
 	/// `SPROP_ROUNDUP`: the float's [low value](SendProp::low_value) is raised
 	/// by one encoding step.
 	#[doc(alias = "SPROP_ROUNDUP")]
-	pub const ROUND_UP: Self = Self(1 << 4);
+	pub const ROUND_UP: Self = Self(SPROP_ROUNDUP);
 
 	/// `SPROP_UNSIGNED`: the integer is networked unsigned. [`Storage`] takes
 	/// its signedness from this flag.
 	#[doc(alias = "SPROP_UNSIGNED")]
-	pub const UNSIGNED: Self = Self(1 << 0);
+	pub const UNSIGNED: Self = Self(SPROP_UNSIGNED);
 
 	/// `SPROP_XYZE`: the vector uses XYZ/exponent encoding.
 	#[doc(alias = "SPROP_XYZE")]
-	pub const XYZE: Self = Self(1 << 7);
+	pub const XYZE: Self = Self(SPROP_XYZE);
 
 	/// Wraps raw `SPROP_*` bits, keeping any this type has no constant for.
 	pub const fn from_bits(bits: c_int) -> Self {
@@ -524,94 +528,33 @@ impl<'s> StandardSendProxies<'s> {
 		self.raw.as_ptr()
 	}
 
-	/// Whether a table proxy passes its data through unchanged, so offsets
-	/// into the nested table are relative to the containing structure.
-	fn is_direct(self, proxy: sys::SendTableProxyFn) -> bool {
-		let Some(proxy) = table_proxy_address(proxy) else {
-			return false;
-		};
-
-		let proxies = self.proxies();
-
-		if [proxies.m_DataTableToDataTable, proxies.m_SendLocalDataTable]
-			.into_iter()
-			.any(|candidate| table_proxy_address(candidate) == Some(proxy))
-		{
-			return true;
-		}
-
-		// The game registers every other pointer-preserving table proxy in a
-		// list, which the engine consults for the same purpose.
-		let Some(head) = NonNull::new(proxies.m_ppNonModifiedPointerProxies) else {
-			return false;
-		};
-
-		// SAFETY: The list and its nodes are statics of the game DLL.
-		let mut node = unsafe { head.as_ptr().read() };
-
-		for _ in 0..MAX_NON_MODIFIED_PROXIES {
-			let Some(current) = NonNull::new(node) else {
-				return false;
-			};
-
-			// SAFETY: As above.
-			let current = unsafe { current.as_ptr().read() };
-
-			if table_proxy_address(current.m_Fn) == Some(proxy) {
-				return true;
-			}
-
-			node = current.m_pNext;
-		}
-
-		false
-	}
-
-	/// Copies the proxies out of the game DLL.
-	fn proxies(self) -> sys::CStandardSendProxies {
-		// SAFETY: The proxies are a static of the game DLL, set up before any
-		// plugin loads. They are copied without forming references.
-		unsafe { self.as_ptr().read() }
+	/// Whether a nested table property's proxy passes its data through
+	/// unchanged, so offsets into the nested table are relative to the
+	/// containing structure.
+	fn is_direct(self, prop: SendProp<'_>) -> bool {
+		// SAFETY: The proxies are the game DLL's, set up before any plugin
+		// loads, and their list of pointer-preserving proxies holds statics of
+		// the game DLL, which stays loaded for `'s`. The property is one of its
+		// send tables'.
+		unsafe { is_direct_table_proxy(self.as_ptr(), prop.as_ptr()) }
 	}
 
 	/// How a scalar property's variable is stored, judged by its proxy.
 	fn storage(self, prop: SendProp<'_>) -> Storage {
-		let proxies = self.proxies()._base;
-		let Some(proxy) = var_proxy_address(prop.var_proxy()) else {
-			return Storage::Unknown;
-		};
-
-		let is = |candidates: &[sys::SendVarProxyFn]| {
-			candidates
-				.iter()
-				.any(|&candidate| var_proxy_address(candidate) == Some(proxy))
-		};
+		// SAFETY: As for `is_direct`.
+		let proxies = unsafe { standard_var_proxies(self.as_ptr(), prop.as_ptr()) };
 		let signed = !prop.flags().contains(PropFlags::UNSIGNED);
 
 		match prop.kind() {
-			PropKind::Int if is(&[proxies.m_Int8ToInt32, proxies.m_UInt8ToInt32]) => {
-				[Storage::U8, Storage::I8][usize::from(signed)]
-			}
+			PropKind::Int if proxies.int8 => [Storage::U8, Storage::I8][usize::from(signed)],
+			PropKind::Int if proxies.int16 => [Storage::U16, Storage::I16][usize::from(signed)],
+			PropKind::Int if proxies.int32 => [Storage::U32, Storage::I32][usize::from(signed)],
 
-			PropKind::Int if is(&[proxies.m_Int16ToInt32, proxies.m_UInt16ToInt32]) => {
-				[Storage::U16, Storage::I16][usize::from(signed)]
-			}
+			// The 32-bit integer proxies copy a float alike, and a linker may fold
+			// them together.
+			PropKind::Float if proxies.float || proxies.int32 => Storage::F32,
 
-			PropKind::Int if is(&[proxies.m_Int32ToInt32, proxies.m_UInt32ToInt32]) => {
-				[Storage::U32, Storage::I32][usize::from(signed)]
-			}
-
-			PropKind::Float
-				if is(&[
-					proxies.m_FloatToFloat,
-					proxies.m_Int32ToInt32,
-					proxies.m_UInt32ToInt32,
-				]) =>
-			{
-				Storage::F32
-			}
-
-			PropKind::Vector if is(&[proxies.m_VectorToVector]) => Storage::Vector,
+			PropKind::Vector if proxies.vector => Storage::Vector,
 			_ => Storage::Unknown,
 		}
 	}
@@ -787,28 +730,6 @@ impl<'s> SendProp<'s> {
 	pub fn offset(self) -> c_int {
 		prop_field!(self, m_Offset)
 	}
-
-	/// The proxy that gives a [`PropKind::DataTable`] property's nested table
-	/// its data.
-	fn table_proxy(self) -> sys::SendTableProxyFn {
-		prop_field!(self, m_DataTableProxyFn)
-	}
-
-	/// The proxy that converts the variable for networking, which data table
-	/// properties lack.
-	fn var_proxy(self) -> sys::SendVarProxyFn {
-		prop_field!(self, m_ProxyFn)
-	}
-}
-
-/// The address of a table proxy, for comparing proxies.
-fn table_proxy_address(proxy: sys::SendTableProxyFn) -> Option<usize> {
-	proxy.map(|proxy| proxy as usize)
-}
-
-/// The address of a variable proxy, for comparing proxies.
-fn var_proxy_address(proxy: sys::SendVarProxyFn) -> Option<usize> {
-	proxy.map(|proxy| proxy as usize)
 }
 
 /// Keeps [`NetVar`] from being implemented outside this crate.
@@ -916,8 +837,8 @@ impl<'s> NetProp<'s> {
 						.ok()
 						.and_then(|offset| base.checked_add(offset))
 				{
-					let relocated_by = relocated_by
-						.or_else(|| (!proxies.is_direct(prop.table_proxy())).then_some(prop));
+					let relocated_by =
+						relocated_by.or_else(|| (!proxies.is_direct(prop)).then_some(prop));
 
 					if let Some(found) =
 						search(nested, name, nested_base, relocated_by, proxies, depth + 1)
@@ -1064,7 +985,7 @@ impl<'s> NetProp<'s> {
 				let table = self.prop.data_table().ok_or_else(|| out_of_range(0))?;
 				let element = table.prop(index).ok_or_else(|| out_of_range(table.len()))?;
 
-				if !self.proxies.is_direct(self.prop.table_proxy()) {
+				if !self.proxies.is_direct(self.prop) {
 					return Err(NetPropError::Relocated {
 						name: lossy(element.name()),
 						table: name(),
@@ -1185,31 +1106,26 @@ impl<'s> NetProp<'s> {
 			});
 		}
 
-		let proxy = self.prop.var_proxy().ok_or_else(|| NetPropError::NoProxy {
-			name: lossy(self.prop.name()),
-		})?;
-
 		let base = entity.as_ptr().cast::<u8>();
 
-		// SAFETY: The union is plain data, for which zeroes are valid.
-		let mut value: sys::DVariant = unsafe { zeroed() };
-
-		// SAFETY: The proxy is the game's own, called with the arguments the
-		// engine passes: the variable, the structure containing it, and the
-		// entity's index. The entity's class was checked, so both addresses lie
-		// within the entity.
-		unsafe {
-			proxy(
+		// SAFETY: The property is one of the game DLL's, and the proxy is called
+		// on the main thread with the arguments the engine passes: the
+		// structure containing the variable, the variable, its element, and
+		// the entity's index. The entity's class was checked, so both
+		// addresses lie within the live entity.
+		let value = unsafe {
+			call_var_proxy(
 				self.prop.as_ptr(),
 				base.add(self.struct_offset).cast::<c_void>(),
 				base.add(self.offset).cast::<c_void>(),
-				&mut value,
 				self.element,
 				edict.index(),
 			)
-		};
-
-		let value = value.__bindgen_anon_1;
+		}
+		.ok_or_else(|| NetPropError::NoProxy {
+			name: lossy(self.prop.name()),
+		})?
+		.__bindgen_anon_1;
 
 		// SAFETY: Proxies fill in the union member matching the property type.
 		Ok(unsafe {
@@ -1450,6 +1366,7 @@ fn lossy(string: &CStr) -> String {
 pub(crate) mod test_support {
 	use super::*;
 	use std::ffi::c_char;
+	use std::mem::zeroed;
 
 	/// A custom proxy, like `SendProxy_EHandleToInt`, that adds one to show it ran.
 	pub(crate) unsafe extern "C" fn custom_proxy(
@@ -1629,6 +1546,7 @@ mod tests {
 	use super::*;
 	use crate::entities::test_support::{MockEntity, set_networking};
 	use sdk_raw::util::mock::{mock_vtable, unexpected_call};
+	use std::mem::zeroed;
 	use std::ptr::null_mut;
 
 	/// `DT_Base` holds `m_iHealth` and a local table; `DT_Derived` embeds it

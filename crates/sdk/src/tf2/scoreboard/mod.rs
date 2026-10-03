@@ -102,7 +102,7 @@ mod tests;
 use crate::NotThreadSafe;
 use crate::datatables::{NetPropError, PropFlags, PropKind, SendProp, ServerClass, Storage};
 use crate::edicts::Edict;
-use crate::entities::{Entity, EntityHandle, data_field_offset, data_map_class};
+use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::{ServerGameDll, ServerTools, ValveEngine};
 use crate::players::UserId;
 use crate::tf2::PlayerClass;
@@ -2020,8 +2020,8 @@ fn set_player_count(
 
 	let offset = player
 		.data_maps()
-		.find(|&map| data_map_class(map) == Some(c"CBasePlayer"))
-		.and_then(|map| data_field_offset(map, name, sys::_fieldtypes_FIELD_INTEGER))
+		.find(|&map| map.class_name() == Some(c"CBasePlayer"))
+		.and_then(|map| map.field_offset(name, sys::_fieldtypes_FIELD_INTEGER))
 		.filter(|&offset| offset < MAX_FIELD_OFFSET && offset.is_multiple_of(ELEMENT_SIZE))
 		.ok_or_else(|| ScoreboardError::MissingField {
 			class: "CBasePlayer",
