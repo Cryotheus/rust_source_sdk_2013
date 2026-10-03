@@ -36,6 +36,7 @@ mod route;
 mod variable;
 
 #[cfg(test)]
+#[path = "../tests/commands.rs"]
 mod tests;
 
 use crate::NotThreadSafe;
