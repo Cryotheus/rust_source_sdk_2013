@@ -347,7 +347,11 @@ impl<'s> PlayerWearables<'s> {
 	/// [`WearableError::CreationFailedNative`], and one that creates no TF2
 	/// wearable, such as a weapon, with [`WearableError::NotWearable`]. The
 	/// game refuses items restricted to a holiday outside it, which fails with
-	/// [`WearableError::Rejected`]. Whatever was created is deleted on failure.
+	/// [`WearableError::Rejected`]. An item the player's class has no model
+	/// for, such as an item restricted to other classes, fails with
+	/// [`WearableError::MissingModel`]: clients would draw nothing for it,
+	/// although it would still hide parts of the player's model. Whatever was
+	/// created is deleted on failure.
 	///
 	/// See the [module documentation](crate::tf2::wearables) for what keeps
 	/// the wearable, and who sees it.
@@ -372,7 +376,7 @@ impl<'s> PlayerWearables<'s> {
 		// SAFETY: The caller vouches for the native creation path. The generator
 		// initializes the item view before `Spawn` and `Activate` and returns a
 		// fresh callback-live entity, which must not be spawned again.
-		unsafe {
+		let wearable = unsafe {
 			self.give_with(|origin| {
 				sdk_raw::weapons::spawn(
 					self.server.game_server_factory().as_raw(),
@@ -382,7 +386,19 @@ impl<'s> PlayerWearables<'s> {
 				)
 				.map_err(WearableError::CreationFailedNative)
 			})
+		}?;
+
+		// Equipping chose the model for the player's class, which is missing for
+		// a class the item has no model for.
+		if wearable.has_error_model()? {
+			// SAFETY: As above: the caller's guarantees cover removing the item
+			// this call equipped.
+			let _ = unsafe { self.remove(wearable) };
+
+			return Err(WearableError::MissingModel);
 		}
+
+		Ok(wearable)
 	}
 
 	/// Creates a wearable with `create`, given the player's position, then
@@ -735,6 +751,20 @@ impl<'s> Wearable<'s> {
 		self.entity
 	}
 
+	/// Whether the wearable's model is the engine's stand-in for a missing
+	/// model file, which clients draw nothing for, as for an item the
+	/// wearer's class has no model for.
+	pub fn has_error_model(self) -> Result<bool, WearableError> {
+		check_live(self.entity)?;
+
+		// The model index is a 16-bit `short`, read as clients receive it.
+		let NetValue::Int(index) = self.net_prop(c"m_nModelIndex")?.value(self.entity)? else {
+			return Err(WearableError::UnsupportedLayout);
+		};
+
+		Ok(self.server.model_info()?.is_error_model(index))
+	}
+
 	/// Whether this is one of a disguised Spy's disguise wearables
 	/// (`m_bDisguiseWearable`).
 	#[doc(alias = "m_bDisguiseWearable")]
@@ -846,6 +876,11 @@ pub enum WearableError {
 	/// The player or wearable is already marked for deletion.
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
+
+	/// The item's model for the player's class is missing, as for an item
+	/// restricted to other classes, so clients would draw nothing for it.
+	#[error("the item has no model for the player's class")]
+	MissingModel,
 
 	/// The player's position, needed to create an item, is unavailable.
 	#[error("the player's absolute position could not be read")]
