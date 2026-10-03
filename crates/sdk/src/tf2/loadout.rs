@@ -105,17 +105,28 @@
 //!
 //! # Unverified
 //!
-//! The reapplier has not been observed on a live server. What
-//! [`PlayerWearables::give`] and [`AttributeSet::apply`] were observed to do
-//! is in their own documentation, which includes a resupply locker removing
-//! given wearables; the rest of what this module says the game does is read
-//! from its code. Removal of given wearables at spawn, giving wearables again
-//! from the event, whether clients do draw the player without them in
-//! between, whether bots dropped at a level change fire `player_disconnect`
-//! and get new user IDs, whether the engine counts human clients as
-//! connected while they load the next level, which
-//! [`LoadoutReapplier::retain_connected`] relies on to keep their loadouts,
-//! Mann vs. Machine, and Linux servers have not been tested.
+//! On TF2's 64-bit Windows server, a reapplier passed each
+//! [`GameEventId::PostInventoryApplication`] has been observed, with one bot
+//! and a loadout of a wearable and one slot's attribute, to:
+//!
+//! - give both through [`LoadoutReapplier::apply`], and report the wearable
+//!   as [`WearableOutcome::AlreadyWorn`], without giving it twice, when
+//!   applying again;
+//! - give a new wearable, and set the attribute on a new weapon, after the
+//!   bot respawned as another class, whose loadout replaced both;
+//! - give a new wearable after the bot respawned as the same class, and after
+//!   VScript's `CTFPlayer::Regenerate`, which a resupply locker calls, ran
+//!   for it, while the game kept the weapon and its attribute;
+//! - give nothing after [`LoadoutReapplier::forget`], when the game removed
+//!   the wearable at the next regeneration and the kept weapon kept the
+//!   attribute.
+//!
+//! Human players, what clients draw in between, touching a resupply locker,
+//! [`ApplyReport::deferred`] and [`LoadoutError::Reentrant`], whether bots
+//! dropped at a level change fire `player_disconnect` and get new user IDs,
+//! whether the engine counts human clients as connected while they load the
+//! next level, which [`LoadoutReapplier::retain_connected`] relies on to keep
+//! their loadouts, Mann vs. Machine, and Linux servers have not been tested.
 //!
 //! [`GameEventId::PlayerActivate`]: crate::tf2::game_events::GameEventId::PlayerActivate
 //! [`GameEventId::PlayerDisconnect`]: crate::tf2::game_events::GameEventId::PlayerDisconnect
