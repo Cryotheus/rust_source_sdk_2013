@@ -3,6 +3,11 @@
 
 use super::*;
 
+/// A variable of the test executable, in `.bss`, which the test finds by its
+/// symbol.
+#[unsafe(no_mangle)]
+static mut SOURCE_SDK_RAW_LOADED_ELF_TEST_VARIABLE: [u64; 8] = [0; 8];
+
 #[test]
 fn loaded_function_requires_matching_file_and_memory() {
 	let anchor = source_sdk_raw_loaded_elf_test_anchor as *const () as usize;
@@ -29,6 +34,27 @@ fn loaded_function_requires_matching_file_and_memory() {
 	assert!(
 		loaded
 			.resolve(b"source_sdk_raw_loaded_elf_test_anchor")
+			.is_none()
+	);
+}
+
+#[test]
+fn loaded_variables_require_a_writable_load_range() {
+	let anchor = source_sdk_raw_loaded_elf_test_anchor as *const () as usize;
+	// SAFETY: The test executable remains loaded throughout this test.
+	let loaded = unsafe { LoadedElf::at(anchor) }.unwrap();
+	let (address, size) = loaded
+		.resolve_data(b"SOURCE_SDK_RAW_LOADED_ELF_TEST_VARIABLE")
+		.unwrap();
+	assert_eq!(
+		address,
+		(&raw const SOURCE_SDK_RAW_LOADED_ELF_TEST_VARIABLE).addr()
+	);
+	assert_eq!(size, 64);
+	assert!(loaded.contains(address, size, false, true));
+	assert!(
+		loaded
+			.resolve_data(b"source_sdk_raw_loaded_elf_test_anchor")
 			.is_none()
 	);
 }

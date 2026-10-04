@@ -27,7 +27,7 @@ pub use crate::sig;
 pub use bytes::{relative, u16_at, u32_at, word_at};
 pub use image::{Image, Section};
 pub use platform::{MemoryReader, Module, is_executable, loaded_symbol};
-pub use signature::{SignaturePattern, find_all, pattern};
+pub use signature::{SignaturePattern, exact_u32, find_all, is_exact, pattern};
 
 /// Upper bound on an individual snapshot or on-disk image allocation.
 pub const MAX_IMAGE_BYTES: usize = 0x40000000;

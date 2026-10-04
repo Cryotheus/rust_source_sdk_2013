@@ -28,6 +28,38 @@ macro_rules! sig {
 	}};
 }
 
+/// The little-endian `u32` that `signature` matches exactly at `at`, or `None`
+/// if any of its bytes is a wildcard or past the end.
+///
+/// Compile-time assertions use it to tie an operand a signature fixes to the
+/// header value or layout it encodes.
+///
+/// ```
+/// use source_sdk_2013_raw::util::{exact_u32, sig};
+///
+/// assert_eq!(exact_u32(&sig![0x05 0x68 0x01 0 0], 1), Some(0x168));
+/// assert_eq!(exact_u32(&sig![0x05 0x68 ? 0 0], 1), None);
+/// ```
+pub const fn exact_u32(signature: &[SignaturePattern], at: usize) -> Option<u32> {
+	let mut bytes = [0; 4];
+	let mut index = 0;
+
+	while index < bytes.len() {
+		match at.checked_add(index) {
+			Some(position) if position < signature.len() => match signature[position] {
+				SignaturePattern::Exact(byte) => bytes[index] = byte,
+				SignaturePattern::Any => return None,
+			},
+
+			_ => return None,
+		}
+
+		index += 1;
+	}
+
+	Some(u32::from_le_bytes(bytes))
+}
+
 /// Finds every starting offset at which `signature` matches `bytes`.
 ///
 /// Offsets are relative to `bytes`, in ascending order, including overlapping
@@ -54,6 +86,11 @@ pub fn find_all<'a>(
 		.windows(signature.len().max(1))
 		.enumerate()
 		.filter_map(move |(offset, candidate)| pattern(candidate, signature).then_some(offset))
+}
+
+/// Whether `signature` matches exactly `byte` at `at`.
+pub const fn is_exact(signature: &[SignaturePattern], at: usize, byte: u8) -> bool {
+	at < signature.len() && matches!(signature[at], SignaturePattern::Exact(found) if found == byte)
 }
 
 /// Match a signature against a byte prefix, rejecting inputs that are too short.

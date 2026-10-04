@@ -63,3 +63,53 @@ fn symbols_require_unique_executable_bounded_definitions() {
 	bytes[224..232].copy_from_slice(&48_usize.to_le_bytes());
 	assert!(Elf::new(&bytes).unwrap().symbol(b"test").is_none());
 }
+
+/// [`fixture`], with its section #1 a writable `.bss` at virtual address
+/// 0x2000, 0x100 bytes long without file bytes, and its symbol a 0x20-byte
+/// variable in it.
+fn data_fixture() -> Vec<u8> {
+	let mut bytes = fixture();
+	bytes[132..136].copy_from_slice(&8_u32.to_le_bytes());
+	bytes[136..144].copy_from_slice(&3_usize.to_le_bytes());
+	bytes[144..152].copy_from_slice(&0x2000_usize.to_le_bytes());
+	bytes[152..160].copy_from_slice(&0x10000_usize.to_le_bytes());
+	bytes[160..168].copy_from_slice(&0x100_usize.to_le_bytes());
+	bytes[324] = 1;
+	bytes[328..336].copy_from_slice(&0x2010_usize.to_le_bytes());
+	bytes[336..344].copy_from_slice(&0x20_usize.to_le_bytes());
+	bytes
+}
+
+#[test]
+fn data_symbols_require_unique_writable_bounded_definitions() {
+	// A variable in `.bss`, whose section has no bytes in the file.
+	assert_eq!(
+		Elf::new(&data_fixture()).unwrap().data_symbol(b"test"),
+		Some((0x2010, 0x20))
+	);
+
+	// Functions are not variables, and variables are not functions.
+	assert!(Elf::new(&fixture()).unwrap().data_symbol(b"test").is_none());
+	assert!(Elf::new(&data_fixture()).unwrap().symbol(b"test").is_none());
+
+	// Read-only, executable, and unallocated sections are refused.
+	for flags in [2_usize, 7, 1] {
+		let mut bytes = data_fixture();
+		bytes[136..144].copy_from_slice(&flags.to_le_bytes());
+		assert!(Elf::new(&bytes).unwrap().data_symbol(b"test").is_none());
+	}
+
+	// So are variables that overrun their section, and empty ones.
+	for size in [0xf1_usize, 0] {
+		let mut bytes = data_fixture();
+		bytes[336..344].copy_from_slice(&size.to_le_bytes());
+		assert!(Elf::new(&bytes).unwrap().data_symbol(b"test").is_none());
+	}
+
+	// And duplicate definitions.
+	let mut bytes = data_fixture();
+	let duplicate = bytes[320..344].to_vec();
+	bytes[344..368].copy_from_slice(&duplicate);
+	bytes[224..232].copy_from_slice(&48_usize.to_le_bytes());
+	assert!(Elf::new(&bytes).unwrap().data_symbol(b"test").is_none());
+}

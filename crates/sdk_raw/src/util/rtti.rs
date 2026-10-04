@@ -231,6 +231,17 @@ impl Image {
 
 	#[cfg(any(target_os = "windows", test))]
 	fn msvc(&self, class: &str, slot: usize) -> Vec<usize> {
+		self.msvc_tables(class, slot)
+			.into_iter()
+			.filter_map(|(offset, table)| (offset == 0).then_some(table))
+			.collect()
+	}
+
+	/// Every MSVC x64 vtable of `class` with an executable entry at `slot`,
+	/// sorted, with the offset in the complete object of the subobject each
+	/// table belongs to.
+	#[cfg(any(target_os = "windows", test))]
+	fn msvc_tables(&self, class: &str, slot: usize) -> Vec<(usize, usize)> {
 		let mut tables = Vec::new();
 
 		for name in self.matches(format!(".?AV{class}@@\0").as_bytes(), 1) {
@@ -257,10 +268,9 @@ impl Image {
 					continue;
 				};
 
-				// MSVC x64 complete-object locator: signature=1, primary
-				// subobject offset=0, no construction displacement, self RVA.
+				// MSVC x64 complete-object locator: signature=1, no construction
+				// displacement, self RVA. Its offset is the subobject's.
 				if located.signature != CompleteObjectLocator::SIGNATURE
-					|| located.offset != 0
 					|| located.constructor_displacement != 0
 					|| self.base.checked_add(located.this as usize) != Some(locator)
 				{
@@ -272,7 +282,7 @@ impl Image {
 						continue;
 					};
 					if self.valid_table(table, slot) {
-						tables.push(table);
+						tables.push((located.offset as usize, table));
 					}
 				}
 			}
@@ -340,6 +350,26 @@ impl Image {
 		// another plugin may have hooked the slot first. RTTI still identifies
 		// the original table. Do not require its function to be inside the image.
 		self.executable(function) || is_executable(function)
+	}
+
+	/// Finds every vtable of a global, unqualified C++ class name through MSVC
+	/// x64 RTTI, primary and secondary, each with the offset in the complete
+	/// object of the subobject whose vtable pointer holds it: 0 for the primary
+	/// table, and a base's offset for each table of a base that does not start
+	/// the object. Tables lacking an executable entry at `slot` are skipped. An
+	/// entry may point to a hook trampoline outside this image.
+	///
+	/// The result is sorted by offset, then address. Several tables at one
+	/// offset are ambiguous, which callers must reject. As for
+	/// [`Self::primary_vtable`], the addresses are snapshot metadata only.
+	#[cfg(target_os = "windows")]
+	#[cfg_attr(docsrs, doc(cfg(target_os = "windows")))]
+	pub fn vtables(&self, class: &str, slot: usize) -> Vec<(usize, usize)> {
+		if self.base == 0 || class.is_empty() || class.as_bytes().contains(&0) {
+			return Vec::new();
+		}
+
+		self.msvc_tables(class, slot)
 	}
 }
 

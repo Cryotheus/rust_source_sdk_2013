@@ -10,7 +10,7 @@ mod tests;
 
 use super::{Addresses, ITEM_GENERATION_GETTER, ITEM_GENERATION_GETTER_OPERAND, SINGLETON_LEN};
 use crate::sig;
-use crate::util::{Image, SignaturePattern, pattern, relative};
+use crate::util::{Image, SignaturePattern, exact_u32, is_exact, pattern, relative};
 use std::mem::offset_of;
 use std::num::NonZeroUsize;
 
@@ -102,33 +102,6 @@ const SPAWN_ITEM_TAIL: &[SignaturePattern] = &sig![0x48 0x8b 0x03 0x48 0x8b 0xcb
 
 /// Where [`SPAWN_ITEM_TAIL`] starts in `SpawnItem`.
 const SPAWN_ITEM_TAIL_OFFSET: usize = 0xc1;
-
-/// The little-endian `u32` that `signature` matches exactly at `at`, or `None`
-/// if any of its bytes is a wildcard or past the end.
-const fn exact_u32(signature: &[SignaturePattern], at: usize) -> Option<u32> {
-	let mut bytes = [0; 4];
-	let mut index = 0;
-
-	while index < bytes.len() {
-		match at.checked_add(index) {
-			Some(position) if position < signature.len() => match signature[position] {
-				SignaturePattern::Exact(byte) => bytes[index] = byte,
-				SignaturePattern::Any => return None,
-			},
-
-			_ => return None,
-		}
-
-		index += 1;
-	}
-
-	Some(u32::from_le_bytes(bytes))
-}
-
-/// Whether `signature` matches exactly `byte` at `at`.
-const fn is_exact(signature: &[SignaturePattern], at: usize, byte: u8) -> bool {
-	at < signature.len() && matches!(signature[at], SignaturePattern::Exact(found) if found == byte)
-}
 
 /// Resolves the item generation functions in the module containing `address`.
 ///
