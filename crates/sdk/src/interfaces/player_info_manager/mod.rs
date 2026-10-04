@@ -2,7 +2,9 @@
 
 use crate::NotThreadSafe;
 use crate::edicts::Edict;
+use crate::math::{QAngle, Vector};
 use crate::players::UserId;
+use sdk_raw::interfaces::player_info_manager as raw;
 use sdk_raw::util::cstr::copy_cstr;
 use sdk_raw::vcall;
 use std::ffi::{CString, c_int};
@@ -96,9 +98,59 @@ pub struct PlayerInfo<'s> {
 }
 
 impl<'s> PlayerInfo<'s> {
+	/// The angles of the player's entity.
+	#[doc(alias("GetAbsAngles"))]
+	pub fn abs_angles(self) -> QAngle {
+		// SAFETY: As for `name`.
+		unsafe { raw::abs_angles(self.as_ptr()) }.into()
+	}
+
+	/// The origin of the player's entity.
+	#[doc(alias("GetAbsOrigin"))]
+	pub fn abs_origin(self) -> Vector {
+		// SAFETY: As for `name`.
+		unsafe { raw::abs_origin(self.as_ptr()) }.into()
+	}
+
+	/// The player's armor, which TF2's players do not have.
+	#[doc(alias("GetArmorValue", "ArmorValue", "m_ArmorValue"))]
+	pub fn armor(self) -> c_int {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetArmorValue()) }
+	}
+
 	/// Returns the native pointer for low-level interop.
 	pub const fn as_ptr(self) -> *mut sys::IPlayerInfo {
 		self.raw.as_ptr()
+	}
+
+	/// The player's death count (`m_iDeaths`).
+	#[doc(alias("GetDeathCount", "DeathCount", "m_iDeaths"))]
+	pub fn death_count(self) -> c_int {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetDeathCount()) }
+	}
+
+	/// The player's frag count (`m_iFrags`).
+	#[doc(alias("GetFragCount", "FragCount", "m_iFrags"))]
+	pub fn frag_count(self) -> c_int {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetFragCount()) }
+	}
+
+	/// The player's health, as
+	/// [`Entity::health`](crate::entities::Entity::health) reads it.
+	#[doc(alias("GetHealth"))]
+	pub fn health(self) -> c_int {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetHealth()) }
+	}
+
+	/// Whether the player's client is connected.
+	#[doc(alias("IsConnected"))]
+	pub fn is_connected(self) -> bool {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsConnected()) }
 	}
 
 	/// Whether the player is dead, which the game decides by its life state
@@ -116,6 +168,62 @@ impl<'s> PlayerInfo<'s> {
 		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsFakeClient()) }
 	}
 
+	/// Whether the player is SourceTV's.
+	#[doc(alias("IsHLTV"))]
+	pub fn is_hltv(self) -> bool {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsHLTV()) }
+	}
+
+	/// Whether the player is in a vehicle, which TF2 has none of.
+	#[doc(alias("IsInAVehicle"))]
+	pub fn is_in_vehicle(self) -> bool {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsInAVehicle()) }
+	}
+
+	/// Whether the player is observing, as spectators and dead players do.
+	#[doc(alias("IsObserver"))]
+	pub fn is_observer(self) -> bool {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsObserver()) }
+	}
+
+	/// Whether the player's entity reports itself as a player.
+	#[doc(alias("IsPlayer"))]
+	pub fn is_player(self) -> bool {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsPlayer()) }
+	}
+
+	/// Whether the player is the replay system's. Only TF2 reports one;
+	/// other games' game DLLs always answer `false`.
+	#[doc(alias("IsReplay"))]
+	pub fn is_replay(self) -> bool {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_IsReplay()) }
+	}
+
+	/// The player's maximum health, as the game's `GetMaxHealth` computes
+	/// it, which TF2's players compute from their class and attributes.
+	///
+	/// Unlike [`Entity::max_health`](crate::entities::Entity::max_health),
+	/// this calls through an interface every game shares.
+	#[doc(alias("GetMaxHealth"))]
+	pub fn max_health(self) -> c_int {
+		// SAFETY: As for `name`.
+		unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetMaxHealth()) }
+	}
+
+	/// The path of the player's model, such as
+	/// `models/player/scout.mdl`.
+	#[doc(alias("GetModelName"))]
+	pub fn model_name(self) -> Option<CString> {
+		// SAFETY: As for `name`. Model names are pooled strings, copied
+		// immediately.
+		unsafe { copy_cstr(vcall!(self.as_ptr() => IPlayerInfo_GetModelName())) }
+	}
+
 	/// The player's name.
 	#[doc(alias("GetName"))]
 	pub fn name(self) -> Option<CString> {
@@ -129,6 +237,22 @@ impl<'s> PlayerInfo<'s> {
 	pub fn network_id(self) -> Option<CString> {
 		// SAFETY: As for `name`.
 		unsafe { copy_cstr(vcall!(self.as_ptr() => IPlayerInfo_GetNetworkIDString())) }
+	}
+
+	/// The largest corner of the player's collision bounds, relative to its
+	/// origin, which depends on whether it is ducking or observing.
+	#[doc(alias("GetPlayerMaxs"))]
+	pub fn player_maxs(self) -> Vector {
+		// SAFETY: As for `name`.
+		unsafe { raw::player_maxs(self.as_ptr()) }.into()
+	}
+
+	/// The smallest corner of the player's collision bounds, relative to its
+	/// origin, which depends on whether it is ducking or observing.
+	#[doc(alias("GetPlayerMins"))]
+	pub fn player_mins(self) -> Vector {
+		// SAFETY: As for `name`.
+		unsafe { raw::player_mins(self.as_ptr()) }.into()
 	}
 
 	/// The index of the player's team.
@@ -146,6 +270,14 @@ impl<'s> PlayerInfo<'s> {
 	pub fn user_id(self) -> Option<UserId> {
 		// SAFETY: As for `name`.
 		UserId::from_raw(unsafe { vcall!(self.as_ptr() => IPlayerInfo_GetUserID()) }).ok()
+	}
+
+	/// The class name of the player's active weapon, such as
+	/// `tf_weapon_scattergun`, or `None` if it has none.
+	#[doc(alias("GetWeaponName"))]
+	pub fn weapon_name(self) -> Option<CString> {
+		// SAFETY: As for `name`. The name is copied immediately.
+		unsafe { copy_cstr(vcall!(self.as_ptr() => IPlayerInfo_GetWeaponName())) }
 	}
 }
 

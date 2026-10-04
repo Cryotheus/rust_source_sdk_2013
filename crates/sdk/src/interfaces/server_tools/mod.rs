@@ -5,6 +5,7 @@
 mod tests;
 
 use crate::NotThreadSafe;
+use crate::entities::health::HealthInput;
 use crate::entities::{Entity, EntityHandle, HammerId, ProtectedEntity, TeleportError};
 use crate::inputs::{self, InputError, InputValue};
 use crate::math::{QAngle, Vector};
@@ -125,8 +126,9 @@ impl<'s> ServerTools<'s> {
 	/// A handler runs arbitrary game code, including map outputs, VScript
 	/// hooks, and other plugins' hooks, which condition 4 of
 	/// [`Server::new`](crate::Server::new) covers. Some inputs are known to
-	/// break that condition, or to crash the server, whatever the map does,
-	/// and are refused; send them with [`Self::accept_input_unchecked`]:
+	/// break that condition, or to crash the server or its clients, whatever
+	/// the map does, and are refused; send them with
+	/// [`Self::accept_input_unchecked`]:
 	///
 	/// - [`InputError::FreesEntities`]: inputs that run code the caller
 	///   chooses or spawn entities from templates (`RunScriptCode`,
@@ -139,6 +141,19 @@ impl<'s> ServerTools<'s> {
 	/// - [`InputError::UncheckedLookup`]: inputs that use a lookup of their
 	///   value unchecked, such as TF2's `SpeakResponseConcept`, which reads out
 	///   of bounds for a concept name the game does not know.
+	/// - [`InputError::InvalidMaxHealth`]: `SetHealth` on one of TF2's
+	///   buildings, which sets its maximum health too, and `AddOutput` with
+	///   the `max_health` key, with a value of 0 or less, which game code on
+	///   the server and on clients divides integers by, or that TF2 cannot
+	///   convert back from a building's float health.
+	/// - [`InputError::InvalidKeyValue`]: `AddOutput` with the other key
+	///   values [`Self::set_key_value`] refuses, such as a team number the
+	///   game indexes an array with unchecked.
+	/// - [`InputError::InvalidTeam`]: `SetTeam` on an entity other than a
+	///   player, whose `ChangeTeam` checks the team itself, with a team
+	///   outside 0 to 3, which the game indexes per-team arrays with
+	///   unchecked, and any `SetTeam` on a team entity, which clients look up
+	///   by its team number.
 	/// - [`InputError::ProtectedEntity`]: `Kill` and `KillHierarchy` on the
 	///   world, a player, or a soundscape, which [`Self::remove`] refuses too.
 	///
@@ -433,6 +448,35 @@ impl<'s> ServerTools<'s> {
 		Ok(())
 	}
 
+	/// Sends one of the inputs through which maps change an entity's health,
+	/// with [`Self::accept_input`], which runs the game logic of the entity's
+	/// class, such as breaking a `func_breakable` or killing a player, before
+	/// returning.
+	///
+	/// The [health module](crate::entities::health#setting-health) lists the
+	/// classes that declare these inputs and what each does, and compares
+	/// them with [`Entity::set_health`], which runs no game logic. Entities
+	/// of other classes refuse them with [`InputError::UnknownInput`], and
+	/// [`InputError::InvalidMaxHealth`] refuses [`HealthInput::Set`] with a
+	/// maximum health TF2's buildings cannot have, as [`Self::accept_input`]
+	/// describes.
+	#[doc(alias("SetHealth", "AddHealth", "RemoveHealth", "SetMaxHealth"))]
+	pub fn send_health_input(
+		self,
+		target: Entity<'_>,
+		input: HealthInput,
+		activator: Entity<'_>,
+		caller: Entity<'_>,
+	) -> Result<(), InputError> {
+		self.accept_input(
+			target,
+			input.name(),
+			InputValue::Int(input.amount()),
+			activator,
+			caller,
+		)
+	}
+
 	/// Converts `value` for a checked input, pooling a string the input may
 	/// keep, and sends it through `AcceptInput`. Fails with
 	/// [`InputError::NotPooled`] if such a string could not be pooled, or
@@ -462,12 +506,62 @@ impl<'s> ServerTools<'s> {
 	}
 
 	/// Sets one of an entity's key values, as a map's entity lump does before
-	/// the entity spawns. Returns whether the entity knew the key.
+	/// the entity spawns. Returns whether the game set it: `false` if the
+	/// entity does not know the key, or if the value is refused, as below.
 	///
 	/// The key and value are copied first, since the game writes into keys
-	/// containing `#`.
+	/// containing `#`: it ignores the key from its first `#`.
+	///
+	/// # Refused values
+	///
+	/// Values known to crash the server or its clients, or to corrupt their
+	/// memory, are not set, and `false` is returned. [`Self::accept_input`]
+	/// refuses the `AddOutput` input, which sets a key value too, for the same
+	/// values, with [`InputError::InvalidMaxHealth`] for `max_health` and
+	/// [`InputError::InvalidKeyValue`] for the others.
+	///
+	/// Keys are compared as the game compares them: ignoring ASCII case, and
+	/// what follows their first `#`, except for the keys of per-team data
+	/// below, which their classes compare as given. Values are read with
+	/// `atoi`, so one beyond `int`'s range, for which `atoi` is undefined, is
+	/// refused for each key listed. Team numbers must lie within 0 to 3, the
+	/// teams of TF2 and of Source SDK 2013's templates, which the game indexes
+	/// its per-team arrays with unchecked; that excludes TF2's Halloween team,
+	/// 5.
+	///
+	/// - `max_health`: 0 or less, which game code divides integers by, such as
+	///   TF2's Horseless Headless Horsemann on the server. On one of TF2's
+	///   buildings, also a value that rounds to 2^31 as a float, which TF2
+	///   cannot convert back from the building's float health.
+	/// - `teamnumber`: an invalid team number. On a player, every value, since
+	///   it would stay in its old team's list of players, which keeps pointing
+	///   to it once it is freed. On a team entity, every value, since clients
+	///   look teams up by their number without checking that they are found.
+	/// - On a `team_control_point` (`CTeamControlPoint`): `point_index`
+	///   outside 0 to 7, `point_default_owner` an invalid team number, and
+	///   the keys `team_capsound_<team>`, `team_model_`, `team_timedpoints_`,
+	///   `team_bodygroup_`, `team_icon_` and `team_overlay_` with an invalid
+	///   team number, which the entity writes past its per-team data during the
+	///   call. `team_previouspoint_<team>_<index>` is read with `sscanf`, which
+	///   leaves the team uninitialized if it is missing, and also needs an
+	///   index within 0 to 2, or none.
+	/// - On a `trigger_capture_area` (`CTriggerAreaCapture`): the keys
+	///   `team_numcap_<team>`, `team_cancap_`, `team_spawn_` and
+	///   `team_startcap_`, with an invalid team number.
+	/// - On a `team_control_point_master` (`CTeamControlPointMaster`):
+	///   `team_base_icon_<team>` with a team outside 0 to 31.
+	/// - On TF2's `tf_robot_destruction_robot_spawn`: `type` outside 0 to 2.
+	///
+	/// Other key values may still break the game, such as `hitboxset`, which
+	/// the server and clients index the hitbox sets of the entity's model
+	/// with, unchecked, and which is not refused, since the number of sets
+	/// depends on the model.
 	#[doc(alias("SetKeyValue"))]
 	pub fn set_key_value(self, entity: Entity<'_>, key: &CStr, value: &CStr) -> bool {
+		if inputs::check_key_value(entity, key, value).is_err() {
+			return false;
+		}
+
 		let key = key.to_owned();
 		let value = value.to_owned();
 

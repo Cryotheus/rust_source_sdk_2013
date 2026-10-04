@@ -2,8 +2,10 @@
 //! the fields its data description map declares.
 
 use super::leak;
+use sdk_raw::players::LIFE_ALIVE;
 use sdk_raw::test_support::entities::field;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
+use std::alloc::{Layout, alloc_zeroed, handle_alloc_error};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString, c_char, c_int};
 use std::mem::offset_of;
@@ -18,8 +20,24 @@ const MOCK_HAMMER_ID_OFFSET: usize = 56;
 /// Where mock entities store the handle `GetRefEHandle` points to.
 const MOCK_HANDLE_OFFSET: usize = 40;
 
+/// Where mock entities store `m_iHealth`, as [`health_fields`] declares.
+pub const MOCK_HEALTH_OFFSET: usize = 64;
+
+/// Where mock entities store `m_lifeState`, as [`health_fields`] declares.
+pub const MOCK_LIFE_STATE_OFFSET: usize = 72;
+
+/// What mock entities' `GetMaxHealth` adds to their `m_iMaxHealth`, as TF2's
+/// players add their attributes' bonuses to their class's maximum.
+pub const MOCK_MAX_HEALTH_BONUS: c_int = 25;
+
+/// Where mock entities store `m_iMaxHealth`, as [`health_fields`] declares.
+pub const MOCK_MAX_HEALTH_OFFSET: usize = 68;
+
 /// Where mock entities store `m_iName`, as their datamap declares.
 pub const MOCK_NAME_OFFSET: usize = 48;
+
+/// Where mock entities store `m_takedamage`, as [`health_fields`] declares.
+pub const MOCK_TAKE_DAMAGE_OFFSET: usize = 73;
 
 /// An input a mock entity's `AcceptInput` received.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,26 +71,38 @@ thread_local! {
 	static NETWORKABLE: Cell<*mut sys::IServerNetworkable> = const { Cell::new(null_mut()) };
 	static ORIGIN: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: 1.0, y: 2.0, z: 3.0 }) };
 	static SERVER_CLASS: Cell<*mut sys::ServerClass> = const { Cell::new(null_mut()) };
+	static TAKE_HEALTH_CALLS: RefCell<Vec<(f32, c_int)>> = const { RefCell::new(Vec::new()) };
 	static TELEPORTS: Cell<usize> = const { Cell::new(0) };
 }
 
-/// An entity with a class name, origin, datamap, handle, and TF2 `Teleport`,
-/// whose teleports are counted by [`teleports`].
+/// An entity with a class name, origin, datamap, handle, TF2 `Teleport`,
+/// whose teleports are counted by [`teleports`], and health methods, whose
+/// `TakeHealth` calls [`take_health_calls`] records.
 ///
 /// For tests only. Its allocations are leaked, and only reached through raw
 /// pointers, like the engine's objects.
 pub struct MockEntity {
-	storage: *mut [usize; 64],
+	storage: *mut usize,
 }
 
 impl MockEntity {
 	/// Builds an entity whose handle is `handle`, and resets the datamap,
-	/// origin, teleport count, server class, and edict that mock entities on
-	/// this thread report.
+	/// origin, teleport count, `TakeHealth` calls, server class, and edict
+	/// that mock entities on this thread report.
 	pub fn new(handle: u32) -> Self {
+		Self::with_layout(handle, Layout::new::<[usize; 64]>())
+	}
+
+	/// Builds an entity as [`new`](Self::new) does, in zeroed storage of
+	/// `layout`, such as that of a class whose generated members a wrapper
+	/// writes, padded to at least the 64 words a mock entity uses.
+	pub fn with_layout(handle: u32, layout: Layout) -> Self {
 		let slot_count = sdk_raw::entities::TF2_TELEPORT_SLOT
 			.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
 			.max(sdk_raw::entities::ACCEPT_INPUT_SLOT)
+			.max(sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT)
+			.max(sdk_raw::entities::health::TAKE_HEALTH_SLOT)
+			.max(sdk_raw::entities::health::IS_ALIVE_SLOT)
 			+ 1;
 		let mut vtable = vec![unexpected_call as *const (); slot_count];
 		let slot = |field: usize| field / size_of::<usize>();
@@ -92,13 +122,29 @@ impl MockEntity {
 		vtable[sdk_raw::entities::TF2_TELEPORT_SLOT] = teleport_entity as *const ();
 		vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = get_datamap as *const ();
 		vtable[sdk_raw::entities::ACCEPT_INPUT_SLOT] = accept_input as *const ();
+		vtable[sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT] = get_max_health as *const ();
+		vtable[sdk_raw::entities::health::TAKE_HEALTH_SLOT] = take_health as *const ();
+		vtable[sdk_raw::entities::health::IS_ALIVE_SLOT] = is_alive as *const ();
 
-		let storage = leak([0usize; 64]);
+		let layout = Layout::from_size_align(
+			layout.size().max(size_of::<[usize; 64]>()),
+			layout.align().max(align_of::<usize>()),
+		)
+		.unwrap();
+
+		// SAFETY: The layout is at least 64 words long.
+		let storage = unsafe { alloc_zeroed(layout) }.cast::<usize>();
+
+		if storage.is_null() {
+			handle_alloc_error(layout);
+		}
+
 		let vtable = vtable.leak();
 
-		// SAFETY: The storage is a leaked allocation of 64 words, which holds
-		// the vtable pointer at its start and the handle at its offset. The
-		// vtable is written as a pointer, so it keeps its provenance.
+		// SAFETY: The storage is a leaked allocation of at least 64 words,
+		// which holds the vtable pointer at its start and the handle at its
+		// offset. The vtable is written as a pointer, so it keeps its
+		// provenance.
 		unsafe {
 			storage.cast::<*const *const ()>().write(vtable.as_ptr());
 			storage
@@ -149,6 +195,7 @@ impl MockEntity {
 			z: 3.0,
 		});
 		TELEPORTS.set(0);
+		TAKE_HEALTH_CALLS.take();
 		set_networking(null_mut(), null_mut());
 
 		Self { storage }
@@ -157,6 +204,18 @@ impl MockEntity {
 	/// The entity's address, as the game would pass it.
 	pub fn as_ptr(&mut self) -> *mut sys::CBaseEntity {
 		self.storage.cast()
+	}
+
+	/// Reads the byte at `offset` into the entity.
+	///
+	/// # Panics
+	///
+	/// If `offset` lies beyond the 64 words every mock entity has.
+	pub fn byte(&mut self, offset: usize) -> u8 {
+		assert!(offset < size_of::<[usize; 64]>());
+
+		// SAFETY: The storage holds at least 64 words.
+		unsafe { self.as_ptr().byte_add(offset).cast::<u8>().read() }
 	}
 
 	/// A handle to the entity, bound to this borrow of the mock.
@@ -169,6 +228,21 @@ impl MockEntity {
 		unsafe { crate::entities::Entity::from_raw(entity) }
 	}
 
+	/// Reads the `int` at `offset` into the entity.
+	///
+	/// # Panics
+	///
+	/// As for [`byte`](Self::byte), or if `offset` is not aligned for an
+	/// `int`.
+	pub fn int(&mut self, offset: usize) -> c_int {
+		assert!(offset + size_of::<c_int>() <= size_of::<[usize; 64]>());
+		assert!(offset.is_multiple_of(align_of::<c_int>()));
+
+		// SAFETY: The storage holds at least 64 words, and the place is
+		// aligned.
+		unsafe { self.as_ptr().byte_add(offset).cast::<c_int>().read() }
+	}
+
 	/// Reads the entity's `m_iName`.
 	pub fn name(&mut self) -> sys::string_t {
 		// SAFETY: The storage holds the name at its offset, within its 64
@@ -179,6 +253,18 @@ impl MockEntity {
 				.cast::<sys::string_t>()
 				.read()
 		}
+	}
+
+	/// Writes the byte at `offset` into the entity.
+	///
+	/// # Panics
+	///
+	/// As for [`byte`](Self::byte).
+	pub fn set_byte(&mut self, offset: usize, value: u8) {
+		assert!(offset < size_of::<[usize; 64]>());
+
+		// SAFETY: As for `byte`.
+		unsafe { self.as_ptr().byte_add(offset).cast::<u8>().write(value) };
 	}
 
 	/// Writes the entity's `m_iEFlags`.
@@ -202,6 +288,19 @@ impl MockEntity {
 				.cast::<c_int>()
 				.write(id)
 		};
+	}
+
+	/// Writes the `int` at `offset` into the entity.
+	///
+	/// # Panics
+	///
+	/// As for [`int`](Self::int).
+	pub fn set_int(&mut self, offset: usize, value: c_int) {
+		assert!(offset + size_of::<c_int>() <= size_of::<[usize; 64]>());
+		assert!(offset.is_multiple_of(align_of::<c_int>()));
+
+		// SAFETY: As for `int`.
+		unsafe { self.as_ptr().byte_add(offset).cast::<c_int>().write(value) };
 	}
 
 	/// Writes the entity's `m_iName`.
@@ -311,6 +410,15 @@ unsafe extern "C" fn get_handle(this: *const sys::IServerEntity) -> *const sys::
 	unsafe { this.byte_add(MOCK_HANDLE_OFFSET).cast() }
 }
 
+/// TF2's `CBaseEntity::GetMaxHealth`, which adds [`MOCK_MAX_HEALTH_BONUS`] to
+/// the mock entity's `m_iMaxHealth`, as TF2's players compute theirs.
+unsafe extern "C" fn get_max_health(this: *const sys::CBaseEntity) -> c_int {
+	// SAFETY: Every mock entity stores `m_iMaxHealth` at its offset.
+	let stored = unsafe { this.byte_add(MOCK_MAX_HEALTH_OFFSET).cast::<c_int>().read() };
+
+	stored + MOCK_MAX_HEALTH_BONUS
+}
+
 unsafe extern "C" fn get_networkable(_: *mut sys::IServerEntity) -> *mut sys::IServerNetworkable {
 	NETWORKABLE.get()
 }
@@ -321,6 +429,54 @@ unsafe extern "C" fn get_origin(_: *const sys::ICollideable) -> *const sys::Vect
 
 unsafe extern "C" fn get_server_class(_: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
 	SERVER_CLASS.get()
+}
+
+/// The fields of `CBaseEntity`'s map holding health that mock entities store:
+/// `m_iHealth`, `m_iMaxHealth`, `m_lifeState` and `m_takedamage`.
+///
+/// For tests only. They are kept apart from [`base_entity_fields`], since
+/// some wrappers check that a datamap declares `m_lifeState`.
+pub fn health_fields() -> [sys::typedescription_t; 4] {
+	let member = |name, field_type, offset, size: usize| {
+		let mut member = field(name, field_type, offset);
+
+		member.fieldSizeInBytes = c_int::try_from(size).unwrap();
+		member
+	};
+
+	[
+		member(
+			c"m_iHealth",
+			sys::_fieldtypes_FIELD_INTEGER,
+			MOCK_HEALTH_OFFSET,
+			size_of::<c_int>(),
+		),
+		member(
+			c"m_iMaxHealth",
+			sys::_fieldtypes_FIELD_INTEGER,
+			MOCK_MAX_HEALTH_OFFSET,
+			size_of::<c_int>(),
+		),
+		member(
+			c"m_lifeState",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			MOCK_LIFE_STATE_OFFSET,
+			1,
+		),
+		member(
+			c"m_takedamage",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			MOCK_TAKE_DAMAGE_OFFSET,
+			1,
+		),
+	]
+}
+
+/// `CBaseEntity::IsAlive`, which tells whether the mock entity's
+/// `m_lifeState` is `LIFE_ALIVE`, as the game's does.
+unsafe extern "C" fn is_alive(this: *mut sys::CBaseEntity) -> bool {
+	// SAFETY: Every mock entity stores `m_lifeState` at its offset.
+	unsafe { this.byte_add(MOCK_LIFE_STATE_OFFSET).cast::<u8>().read() == LIFE_ALIVE }
 }
 
 /// Sets what mock entities' `AcceptInput` returns on this thread.
@@ -344,6 +500,36 @@ pub fn set_datamap(map: *mut sys::datamap_t) {
 pub fn set_networking(class: *mut sys::ServerClass, edict: *mut sys::edict_t) {
 	SERVER_CLASS.set(class);
 	EDICT.set(edict);
+}
+
+/// `CBaseEntity::TakeHealth`, which records its arguments for
+/// [`take_health_calls`], and adds the healing to the mock entity's
+/// `m_iHealth`, truncated, without a maximum, returning what it added.
+unsafe extern "C" fn take_health(
+	this: *mut sys::CBaseEntity,
+	amount: f32,
+	damage_type: c_int,
+) -> c_int {
+	TAKE_HEALTH_CALLS.with_borrow_mut(|calls| calls.push((amount, damage_type)));
+
+	let gained = amount as c_int;
+
+	// SAFETY: Every mock entity stores `m_iHealth` at its offset.
+	unsafe {
+		let health = this.byte_add(MOCK_HEALTH_OFFSET).cast::<c_int>();
+
+		health.write(health.read() + gained);
+	}
+
+	gained
+}
+
+/// The amount and `DMG_*` mask of each call of mock entities' `TakeHealth`
+/// on this thread since the last [`MockEntity::new`].
+///
+/// For tests only.
+pub fn take_health_calls() -> Vec<(f32, c_int)> {
+	TAKE_HEALTH_CALLS.with_borrow(Clone::clone)
 }
 
 /// Takes the inputs mock entities received on this thread.

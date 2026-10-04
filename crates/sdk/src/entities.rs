@@ -3,7 +3,10 @@
 //! [`ServerTools`](crate::interfaces::ServerTools) finds entities, including
 //! server-only ones. Properties use the native entity interfaces instead of
 //! key values, and networked variables are reached through
-//! [`NetProp`](crate::datatables::NetProp).
+//! [`NetProp`](crate::datatables::NetProp). Health, life state and damage
+//! modes are in [`health`].
+
+pub mod health;
 
 #[cfg(test)]
 #[path = "tests/entities.rs"]
@@ -177,10 +180,6 @@ impl<'s> Entity<'s> {
 
 	/// Whether a data description map of the entity's class or one of its
 	/// bases is named `class`, such as `CTFPlayer`.
-	#[cfg_attr(
-		not(feature = "tf2"),
-		expect(dead_code, reason = "only the tf2 module checks classes so far")
-	)]
 	pub(crate) fn has_data_map_class(self, class: &CStr) -> bool {
 		self.data_maps().any(|map| map.class_name() == Some(class))
 	}

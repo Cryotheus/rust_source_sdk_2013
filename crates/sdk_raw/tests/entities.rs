@@ -5,8 +5,8 @@ use source_sdk_2013_raw::entities::datamap::{DataMap, DataMaps, FTYPEDESC_KEY, T
 use source_sdk_2013_raw::entities::{
 	ACCEPT_INPUT_SLOT, BASE_ENTITY_FIELD_OFFSET_LIMIT, ENT_ENTRY_MASK, GET_DATA_DESC_MAP_SLOT,
 	INVALID_NETWORKED_EHANDLE_VALUE, NUM_ENT_ENTRIES, NUM_SERIAL_NUM_SHIFT_BITS,
-	SDK2013_TELEPORT_SLOT, TF2_TELEPORT_SLOT, TeleportSlot, accept_input, data_desc_map,
-	find_base_entity_field, teleport,
+	SDK2013_NEXT_BOT_TELEPORT_SLOT, SDK2013_TELEPORT_SLOT, TF2_TELEPORT_SLOT, TeleportSlot,
+	accept_input, data_desc_map, find_base_entity_field, teleport,
 };
 use source_sdk_2013_raw::test_support::entities::{data_map, field};
 use source_sdk_2013_raw::test_support::unexpected_call;
@@ -145,7 +145,7 @@ struct FakeEntity {
 }
 
 thread_local! {
-	static CALLS: Cell<[usize; 3]> = const { Cell::new([0; 3]) };
+	static CALLS: Cell<[usize; 4]> = const { Cell::new([0; 4]) };
 }
 
 unsafe extern "C" fn accept(
@@ -240,9 +240,17 @@ fn calls_go_through_the_entitys_slots() {
 			};
 
 			teleport(entity, TeleportSlot::TeamFortress2, &origin, null(), null());
-			assert_eq!(CALLS.get(), [1, 0, 0]);
+			assert_eq!(CALLS.get(), [1, 0, 0, 0]);
 			teleport(entity, TeleportSlot::SourceSdk2013, null(), null(), null());
-			assert_eq!(CALLS.get(), [1, 1, 1]);
+			assert_eq!(CALLS.get(), [1, 1, 0, 1]);
+			teleport(
+				entity,
+				TeleportSlot::SourceSdk2013NextBot,
+				null(),
+				null(),
+				null(),
+			);
+			assert_eq!(CALLS.get(), [1, 1, 1, 2]);
 		}
 	});
 }
@@ -260,19 +268,19 @@ fn handle_values_follow_the_header() {
 	assert_eq!(INVALID_NETWORKED_EHANDLE_VALUE, 0x1F_FFFF);
 }
 
-unsafe extern "C" fn sdk2013_teleport(
+/// A `Teleport` at one of the Source SDK 2013 slots, counting its calls in
+/// `CALLS[KIND]`, and those without an origin in `CALLS[3]`.
+unsafe extern "C" fn sdk2013_teleport<const KIND: usize>(
 	_: *mut sys::CBaseEntity,
 	origin: *const sys::Vector,
 	_: *const sys::QAngle,
 	_: *const sys::Vector,
 ) {
-	let [tf2, sdk2013, null_origins] = CALLS.get();
+	let mut calls = CALLS.get();
 
-	CALLS.set([
-		tf2,
-		sdk2013 + 1,
-		null_origins + usize::from(origin.is_null()),
-	]);
+	calls[KIND] += 1;
+	calls[3] += usize::from(origin.is_null());
+	CALLS.set(calls);
 }
 
 unsafe extern "C" fn tf2_teleport(
@@ -284,26 +292,31 @@ unsafe extern "C" fn tf2_teleport(
 	// SAFETY: The test passes a local origin.
 	assert_eq!(unsafe { origin.read() }.z, 3.0);
 
-	let [tf2, sdk2013, null_origins] = CALLS.get();
+	let mut calls = CALLS.get();
 
-	CALLS.set([tf2 + 1, sdk2013, null_origins]);
+	calls[0] += 1;
+	CALLS.set(calls);
 }
 
 /// Calls `test` with an entity whose vtable has every slot these functions
 /// call.
 fn with_entity(test: impl FnOnce(*mut sys::CBaseEntity)) {
-	let mut vtable =
-		vec![unexpected_call as *const (); TF2_TELEPORT_SLOT.max(SDK2013_TELEPORT_SLOT) + 1];
+	let slot_count = TF2_TELEPORT_SLOT
+		.max(SDK2013_TELEPORT_SLOT)
+		.max(SDK2013_NEXT_BOT_TELEPORT_SLOT)
+		+ 1;
+	let mut vtable = vec![unexpected_call as *const (); slot_count];
 
 	vtable[ACCEPT_INPUT_SLOT] = accept as *const ();
 	vtable[GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 	vtable[TF2_TELEPORT_SLOT] = tf2_teleport as *const ();
-	vtable[SDK2013_TELEPORT_SLOT] = sdk2013_teleport as *const ();
+	vtable[SDK2013_TELEPORT_SLOT] = sdk2013_teleport::<1> as *const ();
+	vtable[SDK2013_NEXT_BOT_TELEPORT_SLOT] = sdk2013_teleport::<2> as *const ();
 
 	let mut entity = FakeEntity {
 		vtable: vtable.as_ptr(),
 	};
 
-	CALLS.set([0; 3]);
+	CALLS.set([0; 4]);
 	test((&raw mut entity).cast());
 }

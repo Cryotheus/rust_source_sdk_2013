@@ -605,3 +605,20 @@ bitflags::bitflags! {
 		const _ = !0;
 	}
 }
+
+impl DamageType {
+	/// For healing, TF2's `DMG_IGNORE_DEBUFFS`, the bits of [`Self::SLASH`]:
+	/// healing marked as exempt from TF2's healing debuffs, which
+	/// `CTFPlayer::TakeHealth` no longer checks. It is no flag of its own, so
+	/// formatting a mask names it `SLASH`.
+	#[doc(alias("DMG_IGNORE_DEBUFFS"))]
+	pub const IGNORE_DEBUFFS: Self = Self::from_bits_retain(damage::DMG_IGNORE_DEBUFFS as u32);
+
+	/// For healing, TF2's `DMG_IGNORE_MAXHEALTH`, the bits of
+	/// [`Self::BULLET`]: healing a player beyond its maximum health, as
+	/// overheal does, through
+	/// [`Entity::take_health`](crate::entities::Entity::take_health). It is no
+	/// flag of its own, so formatting a mask names it `BULLET`.
+	#[doc(alias("DMG_IGNORE_MAXHEALTH"))]
+	pub const IGNORE_MAX_HEALTH: Self = Self::from_bits_retain(damage::DMG_IGNORE_MAXHEALTH as u32);
+}

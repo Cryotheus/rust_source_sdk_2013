@@ -23,6 +23,33 @@ pub unsafe extern "C" fn custom_proxy(
 	unsafe { (*out).__bindgen_anon_1.m_Int = data.cast::<c_int>().read() + 1 };
 }
 
+/// A server class named `class`, whose empty table named `table_name` derives
+/// from an empty table named `base_name` through its `baseclass` property.
+/// Its allocations are leaked.
+///
+/// For tests only.
+pub fn derived_server_class(
+	class: &'static CStr,
+	table_name: &'static CStr,
+	base_name: &'static CStr,
+) -> *mut sys::ServerClass {
+	let base = super::leak(table(base_name, &mut []));
+	let props = Box::leak(Box::new([table_prop(
+		c"baseclass",
+		0,
+		base,
+		Some(direct_table),
+	)]));
+
+	super::leak(sys::ServerClass {
+		m_pNetworkName: class.as_ptr(),
+		m_pTable: super::leak(table(table_name, props)),
+		m_pNext: std::ptr::null_mut(),
+		m_ClassID: 1,
+		m_InstanceBaselineIndex: 0,
+	})
+}
+
 /// A table proxy that passes the data through, like
 /// `SendProxy_DataTableToDataTable`.
 ///

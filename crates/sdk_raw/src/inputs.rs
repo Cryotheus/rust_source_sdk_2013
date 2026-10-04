@@ -5,6 +5,27 @@ use crate::entities::INVALID_EHANDLE_INDEX;
 use std::ffi::c_int;
 use std::mem::MaybeUninit;
 
+/// The size of the game's arrays of per-control-point data, such as
+/// `CBaseTeamObjectiveResource::m_iOwner`, which a `team_control_point`'s
+/// `point_index` key indexes.
+///
+/// This is `MAX_CONTROL_POINTS` from `game/shared/shareddefs.h`.
+pub const MAX_CONTROL_POINTS: c_int = 8;
+
+/// The size of a `team_control_point`'s arrays of previous points per team,
+/// which its `team_previouspoint_<team>_<index>` keys index.
+///
+/// This is `MAX_PREVIOUS_POINTS` from `game/shared/shareddefs.h`.
+pub const MAX_PREVIOUS_POINTS: c_int = 3;
+
+/// The number of TF2's robot types, the size of `g_RobotData`, which the
+/// `type` key of a `tf_robot_destruction_robot_spawn` indexes.
+///
+/// This is `NUM_ROBOT_TYPES` from `game/shared/tf/tf_robot_destruction_robot.h`.
+/// It is not behind the `tf2` feature, since whether the server runs TF2 is
+/// only known at run time.
+pub const NUM_ROBOT_TYPES: c_int = 3;
+
 /// A value for a `variant_t`, which [`Self::to_raw`] stores as the game's
 /// setters do.
 #[doc(alias("variant_t"))]

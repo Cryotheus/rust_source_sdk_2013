@@ -44,3 +44,9 @@ pub enum Error {
 	#[error("could not inspect executable image: {0}")]
 	Io(#[from] std::io::Error),
 }
+
+/// The size of the place `_place` points to, for compile-time assertions
+/// about the generated layouts.
+pub(crate) const fn pointee_size<T>(_place: *const T) -> usize {
+	size_of::<T>()
+}

@@ -20,14 +20,23 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 /// The game a server runs, which decides the ABI details that the SDK headers
-/// alone cannot describe, such as virtual methods added under `TF_DLL`.
+/// alone cannot describe, such as virtual methods added under `TF_DLL` and
+/// `NEXT_BOT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Game {
-	/// Team Fortress 2, whose game DLL is built with `TF_DLL`.
+	/// Team Fortress 2, whose game DLL is built with `TF_DLL` and `NEXT_BOT`.
 	TeamFortress2,
 
-	/// A Source SDK 2013 mod built without game-specific virtual methods.
+	/// A Source SDK 2013 mod whose game DLL is built with neither `TF_DLL` nor
+	/// `NEXT_BOT`, as `server_hl2.vpc`, `server_episodic.vpc`, and
+	/// `server_lostcoast.vpc` build it. A mod built from `server_hl2mp.vpc`,
+	/// which defines `NEXT_BOT`, is [`Game::SourceSdk2013NextBot`].
 	SourceSdk2013,
+
+	/// A Source SDK 2013 mod whose game DLL is built with `NEXT_BOT` but not
+	/// `TF_DLL`, as `server_hl2mp.vpc` builds Half-Life 2: Deathmatch and the
+	/// mods based on it.
+	SourceSdk2013NextBot,
 }
 
 impl Game {
@@ -36,6 +45,7 @@ impl Game {
 		match self {
 			Self::TeamFortress2 => TeleportSlot::TeamFortress2,
 			Self::SourceSdk2013 => TeleportSlot::SourceSdk2013,
+			Self::SourceSdk2013NextBot => TeleportSlot::SourceSdk2013NextBot,
 		}
 	}
 }

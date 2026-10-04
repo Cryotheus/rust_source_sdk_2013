@@ -2,6 +2,7 @@
 //! clients the engine hosts and their players, which the generated bindings
 //! omit.
 
+use crate::util::pointee_size;
 use std::ffi::c_int;
 use std::mem::MaybeUninit;
 
@@ -40,6 +41,12 @@ pub const LIFE_ALIVE: u8 = 0;
 /// This is `LIFE_DEAD` from `public/const.h`.
 pub const LIFE_DEAD: u8 = 2;
 
+/// The `m_lifeState` of a dead entity whose body is to be discarded, which no
+/// game code assigns.
+///
+/// This is `LIFE_DISCARDBODY` from `public/const.h`.
+pub const LIFE_DISCARDBODY: u8 = 4;
+
 /// The `m_lifeState` of an entity still playing its death animation, or
 /// falling until it hits the ground.
 ///
@@ -53,6 +60,12 @@ pub const LIFE_DYING: u8 = 1;
 /// This is `LIFE_RESPAWNABLE` from `public/const.h`.
 pub const LIFE_RESPAWNABLE: u8 = 3;
 
+/// The size of the game's arrays of per-team data that every game shares, such
+/// as the team icons of `team_control_point_master`.
+///
+/// This is `MAX_TEAMS` from `game/shared/shareddefs.h`.
+pub const MAX_TEAMS: c_int = 32;
+
 /// The team number of spectators, the last of the teams every game shares.
 ///
 /// This is `TEAM_SPECTATOR` from `game/shared/shareddefs.h`, which also names
@@ -65,7 +78,11 @@ pub const TEAM_SPECTATOR: c_int = 1;
 /// This is `TEAM_UNASSIGNED` from `game/shared/shareddefs.h`.
 pub const TEAM_UNASSIGNED: c_int = 0;
 
-/// The size of the place `_place` points to.
-const fn pointee_size<T>(_place: *const T) -> usize {
-	size_of::<T>()
-}
+/// The number of TF2's teams, unassigned, spectators, RED, and BLU, and the
+/// size of its per-team arrays. Source SDK 2013's `sdk` and `hl2mp` templates
+/// also create four teams.
+///
+/// This is `TF_TEAM_COUNT` from `game/shared/tf/tf_shareddefs.h`. It is not
+/// behind the `tf2` feature, since whether the server runs TF2 is only known
+/// at run time.
+pub const TF_TEAM_COUNT: c_int = FIRST_GAME_TEAM + 2;

@@ -3,12 +3,14 @@
 //! receives.
 
 use super::*;
+use crate::entities::health::HealthInput;
 use crate::interfaces::ServerTools;
 use crate::server::Game;
+use crate::test_support::datatables::derived_server_class;
 
 use crate::test_support::entities::{
 	MOCK_NAME_OFFSET, MockEntity, ReceivedInput, base_entity_fields, set_accepts, set_datamap,
-	take_inputs,
+	set_networking, take_inputs,
 };
 
 use crate::test_support::leak;
@@ -66,6 +68,32 @@ impl Mocks {
 
 		set_datamap(map);
 	}
+}
+
+#[test]
+fn add_output_keeps_key_values_valid() {
+	let mut mocks = mocks();
+	let target = entity(&mut mocks.target);
+	let tools = mocks.tools();
+	let add = |value| {
+		tools.accept_input(
+			target,
+			c"AddOutput",
+			InputValue::String(value),
+			target,
+			target,
+		)
+	};
+
+	// `AddOutput` sets the key value before the first space through
+	// `KeyValue`, so the values `set_key_value` refuses are refused, such as
+	// team numbers beyond TF2's four teams, or any of a player's.
+	assert_eq!(add(c"teamnumber 4"), Err(InputError::InvalidKeyValue));
+	add(c"TeamNumber#2 3").unwrap();
+
+	mocks.use_chain(c"CTFPlayer");
+	assert_eq!(add(c"teamnumber 2"), Err(InputError::InvalidKeyValue));
+	assert_eq!(take_inputs().len(), 1);
 }
 
 /// A mock entity, for as long as the mocks live.
@@ -300,6 +328,100 @@ fn inputs_known_to_break_the_server_are_only_sent_unchecked() {
 	);
 }
 
+#[test]
+fn inputs_setting_maximum_health_keep_it_valid() {
+	let mut mocks = mocks();
+
+	mocks.use_chain(c"CObjectSentrygun");
+
+	let target = entity(&mut mocks.target);
+	let other = entity(&mut mocks.other);
+	let tools = mocks.tools();
+	let send = |input: &CStr, value| tools.accept_input(target, input, value, target, target);
+	let refused = Err(InputError::InvalidMaxHealth);
+
+	// `SetHealth` sets a building's maximum health too, which must be
+	// positive after `variant_t::Convert`, which truncates floats, reads
+	// strings with `atoi`, and is undefined beyond `int`, and round below 2^31
+	// as a float.
+	for value in [
+		InputValue::Int(0),
+		InputValue::Int(-5),
+		InputValue::Int(2_147_483_584),
+		InputValue::Float(0.99),
+		InputValue::Float(3e9),
+		InputValue::String(c"0"),
+		InputValue::String(c" -7"),
+		InputValue::String(c"abc12"),
+		InputValue::String(c"2147483648"),
+	] {
+		assert_eq!(send(c"sethealth", value), refused);
+	}
+
+	// `AddOutput` sets the key before the first space, cut at its first `#`
+	// and ignoring case, to the rest of the first `MAX_PATH - 1` bytes, which
+	// an entity value gives as its name.
+	let padded = CString::new(format!("max_health {}9", " ".repeat(248))).unwrap();
+
+	mocks.other.set_name(sys::string_t {
+		pszValue: c"MAX_HEALTH 0".as_ptr(),
+	});
+
+	for value in [
+		InputValue::String(c"max_health 0"),
+		InputValue::String(c"Max_Health -3"),
+		InputValue::String(c"MAX_HEALTH#1 0"),
+		InputValue::String(c"max_health 2147483584"),
+		InputValue::String(padded.as_c_str()),
+		InputValue::Entity(Some(other)),
+	] {
+		assert_eq!(send(c"AddOutput", value), refused);
+	}
+
+	assert!(take_inputs().is_empty());
+
+	send(c"SetHealth", InputValue::Float(1.5)).unwrap();
+	send(c"SetHealth", InputValue::String(c" \x0B+12 hp")).unwrap();
+	send(c"SetHealth", InputValue::Int(2_147_483_583)).unwrap();
+	send(c"AddOutput", InputValue::String(c"max_health 125")).unwrap();
+	send(c"AddOutput", InputValue::String(c"max_healthy 0")).unwrap();
+	tools
+		.send_health_input(target, HealthInput::Remove(500), target, target)
+		.unwrap();
+	assert_eq!(take_inputs().len(), 6);
+
+	// Other entities' `SetHealth` leaves their maximum health alone, and
+	// their maximum health is not kept below 2^31.
+	mocks.use_chain(c"CTestEntity");
+
+	let target = entity(&mut mocks.target);
+	let tools = mocks.tools();
+
+	tools
+		.send_health_input(target, HealthInput::Set(0), target, target)
+		.unwrap();
+	tools
+		.accept_input(
+			target,
+			c"AddOutput",
+			InputValue::String(c"max_health 2147483647"),
+			target,
+			target,
+		)
+		.unwrap();
+	assert_eq!(
+		tools.accept_input(
+			target,
+			c"AddOutput",
+			InputValue::String(c"max_health 0"),
+			target,
+			target
+		),
+		refused
+	);
+	assert_eq!(take_inputs().len(), 2);
+}
+
 fn mocks() -> Mocks {
 	use sys::{
 		_fieldtypes_FIELD_BOOLEAN as BOOLEAN, _fieldtypes_FIELD_COLOR32 as COLOR32,
@@ -330,6 +452,7 @@ fn mocks() -> Mocks {
 		input(c"SetTeam", INTEGER),
 		input(c"RunScriptCode", STRING),
 		input(c"SetDamageFilter", STRING),
+		input(c"AddOutput", STRING),
 	]);
 
 	let base = map(c"CBaseEntity", base_fields, null_mut());
@@ -343,6 +466,7 @@ fn mocks() -> Mocks {
 			input(c"SetOwner", EHANDLE),
 			input(c"SetOffset", VECTOR),
 			input(c"SetEnabled", BOOLEAN),
+			input(c"SetHealth", INTEGER),
 		],
 		base,
 	);
@@ -354,10 +478,29 @@ fn mocks() -> Mocks {
 	);
 	let maker = map(c"CBaseNPCMaker", vec![input(c"Spawn", VOID)], base);
 	let npc_maker = map(c"CNPCMaker", vec![], maker);
+	let building = map(
+		c"CBaseObject",
+		vec![
+			input(c"SetHealth", INTEGER),
+			input(c"AddHealth", INTEGER),
+			input(c"RemoveHealth", INTEGER),
+		],
+		base,
+	);
+	let sentry = map(c"CObjectSentrygun", vec![], building);
 
 	set_datamap(test);
 
-	let maps = vec![test, base, base_player, player, maker, npc_maker];
+	let maps = vec![
+		test,
+		base,
+		base_player,
+		player,
+		maker,
+		npc_maker,
+		building,
+		sentry,
+	];
 	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
 	// whichever slot reaches it, and the patch only writes slots of the vtable
 	// being built.
@@ -431,6 +574,47 @@ unsafe extern "C" fn set_key_value(
 	};
 
 	mode != Pool::FailsAfterWriting
+}
+
+#[test]
+fn set_team_keeps_team_numbers_valid() {
+	let mut mocks = mocks();
+
+	mocks.use_chain(c"CBaseEntity");
+
+	let target = entity(&mut mocks.target);
+	let tools = mocks.tools();
+	let send = |value| tools.accept_input(target, c"setteam", value, target, target);
+
+	// `CBaseEntity::InputSetTeam` passes the integer `variant_t::Convert`
+	// gives to `ChangeTeam`, which only players check, and TF2 indexes arrays
+	// of its four teams with it.
+	for value in [
+		InputValue::Int(4),
+		InputValue::Int(-1),
+		InputValue::Float(4.0),
+		InputValue::String(c"5"),
+		InputValue::String(c"99999999999"),
+	] {
+		assert_eq!(send(value), Err(InputError::InvalidTeam));
+	}
+
+	send(InputValue::Int(3)).unwrap();
+	send(InputValue::Float(-0.5)).unwrap();
+	send(InputValue::String(c" 2 red")).unwrap();
+
+	// Team entities, whose send table derives from `CTeam`'s, keep their
+	// numbers.
+	set_networking(
+		derived_server_class(c"CTFTeam", c"DT_TFTeam", c"DT_Team"),
+		null_mut(),
+	);
+	assert_eq!(send(InputValue::Int(2)), Err(InputError::InvalidTeam));
+	set_networking(null_mut(), null_mut());
+
+	mocks.use_chain(c"CTFPlayer");
+	send(InputValue::Int(99)).unwrap();
+	assert_eq!(take_inputs().len(), 4);
 }
 
 #[test]

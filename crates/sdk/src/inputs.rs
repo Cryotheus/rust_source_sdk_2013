@@ -12,12 +12,34 @@
 #[path = "tests/inputs.rs"]
 mod tests;
 
+use crate::datatables::ServerClass;
 use crate::entities::{Entity, EntityHandle};
 use crate::math::{Color32, Vector};
 use sdk_raw::entities::datamap::FTYPEDESC_INPUT;
-use sdk_raw::inputs::Variant;
+use sdk_raw::inputs::{MAX_CONTROL_POINTS, MAX_PREVIOUS_POINTS, NUM_ROBOT_TYPES, Variant};
+use sdk_raw::players::{MAX_TEAMS, TF_TEAM_COUNT};
+use sdk_raw::tier0::MAX_PATH;
+use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::{CStr, c_int};
 use std::fmt::{self, Display, Formatter};
+
+/// The input that sets one of its target's key values, before the first space
+/// of its value, to the rest (`CBaseEntity::InputAddOutput`).
+const ADD_OUTPUT_INPUT: &[u8] = b"AddOutput";
+
+/// The exclusive bound on a TF2 building's maximum health as a float: 2^31,
+/// from which TF2's conversion of the building's float health back to an
+/// `int` is undefined in C++.
+const BUILDING_HEALTH_LIMIT: f32 = 2_147_483_648.0;
+
+/// The key prefixes of `CTriggerAreaCapture`'s per-team data, which its
+/// `KeyValue` follows with a team number.
+const CAPTURE_AREA_TEAM_KEYS: [&[u8]; 4] = [
+	b"team_numcap_",
+	b"team_cancap_",
+	b"team_spawn_",
+	b"team_startcap_",
+];
 
 /// Inputs that run code the caller chooses or spawn entities from templates.
 /// Both can free entities immediately: a template entity that fails to spawn
@@ -31,9 +53,27 @@ const CODE_OR_SPAWN_INPUTS: [&[u8]; 5] = [
 	b"ForceSpawnAtEntityOrigin",
 ];
 
+/// The key prefixes of `CTeamControlPoint`'s per-team data, which its
+/// `KeyValue` follows with a team number.
+const CONTROL_POINT_TEAM_KEYS: [&[u8]; 6] = [
+	b"team_capsound_",
+	b"team_model_",
+	b"team_timedpoints_",
+	b"team_bodygroup_",
+	b"team_icon_",
+	b"team_overlay_",
+];
+
 /// Inputs that remove their target. The engine keeps using a player's or the
 /// world's entity, so removing one crashes the server once it is freed.
 const KILL_INPUTS: [&[u8]; 2] = [b"Kill", b"KillHierarchy"];
+
+/// The key prefix of `CTeamControlPointMaster`'s team icons, which its
+/// `KeyValue` follows with a team number.
+const MASTER_TEAM_KEY: &[u8] = b"team_base_icon_";
+
+/// The key value of `m_iMaxHealth` (`CBaseEntity`'s data description).
+const MAX_HEALTH_KEY: &[u8] = b"max_health";
 
 /// Spawn inputs of NPC makers, which immediately remove a `prop_physics`
 /// blocking the spawn.
@@ -47,6 +87,35 @@ const NPC_MAKER_SPAWN_INPUTS: [&[u8]; 4] = [
 /// The procedural entity name that looks through the first player's crosshair
 /// without checking that there is one (`FindEntityProcedural`).
 const PICKER_NAME: &[u8] = b"!picker";
+
+/// The key value of `CTeamControlPoint::m_iDefaultOwner`, a team number.
+const POINT_DEFAULT_OWNER_KEY: &[u8] = b"point_default_owner";
+
+/// The key value of `CTeamControlPoint::m_iPointIndex`.
+const POINT_INDEX_KEY: &[u8] = b"point_index";
+
+/// The key prefix of `CTeamControlPoint`'s previous points, which its
+/// `KeyValue` follows with a team number and an index, as `<team>_<index>`.
+const PREVIOUS_POINT_KEY: &[u8] = b"team_previouspoint_";
+
+/// The key value of the robot type of TF2's
+/// `CTFRobotDestruction_RobotSpawn` (`m_spawnData.m_eType`).
+const ROBOT_TYPE_KEY: &[u8] = b"type";
+
+/// The input of TF2's buildings (`CBaseObject::InputSetHealth`) that sets
+/// their maximum health to its value, as well as their health.
+const SET_HEALTH_INPUT: &[u8] = b"SetHealth";
+
+/// The input that passes its integer to the target's `ChangeTeam`
+/// (`CBaseEntity::InputSetTeam`).
+const SET_TEAM_INPUT: &[u8] = b"SetTeam";
+
+/// The key value of `m_iTeamNum` (`CBaseEntity`'s data description).
+const TEAM_NUMBER_KEY: &[u8] = b"teamnumber";
+
+/// The send table of `CTeam`, which every team entity's class derives from.
+/// `CTeam` declares no data description.
+const TEAM_TABLE: &CStr = c"DT_Team";
 
 /// Inputs that index a game table with a lookup of their value without checking
 /// that the lookup succeeded. TF2's `SpeakResponseConcept` reads
@@ -73,6 +142,18 @@ pub(crate) struct CheckedInput<'s> {
 
 	/// Whether the input is one of [`UNCHECKED_LOOKUP_INPUTS`].
 	looks_up_unchecked: bool,
+
+	/// Whether the input is [`ADD_OUTPUT_INPUT`], which sets a key value of
+	/// the target.
+	adds_output: bool,
+
+	/// Whether the input is [`SET_HEALTH_INPUT`] sent to a TF2 building,
+	/// which stores its value as the building's maximum health.
+	sets_max_health: bool,
+
+	/// Whether the input is [`SET_TEAM_INPUT`] taking an integer, which
+	/// `CBaseEntity::InputSetTeam` passes to the target's `ChangeTeam`.
+	sets_team: bool,
 
 	/// Whether the target is a player or a soundscape. The world is recognized
 	/// by its index instead.
@@ -142,6 +223,38 @@ pub enum InputError {
 	/// Adding a string to the pool needs the world entity of a loaded map.
 	#[error("the string could not be added to the game's string pool")]
 	NotPooled,
+
+	/// The input would set a maximum health the game cannot handle: 0 or
+	/// less, which game code divides integers by, crashing for 0, or for one
+	/// of TF2's buildings, a value that rounds to 2^31 or more as a float,
+	/// which TF2 converts back to an `int` in a way C++ leaves undefined.
+	///
+	/// `SetHealth` sets a TF2 building's maximum health as well as its
+	/// health, and `AddOutput` with the `max_health` key sets any entity's.
+	/// TF2's Horseless Headless Horsemann divides integers by its maximum
+	/// health while it moves, on the server, and the client of a building's
+	/// builder by the building's, in its building-status HUD. A value whose
+	/// conversion to an `int` the C library leaves undefined, such as a float
+	/// beyond `int`'s range or a string of too many digits, is refused too.
+	#[error("the input would set a maximum health the game cannot handle")]
+	InvalidMaxHealth,
+
+	/// `AddOutput` would set a key value the game cannot handle, other than
+	/// the maximum health: a number the game indexes an array with unchecked,
+	/// or the team number of a player or a team entity, as
+	/// [`ServerTools::set_key_value`](crate::interfaces::ServerTools::set_key_value)
+	/// lists.
+	#[error("the input would set a key value the game cannot handle")]
+	InvalidKeyValue,
+
+	/// `SetTeam` would put an entity in a team the game cannot handle. A
+	/// player's `ChangeTeam` checks the team itself, but other entities take
+	/// any team number, which the game then indexes its per-team arrays with
+	/// unchecked, so it must lie within 0 to 3, the teams of TF2 and of
+	/// Source SDK 2013's templates. A team entity's number must not change at
+	/// all, since clients look teams up by it.
+	#[error("the input would put the entity in a team the game cannot handle")]
+	InvalidTeam,
 
 	/// `AcceptInput` refused the input, although the checks before the call
 	/// expected it to accept it.
@@ -339,7 +452,110 @@ impl InputValue<'_> {
 	}
 }
 
-/// Refuses inputs known to free entities immediately or to crash the server.
+/// The classes of an entity that decide which key values ([`check_key`]) and
+/// team numbers ([`check_team_change`]) the game cannot handle for it.
+#[derive(Debug, Clone, Copy, Default)]
+struct TargetClasses {
+	/// Whether a data description of the entity's class or its bases is TF2's
+	/// `CBaseObject`'s, whose health TF2 keeps as a float.
+	building: bool,
+
+	/// As for `building`, `CTriggerAreaCapture`'s.
+	capture_area: bool,
+
+	/// As for `building`, `CTeamControlPoint`'s.
+	control_point: bool,
+
+	/// As for `building`, `CTeamControlPointMaster`'s.
+	control_point_master: bool,
+
+	/// As for `building`, `CBasePlayer`'s.
+	player: bool,
+
+	/// As for `building`, TF2's `CTFRobotDestruction_RobotSpawn`'s.
+	robot_spawn: bool,
+
+	/// Whether the entity's send table derives from [`TEAM_TABLE`].
+	team: bool,
+}
+
+impl TargetClasses {
+	/// Finds the classes of `entity`.
+	fn of(entity: Entity<'_>) -> Self {
+		let mut target = Self {
+			team: entity
+				.server_class()
+				.and_then(ServerClass::table)
+				.is_some_and(|table| table.derives_from_named(TEAM_TABLE)),
+			..Self::default()
+		};
+
+		for map in entity.data_maps() {
+			let class = match map.class_name().map(CStr::to_bytes) {
+				Some(b"CBaseObject") => &mut target.building,
+				Some(b"CBasePlayer") => &mut target.player,
+				Some(b"CTeamControlPoint") => &mut target.control_point,
+				Some(b"CTeamControlPointMaster") => &mut target.control_point_master,
+				Some(b"CTFRobotDestruction_RobotSpawn") => &mut target.robot_spawn,
+				Some(b"CTriggerAreaCapture") => &mut target.capture_area,
+				_ => continue,
+			};
+
+			*class = true;
+		}
+
+		target
+	}
+}
+
+/// What C's `atoi` returns for `string`, as [`scan_int`] reads it, or 0 for
+/// no digits. Returns `None` for an integer beyond `int`'s range, for which
+/// `atoi` is undefined.
+fn atoi(string: &[u8]) -> Option<c_int> {
+	scan_int(string).map_or(Some(0), |(value, _)| value)
+}
+
+/// Checks the key value an `AddOutput` input sets with `value`, as
+/// [`check_key`] does. `CBaseEntity::InputAddOutput` copies the string it
+/// receives into a buffer of `MAX_PATH` bytes, and passes the part before the
+/// first space to `KeyValue` as the key, and the rest as the value, with its
+/// colons replaced by commas, at which `atoi` stops either way.
+fn check_added_key_value(target: Entity<'_>, value: InputValue<'_>) -> Result<(), InputError> {
+	let name;
+
+	let received = match value {
+		InputValue::String(string) => string.to_bytes(),
+
+		// String inputs receive an entity's name (`variant_t::Convert`).
+		InputValue::Entity(Some(entity)) => {
+			// SAFETY: The name field belongs to the live entity, and holds null
+			// or a pooled string, which is copied immediately.
+			name = entity
+				.name_field()
+				.and_then(|field| unsafe { copy_cstr(field.read().pszValue) })
+				.unwrap_or_default();
+
+			name.to_bytes()
+		}
+
+		_ => return Ok(()),
+	};
+
+	let copied = &received[..received.len().min(MAX_PATH - 1)];
+
+	let Some(space) = copied.iter().position(|&byte| byte == b' ') else {
+		return Ok(());
+	};
+
+	check_key(
+		TargetClasses::of(target),
+		&copied[..space],
+		&copied[space + 1..],
+	)
+}
+
+/// Refuses inputs known to free entities immediately, or to crash the server
+/// or its clients.
 pub(crate) fn check_guards(
 	target: Entity<'_>,
 	input: CheckedInput<'_>,
@@ -355,6 +571,20 @@ pub(crate) fn check_guards(
 
 	if input.looks_up_unchecked {
 		return Err(InputError::UncheckedLookup);
+	}
+
+	if input.sets_max_health
+		&& !converted_int(value).is_some_and(|max| is_valid_max_health(max, true))
+	{
+		return Err(InputError::InvalidMaxHealth);
+	}
+
+	if input.adds_output {
+		check_added_key_value(target, value)?;
+	}
+
+	if input.sets_team {
+		check_team_change(target, value)?;
 	}
 
 	if let InputValue::String(string) = value
@@ -388,6 +618,7 @@ pub(crate) fn check_input<'s>(
 	}
 
 	let mut found = None;
+	let mut is_building = false;
 	let mut is_protected = false;
 	let mut is_npc_maker = false;
 
@@ -396,6 +627,7 @@ pub(crate) fn check_input<'s>(
 	for map in target.data_maps() {
 		let class = map.class_name().map_or(&[][..], CStr::to_bytes);
 
+		is_building |= class == b"CBaseObject";
 		is_protected |= class == b"CBasePlayer" || class == b"CEnvSoundscape";
 		is_npc_maker |= class == b"CBaseNPCMaker";
 
@@ -427,8 +659,198 @@ pub(crate) fn check_input<'s>(
 			|| (is_npc_maker && is_any(&NPC_MAKER_SPAWN_INPUTS)),
 		kills: is_any(&KILL_INPUTS),
 		looks_up_unchecked: is_any(&UNCHECKED_LOOKUP_INPUTS),
+		adds_output: is_any(&[ADD_OUTPUT_INPUT]),
+		sets_max_health: is_building && is_any(&[SET_HEALTH_INPUT]),
+		sets_team: declared == InputType::Int && is_any(&[SET_TEAM_INPUT]),
 		target_is_protected: is_protected,
 	})
+}
+
+/// Checks that the game can handle `value` for `key` on an entity of
+/// `target`'s classes, as `KeyValue` reads them, and fails with
+/// [`InputError::InvalidMaxHealth`] for a maximum health it cannot handle, or
+/// [`InputError::InvalidKeyValue`] for the other values
+/// [`ServerTools::set_key_value`] refuses.
+///
+/// [`ServerTools::set_key_value`]: crate::interfaces::ServerTools::set_key_value
+fn check_key(target: TargetClasses, key: &[u8], value: &[u8]) -> Result<(), InputError> {
+	let below =
+		|number: Option<c_int>, limit: c_int| number.is_some_and(|n| (0..limit).contains(&n));
+	let checked = |valid: bool| valid.then_some(()).ok_or(InputError::InvalidKeyValue);
+
+	// Class overrides of `KeyValue` match these prefixes case-sensitively,
+	// before `CBaseEntity::KeyValue` sees the key, and index their per-team
+	// data with the number after them, read with `atoi`, unchecked.
+	let team_suffix =
+		|prefixes: &[&[u8]]| prefixes.iter().find_map(|prefix| key.strip_prefix(*prefix));
+
+	if target.control_point {
+		if let Some(rest) = key.strip_prefix(PREVIOUS_POINT_KEY) {
+			return checked(is_valid_previous_point(rest));
+		}
+
+		if let Some(rest) = team_suffix(&CONTROL_POINT_TEAM_KEYS) {
+			return checked(below(atoi(rest), TF_TEAM_COUNT));
+		}
+	}
+
+	if target.capture_area
+		&& let Some(rest) = team_suffix(&CAPTURE_AREA_TEAM_KEYS)
+	{
+		return checked(below(atoi(rest), TF_TEAM_COUNT));
+	}
+
+	if target.control_point_master
+		&& let Some(rest) = key.strip_prefix(MASTER_TEAM_KEY)
+	{
+		return checked(below(atoi(rest), MAX_TEAMS));
+	}
+
+	// `CBaseEntity::KeyValue` cuts the key at its first `#`, which Hammer
+	// appends to repeated keys, and `ParseKeyvalue` compares the rest with the
+	// keys of the data description ignoring case, and reads integers with
+	// `atoi`.
+	let key = key.split(|&byte| byte == b'#').next().unwrap_or_default();
+	let is = |name: &[u8]| key.eq_ignore_ascii_case(name);
+	let value = atoi(value);
+
+	if is(MAX_HEALTH_KEY) {
+		return value
+			.is_some_and(|max| is_valid_max_health(max, target.building))
+			.then_some(())
+			.ok_or(InputError::InvalidMaxHealth);
+	}
+
+	// A player stays in its old team's list of players, which keeps pointing
+	// to it once it is freed, and clients look team entities up by their team
+	// number, unchecked.
+	if is(TEAM_NUMBER_KEY) {
+		return checked(!target.player && !target.team && below(value, TF_TEAM_COUNT));
+	}
+
+	if target.control_point && is(POINT_INDEX_KEY) {
+		return checked(below(value, MAX_CONTROL_POINTS));
+	}
+
+	if target.control_point && is(POINT_DEFAULT_OWNER_KEY) {
+		return checked(below(value, TF_TEAM_COUNT));
+	}
+
+	if target.robot_spawn && is(ROBOT_TYPE_KEY) {
+		return checked(below(value, NUM_ROBOT_TYPES));
+	}
+
+	Ok(())
+}
+
+/// Checks that the game can handle `value` for `key` on `target`, as
+/// [`ServerTools::set_key_value`] describes, with the errors of
+/// [`check_key`].
+///
+/// [`ServerTools::set_key_value`]: crate::interfaces::ServerTools::set_key_value
+pub(crate) fn check_key_value(
+	target: Entity<'_>,
+	key: &CStr,
+	value: &CStr,
+) -> Result<(), InputError> {
+	check_key(TargetClasses::of(target), key.to_bytes(), value.to_bytes())
+}
+
+/// Refuses a `SetTeam` input with `value` that would put `target` in a team
+/// the game cannot handle, as [`InputError::InvalidTeam`] describes.
+/// `variant_t::Convert` converts the value as [`converted_int`] does.
+fn check_team_change(target: Entity<'_>, value: InputValue<'_>) -> Result<(), InputError> {
+	let target = TargetClasses::of(target);
+
+	let valid = target.player
+		|| (!target.team
+			&& converted_int(value).is_some_and(|team| (0..TF_TEAM_COUNT).contains(&team)));
+
+	valid.then_some(()).ok_or(InputError::InvalidTeam)
+}
+
+/// The `int` `AcceptInput` converts `value` to for an input taking an
+/// integer, as `variant_t::Convert` does: floats with a C cast, which
+/// truncates, and strings with `atoi`.
+///
+/// Returns `None` for other values, and for conversions the C library leaves
+/// undefined, of floats and decimal strings beyond `int`'s range.
+fn converted_int(value: InputValue<'_>) -> Option<c_int> {
+	match value {
+		InputValue::Int(value) => Some(value),
+
+		InputValue::Float(value) => (-2_147_483_648.0..2_147_483_648.0)
+			.contains(&value)
+			.then_some(value as c_int),
+
+		InputValue::String(string) => atoi(string.to_bytes()),
+		_ => None,
+	}
+}
+
+/// Whether the game can handle `max` as an entity's maximum health: it is
+/// positive, and for a TF2 building, rounds below 2^31 as a float.
+fn is_valid_max_health(max: c_int, building: bool) -> bool {
+	max > 0 && (!building || (max as f32) < BUILDING_HEALTH_LIMIT)
+}
+
+/// Whether `CTeamControlPoint::KeyValue` indexes its data within bounds for
+/// a key of [`PREVIOUS_POINT_KEY`] followed by `rest`, which it reads with
+/// `sscanf(rest, "%d_%d", &team, &index)`. The team is left uninitialized,
+/// and the index 0, if their conversions fail.
+fn is_valid_previous_point(rest: &[u8]) -> bool {
+	let Some((Some(team), rest)) = scan_int(rest) else {
+		return false;
+	};
+
+	let index = match rest.strip_prefix(b"_").and_then(scan_int) {
+		Some((index, _)) => index,
+		None => Some(0),
+	};
+
+	(0..TF_TEAM_COUNT).contains(&team)
+		&& index.is_some_and(|index| (0..MAX_PREVIOUS_POINTS).contains(&index))
+}
+
+/// Reads a decimal `int` as C's `atoi` and `scanf`'s `%d` do: the digits
+/// after any white space and an optional sign, up to the first other byte.
+/// Returns the integer, or `None` beyond `int`'s range, for which both are
+/// undefined, and the bytes after it, or `None` if there are no digits.
+fn scan_int(string: &[u8]) -> Option<(Option<c_int>, &[u8])> {
+	let start = string
+		.iter()
+		// C's `isspace` also counts the vertical tab.
+		.position(|&byte| !byte.is_ascii_whitespace() && byte != 0x0B)
+		.unwrap_or(string.len());
+
+	let (negative, digits) = match &string[start..] {
+		[b'-', digits @ ..] => (true, digits),
+		[b'+', digits @ ..] => (false, digits),
+		digits => (false, digits),
+	};
+
+	let count = digits
+		.iter()
+		.take_while(|byte| byte.is_ascii_digit())
+		.count();
+
+	if count == 0 {
+		return None;
+	}
+
+	let value = digits[..count].iter().try_fold(0, |value: c_int, &digit| {
+		let digit = c_int::from(digit - b'0');
+
+		value.checked_mul(10).and_then(|value| {
+			if negative {
+				value.checked_sub(digit)
+			} else {
+				value.checked_add(digit)
+			}
+		})
+	});
+
+	Some((value, &digits[count..]))
 }
 
 /// Builds the `variant_t` for a value sent to a checked input, pooling a

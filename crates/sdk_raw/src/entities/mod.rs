@@ -1,13 +1,14 @@
 //! Hand-written ABI of `CBaseEntity`: the vtable slots of methods that the
 //! generated bindings do not give for every game, calls through them, and
 //! header values describing entities and their handles. Data description maps
-//! are in [`datamap`].
+//! are in [`datamap`], and health in [`health`].
 //!
 //! The generated `CBaseEntity` vtable is TF2's. Slots are numbered from the
 //! primary vtable's first entry, counting each destructor slot, under the
 //! target's C++ ABI.
 
 pub mod datamap;
+pub mod health;
 
 use crate::edicts::MAX_EDICT_BITS;
 use crate::util::vtable::vtable_pointer;
@@ -32,6 +33,36 @@ const _: () = {
 
 	assert!(ACCEPT_INPUT_SLOT == vtable_slot!(Vtable, CBaseEntity_AcceptInput));
 	assert!(GET_DATA_DESC_MAP_SLOT == vtable_slot!(Vtable, CBaseEntity_GetDataDescMap));
+};
+
+// Of the virtual methods `CBaseEntity` declares before `Teleport`, only
+// `IsNextBot`, under `NEXT_BOT`, and three under `TF_DLL` depend on the game's
+// defines: Clang's `-fdump-vtable-layouts` of `CBaseEntity` under the defines
+// of each `server_*.vpc` project, in debug and release, on both ABIs, differ
+// before `Teleport` in nothing else. These assertions only pin where the
+// generated vtable, built with both defines, has those four methods, so that
+// leaving them out gives the other games' slots.
+const _: () = {
+	use sys::CBaseEntity__bindgen_vtable as Vtable;
+
+	let is_next_bot = vtable_slot!(Vtable, CBaseEntity_IsNextBot);
+	let is_combat_item = vtable_slot!(Vtable, CBaseEntity_IsCombatItem);
+
+	// `NEXT_BOT` declares `IsNextBot` directly after `IsNPC`.
+	assert!(is_next_bot == vtable_slot!(Vtable, CBaseEntity_IsNPC) + 1);
+
+	// `TF_DLL` declares three methods between `IsCombatItem` and
+	// `IsBaseCombatWeapon`.
+	assert!(vtable_slot!(Vtable, CBaseEntity_IsProjectileCollisionTarget) == is_combat_item + 1);
+	assert!(vtable_slot!(Vtable, CBaseEntity_IsFuncLOD) == is_combat_item + 2);
+	assert!(vtable_slot!(Vtable, CBaseEntity_IsBaseProjectile) == is_combat_item + 3);
+	assert!(vtable_slot!(Vtable, CBaseEntity_IsBaseCombatWeapon) == is_combat_item + 4);
+
+	// All four precede `Teleport`, so leaving out `TF_DLL`'s three gives the
+	// `NEXT_BOT` slot, and leaving out `IsNextBot` too gives the plain one.
+	assert!(is_next_bot < is_combat_item && is_combat_item + 4 < TF2_TELEPORT_SLOT);
+	assert!(SDK2013_NEXT_BOT_TELEPORT_SLOT == TF2_TELEPORT_SLOT - 3);
+	assert!(SDK2013_TELEPORT_SLOT == SDK2013_NEXT_BOT_TELEPORT_SLOT - 1);
 };
 
 // The generated `Teleport` has the hand-written signature.
@@ -104,30 +135,65 @@ pub const NUM_SERIAL_NUM_BITS: u32 = 16;
 /// slot.
 pub const NUM_SERIAL_NUM_SHIFT_BITS: u32 = 32 - NUM_SERIAL_NUM_BITS;
 
-/// `CBaseEntity::Teleport` in the generic Source SDK 2013 game DLL.
-/// This preserves the non-TF game layout; generated entity types use TF2.
+/// `CBaseEntity::Teleport` in a Source SDK 2013 game DLL built with
+/// `NEXT_BOT` but not `TF_DLL`, as `server_hl2mp.vpc` builds HL2:DM and the
+/// mods based on it. `IsNextBot`, which `NEXT_BOT` declares, precedes it, so
+/// the slot is one past [`SDK2013_TELEPORT_SLOT`]. Derived from
+/// `game/server/baseentity.h` with the MSVC ABI model on Windows and the
+/// Itanium ABI model on Linux, and verified against SourceMod's
+/// `sdktools.games/game.hl2mp.txt` gamedata.
+#[doc(alias("Teleport"))]
+pub const SDK2013_NEXT_BOT_TELEPORT_SLOT: usize = cfg_select! {
+	target_os = "windows" => 111,
+	target_os = "linux" => 112,
+};
+
+/// `CBaseEntity::Teleport` in a Source SDK 2013 game DLL built with neither
+/// `TF_DLL` nor `NEXT_BOT`, as `server_hl2.vpc`, `server_episodic.vpc`, and
+/// `server_lostcoast.vpc` build it. Derived from `game/server/baseentity.h`
+/// with the MSVC ABI model on Windows and the Itanium ABI model on Linux.
+///
+/// A game DLL built with `NEXT_BOT` has `SUB_AllowedToFade` here instead, and
+/// `Teleport` at [`SDK2013_NEXT_BOT_TELEPORT_SLOT`].
 #[doc(alias("Teleport"))]
 pub const SDK2013_TELEPORT_SLOT: usize = cfg_select! {
 	target_os = "windows" => 110,
 	target_os = "linux" => 111,
 };
 
-/// `CBaseEntity::Teleport` in TF2's game DLL.
-/// Verified against SourceMod's `sdktools.games/game.tf.txt` gamedata.
+/// `CBaseEntity::Teleport` in TF2's game DLL, built with `TF_DLL` and
+/// `NEXT_BOT`. Verified against SourceMod's `sdktools.games/game.tf.txt`
+/// gamedata.
 #[doc(alias("Teleport"))]
 pub const TF2_TELEPORT_SLOT: usize =
 	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_Teleport);
 
-/// Where a game DLL's primary `CBaseEntity` vtable has `Teleport`, which
-/// virtual methods TF2 declares before it move.
+/// Where a game DLL's primary `CBaseEntity` vtable has `Teleport`, which the
+/// virtual methods declared before it under `TF_DLL` and `NEXT_BOT` move.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TeleportSlot {
-	/// [`TF2_TELEPORT_SLOT`], the generated vtable's.
+	/// [`TF2_TELEPORT_SLOT`], the generated vtable's, that of a game DLL built
+	/// with `TF_DLL` and `NEXT_BOT`.
 	TeamFortress2,
 
 	/// [`SDK2013_TELEPORT_SLOT`], that of a Source SDK 2013 game DLL built
-	/// without game-specific virtual methods.
+	/// with neither `TF_DLL` nor `NEXT_BOT`.
 	SourceSdk2013,
+
+	/// [`SDK2013_NEXT_BOT_TELEPORT_SLOT`], that of a Source SDK 2013 game DLL
+	/// built with `NEXT_BOT` but not `TF_DLL`.
+	SourceSdk2013NextBot,
+}
+
+impl TeleportSlot {
+	/// The index of `Teleport` in the primary vtable.
+	pub const fn index(self) -> usize {
+		match self {
+			Self::TeamFortress2 => TF2_TELEPORT_SLOT,
+			Self::SourceSdk2013 => SDK2013_TELEPORT_SLOT,
+			Self::SourceSdk2013NextBot => SDK2013_NEXT_BOT_TELEPORT_SLOT,
+		}
+	}
 }
 
 /// Calls `CBaseEntity::AcceptInput`, which runs the input's handler before
@@ -249,14 +315,14 @@ pub unsafe fn teleport(
 			))
 		},
 
-		TeleportSlot::SourceSdk2013 => {
+		TeleportSlot::SourceSdk2013 | TeleportSlot::SourceSdk2013NextBot => {
 			// SAFETY: The live entity starts with the pointer to its primary
 			// vtable, which has `Teleport`, with the generated signature, at
 			// this slot.
 			let teleport = unsafe {
 				let slots = vtable_pointer::<*const ()>(entity);
 
-				transmute::<*const (), TeleportFn>(slots.add(SDK2013_TELEPORT_SLOT).read())
+				transmute::<*const (), TeleportFn>(slots.add(slot.index()).read())
 			};
 
 			// SAFETY: As above; the caller upholds the rest.

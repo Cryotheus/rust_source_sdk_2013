@@ -292,6 +292,22 @@ impl<'s> SendTable<'s> {
 		false
 	}
 
+	/// Whether this table is named `name`, such as `DT_Team`, or derives from
+	/// a table so named through `baseclass` tables.
+	pub(crate) fn derives_from_named(self, name: &CStr) -> bool {
+		let mut table = Some(self);
+
+		for _ in 0..MAX_TABLE_DEPTH {
+			match table {
+				Some(current) if current.name() == name => return true,
+				Some(current) => table = current.base(),
+				None => return false,
+			}
+		}
+
+		false
+	}
+
 	/// Whether the table has no properties.
 	pub fn is_empty(self) -> bool {
 		self.len() == 0

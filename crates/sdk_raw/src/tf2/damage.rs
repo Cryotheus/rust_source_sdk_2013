@@ -1,6 +1,6 @@
 //! Hand-written ABI of TF2's damage handling: the `DMG_*` damage-type bits of
 //! `game/shared/shareddefs.h` and the aliases TF2 gives them in
-//! `game/shared/tf/tf_shareddefs.h`, `takedamageinfo.h`'s
+//! `game/shared/tf/tf_shareddefs.h`, including those of healing, `takedamageinfo.h`'s
 //! `BASEDAMAGE_NOT_SPECIFIED`, the ammo type `CTakeDamageInfo::Init` leaves,
 //! and the vtable slots of a TF2 player's damage methods.
 //!
@@ -10,6 +10,8 @@
 use crate::abi::CppDestructors;
 use crate::vtable_slot;
 use std::ffi::c_int;
+
+pub use crate::entities::health::DMG_GENERIC;
 
 /// The signature of `CTFPlayer::OnTakeDamage` and `OnTakeDamage_Alive`,
 /// `int (const CTakeDamageInfo &)`, with the player as its receiver.
@@ -77,8 +79,14 @@ pub const DMG_DROWN: c_int = 1 << 14;
 /// Falling too far.
 pub const DMG_FALL: c_int = 1 << 5;
 
-/// No damage-type bits.
-pub const DMG_GENERIC: c_int = 0;
+/// TF2's healing marked as exempt from its healing debuffs, an alias of
+/// [`DMG_SLASH`]. `CTFPlayer::TakeHealth` has its check commented out, so the
+/// bit changes nothing there.
+pub const DMG_IGNORE_DEBUFFS: c_int = DMG_SLASH;
+
+/// TF2's healing that may exceed the player's maximum health, as overheal
+/// does, an alias of [`DMG_BULLET`] (`CTFPlayer::TakeHealth`).
+pub const DMG_IGNORE_MAXHEALTH: c_int = DMG_BULLET;
 
 /// Stops any damage type from gibbing the victim on death.
 pub const DMG_NEVERGIB: c_int = 1 << 12;

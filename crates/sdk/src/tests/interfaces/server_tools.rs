@@ -2,9 +2,10 @@
 //! the game's entity list, and reading their key values.
 
 use super::*;
+use crate::test_support::datatables::derived_server_class;
 
 use crate::test_support::entities::{
-	MOCK_EFLAGS_OFFSET, MockEntity, base_entity_fields, set_datamap,
+	MOCK_EFLAGS_OFFSET, MockEntity, base_entity_fields, set_datamap, set_networking,
 };
 
 use sdk_raw::entities::datamap::FTYPEDESC_KEY;
@@ -25,6 +26,9 @@ thread_local! {
 
 	/// Every key `GetKeyValue` was asked for, in order.
 	static KEYS_READ: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
+
+	/// Every key and value `SetKeyValue` received, in order.
+	static KEYS_SET: RefCell<Vec<(CString, CString)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// A field embedding `count` objects described by `map` at `offset`.
@@ -201,6 +205,139 @@ fn key_values_of_string_fields_are_read_from_the_field() {
 	);
 }
 
+#[test]
+fn key_values_the_game_cannot_handle_are_not_set() {
+	let mut mock = MockEntity::new(1 | 9 << 16);
+	let base = data_map(c"CBaseEntity", base_entity_fields().to_vec(), null_mut());
+	let chain = |class| data_map(class, vec![], base);
+	let sentry = data_map(c"CObjectSentrygun", vec![], chain(c"CBaseObject"));
+	let player = data_map(c"CTFPlayer", vec![], chain(c"CBasePlayer"));
+
+	// A team's class derives from `CTeam`'s send table.
+	let team_class = derived_server_class(c"CTFTeam", c"DT_TFTeam", c"DT_Team");
+
+	KEYS_SET.take();
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes a slot of the
+	// vtable being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::IServerTools__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IServerTools_SetKeyValue).write(set_key_value)
+		})
+	};
+
+	let mut interface = sys::IServerTools {
+		vtable_: &raw const *vtable,
+	};
+
+	// SAFETY: The mock outlives the handle.
+	let tools =
+		unsafe { ServerTools::from_raw(NonNull::from(&mut interface), Game::TeamFortress2) };
+	let entity = mock.entity();
+	let mut reached = Vec::new();
+
+	// Sets each key to each value on an entity of `map`'s chain, and checks
+	// whether it reaches the game.
+	let mut check = |map, cases: &[(&CStr, &CStr, bool)]| {
+		set_datamap(map);
+
+		for &(key, value, sets) in cases {
+			assert_eq!(
+				tools.set_key_value(entity, key, value),
+				sets,
+				"{key:?} {value:?}"
+			);
+
+			if sets {
+				reached.push((key.to_owned(), value.to_owned()));
+			}
+		}
+	};
+
+	// `CBaseEntity::KeyValue` cuts the key at its first `#` and compares it
+	// ignoring case, and reads the value with `atoi`, which is undefined
+	// beyond `int`. Team numbers index arrays of TF2's four teams.
+	check(
+		base,
+		&[
+			(c"max_health", c"0", false),
+			(c"MAX_HEALTH#2", c" -1", false),
+			(c"Max_Health#", c"0x10", false),
+			(c"max_health", c"2147483648", false),
+			(c"max_health#2", c"2147483647", true),
+			(c"max_healthy", c"0", true),
+			(c"#max_health", c"0", true),
+			(c"teamnumber", c"4", false),
+			(c"TeamNumber#1", c"-1", false),
+			(c"teamnumber", c"3", true),
+			// Keys only some classes read are left to others.
+			(c"type", c"9", true),
+			(c"team_capsound_9", c"x", true),
+			(c"point_index", c"-1", true),
+		],
+	);
+
+	// A TF2 building's maximum health must round below 2^31 as a float.
+	check(
+		sentry,
+		&[
+			(c"max_health", c"2147483584", false),
+			(c"max_health", c"2147483583 hp", true),
+		],
+	);
+
+	// Players and teams keep their team numbers.
+	check(player, &[(c"teamnumber", c"2", false)]);
+	set_networking(team_class, null_mut());
+	check(base, &[(c"teamnumber", c"2", false)]);
+	set_networking(null_mut(), null_mut());
+
+	// `CTeamControlPoint::KeyValue` matches the prefixes of its per-team keys
+	// case-sensitively, and indexes four teams with the number after them,
+	// and previous points with `sscanf(rest, "%d_%d")`, which leaves the team
+	// uninitialized and the index 0 if their conversions fail.
+	check(
+		chain(c"CTeamControlPoint"),
+		&[
+			(c"team_capsound_4", c"x", false),
+			(c"team_icon_-1", c"x", false),
+			(c"team_model_3", c"x", true),
+			(c"Team_Icon_9", c"x", true),
+			(c"team_previouspoint_", c"x", false),
+			(c"team_previouspoint_4_0", c"x", false),
+			(c"team_previouspoint_1_3", c"x", false),
+			(c"team_previouspoint_1_99999999999", c"x", false),
+			(c"team_previouspoint_1_2", c"x", true),
+			(c"team_previouspoint_ 3x7", c"x", true),
+			(c"POINT_INDEX", c"8", false),
+			(c"point_index", c"7", true),
+			(c"point_default_owner", c"4", false),
+			(c"point_default_owner", c"3", true),
+		],
+	);
+	check(
+		chain(c"CTriggerAreaCapture"),
+		&[
+			(c"team_startcap_4", c"1", false),
+			(c"team_numcap_3", c"1", true),
+		],
+	);
+	check(
+		chain(c"CTeamControlPointMaster"),
+		&[
+			(c"team_base_icon_32", c"x", false),
+			(c"team_base_icon_31", c"x", true),
+		],
+	);
+	check(
+		chain(c"CTFRobotDestruction_RobotSpawn"),
+		&[(c"type", c"3", false), (c"type", c"2", true)],
+	);
+
+	assert_eq!(KEYS_SET.take(), reached);
+}
+
 /// `IServerTools::NextEntity`, for a list holding one entity.
 unsafe extern "C" fn next_entity(
 	_: *mut sys::IServerTools,
@@ -218,6 +355,26 @@ unsafe extern "C" fn remove_entity(_: *mut sys::IServerTools, entity: *mut sys::
 	// SAFETY: The entity is the live mock, whose storage holds its flags at
 	// this offset.
 	unsafe { entity.byte_add(MOCK_EFLAGS_OFFSET).cast::<c_int>().write(1) };
+}
+
+/// `IServerTools::SetKeyValue`, which records the key and value, and reports
+/// the key known.
+unsafe extern "C" fn set_key_value(
+	_: *mut sys::IServerTools,
+	_: *mut sys::CBaseEntity,
+	key: *const c_char,
+	value: *const c_char,
+) -> bool {
+	// SAFETY: The wrapper passes NUL-terminated copies.
+	let set = unsafe {
+		(
+			CStr::from_ptr(key).to_owned(),
+			CStr::from_ptr(value).to_owned(),
+		)
+	};
+
+	KEYS_SET.with_borrow_mut(|keys| keys.push(set));
+	true
 }
 
 #[test]
