@@ -73,6 +73,44 @@ fn msvc_requires_unique_primary_locator_and_executable_slot() {
 }
 
 #[test]
+fn msvc_secondary_tables_carry_their_subobject_offsets() {
+	let mut image = fixture();
+	image.sections[0].bytes[0x110..0x121].copy_from_slice(b".?AVCKickIssue@@\0");
+	// The primary locator, then that of a base 0x78 bytes into the object.
+	for (offset, value) in [
+		(0x180, 1_u32),
+		(0x18c, 0x100),
+		(0x194, 0x180),
+		(0x1c0, 1),
+		(0x1c4, 0x78),
+		(0x1cc, 0x100),
+		(0x1d4, 0x1c0),
+	] {
+		image.sections[0].bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+	}
+	word(&mut image, 0x200, BASE + 0x180);
+	word(&mut image, 0x208 + 8 * 8, 0x20010);
+	word(&mut image, 0x300, BASE + 0x1c0);
+	word(&mut image, 0x308 + 8 * 8, 0x20020);
+	assert_eq!(image.msvc("CKickIssue", 8), [BASE + 0x208]);
+	assert_eq!(
+		image.msvc_tables("CKickIssue", 8),
+		[(0, BASE + 0x208), (0x78, BASE + 0x308)]
+	);
+	#[cfg(target_os = "windows")]
+	{
+		assert_eq!(image.primary_vtable("CKickIssue", 8), Some(BASE + 0x208));
+		assert_eq!(
+			image.vtables("CKickIssue", 8),
+			[(0, BASE + 0x208), (0x78, BASE + 0x308)]
+		);
+	}
+	// A construction displacement makes the locator not a complete object's.
+	image.sections[0].bytes[0x1c8..0x1cc].copy_from_slice(&1_u32.to_le_bytes());
+	assert_eq!(image.msvc_tables("CKickIssue", 8), [(0, BASE + 0x208)]);
+}
+
+#[test]
 fn retained_hook_trampolines_may_be_outside_the_game_image() {
 	unsafe extern "C" fn trampoline() {}
 	let mut image = fixture();
