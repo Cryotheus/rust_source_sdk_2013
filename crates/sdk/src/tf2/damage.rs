@@ -13,6 +13,33 @@ use std::fmt;
 use std::mem::{MaybeUninit, offset_of};
 use std::ptr::NonNull;
 
+/// The custom damage kind, an `ETFDmgCustom` value, of plasma, as in an
+/// uncharged Cow Mangler 5000 shot, the Righteous Bison's and Pomson 6000's,
+/// and the Monoculus' emergence. The game also gives it to the ragdoll of a
+/// player killed by a weapon with the `ragdolls_plasma_effect` attribute.
+///
+/// Damage carries it as [`DamageInfo::custom_damage`], and a `tf_ragdoll` as
+/// its networked `m_iDamageCustom`. Clients dissolve such a ragdoll, unless it
+/// turns to ash or the player was a miniboss, so the player leaves no body
+/// (`c_tf_player.cpp:1202-1210`).
+#[doc(alias("TF_DMG_CUSTOM_PLASMA"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_PLASMA: i32 = sys::ETFDmgCustom_TF_DMG_CUSTOM_PLASMA as i32;
+
+/// The custom damage kind, an `ETFDmgCustom` value, of a charged Cow Mangler
+/// 5000 shot. Clients dissolve the ragdoll of a player it kills as for
+/// [`CUSTOM_DAMAGE_PLASMA`], and also mark it to gib
+/// (`c_tf_player.cpp:1212-1221`).
+#[doc(alias("TF_DMG_CUSTOM_PLASMA_CHARGED"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_PLASMA_CHARGED: i32 = sys::ETFDmgCustom_TF_DMG_CUSTOM_PLASMA_CHARGED as i32;
+
 /// Defines a documented getter and setter for one scalar `CTakeDamageInfo`
 /// field. The setter panics unless the optional validity predicate accepts
 /// the value.
@@ -529,7 +556,8 @@ impl DamageInfo {
 
 	scalar! {
 		/// The custom damage kind. In TF2 this is an `ETFDmgCustom` value, such
-		/// as `sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32`. The cast is
+		/// as [`CUSTOM_DAMAGE_PLASMA`] or
+		/// `sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32`. The cast is
 		/// needed because the sys constant's type differs between ABIs.
 		#[doc(alias("GetDamageCustom"))]
 		custom_damage,

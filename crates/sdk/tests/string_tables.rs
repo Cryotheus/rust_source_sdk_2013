@@ -6,7 +6,8 @@ use sdk_raw::interfaces::network_string_tables::INVALID_STRING_INDEX;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use source_sdk_2013::Module;
 use source_sdk_2013::interfaces::network_string_tables::{
-	AddDownloadableError, AddStringError, DOWNLOADABLES, SOUND_PRECACHE, add_downloadable,
+	AddDownloadableError, AddStringError, DOWNLOADABLES, MODEL_PRECACHE, SOUND_PRECACHE,
+	add_downloadable,
 };
 use source_sdk_2013::interfaces::{NetworkStringTables, ValveEngine};
 use source_sdk_2013::test_support::interfaces::valve_engine::{
@@ -35,6 +36,9 @@ thread_local! {
 
 	/// The strings the mock table's `FindStringIndex` finds, by index.
 	static KNOWN_STRINGS: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
+
+	/// What the mock table's `GetMaxStrings` returns.
+	static MAX_STRINGS: Cell<c_int> = const { Cell::new(0) };
 }
 
 /// A call to the mock table's `AddString`.
@@ -85,6 +89,7 @@ impl Mocks {
 						(&raw mut (*vtable).INetworkStringTable_AddString).write(add_string);
 						(&raw mut (*vtable).INetworkStringTable_FindStringIndex)
 							.write(find_string_index);
+						(&raw mut (*vtable).INetworkStringTable_GetMaxStrings).write(max_strings);
 					},
 				),
 			)
@@ -230,6 +235,32 @@ unsafe extern "C" fn find_table(
 
 	FIND_REQUESTS.with_borrow_mut(|requests| requests.push((this, name)));
 	FOUND_TABLE.get()
+}
+
+/// `INetworkStringTable::GetMaxStrings`, which returns [`MAX_STRINGS`].
+unsafe extern "C" fn max_strings(_: *const sys::INetworkStringTable) -> c_int {
+	MAX_STRINGS.get()
+}
+
+#[test]
+fn capacities_are_the_tables_own() {
+	let mocks = Mocks::exported();
+	let scope = ();
+
+	FOUND_TABLE.set(mocks.table);
+	MAX_STRINGS.set(4096);
+
+	let table = mock_server(&scope)
+		.network_string_tables()
+		.unwrap()
+		.find(MODEL_PRECACHE)
+		.unwrap();
+
+	assert_eq!(table.max_len(), 4096);
+	assert_eq!(
+		find_requests(),
+		[(mocks.container.cast_const(), c"modelprecache".to_owned())]
+	);
 }
 
 #[test]

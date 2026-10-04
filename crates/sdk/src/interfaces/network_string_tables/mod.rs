@@ -25,6 +25,16 @@ use std::ptr::{self, NonNull};
 /// connect.
 pub const DOWNLOADABLES: &CStr = c"downloadables";
 
+/// The name of the table listing the precached models, whose indices are
+/// entities' model indices.
+///
+/// The engine precaches a model by adding it to this table. Once the table
+/// holds [`NetworkStringTable::max_len`] strings, TF2's engine reports a new
+/// model as an overflow ("too many models") through `Host_Error`, which is
+/// expected, though not verified in the current engine, to exit a dedicated
+/// server: check the room left before precaching models while a level runs.
+pub const MODEL_PRECACHE: &CStr = c"modelprecache";
+
 /// The name of the table listing the precached sounds, which clients load
 /// before playing them.
 pub const SOUND_PRECACHE: &CStr = c"soundprecache";
@@ -156,6 +166,15 @@ impl<'s> NetworkStringTable<'s> {
 	pub fn len(self) -> usize {
 		// SAFETY: As for `name`.
 		usize::try_from(unsafe { vcall!(self.as_ptr() => INetworkStringTable_GetNumStrings()) })
+			.unwrap_or(0)
+	}
+
+	/// The most strings the table can hold, as it was created with, which
+	/// bounds [`Self::len`]. The engine refuses new strings beyond it.
+	#[doc(alias("GetMaxStrings"))]
+	pub fn max_len(self) -> usize {
+		// SAFETY: As for `name`.
+		usize::try_from(unsafe { vcall!(self.as_ptr() => INetworkStringTable_GetMaxStrings()) })
 			.unwrap_or(0)
 	}
 

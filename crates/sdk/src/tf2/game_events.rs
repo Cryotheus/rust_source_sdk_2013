@@ -101,7 +101,12 @@ game_events! {
 		AirDash = "air_dash",
 		ArenaMatchMaxstreak = "arena_match_maxstreak",
 		ArenaPlayerNotification = "arena_player_notification",
+
+		/// Fired as an arena round's play starts, as the game enters the
+		/// stalemate state on a map with `tf_logic_arena`
+		/// (`tf_gamerules.cpp:5574`).
 		ArenaRoundStart = "arena_round_start",
+
 		ArenaWinPanel = "arena_win_panel",
 		ArrowImpact = "arrow_impact",
 
@@ -458,13 +463,29 @@ game_events! {
 		TeamplayPointUnlocked = "teamplay_point_unlocked",
 		TeamplayPreRoundTimeLeft = "teamplay_pre_round_time_left",
 		TeamplayReadyRestart = "teamplay_ready_restart",
+
+		/// Fired as the game restarts, for `mp_restartgame`, a tournament restart,
+		/// or the end of the wait for players, before it resets every player's
+		/// scores and the next round's preround starts
+		/// (`teamplayroundbased_gamerules.cpp:2280-2295`).
 		TeamplayRestartRound = "teamplay_restart_round",
+
+		/// Fired as a round's preround ends and the game enters running play,
+		/// `GR_STATE_RND_RUNNING` (`teamplayroundbased_gamerules.cpp:1671-1680`).
+		/// Arena rounds never enter it: their preround leads to the stalemate state,
+		/// and play starts with [`ArenaRoundStart`](Self::ArenaRoundStart) instead
+		/// (`tf_gamerules.cpp:5574`).
 		TeamplayRoundActive = "teamplay_round_active",
+
 		TeamplayRoundRestartSeconds = "teamplay_round_restart_seconds",
 		TeamplayRoundSelected = "teamplay_round_selected",
 		TeamplayRoundStalemate = "teamplay_round_stalemate",
 		TeamplayRoundStart = "teamplay_round_start",
+
+		/// Fired as a team wins the round, right after the game enters its
+		/// win state (`teamplayroundbased_gamerules.cpp:2369-2376`).
 		TeamplayRoundWin = "teamplay_round_win",
+
 		TeamplaySetupFinished = "teamplay_setup_finished",
 		TeamplaySuddendeathBegin = "teamplay_suddendeath_begin",
 		TeamplaySuddendeathEnd = "teamplay_suddendeath_end",

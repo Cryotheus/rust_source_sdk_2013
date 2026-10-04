@@ -1501,6 +1501,86 @@ fn ranges_come_from_the_live_bits_and_flags() {
 	);
 }
 
+#[test]
+fn rebasing_writes_the_computed_scores_and_marks_only_changes() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let player_offset = |word: usize| u16::try_from(DATA + word * ELEMENT_SIZE).unwrap();
+	let points = player_offset(SCORE_DATA + POINTS);
+	let round_points = player_offset(ROUND_SCORE_DATA + POINTS);
+
+	// The slot still holds an earlier player's Score of 7, as the game leaves
+	// it, while the player's scoring data agrees with their statistics.
+	world.put_stat(3, STATS_ACCUMULATED, Stat::Kills, 10);
+	world.put_stat(3, STATS_CURRENT_ROUND, Stat::Kills, 4);
+	world.put(c"m_iTotalScore", 3, 7);
+	world.put_data(3, SCORE_DATA + POINTS, 10);
+	world.put_data(3, ROUND_SCORE_DATA + POINTS, 4);
+
+	let score = world.score(server, 3);
+
+	assert_eq!(
+		score.rebase(),
+		Ok(Rebased {
+			discarded: 3,
+			points_discarded: 0,
+		})
+	);
+	assert_eq!(world.get(c"m_iTotalScore", 3), 10);
+	assert_eq!(
+		changed(RESOURCE),
+		Changed::Offsets(vec![world.offset(c"m_iTotalScore", 3)])
+	);
+	assert_eq!(changed(3), Changed::Nothing);
+	end_snapshot();
+
+	// Agreeing values are left alone.
+	assert_eq!(score.rebase(), Ok(Rebased::default()));
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	assert_eq!(changed(3), Changed::Nothing);
+
+	// Points the game awarded since its last think are discarded from every
+	// value it compares against.
+	world.put_stat(3, STATS_ACCUMULATED, Stat::Kills, 12);
+	world.put_stat(3, STATS_CURRENT_ROUND, Stat::Kills, 6);
+	assert_eq!(
+		score.rebase(),
+		Ok(Rebased {
+			discarded: 2,
+			points_discarded: 2,
+		})
+	);
+	assert_eq!(world.get(c"m_iTotalScore", 3), 12);
+	assert_eq!(world.data(3, SCORE_DATA + POINTS), 12);
+	assert_eq!(world.data(3, ROUND_SCORE_DATA + POINTS), 6);
+	assert_eq!(
+		changed(RESOURCE),
+		Changed::Offsets(vec![world.offset(c"m_iTotalScore", 3)])
+	);
+	assert_eq!(changed(3), Changed::Offsets(vec![points, round_points]));
+	end_snapshot();
+
+	// After a plugin's change that kept a difference the game had not sent,
+	// the values agree with the scores again.
+	world.put_stat(3, STATS_ACCUMULATED, Stat::Kills, 15);
+	score.add_points(1, Adjust::default()).unwrap();
+	assert_eq!(world.get(c"m_iTotalScore", 3), 13);
+	assert_eq!(
+		score.rebase(),
+		Ok(Rebased {
+			discarded: 3,
+			points_discarded: 3,
+		})
+	);
+	assert_eq!(world.get(c"m_iTotalScore", 3), score.total());
+	assert_eq!(world.data(3, SCORE_DATA + POINTS), 16);
+	assert_eq!(
+		world.data(3, ROUND_SCORE_DATA + POINTS),
+		score.round_total()
+	);
+}
+
 /// `CTFPlayer::ResetScores`, which counts the call in the fake entity.
 unsafe extern "C" fn reset_player_scores(this: *mut sys::CTFPlayer) {
 	// SAFETY: As for `datamap`.

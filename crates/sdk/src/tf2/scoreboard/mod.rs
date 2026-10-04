@@ -45,13 +45,19 @@
 //!
 //! # What the game reports
 //!
-//! When the Score the player resource computes differs from the one it last
-//! sent, the game reports the difference to the item servers as Strange
-//! "Points Scored" progress of the player's items, or in Mann vs. Machine to
-//! its statistics (`tf_player_resource.cpp:243-258`). When the session points
-//! of the player's scoring data rise, it fires `player_score_changed`, which
-//! the war tracker and match experience listen to
-//! (`tf_player_shared.cpp:14606-14618`).
+//! At each think, the player resource first copies each connected player's
+//! session and round scores into the player's scoring data
+//! (`m_Shared.m_ScoreData.m_iPoints` and `m_RoundScoreData.m_iPoints`). When
+//! that raises the session's points, the game fires `player_score_changed`,
+//! which the war tracker and match experience listen to
+//! (`tf_player_shared.cpp:14574-14620`); a drop fires nothing. Then it
+//! computes the player's Score again and compares it with the one it last
+//! sent, the player's element of the resource's `m_iTotalScore`, and stores
+//! the new one. Only that comparison reports anything: the game reports the
+//! difference to the item servers as Strange "Points Scored" progress of the
+//! player's cosmetics, or in Mann vs. Machine to its statistics
+//! (`tf_player_resource.cpp:200-258`). A drop is reported as negative
+//! progress.
 //!
 //! Changing statistics with [`PlayerScore`] reports none of this when it is
 //! made: it also adds the change in each score to the values the game compares
@@ -60,43 +66,89 @@
 //! awards between a change and its next think. The plugin's change stays in
 //! those values, though, so when one of the game's [resets](#resets) later
 //! drops the player's Score, the game reports the whole drop, including the
-//! plugin's points, as negative progress (to the item servers, or to Mann vs.
-//! Machine's statistics). Vanilla would report only the points the game
-//! awarded.
+//! plugin's points, as negative progress. Vanilla would report only the points
+//! the game awarded.
+//!
+//! # Reporting nothing
+//!
+//! [`PlayerScore::rebase`] sets the values the game compares against to the
+//! scores themselves, discarding every difference the game has not sent yet.
+//! Called at each of these points, it leaves the game nothing to report:
+//!
+//! - From a [`GameEventId::PlayerScoreChanged`] listener, which covers every
+//!   point the game awards. The game fires the event from the think, after
+//!   writing the session's points and before computing and comparing the
+//!   Score, with nothing changing statistics in between, and the engine calls
+//!   each listener before the event returns.
+//! - From a [`GameEventId::ScorestatsAccumulatedReset`] listener. The game
+//!   fires the event right after resetting every player's scores for
+//!   `mp_restartgame`, a tournament restart, or the end of the wait for
+//!   players, before any think (`teamplayroundbased_gamerules.cpp:3235-3282`).
+//! - From a [`GameEventId::PlayerActivate`] listener. The engine creates,
+//!   spawns, and activates a player in one call, before any think. The game
+//!   never clears a slot's element of `m_iTotalScore` when its player leaves,
+//!   so a newcomer's first think compares against whoever last had the slot.
+//!   A newcomer wears no items yet then, so vanilla's report of that
+//!   difference reaches no Strange counter in practice; the rebase covers a
+//!   player who spawns with items before that think.
+//! - For every player when the plugin starts, unpauses, or a level starts,
+//!   discarding what the game has not sent since its last think.
+//!
+//! The game reports as usual when nothing rebases, as while the plugin is
+//! paused, and in these cases:
+//!
+//! - After the plugin stops rebasing, a reset reports the whole drop of each
+//!   player's Score, including the points the game awarded while it was
+//!   rebased and never reported, as negative progress. Disconnecting and
+//!   changing maps report nothing.
+//! - [`reset_scores`] fires no `scorestats_accumulated_reset`, so the next
+//!   think reports the drop unless [`PlayerScore::rebase`] follows it.
+//! - The Score can change while no statistic does, and without an event: when
+//!   the player's `scoreboard_minigame` attribute comes or goes, when the game
+//!   switches to Mann vs. Machine's or Mannpower's scoring, when healing passes
+//!   10,000,000, beyond which the game stops scoring it, or when a sum
+//!   overflows. The next think reports the difference.
+//! - A player resource created while a level runs starts every element of
+//!   `m_iTotalScore` at 0, and so reports each player's whole Score at its
+//!   first think.
+//! - Mann vs. Machine's population manager resets players' scores without an
+//!   event.
+//! - Another plugin's `player_score_changed` listener that runs after the
+//!   rebasing one and changes statistics leaves its change to be reported.
 //!
 //! # Resets
 //!
 //! The game resets a player's statistics, and so their Score, when they
-//! connect, when they disconnect, when `mp_restartgame` or a tournament
-//! restart resets every player's scores (after which it fires
-//! `scorestats_accumulated_reset`), when [`reset_scores`] resets them, and
-//! when Mann vs. Machine's population manager resets them, which fires no
-//! event. A map change reconnects everyone. Changing team resets
-//! nothing. The round's statistics reset with every round
-//! (`stats_resetround`) and Mann vs. Machine wave, leaving the session's
-//! alone. Frags and deaths reset with the scores.
+//! connect, when they disconnect, when `mp_restartgame`, a tournament restart,
+//! or the end of the wait for players resets every player's scores (after
+//! which it fires `scorestats_accumulated_reset`), when [`reset_scores`] resets
+//! them, which fires no event, and when Mann vs. Machine's population manager
+//! resets them, which fires none either. A map change reconnects everyone. Changing team
+//! resets nothing, and a team scramble only the teams' scores. The round's
+//! statistics reset with every round (`stats_resetround`) and Mann vs.
+//! Machine wave, leaving the session's alone. Frags and deaths reset with the
+//! scores.
 //!
 //! A plugin that keeps its own points across these resets applies them again
-//! after them: the session's after [`GameEventId::PlayerActivate`] and
-//! [`GameEventId::ScorestatsAccumulatedReset`], but not after
-//! [`GameEventId::StatsResetround`], which leaves the session's statistics,
-//! and so points already applied, in place.
+//! after them: the session's after [`GameEventId::PlayerActivate`],
+//! [`GameEventId::ScorestatsAccumulatedReset`], and its own [`reset_scores`],
+//! but not after [`GameEventId::StatsResetround`], which leaves the session's
+//! statistics, and so points already applied, in place.
 //!
 //! # Holding a score
 //!
 //! To keep a player's Score at a value of the plugin's choosing while they
 //! play, listen to [`GameEventId::PlayerScoreChanged`] and call
-//! [`PlayerScore::set_total`] from the listener. The game fires the event
-//! from the player resource's think, after updating the player's scoring data
-//! but before computing the Score it sends, so the Score clients receive never
-//! changes. The game still reports the points it awarded, as described
-//! [above](#what-the-game-reports), and not the plugin's counter-adjustment.
+//! [`PlayerScore::set_total`] and then [`PlayerScore::rebase`] from the
+//! listener. The game fires the event from the player resource's think, after
+//! updating the player's scoring data but before computing the Score it
+//! sends, so the Score clients receive never changes, and the rebase leaves
+//! the game nothing to report. `set_total` alone keeps the difference the game
+//! has not sent, so the game would still report the points it awarded.
 //!
 //! The event only fires when the session's points rise, so the listener sees
-//! no decrease or reset: apply the held value again after the resets above.
-//! Applied from a [`GameEventId::ScorestatsAccumulatedReset`] listener, the
-//! held value shows on top of the player's previous Score until the player
-//! resource's next think, which then sends the held Score.
+//! no decrease or reset: set the held value and rebase again after the resets
+//! above. Clients then receive the held Score at once.
 //! A script's `ResetScores` on the player clears their scoring data but not
 //! their statistics, so the next think fires the event with their whole
 //! Score as its increase.
@@ -112,10 +164,13 @@
 //! The game's functions and statistics are found and checked in TF2's 64-bit
 //! Windows `server.dll` as [`GameStats`] describes. On Linux GNU servers they
 //! are found by symbols inferred from the SDK's source, which have not been
-//! checked against a retail build. No change described here has yet been
-//! observed on a live server: that clients receive it at once, that items'
-//! Strange counts stay as they were, and the client-side effects of
-//! [`PlayerScore::set_killstreak`].
+//! checked against a retail build. The order of the player resource's think
+//! and of `player_score_changed`'s listeners was read from the 64-bit Windows
+//! `server.dll` and `engine.dll`; on Linux it is inferred from the SDK's
+//! source. No change described here has yet been observed on a live server:
+//! that clients receive it at once, that items' Strange counts stay as they
+//! were, with or without [`PlayerScore::rebase`], and the client-side effects
+//! of [`PlayerScore::set_killstreak`].
 //!
 //! [`GameEventId::PlayerActivate`]: crate::tf2::game_events::GameEventId::PlayerActivate
 //! [`GameEventId::PlayerScoreChanged`]: crate::tf2::game_events::GameEventId::PlayerScoreChanged
@@ -524,7 +579,9 @@ impl<'s> PlayerScore<'s> {
 	/// `player_score_changed` listeners when it is made, but a later reset of
 	/// the player's statistics reports the change as part of the Score it
 	/// drops, as the [module documentation](self#what-the-game-reports)
-	/// describes.
+	/// describes, unless [`Self::rebase`] follows the reset. Differences the
+	/// game has not sent yet are kept, and reported as usual; [`Self::rebase`]
+	/// discards them.
 	///
 	/// Fails with [`ScoreError::Overflow`], writing nothing, if a statistic, or
 	/// a score the game compares against, would not fit an `i32`. The game sums
@@ -555,24 +612,17 @@ impl<'s> PlayerScore<'s> {
 		let round_shown =
 			new_round.map_or(0, |new_round| self.score(&new_round) - self.score(&round));
 
-		// SAFETY: The offsets were resolved from the send tables of the classes
-		// the resource and the player had when this was made, during this
-		// callback, and are `int`s, as `ArrayLayout` and `scoring_points`
-		// checked.
-		let (total, points, round_points) = unsafe {
-			(
-				IntField::new(self.resource, self.total_score),
-				IntField::new(self.player, self.layout.points),
-				IntField::new(self.player, self.layout.round_points),
-			)
+		// The values the game compares against keep any difference it has not
+		// sent yet, so only the change itself is added to them.
+		let fields = self.reported_fields();
+		let old = fields.read();
+		let compensate =
+			|value: i32, shown: i32| value.checked_add(shown).ok_or(ScoreError::Overflow);
+		let new = ReportedScores {
+			total: compensate(old.total, shown)?,
+			points: compensate(old.points, shown)?,
+			round_points: compensate(old.round_points, round_shown)?,
 		};
-
-		let compensate = |field: IntField<'_>, shown: i32| {
-			field.read().checked_add(shown).ok_or(ScoreError::Overflow)
-		};
-		let new_total = compensate(total, shown)?;
-		let new_points = compensate(points, shown)?;
-		let new_round_points = compensate(round_points, round_shown)?;
 		let engine = self.server.valve_engine()?;
 
 		self.write_stat(StatScope::Session, index, new_session.stat[index]);
@@ -581,26 +631,7 @@ impl<'s> PlayerScore<'s> {
 			self.write_stat(StatScope::Round, index, new_round.stat[index]);
 		}
 
-		// The game compares what it computes with these, and only reports, and
-		// marks changed, a difference.
-		let mut resource_changes = Changes::default();
-		let mut player_changes = Changes::default();
-
-		if shown != 0 {
-			total.write(new_total);
-			resource_changes.mark(total.offset);
-			points.write(new_points);
-			player_changes.mark(points.offset);
-		}
-
-		if round_shown != 0 {
-			round_points.write(new_round_points);
-			player_changes.mark(round_points.offset);
-		}
-
-		resource_changes.flush(engine, self.resource_edict);
-		player_changes.flush(engine, self.edict);
-
+		self.write_reported(fields, new, engine);
 		Ok(Applied { round_shown, shown })
 	}
 
@@ -753,6 +784,67 @@ impl<'s> PlayerScore<'s> {
 		// reference, since the game writes it through its own pointers, on this
 		// thread.
 		unsafe { self.block(scope).read() }
+	}
+
+	/// Sets the values the game compares the player's scores against, and
+	/// networks, to the scores themselves, and marks those that change for
+	/// clients, so that the game reports nothing for the scores as they are.
+	/// Returns what the game would otherwise have reported.
+	///
+	/// It writes the player's element of the player resource's
+	/// `m_iTotalScore`, the Score the game last sent, and the session's and
+	/// round's points of the player's scoring data
+	/// (`m_Shared.m_ScoreData.m_iPoints` and `m_RoundScoreData.m_iPoints`), to
+	/// the session's and round's scores the game's `CalcPlayerScore` computes
+	/// for the player. The game's next think then finds no difference to
+	/// report as Strange "Points Scored" progress, or in Mann vs. Machine to its
+	/// statistics, and no rise of the session's points to fire
+	/// `player_score_changed` for. Clients receive the scores at once.
+	///
+	/// Where and when to call it, and what it cannot cover, are in the
+	/// [module documentation](self#reporting-nothing). It only reads and writes
+	/// memory and runs `CalcPlayerScore`, which fires no event, so it can be
+	/// called from inside a `player_score_changed` listener, which the game
+	/// fires from the think it would report from.
+	///
+	/// Fails, writing nothing, if the engine's interface is unavailable.
+	#[doc(alias("m_iTotalScore", "kKillEaterEvent_PointsScored"))]
+	pub fn rebase(self) -> Result<Rebased, ScoreError> {
+		let engine = self.server.valve_engine()?;
+		let total = self.total();
+		let fields = self.reported_fields();
+		let old = fields.read();
+
+		self.write_reported(
+			fields,
+			ReportedScores {
+				total,
+				points: total,
+				round_points: self.round_total(),
+			},
+			engine,
+		);
+
+		Ok(Rebased {
+			discarded: total.wrapping_sub(old.total),
+			points_discarded: total.wrapping_sub(old.points),
+		})
+	}
+
+	/// The values the game compares the player's scores against, and
+	/// networks.
+	fn reported_fields(self) -> ReportedFields<'s> {
+		// SAFETY: The offsets were resolved from the send tables of the classes
+		// the resource and the player had when this was made, during this
+		// callback, and are `int`s, as `ArrayLayout` and `scoring_points`
+		// checked.
+		unsafe {
+			ReportedFields {
+				total: IntField::new(self.resource, self.total_score),
+				points: IntField::new(self.player, self.layout.points),
+				round_points: IntField::new(self.player, self.layout.round_points),
+			}
+		}
 	}
 
 	/// The round's score, as the game computes it for the round's MVPs and
@@ -938,6 +1030,41 @@ impl<'s> PlayerScore<'s> {
 		}
 	}
 
+	/// Writes each of `new`'s values that differs from `fields`', and marks it
+	/// changed for clients.
+	///
+	/// The game compares what it computes with these, and only reports, and
+	/// marks changed, a difference, so a value written without a mark would
+	/// not reach clients until the game itself changes it.
+	fn write_reported(
+		self,
+		fields: ReportedFields<'s>,
+		new: ReportedScores,
+		engine: ValveEngine<'_>,
+	) {
+		let old = fields.read();
+		let mut resource_changes = Changes::default();
+		let mut player_changes = Changes::default();
+
+		if new.total != old.total {
+			fields.total.write(new.total);
+			resource_changes.mark(fields.total.offset);
+		}
+
+		if new.points != old.points {
+			fields.points.write(new.points);
+			player_changes.mark(fields.points.offset);
+		}
+
+		if new.round_points != old.round_points {
+			fields.round_points.write(new.round_points);
+			player_changes.mark(fields.round_points.offset);
+		}
+
+		resource_changes.flush(engine, self.resource_edict);
+		player_changes.flush(engine, self.edict);
+	}
+
 	/// Writes one statistic of the player's block for `scope`.
 	fn write_stat(self, scope: StatScope, index: usize, value: i32) {
 		// SAFETY: As for `read_block`, and `index` is one of the block's
@@ -950,6 +1077,57 @@ impl<'s> PlayerScore<'s> {
 				.write(value);
 		}
 	}
+}
+
+/// What [`PlayerScore::rebase`] discarded: the differences the game had not
+/// sent yet. Each wraps as the game's own `int` subtraction does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Rebased {
+	/// The Score minus the one the game last sent: the change the player
+	/// resource would have reported at its next think, as Strange "Points
+	/// Scored" progress or to Mann vs. Machine's statistics.
+	pub discarded: i32,
+
+	/// The Score minus the session's points of the player's scoring data. Above
+	/// 0, the game would have fired `player_score_changed` with this increase
+	/// at its next think.
+	pub points_discarded: i32,
+}
+
+/// The values of one player that the player resource compares the scores it
+/// computes against at each think, and networks.
+#[derive(Debug, Clone, Copy)]
+struct ReportedFields<'s> {
+	/// The player's element of the resource's `m_iTotalScore`: the Score the
+	/// game last sent, which it reports changes from.
+	total: IntField<'s>,
+
+	/// `m_Shared.m_ScoreData.m_iPoints`: the session's score the game last
+	/// copied into the player's scoring data, whose rises fire
+	/// `player_score_changed`.
+	points: IntField<'s>,
+
+	/// `m_Shared.m_RoundScoreData.m_iPoints`: the round's score the game last
+	/// copied into the player's scoring data.
+	round_points: IntField<'s>,
+}
+
+impl ReportedFields<'_> {
+	fn read(self) -> ReportedScores {
+		ReportedScores {
+			total: self.total.read(),
+			points: self.points.read(),
+			round_points: self.round_points.read(),
+		}
+	}
+}
+
+/// The values of [`ReportedFields`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReportedScores {
+	total: i32,
+	points: i32,
+	round_points: i32,
 }
 
 /// What [`ScoreboardLayout`] keeps of the player resource it last found.
@@ -1739,16 +1917,20 @@ fn networking(entity: Entity<'_>) -> Result<(ServerClass<'_>, Edict<'_>), ScoreE
 	}
 }
 
-/// Resets `player`'s scoring as a team scramble does, through
-/// `CTFPlayer::ResetScores`.
+/// Resets `player`'s scoring through `CTFPlayer::ResetScores`, as
+/// `mp_restartgame`, a tournament restart, and the end of the wait for players
+/// do for every player.
 ///
 /// This resets the statistics the game keeps for the player, which the
 /// "Score" column is computed from, their frags and deaths, the statistics
 /// panel's counts, and every domination and revenge relationship they are part
 /// of, and drops their Mann vs. Machine events (`tf_player.cpp:3286-3294`).
-/// The player resource then reports the drop in their Score as a change of
-/// Strange "Points Scored" progress, or of Mann vs. Machine statistics, as for
-/// any reset the game makes.
+/// Unlike the game's resets of every player, it fires no
+/// `scorestats_accumulated_reset`. The player resource then reports the drop
+/// in their Score at its next think, as a change of Strange "Points Scored"
+/// progress, or of Mann vs. Machine statistics, unless
+/// [`PlayerScore::rebase`] follows this, as the
+/// [module documentation](self#reporting-nothing) describes.
 ///
 /// # Re-entrancy
 ///
