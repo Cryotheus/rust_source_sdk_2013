@@ -1,100 +1,119 @@
-//! TF2's scoreboard: display overrides kept applied around each game frame,
-//! and the few operations that change the game's own scoring state.
+//! TF2's scoreboard, changed through the game's own scoring state.
 //!
-//! # Where clients read the scoreboard
+//! Everything here writes the state the game itself keeps and computes the
+//! scoreboard from. The game, clients, and every other reader then agree on
+//! the new values, and nothing has to be restored or kept applied: a change
+//! lasts until the game itself resets or replaces the value, as described
+//! [below](#resets).
+//!
+//! # Where the scoreboard comes from
 //!
 //! TF2 clients build the scoreboard from two kinds of networked entities:
 //!
 //! - `tf_player_manager` (`CTFPlayerResource`), which holds an array per
-//!   column with an element per player slot. For each slot with a connected
-//!   player, the game recomputes the elements from its own state: most at
-//!   every think, ten times a second (`player_resource.cpp:94-101`), the
-//!   damage, healing, support and credit columns at most once a second
-//!   (`tf_player_resource.cpp:218-230`), and the ping every 2 seconds
-//!   (`player_resource.cpp:139-147`). A value written once is overwritten at
-//!   the column's next update. Slots without a connected player keep their
-//!   values, apart from the connection fields (`player_resource.cpp:162-168`).
+//!   column with an element per player slot. For each connected player, the
+//!   game recomputes the elements from its own state at every think, ten
+//!   times a second (`player_resource.cpp:94-101`); the damage, healing,
+//!   support and credit columns at most once a second
+//!   (`tf_player_resource.cpp:218-230`).
 //! - `tf_team` (`CTFTeam`), whose score and flag captures the game only
-//!   assigns when they change. They are the game's real state.
+//!   assigns when they change.
 //!
-//! The game reads two of the player columns back. When a player's
-//! `m_iTotalScore` changes, it reports the difference to the item servers as
-//! Strange "Points Scored" progress, or in Mann vs. Machine to its statistics
-//! (`tf_player_resource.cpp:243-258`); autobalance, team scrambles and match
-//! results read it as well. The game also averages each new ping with the
-//! previous one (`player_resource.cpp:146`).
+//! The game stores no player's score. It keeps statistics per player, which
+//! `sdk_raw`'s [`GameStats`] finds: for the session, which the scoreboard's
+//! Score is computed from, and for the current round, which the round's score
+//! and its MVPs are computed from. At each think, the player resource scores
+//! the session's statistics with `CTFGameRules::CalcPlayerScore`, and copies
+//! both scores and some of the statistics into the player's local scoring data
+//! (`tf_player_resource.cpp:200-258`). [`PlayerScore`] reads and changes those
+//! statistics, and scores them with the game's own function.
 //!
-//! # Display overrides
+//! # Points
 //!
-//! A [`Scoreboard`] keeps what clients see instead of the game's values, and
-//! brackets each game frame:
+//! [`PlayerScore::add_points`] and [`PlayerScore::set_total`] change a
+//! player's Score by exactly the amount asked, through
+//! [`Stat::KillsRuneCarrier`]: the game scores it one point each, in every
+//! mode and whatever the player's attributes, and shows or uploads it nowhere
+//! else. The game also counts a kill of any player carrying a Mannpower rune
+//! there, so [`PlayerScore::points`] includes those. The game never shows a
+//! Score below 0: a total taken below it shows 0, and the deficit absorbs the
+//! points the player earns next. [`Applied`] tells what clients see change.
 //!
-//! 1. [`Scoreboard::before_frame`] writes the game's own values back, so
-//!    nothing the game does during the frame sees an override.
-//! 2. The game's frame runs, and may change its values.
-//! 3. [`Scoreboard::after_frame`] records the game's new values and writes the
-//!    overrides again, before the engine sends the frame to clients.
+//! The other [`Stat`]s change the Score by their own weights, some of them
+//! divided and floored (`tf_gamerules.cpp:17031-17093`), and feed the match
+//! summaries and medals the game sends at the end of a competitive match.
 //!
-//! Only what clients must receive anew is marked changed for the engine's
-//! networking: the engine records at most 19 changed variables per entity and
-//! frame, past which it compares the whole entity, which for the player
-//! resource is thousands of variables.
+//! # What the game reports
 //!
-//! With Metamod:Source, `MetamodApi::hook_game_frame` and
-//! `MetamodApi::hook_game_frame_post` from the `metamod_source` crate run
-//! callbacks at those two points.
+//! When the Score the player resource computes differs from the one it last
+//! sent, the game reports the difference to the item servers as Strange
+//! "Points Scored" progress of the player's items, or in Mann vs. Machine to
+//! its statistics (`tf_player_resource.cpp:243-258`). When the session points
+//! of the player's scoring data rise, it fires `player_score_changed`, which
+//! the war tracker and match experience listen to
+//! (`tf_player_shared.cpp:14606-14618`).
 //!
-//! Code that runs between frames, such as console commands, other plugins, and
-//! map scripts reacting to either, sees the overrides, and the game keeps what
-//! such code computes from them:
+//! Changing statistics with [`PlayerScore`] reports none of this: it also adds
+//! the change in each score to the values the game compares against, and marks
+//! them changed for clients, which receive the new values at once. Points the
+//! game awards are still reported as usual, including those it awards between
+//! a change and its next think. Nothing here reports plugin-made points as item
+//! progress.
 //!
-//! - The game adds to a team's score and flag captures in place
-//!   (`team.cpp:281-284`, `tf_team.h:54`). An increment made between frames,
-//!   such as a round won through `mp_forcewin`, or through another plugin or a
-//!   script ending the round or firing `tf_gamerules`' `AddRedTeamScore` input,
-//!   is added to the value shown, and the sum becomes the game's own
-//!   (`teamplayroundbased_gamerules.cpp:2360-2364`). Call
-//!   [`Scoreboard::restore_all`] before causing such a change.
-//! - When `mvm_wave_complete` fires, the player resource updates every slot at
-//!   once (`tf_player_resource.cpp:70-81`). The game fires it during frames
-//!   (`tf_populators.cpp:1928`), but should another plugin or a script fire it
-//!   between frames, the change in each overridden `m_iTotalScore` is computed
-//!   against the override, and reported as above.
+//! # Resets
 //!
-//! The column holding each player's team (`m_iTeam`) cannot be overridden, as
-//! the game reads it between frames when a vote is called, nor can the columns
-//! clients identify players by.
+//! The game resets a player's statistics, and so their Score, when they
+//! connect, when they disconnect, when `mp_restartgame` or a tournament
+//! restart resets every player's scores (after which it fires
+//! `scorestats_accumulated_reset`), when [`reset_scores`] resets them, and
+//! when Mann vs. Machine's population manager resets them, which fires no
+//! event. A map change reconnects everyone. Changing team resets
+//! nothing. The round's statistics reset with every round
+//! (`stats_resetround`) and Mann vs. Machine wave, leaving the session's
+//! alone. Frags and deaths reset with the scores.
 //!
-//! Clients' achievement logic reads the overridden columns as well: at the end
-//! of a round, an achievement compares the teammates' `m_iTotalScore`
-//! (`achievements_tf.cpp:832-860`), a Spy achievement checks the victim's
-//! `m_iActiveDominations` (`achievements_tf_spy.cpp:379`), and a Medic
-//! achievement checks that no teammate's `m_iPlayerClass` is the Medic
-//! (`achievements_tf_medic.cpp:326-342`). Overrides can therefore grant or
-//! withhold real Steam achievements.
+//! A plugin that keeps its own points across these resets applies them again
+//! after them: the session's after [`GameEventId::PlayerActivate`] and
+//! [`GameEventId::ScorestatsAccumulatedReset`], but not after
+//! [`GameEventId::StatsResetround`], which leaves the session's statistics,
+//! and so points already applied, in place.
+//!
+//! # Holding a score
+//!
+//! To keep a player's Score at a value of the plugin's choosing while they
+//! play, listen to [`GameEventId::PlayerScoreChanged`] and call
+//! [`PlayerScore::set_total`] from the listener. The game fires the event
+//! from the player resource's think, after updating the player's scoring data
+//! but before computing the Score it sends, so the Score clients receive never
+//! changes. The game still reports the points it awarded, as described
+//! [above](#what-the-game-reports), and not the plugin's counter-adjustment.
+//!
+//! The event only fires when the session's points rise, so the listener sees
+//! no decrease or reset: apply the held value again after the resets above.
+//! A script's `ResetScores` on the player clears their scoring data but not
+//! their statistics, so the next think fires the event with their whole
+//! Score as its increase.
+//!
+//! # Limits
+//!
+//! The scoreboard's Score is networked as an unsigned 32-bit varint, the
+//! player's own points readout with 10 bits, so it wraps above 1023, and
+//! frags and deaths with 12 signed bits, -2048 to 2047 in the SDK.
 //!
 //! # Unverified
 //!
-//! On TF2's 64-bit Windows server, a retail client's scoreboard has been
-//! observed to show [`Override::Fixed`] values of a player's score and kills,
-//! and of BLU's score, steadily and without flicker. They held after a kill
-//! raised the game's values, which [`Scoreboard::real_player_stat`] reported,
-//! and clearing the overrides showed the game's values again. With bots, a
-//! plugin calling [`Scoreboard::restore_all`] on pause and unload wrote the
-//! game's values back, and the overrides returned on unpause.
+//! The game's functions and statistics are found and checked in TF2's 64-bit
+//! Windows `server.dll` as [`GameStats`] describes. On Linux GNU servers they
+//! are found by symbols inferred from the SDK's source, which have not been
+//! checked against a retail build. No change described here has yet been
+//! observed on a live server: that clients receive it at once, that items'
+//! Strange counts stay as they were, and the client-side effects of
+//! [`PlayerScore::set_killstreak`].
 //!
-//! Linux GNU servers, the other columns, [`Override::Offset`], team flag
-//! captures, the [game state](#game-state) functions, the achievement effects
-//! above, Mann vs. Machine, SourceTV and demos, and clients under packet loss
-//! or lag have not been observed live.
-//!
-//! # Game state
-//!
-//! [`set_team_score`], [`set_team_flag_captures`], [`set_frags`],
-//! [`set_deaths`] and [`reset_scores`] change what the game itself keeps, which
-//! every reader then uses, with the consequences each documents. While a
-//! [`Scoreboard`] overrides a team's number, set it through
-//! [`Scoreboard::set_real_team_stat`] instead.
+//! [`GameEventId::PlayerActivate`]: crate::tf2::game_events::GameEventId::PlayerActivate
+//! [`GameEventId::PlayerScoreChanged`]: crate::tf2::game_events::GameEventId::PlayerScoreChanged
+//! [`GameEventId::ScorestatsAccumulatedReset`]: crate::tf2::game_events::GameEventId::ScorestatsAccumulatedReset
+//! [`GameEventId::StatsResetround`]: crate::tf2::game_events::GameEventId::StatsResetround
 
 #[cfg(test)]
 #[path = "../../tests/tf2/scoreboard.rs"]
@@ -105,19 +124,19 @@ use crate::datatables::{NetPropError, PropFlags, PropKind, SendProp, ServerClass
 use crate::edicts::Edict;
 use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::{ServerGameDll, ServerTools, ValveEngine};
-use crate::players::UserId;
-use crate::tf2::PlayerClass;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::edicts::MAX_CHANGE_OFFSETS;
 
 use sdk_raw::tf2::scoreboard::{
-	ELEMENT_SIZE, KILL_STREAK, STREAKS_PER_SLOT, TF_TEAM_BLUE, TF_TEAM_RED,
+	ELEMENT_SIZE, GameStats, GameStatsError, KILL_STREAK, MAX_PLAYERS_ARRAY_SAFE, PlayerStats,
+	RoundStats, TF_TEAM_BLUE, TF_TEAM_RED, stat,
 };
 
 use sdk_raw::vcall;
-use std::collections::BTreeMap;
 use std::ffi::{CStr, c_int};
+use std::mem::offset_of;
 use std::ops::RangeInclusive;
+use std::ptr::NonNull;
 
 /// An exclusive bound on the datamap offsets trusted for a player's fields.
 const MAX_FIELD_OFFSET: usize = 1 << 16;
@@ -127,6 +146,36 @@ const RESOURCE_CLASS_NAME: &CStr = c"tf_player_manager";
 
 /// The class name of TF2's `CTFTeam` (`tf_team.cpp:61`).
 const TEAM_CLASS_NAME: &CStr = c"tf_team";
+
+/// Which of a player's statistics a change applies to, besides the session's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Adjust {
+	/// Whether the current round's statistics change too, and with them the
+	/// round's score, which the game picks the round's MVPs by, and the
+	/// player's round summary. `true` by default.
+	///
+	/// The game resets the round's statistics every round, but not the
+	/// session's.
+	pub round: bool,
+}
+
+impl Default for Adjust {
+	fn default() -> Self {
+		Self { round: true }
+	}
+}
+
+/// How much a change moved the scores clients are shown.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Applied {
+	/// The change in the round's score, 0 unless [`Adjust::round`].
+	pub round_shown: i32,
+
+	/// The change in the session's score, the scoreboard's Score. It differs
+	/// from the change asked for where the game's clamping at 0 hides part of
+	/// it, or a statistic's weight is not 1.
+	pub shown: i32,
+}
 
 /// Where a player column's array lives in the player resource, as resolved
 /// from the resource's server class.
@@ -143,23 +192,23 @@ struct ArrayLayout {
 }
 
 impl ArrayLayout {
-	/// Resolves `field`'s array in `class`, checking that it is a contiguous
+	/// Resolves the array `name` in `class`, checking that it is a contiguous
 	/// array of `int`s that holds at least player slot 1.
 	fn resolve(
 		dll: ServerGameDll<'_>,
 		class: ServerClass<'_>,
-		field: PlayerField,
-	) -> Result<Self, ScoreboardError> {
-		let needed = field.element(1).map_or(usize::MAX, |element| element + 1);
-		let unexpected = || ScoreboardError::UnexpectedLayout {
-			name: field.display_name(),
-			needed,
+		name: &'static CStr,
+	) -> Result<Self, ScoreError> {
+		let display_name = name.to_str().unwrap_or_default();
+		let unexpected = || ScoreError::UnexpectedLayout {
+			name: display_name,
+			needed: 2,
 		};
 
-		let array = dll.net_prop(class, field.name())?;
+		let array = dll.net_prop(class, name)?;
 		let len = array
 			.element_count()
-			.filter(|&len| len >= needed)
+			.filter(|&len| len >= 2)
 			.ok_or_else(unexpected)?;
 		let first = array.element(0)?;
 
@@ -184,56 +233,40 @@ impl ArrayLayout {
 		})
 	}
 
-	/// Checks that the array holds [`STREAKS_PER_SLOT`] elements for each of
-	/// `slots` player slots, as `m_iStreaks` must for the bindings' streak
-	/// numbering to address the right element.
-	fn grouped(self, slots: usize) -> Result<Self, ScoreboardError> {
-		if slots.checked_mul(STREAKS_PER_SLOT) == Some(self.len) {
-			Ok(self)
+	/// Bytes from the start of the entity to the element for `slot`, or an
+	/// error naming the array `name` if it does not reach it.
+	fn offset(self, name: &'static str, slot: usize) -> Result<usize, ScoreError> {
+		if slot < self.len {
+			// `resolve` checked that every element's offset is this.
+			Ok(self.first + slot * ELEMENT_SIZE)
 		} else {
-			Err(ScoreboardError::UnexpectedStreaks {
-				len: self.len,
-				slots,
+			Err(ScoreError::UnexpectedLayout {
+				name,
+				needed: slot.saturating_add(1),
 			})
 		}
 	}
-
-	/// Bytes from the start of the entity to `field`'s element for `slot`, or
-	/// `None` if the array does not reach it.
-	fn offset(self, field: PlayerField, slot: usize) -> Option<usize> {
-		let element = field.element(slot).filter(|&element| element < self.len)?;
-
-		// `resolve` checked that every element's offset is this.
-		Some(self.first + element * ELEMENT_SIZE)
-	}
 }
 
-/// The variables of one entity marked changed during one pass, sent to the
+/// The variables of one entity marked changed during one write, sent to the
 /// engine's change tracking together.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Changes {
-	/// Whether to mark the whole entity changed, whatever `offsets` holds.
-	full: bool,
-
 	/// The offsets of the variables to mark changed, without duplicates.
 	offsets: Vec<usize>,
 }
 
 impl Changes {
-	/// No changes, or the whole entity if `full`.
-	const fn new(full: bool) -> Self {
-		Self {
-			full,
-			offsets: Vec::new(),
-		}
-	}
-
 	/// Tells the engine about the changes to `edict`'s entity.
 	///
 	/// More offsets than the engine records per frame, or one it cannot
 	/// record, mark the whole entity changed at once, as recording them one by
 	/// one would end up doing.
 	fn flush(self, engine: ValveEngine<'_>, edict: Edict<'_>) {
+		if self.offsets.is_empty() {
+			return;
+		}
+
 		let offsets: Option<Vec<u16>> = self
 			.offsets
 			.iter()
@@ -241,7 +274,7 @@ impl Changes {
 			.collect();
 
 		match offsets {
-			Some(offsets) if !self.full && offsets.len() <= usize::from(MAX_CHANGE_OFFSETS) => {
+			Some(offsets) if offsets.len() <= usize::from(MAX_CHANGE_OFFSETS) => {
 				for offset in offsets {
 					edict.state_changed(engine, offset);
 				}
@@ -275,180 +308,32 @@ impl<'s> Context<'s> {
 			tools: server.server_tools()?,
 		})
 	}
-
-	/// The user ID of the client that owns player slot `slot` now.
-	fn owner(self, slot: usize) -> Option<UserId> {
-		let edict = self.engine.edict_of_index(c_int::try_from(slot).ok()?)?;
-
-		self.engine.user_id_of_edict(edict)
-	}
 }
 
-/// One overridable variable: what clients should see, and what the store
-/// knows of the game's value and of what it wrote.
-#[derive(Debug, Clone, Copy, Default)]
-struct FieldState {
-	/// What clients should see instead of the game's value.
-	overridden: Option<Override>,
+/// A count `CBasePlayer` keeps twice: as a datamap field the game counts
+/// with, and in the player state the engine reads.
+#[derive(Debug, Clone, Copy)]
+struct Count<'s> {
+	/// The datamap field, such as `m_iFrags`.
+	field: IntField<'s>,
 
-	/// The game's own value, as the last frame left it.
-	real: Option<i32>,
-
-	/// What the store last wrote in place of `real`, which clients receive
-	/// unless something else wrote the variable since.
-	applied: Option<i32>,
-
-	/// Whether [`Self::before_frame`] wrote `real` back over `applied` for the
-	/// current frame, so the variable holds the game's value after it.
-	restored: bool,
+	/// The player state's copy, such as `pl.frags`.
+	mirror: IntField<'s>,
 }
 
-impl FieldState {
-	/// Records the game's value after its frame and, if `apply`, writes the
-	/// override. Without an override to write, the game's value is written
-	/// back where the store wrote another.
-	///
-	/// If [`Self::before_frame`] did not write the game's value back for this
-	/// frame, the variable may still hold what was applied, which is then taken
-	/// to mean the game did not change it.
-	fn after_frame(
-		&mut self,
-		variable: IntField<'_>,
-		range: NetRange,
-		changes: &mut Changes,
-		always_flag: bool,
-		apply: bool,
-	) {
-		let restored = std::mem::take(&mut self.restored);
+impl Count<'_> {
+	/// Writes `value` to the field, and to the player state's copy if that
+	/// still agreed with the field. Returns whether it did.
+	fn set(self, value: i32) -> bool {
+		let agreed = self.mirror.read() == self.field.read();
 
-		if !self.is_active() {
-			return;
+		self.field.write(value);
+
+		if agreed {
+			self.mirror.write(value);
 		}
 
-		let memory = variable.read();
-		let real = match (self.applied, self.real) {
-			(Some(applied), Some(real)) if !restored && memory == applied => real,
-			_ => memory,
-		};
-
-		match self.overridden.filter(|_| apply) {
-			Some(value) => {
-				let shown = value.resolve(real, range);
-
-				if memory != shown {
-					variable.write(shown);
-				}
-
-				if self.applied != Some(shown) || always_flag {
-					changes.mark(variable.offset);
-				}
-
-				self.real = Some(real);
-				self.applied = Some(shown);
-			}
-
-			None => {
-				if self.applied.take().is_some() {
-					if memory != real {
-						variable.write(real);
-					}
-
-					changes.mark(variable.offset);
-				}
-
-				if self.overridden.is_some() {
-					self.real = Some(real);
-				}
-			}
-		}
-	}
-
-	/// Writes the game's value back before its frame, where the variable
-	/// still holds what was applied.
-	///
-	/// Returns whether the value was written back without marking it changed,
-	/// which leaves clients with the override only if [`Self::after_frame`]
-	/// applies it again before the engine sends the frame.
-	fn before_frame(
-		&mut self,
-		variable: IntField<'_>,
-		changes: &mut Changes,
-		always_flag: bool,
-	) -> bool {
-		self.restored = false;
-
-		let Some(applied) = self.applied else {
-			return false;
-		};
-
-		let memory = variable.read();
-
-		if memory == applied {
-			if let Some(real) = self.real
-				&& real != memory
-			{
-				variable.write(real);
-			}
-
-			if self.overridden.is_some() && !always_flag {
-				self.restored = true;
-				return true;
-			}
-
-			changes.mark(variable.offset);
-		} else {
-			// Something else wrote the variable since it was applied, which the
-			// game's logic takes as its own value from now on.
-			self.real = Some(memory);
-
-			if self.overridden.is_none() || always_flag {
-				changes.mark(variable.offset);
-			}
-		}
-
-		self.applied = None;
-		false
-	}
-
-	/// Drops what the store knows of an entity that is gone.
-	const fn forget_memory(&mut self) {
-		self.real = None;
-		self.applied = None;
-		self.restored = false;
-	}
-
-	/// Whether the variable is overridden, or still holds what was applied.
-	const fn is_active(&self) -> bool {
-		self.overridden.is_some() || self.applied.is_some()
-	}
-
-	/// Drops the game's value once nothing needs it.
-	const fn prune(&mut self) {
-		if !self.is_active() {
-			self.real = None;
-		}
-	}
-
-	/// Writes the game's value back where the variable holds what was
-	/// applied, and marks it changed, keeping the override.
-	fn restore(&mut self, variable: IntField<'_>, changes: &mut Changes) {
-		self.restored = false;
-
-		let Some(applied) = self.applied.take() else {
-			return;
-		};
-
-		let memory = variable.read();
-
-		if memory != applied {
-			self.real = Some(memory);
-		} else if let Some(real) = self.real
-			&& real != memory
-		{
-			variable.write(real);
-		}
-
-		changes.mark(variable.offset);
+		agreed
 	}
 }
 
@@ -495,19 +380,6 @@ impl<'s> IntField<'s> {
 	}
 }
 
-/// What [`Scoreboard::level_shutdown`] does with the overrides.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LevelPolicy {
-	/// Keep the overrides for the next level. Each player's still applies to
-	/// them while their user ID owns the same player slot, and is dropped at
-	/// the first [`Scoreboard::after_frame`] where it does not, as while no
-	/// client is in the slot.
-	KeepOverrides,
-
-	/// Drop every override.
-	ClearOverrides,
-}
-
 /// The values a networked integer can hold, from [`encodable_range`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NetRange {
@@ -517,11 +389,11 @@ struct NetRange {
 
 impl NetRange {
 	/// Checks that `value` can be networked as the variable `name`.
-	fn check(self, name: &'static str, value: i32) -> Result<(), ScoreboardError> {
+	fn check(self, name: &'static str, value: i32) -> Result<(), ScoreError> {
 		if (self.min..=self.max).contains(&value) {
 			Ok(())
 		} else {
-			Err(ScoreboardError::OutOfRange {
+			Err(ScoreError::OutOfRange {
 				name,
 				value,
 				min: self.min,
@@ -530,313 +402,566 @@ impl NetRange {
 		}
 	}
 
-	/// The value in the range nearest to `value`.
-	fn clamp(self, value: i64) -> i32 {
-		saturate(value.clamp(i64::from(self.min), i64::from(self.max)))
-	}
-
 	const fn inclusive(self) -> RangeInclusive<i32> {
 		self.min..=self.max
 	}
 }
 
-/// What clients see in place of the game's value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Override {
-	/// This value. Setting it fails with [`ScoreboardError::OutOfRange`] if the
-	/// variable cannot network it.
-	Fixed(i32),
+/// Where a player class keeps its networked points, as resolved from its
+/// server class.
+#[derive(Debug, Clone, Copy)]
+struct PlayerLayout {
+	/// The address of the player's server class, which this describes.
+	class: usize,
 
-	/// The game's value plus this, saturated to what the variable can
-	/// network, and following the game's value as it changes.
-	Offset(i32),
+	/// `m_Shared.m_ScoreData.m_iPoints`: the session's score, as the player's
+	/// own client receives it.
+	points: usize,
+
+	/// `m_Shared.m_RoundScoreData.m_iPoints`: the round's score.
+	round_points: usize,
 }
 
-impl Override {
-	/// The value shown for the game's `real` value.
-	fn resolve(self, real: i32, range: NetRange) -> i32 {
-		match self {
-			Self::Fixed(value) => range.clamp(i64::from(value)),
-			Self::Offset(offset) => range.clamp(i64::from(real) + i64::from(offset)),
+impl PlayerLayout {
+	fn resolve(dll: ServerGameDll<'_>, class: ServerClass<'_>) -> Result<Self, ScoreError> {
+		Ok(Self {
+			class: class.as_ptr().addr(),
+			points: scoring_points(dll, class, c"m_ScoreData")?,
+			round_points: scoring_points(dll, class, c"m_RoundScoreData")?,
+		})
+	}
+}
+
+/// One TF2 player's scoring state, for one callback.
+///
+/// It reads and changes the statistics the game keeps for the player, which
+/// the scoreboard's Score and the round's score are computed from, as the
+/// [module documentation](self) describes, and the player's frags, deaths, and
+/// kill streak. Every change is the game's own state from then on.
+///
+/// Like the [`Entity`] it is made for, it belongs to the callback its
+/// [`Server`] does, and is `Copy`, but neither `Send` nor `Sync`.
+#[derive(Debug, Clone, Copy)]
+pub struct PlayerScore<'s> {
+	edict: Edict<'s>,
+	game_stats: GameStats,
+	index: usize,
+	layout: PlayerLayout,
+	player: Entity<'s>,
+	resource: Entity<'s>,
+	resource_edict: Edict<'s>,
+	server: Server<'s>,
+
+	/// The game's statistics block for the player's entity index.
+	stats: NonNull<PlayerStats>,
+
+	/// The offset of the player's element of `m_iTotalScore` in the resource.
+	total_score: usize,
+}
+
+impl<'s> PlayerScore<'s> {
+	/// The scoring state of `player`, a TF2 player, as
+	/// [`ScoreboardLayout::player`] finds it with a fresh layout.
+	pub fn new(server: Server<'s>, player: Entity<'s>) -> Result<Self, ScoreError> {
+		ScoreboardLayout::new().player(server, player)
+	}
+
+	/// Adds `delta` deaths, as [`Self::set_deaths`] sets them.
+	///
+	/// Fails as [`Self::add_frags`] does.
+	pub fn add_deaths(self, delta: i32) -> Result<bool, ScoreError> {
+		let count = self.count(c"m_iDeaths", offset_of!(sys::CPlayerState, deaths))?;
+		let deaths = count
+			.field
+			.read()
+			.checked_add(delta)
+			.ok_or(ScoreError::Overflow)?;
+
+		Ok(count.set(deaths))
+	}
+
+	/// Adds `delta` frags, as [`Self::set_frags`] sets them.
+	///
+	/// Fails as [`Self::set_frags`] does, or with [`ScoreError::Overflow`],
+	/// writing nothing, if the sum does not fit an `i32`.
+	pub fn add_frags(self, delta: i32) -> Result<bool, ScoreError> {
+		let count = self.count(c"m_iFrags", offset_of!(sys::CPlayerState, frags))?;
+		let frags = count
+			.field
+			.read()
+			.checked_add(delta)
+			.ok_or(ScoreError::Overflow)?;
+
+		Ok(count.set(frags))
+	}
+
+	/// Changes the player's Score by `delta` points, through
+	/// [`Stat::KillsRuneCarrier`], as [`Self::add_stat`] does.
+	///
+	/// Each point counts once, whatever the game mode and the player's
+	/// attributes, but the Score clients see never drops below 0:
+	/// [`Applied::shown`] is the change they see. Points taken below 0 are
+	/// owed, and absorb the points the player earns next.
+	pub fn add_points(self, delta: i32, adjust: Adjust) -> Result<Applied, ScoreError> {
+		self.add_stat(Stat::KillsRuneCarrier, delta, adjust)
+	}
+
+	/// Adds `delta` to one of the player's statistics for the session, and
+	/// for the round if [`Adjust::round`], and returns how much that moved the
+	/// scores clients see.
+	///
+	/// The scores move by the statistic's weight in the game's
+	/// `CalcPlayerScore`, as the [module documentation](self#points) describes,
+	/// and clients receive them at once. The game does not report the change
+	/// to item servers, its Mann vs. Machine statistics, or
+	/// `player_score_changed` listeners.
+	///
+	/// Fails with [`ScoreError::Overflow`], writing nothing, if a statistic, or
+	/// a score the game compares against, would not fit an `i32`. The game sums
+	/// the statistics as `int`s too, so keep them far from that bound.
+	pub fn add_stat(self, stat: Stat, delta: i32, adjust: Adjust) -> Result<Applied, ScoreError> {
+		let index = stat.index();
+		let session = self.read_block(StatScope::Session);
+		let round = self.read_block(StatScope::Round);
+
+		let mut new_session = session;
+		new_session.stat[index] = session.stat[index]
+			.checked_add(delta)
+			.ok_or(ScoreError::Overflow)?;
+
+		let new_round = if adjust.round {
+			let mut new_round = round;
+
+			new_round.stat[index] = round.stat[index]
+				.checked_add(delta)
+				.ok_or(ScoreError::Overflow)?;
+			Some(new_round)
+		} else {
+			None
+		};
+
+		// Both scores are clamped at 0, so their difference fits.
+		let shown = self.score(&new_session) - self.score(&session);
+		let round_shown =
+			new_round.map_or(0, |new_round| self.score(&new_round) - self.score(&round));
+
+		// SAFETY: The offsets were resolved from the send tables of the classes
+		// the resource and the player had when this was made, during this
+		// callback, and are `int`s, as `ArrayLayout` and `scoring_points`
+		// checked.
+		let (total, points, round_points) = unsafe {
+			(
+				IntField::new(self.resource, self.total_score),
+				IntField::new(self.player, self.layout.points),
+				IntField::new(self.player, self.layout.round_points),
+			)
+		};
+
+		let compensate = |field: IntField<'_>, shown: i32| {
+			field.read().checked_add(shown).ok_or(ScoreError::Overflow)
+		};
+		let new_total = compensate(total, shown)?;
+		let new_points = compensate(points, shown)?;
+		let new_round_points = compensate(round_points, round_shown)?;
+		let engine = self.server.valve_engine()?;
+
+		self.write_stat(StatScope::Session, index, new_session.stat[index]);
+
+		if let Some(new_round) = new_round {
+			self.write_stat(StatScope::Round, index, new_round.stat[index]);
+		}
+
+		// The game compares what it computes with these, and only reports, and
+		// marks changed, a difference.
+		let mut resource_changes = Changes::default();
+		let mut player_changes = Changes::default();
+
+		if shown != 0 {
+			total.write(new_total);
+			resource_changes.mark(total.offset);
+			points.write(new_points);
+			player_changes.mark(points.offset);
+		}
+
+		if round_shown != 0 {
+			round_points.write(new_round_points);
+			player_changes.mark(round_points.offset);
+		}
+
+		resource_changes.flush(engine, self.resource_edict);
+		player_changes.flush(engine, self.edict);
+
+		Ok(Applied { round_shown, shown })
+	}
+
+	/// The player's statistics block for `scope`, which the game owns.
+	fn block(self, scope: StatScope) -> *mut RoundStats {
+		match scope {
+			StatScope::Session => PlayerStats::accumulated(self.stats.as_ptr()),
+			StatScope::Round => PlayerStats::current_round(self.stats.as_ptr()),
 		}
 	}
-}
 
-/// How far the store has come through the current frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Phase {
-	/// [`Scoreboard::before_frame`] has not run since the store was created,
-	/// restored, or its level shut down, so [`Scoreboard::after_frame`] applies
-	/// nothing: no override is applied that a game frame could see.
-	#[default]
-	Idle,
+	/// The values the player resource's column `name` can network.
+	fn column_range(self, name: &'static CStr) -> Result<RangeInclusive<i32>, ScoreError> {
+		let (class, _) = networking(self.resource)?;
+		let layout = ArrayLayout::resolve(self.server.server_game_dll()?, class, name)?;
 
-	/// [`Scoreboard::before_frame`] ran last. `unflagged` is whether it wrote
-	/// values back without marking them changed, which only the following
-	/// [`Scoreboard::after_frame`] makes right for clients.
-	Restored { unflagged: bool },
+		layout.offset(name.to_str().unwrap_or_default(), self.index)?;
 
-	/// [`Scoreboard::after_frame`] ran last, after a
-	/// [`Scoreboard::before_frame`].
-	Applied,
-}
-
-/// A player column the store can override: a [`PlayerStat`], the class, or
-/// whether the player is alive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PlayerField {
-	Stat(PlayerStat),
-	Class,
-	Alive,
-}
-
-impl PlayerField {
-	/// Every column, in the order of [`Self::index`].
-	const ALL: [Self; 16] = [
-		Self::Stat(PlayerStat::Score),
-		Self::Stat(PlayerStat::Kills),
-		Self::Stat(PlayerStat::Deaths),
-		Self::Stat(PlayerStat::Ping),
-		Self::Stat(PlayerStat::Dominations),
-		Self::Stat(PlayerStat::Killstreak),
-		Self::Stat(PlayerStat::Damage),
-		Self::Stat(PlayerStat::BossDamage),
-		Self::Stat(PlayerStat::Healing),
-		Self::Stat(PlayerStat::DamageAssist),
-		Self::Stat(PlayerStat::HealingAssist),
-		Self::Stat(PlayerStat::DamageBlocked),
-		Self::Stat(PlayerStat::BonusPoints),
-		Self::Stat(PlayerStat::CurrencyCollected),
-		Self::Class,
-		Self::Alive,
-	];
-
-	/// The networked variable's name, as an `&str` for errors.
-	fn display_name(self) -> &'static str {
-		self.name().to_str().unwrap_or_default()
+		Ok(layout.range.inclusive())
 	}
 
-	/// The index of `slot`'s element in the column's array.
-	fn element(self, slot: usize) -> Option<usize> {
-		match self {
-			Self::Stat(PlayerStat::Killstreak) => {
-				slot.checked_mul(STREAKS_PER_SLOT)?.checked_add(KILL_STREAK)
+	/// The count `name` and its copy in the player state, from
+	/// `CBasePlayer`'s datamap.
+	///
+	/// The copy's place is the datamap's embedded `pl` plus its offset in the
+	/// bindings' `CPlayerState`, `mirror`, which the game's `CPlayerState`
+	/// datamap leaves out. The datamap must agree with the bindings on the
+	/// fields it does declare.
+	fn count(self, name: &'static CStr, mirror: usize) -> Result<Count<'s>, ScoreError> {
+		let missing = |name: &'static CStr| ScoreError::MissingField {
+			class: "CBasePlayer",
+			name: name.to_str().unwrap_or_default(),
+		};
+
+		let map = self
+			.player
+			.data_maps()
+			.find(|&map| map.class_name() == Some(c"CBasePlayer"))
+			.ok_or_else(|| missing(name))?;
+
+		let offset = map
+			.field_offset(name, sys::_fieldtypes_FIELD_INTEGER)
+			.filter(|&offset| offset < MAX_FIELD_OFFSET && offset.is_multiple_of(ELEMENT_SIZE))
+			.ok_or_else(|| missing(name))?;
+
+		let state = map
+			.fields()
+			.iter()
+			.filter(|field| field.fieldType == sys::_fieldtypes_FIELD_EMBEDDED)
+			.find(|field| field.name() == Some(c"pl"))
+			.filter(|field| {
+				field.embedded().next().is_some_and(|state| {
+					state.class_name() == Some(c"CPlayerState")
+						&& state.field_offset(c"deadflag", sys::_fieldtypes_FIELD_BOOLEAN)
+							== Some(offset_of!(sys::CPlayerState, deadflag))
+						&& state.field_offset(c"v_angle", sys::_fieldtypes_FIELD_VECTOR)
+							== Some(offset_of!(sys::CPlayerState, v_angle))
+				})
+			})
+			.and_then(|field| field.offset())
+			.filter(|&state| {
+				state.is_multiple_of(align_of::<sys::CPlayerState>())
+					&& state
+						.checked_add(size_of::<sys::CPlayerState>())
+						.is_some_and(|end| end <= MAX_FIELD_OFFSET)
+			})
+			.ok_or_else(|| missing(c"pl"))?;
+
+		// SAFETY: `CBasePlayer`'s own datamap, which the player's chain
+		// includes, declares an `int` at `offset`, and embeds a `CPlayerState` at
+		// `state`, whose datamap agrees with the bindings' layout, which places
+		// an `int` at `mirror`. The game assigns both without notifying
+		// anything.
+		Ok(unsafe {
+			Count {
+				field: IntField::new(self.player, offset),
+				mirror: IntField::new(self.player, state + mirror),
+			}
+		})
+	}
+
+	/// The player's death count, `CBasePlayer::m_iDeaths`, which the
+	/// statistics panel shows.
+	///
+	/// Fails as [`Self::set_deaths`] does.
+	#[doc(alias("m_iDeaths", "DeathCount"))]
+	pub fn deaths(self) -> Result<i32, ScoreError> {
+		Ok(self
+			.count(c"m_iDeaths", offset_of!(sys::CPlayerState, deaths))?
+			.field
+			.read())
+	}
+
+	/// The deaths clients can be shown, from the player resource's `m_iDeaths`
+	/// as the running game networks it: -2048 to 2047 in the SDK.
+	pub fn deaths_range(self) -> Result<RangeInclusive<i32>, ScoreError> {
+		self.column_range(c"m_iDeaths")
+	}
+
+	/// The player's frag count, `CBasePlayer::m_iFrags`, which the statistics
+	/// panel shows as kills.
+	///
+	/// Fails as [`Self::set_frags`] does.
+	#[doc(alias("m_iFrags", "FragCount"))]
+	pub fn frags(self) -> Result<i32, ScoreError> {
+		Ok(self
+			.count(c"m_iFrags", offset_of!(sys::CPlayerState, frags))?
+			.field
+			.read())
+	}
+
+	/// The frags clients can be shown, from the player resource's `m_iScore`
+	/// as the running game networks it: -2048 to 2047 in the SDK.
+	pub fn frags_range(self) -> Result<RangeInclusive<i32>, ScoreError> {
+		self.column_range(c"m_iScore")
+	}
+
+	/// The player's entity index, which is also their player slot.
+	pub const fn index(self) -> usize {
+		self.index
+	}
+
+	/// The player's kill streak, `m_nStreaks[kTFStreak_Kills]`, which clients
+	/// show on the scoreboard and use for kill streak effects.
+	///
+	/// Fails if the running game does not network it as an `int`.
+	#[doc(alias("m_nStreaks", "kTFStreak_Kills", "GetStreak"))]
+	pub fn killstreak(self) -> Result<i32, ScoreError> {
+		Ok(self.streak()?.read())
+	}
+
+	/// The player.
+	pub const fn player(self) -> Entity<'s> {
+		self.player
+	}
+
+	/// The player's points: the session's [`Stat::KillsRuneCarrier`], which
+	/// [`Self::add_points`] changes, including the kills of rune carriers the
+	/// game counts there itself.
+	pub fn points(self) -> i32 {
+		self.stat(Stat::KillsRuneCarrier, StatScope::Session)
+	}
+
+	/// A copy of the player's statistics for `scope`.
+	fn read_block(self, scope: StatScope) -> RoundStats {
+		// SAFETY: `GameStats::player_stats` found the block in the game's
+		// singleton, aligned for `int`s, and its statistics blocks within it; the
+		// singleton lives as long as the game server module, which `Server::new`
+		// keeps loaded during the callback. It is copied without forming a
+		// reference, since the game writes it through its own pointers, on this
+		// thread.
+		unsafe { self.block(scope).read() }
+	}
+
+	/// The round's score, as the game computes it for the round's MVPs and
+	/// the player's round summary.
+	pub fn round_total(self) -> i32 {
+		self.score(&self.read_block(StatScope::Round))
+	}
+
+	/// Scores `stats` for the player with the game's `CalcPlayerScore`.
+	fn score(self, stats: &RoundStats) -> i32 {
+		// SAFETY: `Server::new` keeps the game server module, which `game_stats`
+		// was resolved in, loaded for the whole callback (condition 1), and this
+		// runs on the server's main thread within it (condition 3). `stats` is
+		// borrowed for the call, which only reads it. The player is a live
+		// `CTFPlayer` of the callback, as its datamaps showed, whose entity
+		// pointer is its `CTFPlayer` pointer, as `sdk_raw::tf2` asserts; the game
+		// reads its attributes through its items, which are entities of the
+		// callback too, and frees nothing.
+		unsafe {
+			self.game_stats
+				.calc_player_score(stats, self.player.as_ptr().cast::<sys::CTFPlayer>())
+		}
+	}
+
+	/// Sets the player's death count, as [`Self::set_frags`] sets frags.
+	///
+	/// Fails as [`Self::set_frags`] does.
+	#[doc(alias("m_iDeaths"))]
+	pub fn set_deaths(self, deaths: i32) -> Result<bool, ScoreError> {
+		Ok(self
+			.count(c"m_iDeaths", offset_of!(sys::CPlayerState, deaths))?
+			.set(deaths))
+	}
+
+	/// Sets the player's frag count, `CBasePlayer::m_iFrags`, which the game
+	/// keeps counting from, and the copy in the player's state (`pl.frags`),
+	/// which the engine, rather than the game, reports, as in the player list
+	/// it gives Steam's server browser.
+	///
+	/// The player resource copies the frags into the statistics panel's kills
+	/// at its next update. Clients see them wrapped into [`Self::frags_range`].
+	/// The Score is computed from [`Stat::Kills`] instead, and does not change.
+	///
+	/// The engine's copy is only written if it agreed with the frag count
+	/// before, as the game keeps it; returns whether it was. Code that sets the
+	/// frag count alone leaves the copy behind until the game next counts a
+	/// frag.
+	///
+	/// Fails if `CBasePlayer`'s datamap does not declare the count as an `int`
+	/// at a plausible offset, or does not embed a player state laid out as the
+	/// bindings' `CPlayerState`.
+	#[doc(alias("m_iFrags"))]
+	pub fn set_frags(self, frags: i32) -> Result<bool, ScoreError> {
+		Ok(self
+			.count(c"m_iFrags", offset_of!(sys::CPlayerState, frags))?
+			.set(frags))
+	}
+
+	/// Sets the player's kill streak, which the player resource copies into
+	/// the scoreboard at its next update, and marks it changed for clients.
+	///
+	/// The game counts on from it at the player's next kill, announcing kill
+	/// streaks by it, and resets it when the player dies or respawns.
+	///
+	/// Fails if `killstreak` is negative or cannot be networked, or as
+	/// [`Self::killstreak`] does.
+	#[doc(alias("m_nStreaks", "kTFStreak_Kills"))]
+	pub fn set_killstreak(self, killstreak: i32) -> Result<(), ScoreError> {
+		let (field, range) = self.streak_with_range()?;
+		let engine = self.server.valve_engine()?;
+
+		range.check("m_nStreaks", killstreak)?;
+		field.write(killstreak);
+
+		let mut changes = Changes::default();
+
+		changes.mark(field.offset);
+		changes.flush(engine, self.edict);
+		Ok(())
+	}
+
+	/// Sets one of the player's statistics for the session to `value`, and
+	/// changes the round's by as much if [`Adjust::round`], as
+	/// [`Self::add_stat`] does.
+	pub fn set_stat(self, stat: Stat, value: i32, adjust: Adjust) -> Result<Applied, ScoreError> {
+		let delta = value
+			.checked_sub(self.stat(stat, StatScope::Session))
+			.ok_or(ScoreError::Overflow)?;
+
+		self.add_stat(stat, delta, adjust)
+	}
+
+	/// Sets the player's Score to `target` exactly, by changing their points,
+	/// as [`Self::add_points`] does, and the round's points by as much if
+	/// [`Adjust::round`].
+	///
+	/// While the player's statistics score below 0, which the game shows as 0,
+	/// the change needed is found by scoring copies of them with more points,
+	/// the game's scoring being linear in points.
+	///
+	/// Fails as [`Self::add_points`] does, or with [`ScoreError::Overflow`],
+	/// writing nothing, if `target` exceeds `i32::MAX`.
+	pub fn set_total(self, target: u32, adjust: Adjust) -> Result<Applied, ScoreError> {
+		let target = i32::try_from(target).map_err(|_| ScoreError::Overflow)?;
+		let unclamped = self.unclamped(self.read_block(StatScope::Session))?;
+
+		if target == 0 && unclamped <= 0 {
+			return Ok(Applied::default());
+		}
+
+		let delta = target.checked_sub(unclamped).ok_or(ScoreError::Overflow)?;
+
+		self.add_points(delta, adjust)
+	}
+
+	/// One of the player's statistics, for `scope`.
+	pub fn stat(self, stat: Stat, scope: StatScope) -> i32 {
+		self.read_block(scope).stat[stat.index()]
+	}
+
+	/// The player's kill streak variable.
+	fn streak(self) -> Result<IntField<'s>, ScoreError> {
+		self.streak_with_range().map(|(field, _)| field)
+	}
+
+	/// The player's kill streak variable, and the values it can hold.
+	fn streak_with_range(self) -> Result<(IntField<'s>, NetRange), ScoreError> {
+		let element = self
+			.server
+			.server_game_dll()?
+			.entity_net_prop(self.player, c"m_nStreaks")?
+			.element(KILL_STREAK)?;
+		let range = int_range(element.prop(), element.storage(), "m_nStreaks")?;
+
+		// SAFETY: The offset was resolved from the send table of the player's
+		// class, and is an `int`, as `int_range` checked.
+		let field = unsafe { IntField::new(self.player, element.offset()) };
+
+		Ok((
+			field,
+			NetRange {
+				min: range.min.max(0),
+				max: range.max,
+			},
+		))
+	}
+
+	/// The player's Score, as the game computes and shows it: the session's
+	/// statistics scored with the game's `CalcPlayerScore`, including the terms
+	/// of the player's `scoreboard_minigame` attribute, if any.
+	#[doc(alias("m_iTotalScore", "CalcPlayerScore"))]
+	pub fn total(self) -> i32 {
+		self.score(&self.read_block(StatScope::Session))
+	}
+
+	/// The unclamped score of `stats`, which the game clamps at 0.
+	///
+	/// Below 0, it adds points to a copy, doubling them until the copy scores
+	/// above 0, then takes them back off: the score is linear in points.
+	fn unclamped(self, stats: RoundStats) -> Result<i32, ScoreError> {
+		let score = self.score(&stats);
+
+		if score > 0 {
+			return Ok(score);
+		}
+
+		let points = stats.stat[stat::KILLS_RUNECARRIER];
+		let mut lift: i32 = 1;
+
+		loop {
+			let mut probe = stats;
+
+			probe.stat[stat::KILLS_RUNECARRIER] =
+				points.checked_add(lift).ok_or(ScoreError::Overflow)?;
+
+			let score = self.score(&probe);
+
+			if score > 0 {
+				return Ok(score - lift);
 			}
 
-			_ => Some(slot),
+			lift = lift.checked_mul(2).ok_or(ScoreError::Overflow)?;
 		}
 	}
 
-	/// The column's position in [`Self::ALL`] and in each slot's fields.
-	const fn index(self) -> usize {
-		match self {
-			Self::Stat(stat) => stat as usize,
-			Self::Class => PlayerStat::ALL.len(),
-			Self::Alive => PlayerStat::ALL.len() + 1,
-		}
-	}
-
-	/// The networked array's name in `DT_TFPlayerResource`.
-	const fn name(self) -> &'static CStr {
-		match self {
-			Self::Stat(stat) => stat.name(),
-			Self::Class => c"m_iPlayerClass",
-			Self::Alive => c"m_bAlive",
+	/// Writes one statistic of the player's block for `scope`.
+	fn write_stat(self, scope: StatScope, index: usize, value: i32) {
+		// SAFETY: As for `read_block`, and `index` is one of the block's
+		// `TFSTAT_TOTAL` statistics, since a `Stat` gave it. The game writes its
+		// statistics the same way, on this thread.
+		unsafe {
+			(&raw mut (*self.block(scope)).stat)
+				.cast::<c_int>()
+				.add(index)
+				.write(value);
 		}
 	}
 }
 
-/// What the store keeps for one player slot.
-#[derive(Debug, Default)]
-struct PlayerSlot {
-	/// The client whose overrides these are, while they apply.
-	owner: Option<UserId>,
-
-	/// Each column, in [`PlayerField::ALL`]'s order.
-	fields: [FieldState; PlayerField::ALL.len()],
-}
-
-impl PlayerSlot {
-	/// Drops the owner and its overrides. What was applied is still written
-	/// back by the next frame callback.
-	fn disown(&mut self) {
-		self.owner = None;
-
-		for field in &mut self.fields {
-			field.overridden = None;
-		}
-	}
-
-	fn forget_memory(&mut self) {
-		self.fields.iter_mut().for_each(FieldState::forget_memory);
-	}
-
-	/// Drops what is no longer needed, and returns whether anything is left.
-	fn prune(&mut self) -> bool {
-		self.fields.iter_mut().for_each(FieldState::prune);
-		self.fields.iter().any(FieldState::is_active)
-	}
-}
-
-/// A player column of numbers, from `CTFPlayerResource`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PlayerStat {
-	/// The scoreboard's "Score" column: `m_iTotalScore`, the points the game
-	/// works out from the player's statistics. Clients' achievement logic
-	/// compares it between teammates, as the module documentation describes.
-	#[doc(alias("m_iTotalScore"))]
-	Score,
-
-	/// Kills in the statistics panel of the player selected on the
-	/// scoreboard: `m_iScore`, a copy of the player's frag count.
-	#[doc(alias("m_iScore"))]
-	Kills,
-
-	/// Deaths in the statistics panel: `m_iDeaths`.
-	#[doc(alias("m_iDeaths"))]
-	Deaths,
-
-	/// The ping column: `m_iPing`. Clients show "BOT" for bots whatever it
-	/// holds.
-	#[doc(alias("m_iPing"))]
-	Ping,
-
-	/// The number of players the player dominates, shown as an icon:
-	/// `m_iActiveDominations`. A client's Spy achievement checks it for the
-	/// victims of backstabs, as the module documentation describes.
-	#[doc(alias("m_iActiveDominations"))]
-	Dominations,
-
-	/// The killstreak count: the `kTFStreak_Kills` element of the player's
-	/// group in `m_iStreaks`. Clients show it only for players whose entity
-	/// they have, holding a weapon.
-	#[doc(alias("m_iStreaks", "kTFStreak_Kills"))]
-	Killstreak,
-
-	/// Damage dealt, in the statistics panel and Mann vs. Machine's
-	/// scoreboard: `m_iDamage`.
-	#[doc(alias("m_iDamage"))]
-	Damage,
-
-	/// Damage to bosses, Mann vs. Machine's "tank" column: `m_iDamageBoss`.
-	#[doc(alias("m_iDamageBoss"))]
-	BossDamage,
-
-	/// Mann vs. Machine's healing column: `m_iHealing`.
-	#[doc(alias("m_iHealing"))]
-	Healing,
-
-	/// Damage assisted, part of Mann vs. Machine's "support" column:
-	/// `m_iDamageAssist`.
-	#[doc(alias("m_iDamageAssist"))]
-	DamageAssist,
-
-	/// Healing assisted, part of the "support" column: `m_iHealingAssist`.
-	#[doc(alias("m_iHealingAssist"))]
-	HealingAssist,
-
-	/// Damage blocked, part of the "support" column: `m_iDamageBlocked`.
-	#[doc(alias("m_iDamageBlocked"))]
-	DamageBlocked,
-
-	/// Bonus points, each counted as 25 in the "support" column:
-	/// `m_iBonusPoints`.
-	#[doc(alias("m_iBonusPoints"))]
-	BonusPoints,
-
-	/// Mann vs. Machine's credits column: `m_iCurrencyCollected`.
-	#[doc(alias("m_iCurrencyCollected"))]
-	CurrencyCollected,
-}
-
-impl PlayerStat {
-	/// Every column.
-	///
-	/// When a Mann vs. Machine wave completes, clients add the damage,
-	/// healing, support and credit columns they were last sent to running
-	/// totals (`tf_hud_mann_vs_machine_scoreboard.cpp:145-167`), so overrides
-	/// shown then stay in those totals.
-	pub const ALL: [Self; 14] = [
-		Self::Score,
-		Self::Kills,
-		Self::Deaths,
-		Self::Ping,
-		Self::Dominations,
-		Self::Killstreak,
-		Self::Damage,
-		Self::BossDamage,
-		Self::Healing,
-		Self::DamageAssist,
-		Self::HealingAssist,
-		Self::DamageBlocked,
-		Self::BonusPoints,
-		Self::CurrencyCollected,
-	];
-
-	/// The networked array's name in `DT_TFPlayerResource`, such as
-	/// `m_iTotalScore`.
-	pub const fn name(self) -> &'static CStr {
-		match self {
-			Self::Score => c"m_iTotalScore",
-			Self::Kills => c"m_iScore",
-			Self::Deaths => c"m_iDeaths",
-			Self::Ping => c"m_iPing",
-			Self::Dominations => c"m_iActiveDominations",
-			Self::Killstreak => c"m_iStreaks",
-			Self::Damage => c"m_iDamage",
-			Self::BossDamage => c"m_iDamageBoss",
-			Self::Healing => c"m_iHealing",
-			Self::DamageAssist => c"m_iDamageAssist",
-			Self::HealingAssist => c"m_iHealingAssist",
-			Self::DamageBlocked => c"m_iDamageBlocked",
-			Self::BonusPoints => c"m_iBonusPoints",
-			Self::CurrencyCollected => c"m_iCurrencyCollected",
-		}
-	}
-}
-
-/// What the store keeps of the player resource it last found.
+/// What [`ScoreboardLayout`] keeps of the player resource it last found.
 #[derive(Debug)]
 struct ResourceCache {
 	handle: EntityHandle,
 
-	/// The address of the resource's server class, which `fields` describes.
+	/// The address of the resource's server class, which `total_score`
+	/// describes.
 	class: usize,
 
-	/// Each column's array, in [`PlayerField::ALL`]'s order.
-	fields: [Result<ArrayLayout, ScoreboardError>; PlayerField::ALL.len()],
+	/// The array of `m_iTotalScore`, the scoreboard's Score.
+	total_score: Result<ArrayLayout, ScoreError>,
 }
 
 impl ResourceCache {
-	/// Resolves every column of the resource `entity`, whose server class is
-	/// `class`.
-	///
-	/// `m_iStreaks` must also hold a group for each element of
-	/// `m_iTotalScore`, so it is unusable whenever that is.
 	fn resolve(dll: ServerGameDll<'_>, entity: Entity<'_>, class: ServerClass<'_>) -> Self {
-		let mut fields = PlayerField::ALL.map(|field| ArrayLayout::resolve(dll, class, field));
-		let slots = fields[PlayerField::Stat(PlayerStat::Score).index()]
-			.as_ref()
-			.map(|layout| layout.len)
-			.map_err(Clone::clone);
-		let streaks = &mut fields[PlayerField::Stat(PlayerStat::Killstreak).index()];
-
-		if let Ok(&layout) = streaks.as_ref() {
-			*streaks = slots.and_then(|slots| layout.grouped(slots));
-		}
-
 		Self {
 			handle: entity.handle(),
 			class: class.as_ptr().addr(),
-			fields,
+			total_score: ArrayLayout::resolve(dll, class, c"m_iTotalScore"),
 		}
-	}
-
-	/// The offset of `field`'s element for `slot`, and the values it holds.
-	fn locate(&self, field: PlayerField, slot: usize) -> Option<(usize, NetRange)> {
-		let layout = self.fields[field.index()].as_ref().ok()?;
-
-		Some((layout.offset(field, slot)?, layout.range))
 	}
 }
 
@@ -852,7 +977,7 @@ impl Scalar {
 		dll: ServerGameDll<'_>,
 		class: ServerClass<'_>,
 		stat: TeamStat,
-	) -> Result<Self, ScoreboardError> {
+	) -> Result<Self, ScoreError> {
 		let variable = dll.net_prop(class, stat.name())?;
 
 		Ok(Self {
@@ -862,715 +987,20 @@ impl Scalar {
 	}
 }
 
-/// Scoreboard overrides, kept by the plugin between callbacks.
-///
-/// Set what clients see with the `set_player_*` methods and
-/// [`Self::set_team_stat`], and read back what is overridden with the
-/// `*_override` methods. Each override lasts until it is
-/// cleared, or for a player until their client disconnects or their user ID
-/// no longer owns the slot. The store holds no engine pointer: each call finds
-/// the entities again by handle, and checks them against the server class
-/// their layout was resolved from.
-///
-/// # Driving it
-///
-/// - Call [`Self::before_frame`] before every `IServerGameDLL::GameFrame`,
-///   and [`Self::after_frame`] after it. Without the second, overrides never
-///   reach clients; without the first, the game computes its score changes
-///   against overrides. `after_frame` applies nothing until `before_frame`
-///   has run since the store was created, restored, or its level shut down,
-///   so the order in which the two hooks start does not matter: Metamod 2.0
-///   can start either a few frames late. A frame whose `after_frame` is
-///   missed is recovered by the next `before_frame`; a frame whose
-///   `before_frame` is missed after that runs with the overrides in place.
-/// - Call [`Self::restore_all`] when the plugin pauses or unloads, before its
-///   hooks stop. Otherwise the overrides stay in the game's memory, and the
-///   game reports the difference between them and the real score as Strange
-///   "Points Scored" progress, or as Mann vs. Machine statistics. Dropping the
-///   store does not restore anything.
-/// - Call [`Self::forget_player`] when a player disconnects
-///   ([`GameEventId::PlayerDisconnect`]), and [`Self::level_shutdown`] when
-///   the level ends. Neither touches an entity.
-///
-/// None of these run game code: they read and write the variables, and use
-/// the engine's change tracking, so they free no entity. Calling the frame
-/// callbacks at other times is safe, but lets game logic see overrides.
-///
-/// [`GameEventId::PlayerDisconnect`]: crate::tf2::game_events::GameEventId::PlayerDisconnect
-#[doc(alias("CTFPlayerResource", "tf_player_manager"))]
-#[must_use = "overrides only reach clients while the store's frame callbacks run"]
-#[derive(Debug, Default)]
-pub struct Scoreboard {
-	/// Whether every write is marked changed, as a fallback and for debugging.
-	always_flag: bool,
-	phase: Phase,
-
-	/// Each player slot with overrides, or with values still to write back,
-	/// by entity index.
-	players: BTreeMap<usize, PlayerSlot>,
-	resource: Option<ResourceCache>,
-	team_caches: [Option<TeamCache>; ScoringTeam::ALL.len()],
-	teams: [TeamSlot; ScoringTeam::ALL.len()],
-	_not_thread_safe: NotThreadSafe,
-}
-
-impl Scoreboard {
-	/// An empty store, which overrides nothing.
-	pub fn new() -> Self {
-		Self::default()
-	}
-
-	/// Records the game's values after its frame and writes the overrides,
-	/// marking changed only what clients must receive anew. Call it after
-	/// every `IServerGameDLL::GameFrame`.
-	///
-	/// Until [`Self::before_frame`] has run since the store was created,
-	/// [`Self::restore_all`] or [`Self::level_shutdown`], this only records the
-	/// game's values, and writes them back where an override was applied, so
-	/// that no game frame runs with an override in place.
-	///
-	/// A player's overrides are dropped here once their user ID no longer owns
-	/// their slot, as when another client takes the slot or no client is in it.
-	/// Overrides kept by `level_shutdown` with [`LevelPolicy::KeepOverrides`]
-	/// apply once the next level's player resource and teams exist.
-	pub fn after_frame(&mut self, server: Server<'_>) {
-		let always_flag = self.always_flag;
-		let apply = self.phase != Phase::Idle;
-		let phase = if apply { Phase::Applied } else { Phase::Idle };
-
-		if !self.has_active() {
-			self.phase = phase;
-			return;
-		}
-
-		// Without the interfaces nothing is applied, so the phase stays as it
-		// is, and the next `before_frame` recovers what this one would have.
-		let Ok(context) = Context::new(server) else {
-			return;
-		};
-
-		self.phase = phase;
-
-		for (&slot, state) in &mut self.players {
-			if let Some(owner) = state.owner
-				&& context.owner(slot) != Some(owner)
-			{
-				state.disown();
-			}
-		}
-
-		self.visit(
-			context,
-			false,
-			FieldState::is_active,
-			|field, variable, range, changes| {
-				field.after_frame(variable, range, changes, always_flag, apply);
-			},
-		);
-
-		self.prune();
-	}
-
-	/// Writes the game's own values back before its frame, where the
-	/// variables still hold the overrides, so the frame's game logic sees
-	/// them. Call it before every `IServerGameDLL::GameFrame`.
-	///
-	/// If [`Self::after_frame`] did not run after the previous call, the
-	/// values written back then never reached clients consistently, so the
-	/// entities are marked changed as a whole.
-	pub fn before_frame(&mut self, server: Server<'_>) {
-		let heal = self.phase == Phase::Restored { unflagged: true };
-		let always_flag = self.always_flag;
-		let mut unflagged = false;
-
-		for field in self.fields_mut() {
-			field.restored = false;
-		}
-
-		if self.has_applied()
-			&& let Ok(context) = Context::new(server)
-		{
-			self.visit(
-				context,
-				heal,
-				|field| field.applied.is_some(),
-				|field, variable, _, changes| {
-					unflagged |= field.before_frame(variable, changes, always_flag);
-				},
-			);
-		}
-
-		self.phase = Phase::Restored { unflagged };
-		self.prune();
-	}
-
-	/// Drops every override. Values applied are written back by the next
-	/// frame callback or [`Self::restore_all`].
-	pub fn clear_all_overrides(&mut self) {
-		for slot in self.players.values_mut() {
-			slot.disown();
-		}
-
-		for team in &mut self.teams {
-			for field in &mut team.fields {
-				field.overridden = None;
-			}
-		}
-
-		self.prune();
-	}
-
-	/// Drops the override of whether `player` is alive.
-	pub fn clear_player_alive(&mut self, player: UserId) {
-		self.clear_player_field(player, PlayerField::Alive);
-	}
-
-	/// Drops the override of `player`'s class.
-	pub fn clear_player_class(&mut self, player: UserId) {
-		self.clear_player_field(player, PlayerField::Class);
-	}
-
-	fn clear_player_field(&mut self, player: UserId, field: PlayerField) {
-		if let Some(slot) = self.slot_of(player)
-			&& let Some(state) = self.players.get_mut(&slot)
-		{
-			state.fields[field.index()].overridden = None;
-		}
-
-		self.prune();
-	}
-
-	/// Drops the override of one of `player`'s columns. The game's value is
-	/// written back by the next frame callback.
-	pub fn clear_player_stat(&mut self, player: UserId, stat: PlayerStat) {
-		self.clear_player_field(player, PlayerField::Stat(stat));
-	}
-
-	/// Drops the override of one of a team's numbers.
-	pub fn clear_team_stat(&mut self, team: ScoringTeam, stat: TeamStat) {
-		self.teams[team.index()].fields[stat.index()].overridden = None;
-		self.prune();
-	}
-
-	/// Every variable the store keeps.
-	fn fields(&self) -> impl Iterator<Item = &FieldState> {
-		self.players
-			.values()
-			.flat_map(|slot| &slot.fields)
-			.chain(self.teams.iter().flat_map(|team| &team.fields))
-	}
-
-	/// Every variable the store keeps, to change.
-	fn fields_mut(&mut self) -> impl Iterator<Item = &mut FieldState> {
-		self.players
-			.values_mut()
-			.flat_map(|slot| &mut slot.fields)
-			.chain(self.teams.iter_mut().flat_map(|team| &mut team.fields))
-	}
-
-	/// Drops every override of `player`, as when their client disconnects.
-	///
-	/// Call it for `player_disconnect`, so that the slot's next client does not
-	/// start with them; [`Self::after_frame`] also drops them once the user ID
-	/// no longer owns the slot. This touches no entity: what was applied is
-	/// written back by the next frame callback or [`Self::restore_all`].
-	pub fn forget_player(&mut self, player: UserId) {
-		if let Some(slot) = self.slot_of(player)
-			&& let Some(state) = self.players.get_mut(&slot)
-		{
-			state.disown();
-		}
-
-		self.prune();
-	}
-
-	/// Whether anything is overridden, or still holds what was applied.
-	fn has_active(&self) -> bool {
-		self.fields().any(FieldState::is_active)
-	}
-
-	/// Whether any variable still holds what was applied.
-	fn has_applied(&self) -> bool {
-		self.fields().any(|field| field.applied.is_some())
-	}
-
-	/// Forgets the level's entities and resolved layouts, and what was applied
-	/// to them, without touching them, since the engine frees them with the
-	/// level. Call it when the level shuts down.
-	///
-	/// Overrides are kept or dropped by `policy`.
-	pub fn level_shutdown(&mut self, policy: LevelPolicy) {
-		self.phase = Phase::Idle;
-		self.resource = None;
-		self.team_caches = Default::default();
-		self.fields_mut().for_each(FieldState::forget_memory);
-
-		if policy == LevelPolicy::ClearOverrides {
-			self.clear_all_overrides();
-		}
-
-		self.prune();
-	}
-
-	/// The user IDs of the players with an override, each once.
-	///
-	/// The store drops overrides without being asked when a player's user ID
-	/// no longer owns their slot, when the running game no longer lays out a
-	/// column as before, and at [`Self::level_shutdown`] by its policy; this
-	/// and the other `*_override` methods tell what is left.
-	pub fn overridden_players(&self) -> impl Iterator<Item = UserId> + '_ {
-		self.players
-			.values()
-			.filter(|slot| slot.fields.iter().any(|field| field.overridden.is_some()))
-			.filter_map(|slot| slot.owner)
-	}
-
-	/// Whether `player` is shown as alive, if the store overrides it.
-	pub fn player_alive_override(&self, player: UserId) -> Option<bool> {
-		match self.player_field_override(player, PlayerField::Alive)? {
-			Override::Fixed(alive) => Some(alive != 0),
-			Override::Offset(_) => None,
-		}
-	}
-
-	/// The class `player` is shown as, if the store overrides it.
-	pub fn player_class_override(&self, player: UserId) -> Option<PlayerClass> {
-		match self.player_field_override(player, PlayerField::Class)? {
-			Override::Fixed(class) => PlayerClass::from_raw(class),
-			Override::Offset(_) => None,
-		}
-	}
-
-	fn player_field_override(&self, player: UserId, field: PlayerField) -> Option<Override> {
-		let slot = self.players.get(&self.slot_of(player)?)?;
-
-		slot.fields[field.index()].overridden
-	}
-
-	/// The override of one of `player`'s columns, if any.
-	pub fn player_override(&self, player: UserId, stat: PlayerStat) -> Option<Override> {
-		self.player_field_override(player, PlayerField::Stat(stat))
-	}
-
-	/// The values the running game can network for a player column, from
-	/// its networked variable's bit count and flags.
-	///
-	/// [`Override::Fixed`] values must lie within it, and [`Override::Offset`]
-	/// results are saturated to it.
-	pub fn player_stat_range(
-		&mut self,
-		server: Server<'_>,
-		stat: PlayerStat,
-	) -> Result<RangeInclusive<i32>, ScoreboardError> {
-		check_game(server)?;
-
-		let context = Context::new(server)?;
-		let (_, _, cache) = resource_entity(&mut self.resource, &mut self.players, context)?;
-		let layout = cache.fields[PlayerField::Stat(stat).index()].clone()?;
-
-		Ok(layout.range.inclusive())
-	}
-
-	/// Drops what is no longer needed.
-	fn prune(&mut self) {
-		self.players.retain(|_, slot| slot.prune());
-
-		for team in &mut self.teams {
-			team.fields.iter_mut().for_each(FieldState::prune);
-		}
-	}
-
-	/// The game's own value of one of `player`'s columns while it is
-	/// overridden, as [`Self::after_frame`] last found it.
-	///
-	/// Returns `None` if the column is not overridden, or has not been through
-	/// `after_frame` since it was.
-	pub fn real_player_stat(&self, player: UserId, stat: PlayerStat) -> Option<i32> {
-		let slot = self.players.get(&self.slot_of(player)?)?;
-
-		slot.fields[PlayerField::Stat(stat).index()].real
-	}
-
-	/// The game's own value of one of a team's numbers while it is
-	/// overridden, as [`Self::after_frame`] last found it.
-	pub fn real_team_stat(&self, team: ScoringTeam, stat: TeamStat) -> Option<i32> {
-		self.teams[team.index()].fields[stat.index()].real
-	}
-
-	/// Writes every overridden variable back to the game's own value, and
-	/// marks it changed, keeping the overrides: [`Self::after_frame`] applies
-	/// them again once [`Self::before_frame`] has run.
-	///
-	/// Call it when the plugin pauses or unloads, while its hooks still run, so
-	/// the game never computes its score changes against an override, and
-	/// before causing the game to add to a team's number between frames.
-	pub fn restore_all(&mut self, server: Server<'_>) {
-		self.phase = Phase::Idle;
-
-		if self.has_applied()
-			&& let Ok(context) = Context::new(server)
-		{
-			self.visit(
-				context,
-				false,
-				|field| field.applied.is_some(),
-				|field, variable, _, changes| field.restore(variable, changes),
-			);
-		}
-
-		self.prune();
-	}
-
-	/// Marks every value the store writes changed, not only those clients
-	/// must receive anew.
-	///
-	/// This is for diagnosing the engine's change tracking, and as a fallback
-	/// should values the store writes back ever reach clients. It makes the
-	/// engine compare the whole player resource most frames.
-	pub const fn set_always_flag(&mut self, always: bool) {
-		self.always_flag = always;
-	}
-
-	/// Shows `player` as alive or dead, from the next [`Self::after_frame`]
-	/// until cleared or the player disconnects.
-	///
-	/// Clients show a feigning Spy, or a Halloween ghost, as dead whatever this
-	/// holds.
-	///
-	/// Fails as [`Self::set_player_stat`] does.
-	#[doc(alias("m_bAlive"))]
-	pub fn set_player_alive(
-		&mut self,
-		server: Server<'_>,
-		player: UserId,
-		alive: bool,
-	) -> Result<(), ScoreboardError> {
-		self.set_player_field(
-			server,
-			player,
-			PlayerField::Alive,
-			Override::Fixed(i32::from(alive)),
-		)
-	}
-
-	/// Shows `class` as `player`'s class, from the next [`Self::after_frame`]
-	/// until cleared or the player disconnects. Clients only show the classes
-	/// of their teammates, and a client's Medic achievement checks them, as
-	/// the module documentation describes.
-	///
-	/// Fails as [`Self::set_player_stat`] does.
-	#[doc(alias("m_iPlayerClass"))]
-	pub fn set_player_class(
-		&mut self,
-		server: Server<'_>,
-		player: UserId,
-		class: PlayerClass,
-	) -> Result<(), ScoreboardError> {
-		self.set_player_field(
-			server,
-			player,
-			PlayerField::Class,
-			Override::Fixed(class.to_raw()),
-		)
-	}
-
-	fn set_player_field(
-		&mut self,
-		server: Server<'_>,
-		owner: UserId,
-		field: PlayerField,
-		value: Override,
-	) -> Result<(), ScoreboardError> {
-		check_game(server)?;
-
-		let context = Context::new(server)?;
-
-		// `edict_of_user_id` only looks through the player slots.
-		let slot = context
-			.engine
-			.edict_of_user_id(owner)
-			.and_then(|edict| usize::try_from(edict.index()).ok())
-			.ok_or(ScoreboardError::NotConnected)?;
-
-		let (_, _, cache) = resource_entity(&mut self.resource, &mut self.players, context)?;
-		let layout = cache.fields[field.index()].clone()?;
-
-		if layout.offset(field, slot).is_none() {
-			return Err(ScoreboardError::UnexpectedLayout {
-				name: field.display_name(),
-				needed: field
-					.element(slot)
-					.map_or(usize::MAX, |element| element + 1),
-			});
-		}
-
-		if let Override::Fixed(value) = value {
-			layout.range.check(field.display_name(), value)?;
-		}
-
-		for (&other, state) in &mut self.players {
-			if other != slot && state.owner == Some(owner) {
-				state.disown();
-			}
-		}
-
-		let state = self.players.entry(slot).or_default();
-
-		if state.owner != Some(owner) {
-			state.disown();
-			state.owner = Some(owner);
-		}
-
-		state.fields[field.index()].overridden = Some(value);
-		Ok(())
-	}
-
-	/// Overrides one of `player`'s columns for their current connection, from
-	/// the next [`Self::after_frame`] until cleared or the player disconnects.
-	///
-	/// Fails if the server does not run TF2, an interface is unavailable, no
-	/// connected client has the user ID `player`, no player resource exists,
-	/// the running game lays out the column differently, or a
-	/// [`Override::Fixed`] value is outside [`Self::player_stat_range`].
-	pub fn set_player_stat(
-		&mut self,
-		server: Server<'_>,
-		player: UserId,
-		stat: PlayerStat,
-		value: Override,
-	) -> Result<(), ScoreboardError> {
-		self.set_player_field(server, player, PlayerField::Stat(stat), value)
-	}
-
-	/// Sets one of a team's numbers in the game's own state, with the
-	/// consequences [`set_team_score`] and [`set_team_flag_captures`] document,
-	/// marks it changed for clients, and records it as the game's value. An
-	/// override of the number stays.
-	///
-	/// Use this instead of those functions while the store overrides the
-	/// number. The store tells the game's writes from its own by value, so it
-	/// takes a value they write that equals the override applied for its own,
-	/// and writes the previous value back at the next [`Self::before_frame`].
-	///
-	/// Fails if the server does not run TF2, an interface is unavailable, the
-	/// team has no entity, the running game does not network the number as an
-	/// `int`, or `value` is outside [`Self::team_stat_range`].
-	#[doc(alias("SetScore", "SetFlagCaptures"))]
-	pub fn set_real_team_stat(
-		&mut self,
-		server: Server<'_>,
-		team: ScoringTeam,
-		stat: TeamStat,
-		value: i32,
-	) -> Result<(), ScoreboardError> {
-		check_game(server)?;
-
-		let context = Context::new(server)?;
-		let index = team.index();
-		let (entity, edict, cache) = team_entity(
-			&mut self.team_caches[index],
-			&mut self.teams[index],
-			context,
-			team,
-		)?;
-		let scalar = cache.fields[stat.index()].clone()?;
-
-		scalar.range.check(stat.display_name(), value)?;
-
-		// SAFETY: The offset was resolved from the send table of the class
-		// `team_entity` checked the entity still has. The game's own setters
-		// assign the score and flag captures any `int` they are given, and the
-		// value fits what the variable networks.
-		let variable = unsafe { IntField::new(entity, scalar.offset) };
-		let mut changes = Changes::new(false);
-
-		variable.write(value);
-		changes.mark(scalar.offset);
-		changes.flush(context.engine, edict);
-
-		let field = &mut self.teams[index].fields[stat.index()];
-
-		field.real = Some(value);
-		field.applied = None;
-		field.restored = false;
-		self.prune();
-		Ok(())
-	}
-
-	/// Overrides one of a team's numbers, from the next [`Self::after_frame`]
-	/// until cleared.
-	///
-	/// The game keeps ending rounds and the map by its own values, which
-	/// [`set_team_score`] and [`set_team_flag_captures`] change, except that
-	/// an increment the game makes between frames is added to the value shown,
-	/// and the sum becomes the game's own, as the module documentation
-	/// describes. Call [`Self::restore_all`] before causing one.
-	///
-	/// Fails if the server does not run TF2, an interface is unavailable, the
-	/// team has no entity, the running game lays out the variable differently,
-	/// or a [`Override::Fixed`] value is outside [`Self::team_stat_range`].
-	pub fn set_team_stat(
-		&mut self,
-		server: Server<'_>,
-		team: ScoringTeam,
-		stat: TeamStat,
-		value: Override,
-	) -> Result<(), ScoreboardError> {
-		check_game(server)?;
-
-		let context = Context::new(server)?;
-		let index = team.index();
-		let (_, _, cache) = team_entity(
-			&mut self.team_caches[index],
-			&mut self.teams[index],
-			context,
-			team,
-		)?;
-		let scalar = cache.fields[stat.index()].clone()?;
-
-		if let Override::Fixed(value) = value {
-			scalar.range.check(stat.display_name(), value)?;
-		}
-
-		self.teams[index].fields[stat.index()].overridden = Some(value);
-		Ok(())
-	}
-
-	/// The player slot whose overrides belong to `player`.
-	fn slot_of(&self, player: UserId) -> Option<usize> {
-		self.players
-			.iter()
-			.find(|(_, slot)| slot.owner == Some(player))
-			.map(|(&slot, _)| slot)
-	}
-
-	/// The override of one of a team's numbers, if any.
-	pub fn team_override(&self, team: ScoringTeam, stat: TeamStat) -> Option<Override> {
-		self.teams[team.index()].fields[stat.index()].overridden
-	}
-
-	/// The values the running game can network for one of a team's numbers,
-	/// as [`Self::player_stat_range`] gives them for player columns.
-	pub fn team_stat_range(
-		&mut self,
-		server: Server<'_>,
-		team: ScoringTeam,
-		stat: TeamStat,
-	) -> Result<RangeInclusive<i32>, ScoreboardError> {
-		check_game(server)?;
-
-		let context = Context::new(server)?;
-		let index = team.index();
-		let (_, _, cache) = team_entity(
-			&mut self.team_caches[index],
-			&mut self.teams[index],
-			context,
-			team,
-		)?;
-		let scalar = cache.fields[stat.index()].clone()?;
-
-		Ok(scalar.range.inclusive())
-	}
-
-	/// Runs `step` on each variable `wanted` selects, in its live entity, then
-	/// sends the changes `step` marks to the engine, or marks each entity
-	/// visited changed as a whole if `full`.
-	///
-	/// A variable the running game does not lay out as resolved before is
-	/// dropped, override included.
-	fn visit(
-		&mut self,
-		context: Context<'_>,
-		full: bool,
-		wanted: fn(&FieldState) -> bool,
-		mut step: impl FnMut(&mut FieldState, IntField<'_>, NetRange, &mut Changes),
-	) {
-		let Self {
-			players,
-			resource,
-			team_caches,
-			teams,
-			..
-		} = self;
-
-		if players.values().any(|slot| slot.fields.iter().any(wanted))
-			&& let Ok((entity, edict, cache)) = resource_entity(resource, players, context)
-		{
-			let mut changes = Changes::new(full);
-
-			for (&slot, state) in players.iter_mut() {
-				for field in PlayerField::ALL {
-					let entry = &mut state.fields[field.index()];
-
-					if !wanted(entry) {
-						continue;
-					}
-
-					match cache.locate(field, slot) {
-						Some((offset, range)) => {
-							// SAFETY: The offset was resolved from the send table of the
-							// class `resource_entity` checked the entity still has.
-							let variable = unsafe { IntField::new(entity, offset) };
-
-							step(entry, variable, range, &mut changes);
-						}
-
-						None => *entry = FieldState::default(),
-					}
-				}
-			}
-
-			changes.flush(context.engine, edict);
-		}
-
-		for team in ScoringTeam::ALL {
-			let index = team.index();
-			let state = &mut teams[index];
-
-			if !state.fields.iter().any(wanted) {
-				continue;
-			}
-
-			let Ok((entity, edict, cache)) =
-				team_entity(&mut team_caches[index], state, context, team)
-			else {
-				continue;
-			};
-
-			let mut changes = Changes::new(full);
-
-			for stat in TeamStat::ALL {
-				let entry = &mut state.fields[stat.index()];
-
-				if !wanted(entry) {
-					continue;
-				}
-
-				match cache.fields[stat.index()].as_ref() {
-					Ok(scalar) => {
-						// SAFETY: As for the player resource, from the team's class.
-						let variable = unsafe { IntField::new(entity, scalar.offset) };
-
-						step(entry, variable, scalar.range, &mut changes);
-					}
-
-					Err(_) => *entry = FieldState::default(),
-				}
-			}
-
-			changes.flush(context.engine, edict);
-		}
-	}
-}
-
 /// Why a scoreboard operation failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum ScoreboardError {
+pub enum ScoreError {
+	/// The game's statistics or score calculation could not be found or
+	/// trusted.
+	#[error(transparent)]
+	GameStats(#[from] GameStatsError),
+
 	/// A required engine or game interface is unavailable.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 
-	/// The player's datamaps lack a field, or give it an implausible offset.
+	/// The player's datamaps lack a field, or give it an implausible offset
+	/// or layout.
 	#[error("the `{class}` datamap has no usable `{name}` field")]
 	MissingField {
 		/// The class whose datamap declares the field.
@@ -1588,20 +1018,21 @@ pub enum ScoreboardError {
 	#[error("no `tf_player_manager` entity exists; no level is running")]
 	NoPlayerResource,
 
+	/// The game keeps no statistics block for the player's entity index, as
+	/// for an entity index above `MAX_PLAYERS`, or a player without an edict.
+	#[error("the game keeps no statistics for the player's entity index")]
+	NoPlayerStats,
+
 	/// No team entity has the team's number, as while no level runs.
 	#[error("no `tf_team` entity has team number {}", .0.to_raw())]
 	NoTeam(ScoringTeam),
 
-	/// A team's variable is not a networked `int`.
+	/// A variable is not a networked `int`.
 	#[error("`{name}` is not a networked 32-bit integer")]
 	NotAnInteger {
 		/// The variable's name.
 		name: &'static str,
 	},
-
-	/// No connected client has the user ID.
-	#[error("no connected client has the user ID")]
-	NotConnected,
 
 	/// The server does not run TF2.
 	#[error("the scoreboard requires a TF2 server")]
@@ -1627,6 +1058,10 @@ pub enum ScoreboardError {
 		max: i32,
 	},
 
+	/// A statistic, score, or count would not fit a 32-bit integer.
+	#[error("the change would take a value outside 32-bit integers")]
+	Overflow,
+
 	/// A player column is not laid out as an array of `int`s with an element
 	/// for the player's slot.
 	#[error(
@@ -1639,21 +1074,220 @@ pub enum ScoreboardError {
 		/// The number of elements needed.
 		needed: usize,
 	},
+}
 
-	/// `m_iStreaks` does not hold `kTFStreak_COUNT` streaks, as the bindings
-	/// number them, for each player slot of `m_iTotalScore`, so its elements
-	/// cannot be told apart.
-	#[error(
-		"`m_iStreaks` has {len} elements, not {per_slot} for each of {slots} player slots",
-		per_slot = STREAKS_PER_SLOT
-	)]
-	UnexpectedStreaks {
-		/// The number of elements `m_iStreaks` has.
-		len: usize,
+/// What the scoreboard resolves in the running game, kept by a plugin
+/// between callbacks so that each [`PlayerScore`] and team change does not
+/// resolve it again.
+///
+/// It holds no engine pointer: each call finds the entities again by handle,
+/// and checks them against the server class their layout was resolved from,
+/// so it stays sound across levels. The free functions and
+/// [`PlayerScore::new`] use a fresh one each call.
+#[derive(Debug, Default)]
+pub struct ScoreboardLayout {
+	player: Option<PlayerLayout>,
+	resource: Option<ResourceCache>,
+	teams: [Option<TeamCache>; ScoringTeam::ALL.len()],
+	_not_thread_safe: NotThreadSafe,
+}
 
-		/// The number of player slots, as `m_iTotalScore` has elements.
-		slots: usize,
-	},
+impl ScoreboardLayout {
+	/// An empty layout, which resolves everything at its first use.
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// Adds `delta` to one of a team's numbers, as [`Self::set_team_stat`]
+	/// sets it, and returns the new value.
+	///
+	/// Fails as [`Self::set_team_stat`] does, or with
+	/// [`ScoreError::Overflow`], writing nothing.
+	pub fn add_team_stat(
+		&mut self,
+		server: Server<'_>,
+		team: ScoringTeam,
+		stat: TeamStat,
+		delta: i32,
+	) -> Result<i32, ScoreError> {
+		let (variable, range, edict, engine) = self.team_variable(server, team, stat)?;
+		let value = variable
+			.read()
+			.checked_add(delta)
+			.ok_or(ScoreError::Overflow)?;
+
+		range.check(stat.display_name(), value)?;
+		write_team_variable(variable, value, edict, engine);
+		Ok(value)
+	}
+
+	/// The scoring state of `player`, a TF2 player.
+	///
+	/// The first call in the game server module finds and tests the game's
+	/// statistics and score calculation, as `sdk_raw`'s [`GameStats::cached`]
+	/// describes, running the game's `CalcPlayerScore` once; later calls reuse
+	/// them. This relies on Source never unloading that module while plugins
+	/// are loaded.
+	///
+	/// Fails if the server does not run TF2, `player` is not a TF2 player with
+	/// an entity index from 1 to `MAX_PLAYERS`, the game's statistics cannot
+	/// be found or trusted, or no player resource exists or the running game
+	/// lays out the scores differently.
+	pub fn player<'s>(
+		&mut self,
+		server: Server<'s>,
+		player: Entity<'s>,
+	) -> Result<PlayerScore<'s>, ScoreError> {
+		self.player_with(server, player, || {
+			// SAFETY: `Server::new` guarantees that the game server module, whose
+			// factory this is, stays loaded through the callback, on the server's
+			// main thread, where the resolution's test calls `CalcPlayerScore`. A
+			// cached resolution for the same factory and module base was made in
+			// this same image: Source never unloads the game server module while
+			// plugins are loaded, since Metamod:Source and the engine unload
+			// plugins first, and the cache, a static of this plugin, is unloaded
+			// with it.
+			unsafe { GameStats::cached(server.game_server_factory().as_raw()) }
+		})
+	}
+
+	/// The layout of `class`, a player's server class.
+	fn player_layout(
+		&mut self,
+		dll: ServerGameDll<'_>,
+		class: ServerClass<'_>,
+	) -> Result<PlayerLayout, ScoreError> {
+		if let Some(layout) = self.player
+			&& layout.class == class.as_ptr().addr()
+		{
+			return Ok(layout);
+		}
+
+		let layout = PlayerLayout::resolve(dll, class)?;
+
+		self.player = Some(layout);
+		Ok(layout)
+	}
+
+	/// [`Self::player`], with the game's statistics from `game_stats`, which
+	/// is only called once the player is checked.
+	fn player_with<'s>(
+		&mut self,
+		server: Server<'s>,
+		player: Entity<'s>,
+		game_stats: impl FnOnce() -> Result<GameStats, GameStatsError>,
+	) -> Result<PlayerScore<'s>, ScoreError> {
+		check_game(server)?;
+
+		if !player.has_data_map_class(c"CTFPlayer") {
+			return Err(ScoreError::NotTfPlayer);
+		}
+
+		let index = player
+			.index()
+			.filter(|index| (1..MAX_PLAYERS_ARRAY_SAFE).contains(index))
+			.ok_or(ScoreError::NoPlayerStats)?;
+		let (class, edict) = networking(player)?;
+		let context = Context::new(server)?;
+		let game_stats = game_stats()?;
+		let base = NonNull::new(player.as_ptr().cast::<sys::CBasePlayer>())
+			.ok_or(ScoreError::NotTfPlayer)?;
+
+		// SAFETY: As for `Self::player`'s resolution, the module stays loaded
+		// and this runs on the main thread. The player is a live `CTFPlayer`, as
+		// its datamaps show, whose entity pointer is its `CBasePlayer` pointer,
+		// as `sdk_raw::tf2` asserts, with its live edict.
+		let stats =
+			unsafe { game_stats.player_stats(base, index) }.ok_or(ScoreError::NoPlayerStats)?;
+
+		let layout = self.player_layout(context.dll, class)?;
+		let (resource, resource_edict, cache) = resource_entity(&mut self.resource, context)?;
+		let total_score = cache.total_score.clone()?.offset("m_iTotalScore", index)?;
+
+		Ok(PlayerScore {
+			edict,
+			game_stats,
+			index,
+			layout,
+			player,
+			resource,
+			resource_edict,
+			server,
+			stats,
+			total_score,
+		})
+	}
+
+	/// Sets one of a team's numbers in the game's own state, with the
+	/// consequences [`set_team_score`] and [`set_team_flag_captures`]
+	/// document, and marks it changed for clients.
+	///
+	/// Fails if the server does not run TF2, an interface is unavailable, the
+	/// team has no entity, the running game does not network the number as an
+	/// `int`, or `value` is outside [`Self::team_stat_range`].
+	#[doc(alias("SetScore", "SetFlagCaptures"))]
+	pub fn set_team_stat(
+		&mut self,
+		server: Server<'_>,
+		team: ScoringTeam,
+		stat: TeamStat,
+		value: i32,
+	) -> Result<(), ScoreError> {
+		let (variable, range, edict, engine) = self.team_variable(server, team, stat)?;
+
+		range.check(stat.display_name(), value)?;
+		write_team_variable(variable, value, edict, engine);
+		Ok(())
+	}
+
+	/// One of a team's numbers, as the game keeps it.
+	///
+	/// Fails as [`Self::set_team_stat`] does.
+	pub fn team_stat(
+		&mut self,
+		server: Server<'_>,
+		team: ScoringTeam,
+		stat: TeamStat,
+	) -> Result<i32, ScoreError> {
+		let (variable, ..) = self.team_variable(server, team, stat)?;
+
+		Ok(variable.read())
+	}
+
+	/// The values the running game can network for one of a team's numbers,
+	/// from its networked variable's bit count and flags.
+	pub fn team_stat_range(
+		&mut self,
+		server: Server<'_>,
+		team: ScoringTeam,
+		stat: TeamStat,
+	) -> Result<RangeInclusive<i32>, ScoreError> {
+		let (_, range, ..) = self.team_variable(server, team, stat)?;
+
+		Ok(range.inclusive())
+	}
+
+	/// One of a team's numbers in its live entity, with what it can network,
+	/// the entity's edict, and the engine.
+	fn team_variable<'s>(
+		&mut self,
+		server: Server<'s>,
+		team: ScoringTeam,
+		stat: TeamStat,
+	) -> Result<(IntField<'s>, NetRange, Edict<'s>, ValveEngine<'s>), ScoreError> {
+		check_game(server)?;
+
+		let context = Context::new(server)?;
+		let (entity, edict, cache) = team_entity(&mut self.teams[team.index()], context, team)?;
+		let scalar = cache.fields[stat.index()].clone()?;
+
+		// SAFETY: The offset was resolved from the send table of the class
+		// `team_entity` checked the entity still has, and is an `int`, as
+		// `int_range` checked.
+		let variable = unsafe { IntField::new(entity, scalar.offset) };
+
+		Ok((variable, scalar.range, edict, context.engine))
+	}
 }
 
 /// A team with a score: `TF_TEAM_RED` or `TF_TEAM_BLUE`, numbered as TF2 does
@@ -1697,7 +1331,229 @@ impl ScoringTeam {
 	}
 }
 
-/// What the store keeps of a team entity it last found.
+/// One of the statistics TF2 keeps for each player, `TFStatType_t`, numbered
+/// as `sdk_raw`'s [`stat`] indices.
+///
+/// The game's `CalcPlayerScore` scores some of them, with the weights of
+/// `sdk_raw`'s `TF_SCORE_` constants, as the [module documentation](self#points)
+/// describes. The others only appear in summaries the game sends.
+#[doc(alias("TFStatType_t"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(usize)]
+pub enum Stat {
+	/// Shots that hit.
+	#[doc(alias("TFSTAT_SHOTS_HIT"))]
+	ShotsHit = stat::SHOTS_HIT,
+
+	/// Shots fired.
+	#[doc(alias("TFSTAT_SHOTS_FIRED"))]
+	ShotsFired = stat::SHOTS_FIRED,
+
+	/// Kills, one point each, and one more with the `scoreboard_minigame`
+	/// attribute.
+	#[doc(alias("TFSTAT_KILLS"))]
+	Kills = stat::KILLS,
+
+	/// Deaths, which only score with the `scoreboard_minigame` attribute,
+	/// minus three points each.
+	#[doc(alias("TFSTAT_DEATHS"))]
+	Deaths = stat::DEATHS,
+
+	/// Damage dealt, a point per 600, or per 250 in Mann vs. Machine, together
+	/// with the other damage and healing statistics the game scores.
+	#[doc(alias("TFSTAT_DAMAGE"))]
+	Damage = stat::DAMAGE,
+
+	/// Captures of control points and flags, two points each, five in
+	/// Mannpower, and one more with the `scoreboard_minigame` attribute.
+	#[doc(alias("TFSTAT_CAPTURES"))]
+	Captures = stat::CAPTURES,
+
+	/// Defenses of control points and flags, one point each, and one more with
+	/// the `scoreboard_minigame` attribute.
+	#[doc(alias("TFSTAT_DEFENSES"))]
+	Defenses = stat::DEFENSES,
+
+	/// Dominations.
+	#[doc(alias("TFSTAT_DOMINATIONS"))]
+	Dominations = stat::DOMINATIONS,
+
+	/// Revenges, one point each.
+	#[doc(alias("TFSTAT_REVENGE"))]
+	Revenge = stat::REVENGE,
+
+	/// Points scored, which the game counts per life only.
+	#[doc(alias("TFSTAT_POINTSSCORED"))]
+	PointsScored = stat::POINTSSCORED,
+
+	/// Enemy buildings destroyed, one point each, and one more with the
+	/// `scoreboard_minigame` attribute.
+	#[doc(alias("TFSTAT_BUILDINGSDESTROYED"))]
+	BuildingsDestroyed = stat::BUILDINGSDESTROYED,
+
+	/// Headshots, a point per two.
+	#[doc(alias("TFSTAT_HEADSHOTS"))]
+	Headshots = stat::HEADSHOTS,
+
+	/// Seconds played.
+	#[doc(alias("TFSTAT_PLAYTIME"))]
+	PlayTime = stat::PLAYTIME,
+
+	/// Healing given, scored as [`Self::Damage`] is, while it lies within 0 to
+	/// 10,000,000.
+	#[doc(alias("TFSTAT_HEALING"))]
+	Healing = stat::HEALING,
+
+	/// Invulnerabilities given, one point each.
+	#[doc(alias("TFSTAT_INVULNS"))]
+	Invulns = stat::INVULNS,
+
+	/// Kill assists, a point per two.
+	#[doc(alias("TFSTAT_KILLASSISTS"))]
+	KillAssists = stat::KILLASSISTS,
+
+	/// Backstabs, one point each.
+	#[doc(alias("TFSTAT_BACKSTABS"))]
+	Backstabs = stat::BACKSTABS,
+
+	/// Health leached.
+	#[doc(alias("TFSTAT_HEALTHLEACHED"))]
+	HealthLeached = stat::HEALTHLEACHED,
+
+	/// Buildings built.
+	#[doc(alias("TFSTAT_BUILDINGSBUILT"))]
+	BuildingsBuilt = stat::BUILDINGSBUILT,
+
+	/// The most kills of one sentry gun.
+	#[doc(alias("TFSTAT_MAXSENTRYKILLS"))]
+	MaxSentryKills = stat::MAXSENTRYKILLS,
+
+	/// Teleports given by the player's teleporters, a point per two.
+	#[doc(alias("TFSTAT_TELEPORTS"))]
+	Teleports = stat::TELEPORTS,
+
+	/// Damage dealt by fire.
+	#[doc(alias("TFSTAT_FIREDAMAGE"))]
+	FireDamage = stat::FIREDAMAGE,
+
+	/// Bonus points, a point per ten. The player resource's bonus column shows
+	/// the round's.
+	#[doc(alias("TFSTAT_BONUS_POINTS"))]
+	BonusPoints = stat::BONUS_POINTS,
+
+	/// Damage dealt by explosions.
+	#[doc(alias("TFSTAT_BLASTDAMAGE"))]
+	BlastDamage = stat::BLASTDAMAGE,
+
+	/// Damage taken.
+	#[doc(alias("TFSTAT_DAMAGETAKEN"))]
+	DamageTaken = stat::DAMAGETAKEN,
+
+	/// Health kits picked up.
+	#[doc(alias("TFSTAT_HEALTHKITS"))]
+	HealthKits = stat::HEALTHKITS,
+
+	/// Ammunition kits picked up.
+	#[doc(alias("TFSTAT_AMMOKITS"))]
+	AmmoKits = stat::AMMOKITS,
+
+	/// Changes of class.
+	#[doc(alias("TFSTAT_CLASSCHANGES"))]
+	ClassChanges = stat::CLASSCHANGES,
+
+	/// Critical hits.
+	#[doc(alias("TFSTAT_CRITS"))]
+	Crits = stat::CRITS,
+
+	/// Suicides.
+	#[doc(alias("TFSTAT_SUICIDES"))]
+	Suicides = stat::SUICIDES,
+
+	/// Credits collected in Mann vs. Machine, a point per twenty.
+	#[doc(alias("TFSTAT_CURRENCY_COLLECTED"))]
+	CurrencyCollected = stat::CURRENCY_COLLECTED,
+
+	/// Damage dealt by others with the player's help, scored as
+	/// [`Self::Damage`] is.
+	#[doc(alias("TFSTAT_DAMAGE_ASSIST"))]
+	DamageAssist = stat::DAMAGE_ASSIST,
+
+	/// Healing given by others with the player's help, scored as
+	/// [`Self::Damage`] is.
+	#[doc(alias("TFSTAT_HEALING_ASSIST"))]
+	HealingAssist = stat::HEALING_ASSIST,
+
+	/// Damage dealt to bosses, scored as [`Self::Damage`] is.
+	#[doc(alias("TFSTAT_DAMAGE_BOSS"))]
+	DamageBoss = stat::DAMAGE_BOSS,
+
+	/// Damage blocked, scored as [`Self::Damage`] is.
+	#[doc(alias("TFSTAT_DAMAGE_BLOCKED"))]
+	DamageBlocked = stat::DAMAGE_BLOCKED,
+
+	/// Damage dealt at range.
+	#[doc(alias("TFSTAT_DAMAGE_RANGED"))]
+	DamageRanged = stat::DAMAGE_RANGED,
+
+	/// Damage dealt at range by random critical hits.
+	#[doc(alias("TFSTAT_DAMAGE_RANGED_CRIT_RANDOM"))]
+	DamageRangedCritRandom = stat::DAMAGE_RANGED_CRIT_RANDOM,
+
+	/// Damage dealt at range by crit-boosted hits.
+	#[doc(alias("TFSTAT_DAMAGE_RANGED_CRIT_BOOSTED"))]
+	DamageRangedCritBoosted = stat::DAMAGE_RANGED_CRIT_BOOSTED,
+
+	/// Revivals.
+	#[doc(alias("TFSTAT_REVIVED"))]
+	Revived = stat::REVIVED,
+
+	/// Hits with throwables.
+	#[doc(alias("TFSTAT_THROWABLEHIT"))]
+	ThrowableHit = stat::THROWABLEHIT,
+
+	/// Kills with throwables.
+	#[doc(alias("TFSTAT_THROWABLEKILL"))]
+	ThrowableKill = stat::THROWABLEKILL,
+
+	/// The longest kill streak.
+	#[doc(alias("TFSTAT_KILLSTREAK_MAX"))]
+	KillstreakMax = stat::KILLSTREAK_MAX,
+
+	/// Kills of players carrying a Mannpower rune, one point each, whatever
+	/// the mode and the player's attributes. The game counts them for any rune
+	/// carrier, and the scoreboard's points are kept here, as the
+	/// [module documentation](self#points) describes.
+	#[doc(alias("TFSTAT_KILLS_RUNECARRIER"))]
+	KillsRuneCarrier = stat::KILLS_RUNECARRIER,
+
+	/// Flags returned, four points each.
+	#[doc(alias("TFSTAT_FLAGRETURNS"))]
+	FlagReturns = stat::FLAGRETURNS,
+}
+
+impl Stat {
+	/// The statistic's index in a `RoundStats_t`, its `TFStatType_t` value.
+	pub const fn index(self) -> usize {
+		self as usize
+	}
+}
+
+/// Which of a player's statistics to read: the session's or the current
+/// round's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StatScope {
+	/// Since the player connected or their scores were last reset,
+	/// `statsAccumulated`, which the scoreboard's Score is computed from.
+	#[doc(alias("statsAccumulated"))]
+	Session,
+
+	/// Since the current round started, `statsCurrentRound`, which the
+	/// round's score is computed from.
+	#[doc(alias("statsCurrentRound"))]
+	Round,
+}
+
+/// What [`ScoreboardLayout`] keeps of a team entity it last found.
 #[derive(Debug)]
 struct TeamCache {
 	handle: EntityHandle,
@@ -1706,7 +1562,7 @@ struct TeamCache {
 	class: usize,
 
 	/// Each number's variable, in [`TeamStat::ALL`]'s order.
-	fields: [Result<Scalar, ScoreboardError>; TeamStat::ALL.len()],
+	fields: [Result<Scalar, ScoreError>; TeamStat::ALL.len()],
 }
 
 impl TeamCache {
@@ -1717,13 +1573,6 @@ impl TeamCache {
 			fields: TeamStat::ALL.map(|stat| Scalar::resolve(dll, class, stat)),
 		}
 	}
-}
-
-/// What the store keeps for one team.
-#[derive(Debug, Default)]
-struct TeamSlot {
-	/// Each number, in [`TeamStat::ALL`]'s order.
-	fields: [FieldState; TeamStat::ALL.len()],
 }
 
 /// A team's number on the scoreboard and HUD.
@@ -1769,12 +1618,25 @@ impl TeamStat {
 	}
 }
 
-/// Fails with [`ScoreboardError::NotTf2`] unless the server runs TF2.
-fn check_game(server: Server<'_>) -> Result<(), ScoreboardError> {
+/// Adds `delta` to a team's score, as [`set_team_score`] sets it, and returns
+/// the new score.
+///
+/// Fails as [`set_team_score`] does, or with [`ScoreError::Overflow`].
+#[doc(alias("AddScore", "m_iScore"))]
+pub fn add_team_score(
+	server: Server<'_>,
+	team: ScoringTeam,
+	delta: i32,
+) -> Result<i32, ScoreError> {
+	ScoreboardLayout::new().add_team_stat(server, team, TeamStat::Score, delta)
+}
+
+/// Fails with [`ScoreError::NotTf2`] unless the server runs TF2.
+fn check_game(server: Server<'_>) -> Result<(), ScoreError> {
 	if server.game() == Game::TeamFortress2 {
 		Ok(())
 	} else {
-		Err(ScoreboardError::NotTf2)
+		Err(ScoreError::NotTf2)
 	}
 }
 
@@ -1806,7 +1668,7 @@ fn encodable_range(prop: SendProp<'_>) -> NetRange {
 }
 
 /// Finds the `tf_team` entity of `team`.
-fn find_team<'s>(context: Context<'s>, team: ScoringTeam) -> Result<Entity<'s>, ScoreboardError> {
+fn find_team<'s>(context: Context<'s>, team: ScoringTeam) -> Result<Entity<'s>, ScoreError> {
 	let mut after = None;
 
 	for _ in 0..EntityHandle::SLOTS {
@@ -1826,7 +1688,7 @@ fn find_team<'s>(context: Context<'s>, team: ScoringTeam) -> Result<Entity<'s>, 
 		after = Some(entity);
 	}
 
-	Err(ScoreboardError::NoTeam(team))
+	Err(ScoreError::NoTeam(team))
 }
 
 /// The range of an `int` variable named `name`, or an error if it is not one.
@@ -1834,11 +1696,11 @@ fn int_range(
 	prop: SendProp<'_>,
 	storage: Storage,
 	name: &'static str,
-) -> Result<NetRange, ScoreboardError> {
+) -> Result<NetRange, ScoreError> {
 	if prop.kind() == PropKind::Int && storage.is_compatible(Storage::I32) {
 		Ok(encodable_range(prop))
 	} else {
-		Err(ScoreboardError::NotAnInteger { name })
+		Err(ScoreError::NotAnInteger { name })
 	}
 }
 
@@ -1856,7 +1718,7 @@ fn live<'s>(
 }
 
 /// An entity's server class and edict, which every networked entity has.
-fn networking(entity: Entity<'_>) -> Result<(ServerClass<'_>, Edict<'_>), ScoreboardError> {
+fn networking(entity: Entity<'_>) -> Result<(ServerClass<'_>, Edict<'_>), ScoreError> {
 	match (entity.server_class(), entity.edict()) {
 		(Some(class), Some(edict)) => Ok((class, edict)),
 
@@ -1870,11 +1732,13 @@ fn networking(entity: Entity<'_>) -> Result<(ServerClass<'_>, Edict<'_>), Scoreb
 /// Resets `player`'s scoring as a team scramble does, through
 /// `CTFPlayer::ResetScores`.
 ///
-/// This is the game's state, not only what clients see. It resets the
-/// statistics the game keeps for the player, which the "Score" column is
-/// computed from, their frags and deaths, the statistics panel's counts, and
-/// every domination and revenge relationship they are part of, and drops their
-/// Mann vs. Machine events (`tf_player.cpp:3286-3294`).
+/// This resets the statistics the game keeps for the player, which the
+/// "Score" column is computed from, their frags and deaths, the statistics
+/// panel's counts, and every domination and revenge relationship they are part
+/// of, and drops their Mann vs. Machine events (`tf_player.cpp:3286-3294`).
+/// The player resource then reports the drop in their Score as a change of
+/// Strange "Points Scored" progress, or of Mann vs. Machine statistics, as for
+/// any reset the game makes.
 ///
 /// # Re-entrancy
 ///
@@ -1885,16 +1749,16 @@ fn networking(entity: Entity<'_>) -> Result<(ServerClass<'_>, Edict<'_>), Scoreb
 /// Machine events sends the `MVMResetPlayerStats` user message
 /// (`tf_mann_vs_machine_stats.cpp:361-373`), which plugins hooking user
 /// messages see. Release every borrow of plugin state those may need, such as
-/// a `RefCell` or thread-local holding a [`Scoreboard`], before calling this.
+/// a `RefCell` or thread-local, before calling this.
 ///
 /// Fails if the server does not run TF2, or `player`'s datamaps do not include
 /// `CTFPlayer`'s.
 #[doc(alias("ResetScores"))]
-pub fn reset_scores(server: Server<'_>, player: Entity<'_>) -> Result<(), ScoreboardError> {
+pub fn reset_scores(server: Server<'_>, player: Entity<'_>) -> Result<(), ScoreError> {
 	check_game(server)?;
 
 	if !player.has_data_map_class(c"CTFPlayer") {
-		return Err(ScoreboardError::NotTfPlayer);
+		return Err(ScoreError::NotTfPlayer);
 	}
 
 	let player = player.as_ptr().cast::<sys::CTFPlayer>();
@@ -1915,13 +1779,11 @@ pub fn reset_scores(server: Server<'_>, player: Entity<'_>) -> Result<(), Scoreb
 }
 
 /// Finds the player resource again through `cache`, or anew if the cached
-/// entity is gone or has another class. What `players` remembers of the old
-/// entity is then dropped, without writing to the new one.
+/// entity is gone or has another class.
 fn resource_entity<'c, 's>(
 	cache: &'c mut Option<ResourceCache>,
-	players: &mut BTreeMap<usize, PlayerSlot>,
 	context: Context<'s>,
-) -> Result<(Entity<'s>, Edict<'s>, &'c ResourceCache), ScoreboardError> {
+) -> Result<(Entity<'s>, Edict<'s>, &'c ResourceCache), ScoreError> {
 	let found = cache
 		.as_ref()
 		.and_then(|cached| live(context.tools, cached.handle, cached.class));
@@ -1930,14 +1792,12 @@ fn resource_entity<'c, 's>(
 		Some(found) => found,
 
 		None => {
-			if cache.take().is_some() {
-				players.values_mut().for_each(PlayerSlot::forget_memory);
-			}
+			*cache = None;
 
 			let entity = context
 				.tools
 				.find_by_class_name(None, RESOURCE_CLASS_NAME)
-				.ok_or(ScoreboardError::NoPlayerResource)?;
+				.ok_or(ScoreError::NoPlayerResource)?;
 			let (class, edict) = networking(entity)?;
 
 			*cache = Some(ResourceCache::resolve(context.dll, entity, class));
@@ -1945,7 +1805,7 @@ fn resource_entity<'c, 's>(
 		}
 	};
 
-	let cached = cache.as_ref().ok_or(ScoreboardError::NoPlayerResource)?;
+	let cached = cache.as_ref().ok_or(ScoreError::NoPlayerResource)?;
 
 	Ok((entity, edict, cached))
 }
@@ -1955,78 +1815,35 @@ fn saturate(value: i64) -> i32 {
 	i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX })
 }
 
-/// Sets the death count behind the statistics panel's deaths,
-/// `CBasePlayer::m_iDeaths`.
+/// The offset of `m_iPoints` in the player's scoring data `table`, such as
+/// `m_ScoreData`, from the player's class.
 ///
-/// This is the game's state, which it keeps counting from, as
-/// [`set_frags`] describes for frags. Clients show only the deaths
-/// [`PlayerStat::Deaths`] can network, -2048 to 2047 in the SDK, and see others
-/// wrapped into that range.
-///
-/// Fails as [`set_frags`] does.
-#[doc(alias("m_iDeaths"))]
-pub fn set_deaths(
-	server: Server<'_>,
-	player: Entity<'_>,
-	deaths: i32,
-) -> Result<(), ScoreboardError> {
-	set_player_count(server, player, c"m_iDeaths", deaths)
-}
+/// A name search finds only the first `m_iPoints`, so the variable is looked
+/// up within the scoring data's own nested table.
+fn scoring_points(
+	dll: ServerGameDll<'_>,
+	class: ServerClass<'_>,
+	table: &'static CStr,
+) -> Result<usize, ScoreError> {
+	let data = dll.net_prop(class, table)?;
 
-/// Sets the frag count behind the statistics panel's kills,
-/// `CBasePlayer::m_iFrags`.
-///
-/// This is the game's state, which it keeps counting from, not only what
-/// clients see: the player resource copies it into [`PlayerStat::Kills`] at
-/// its next update. The copy the game keeps for `IPlayerInfo` (`pl.frags`)
-/// only catches up at the player's next frag. The "Score" column is computed
-/// from other statistics, and does not change.
-///
-/// Clients show only the kills [`PlayerStat::Kills`] can network, -2048 to
-/// 2047 in the SDK ([`Scoreboard::player_stat_range`] gives the running
-/// game's), and see others wrapped into that range.
-///
-/// Fails if the server does not run TF2, `player`'s datamaps do not include
-/// `CTFPlayer`'s, or `CBasePlayer`'s does not declare the count as an `int`
-/// at a plausible offset.
-#[doc(alias("m_iFrags"))]
-pub fn set_frags(
-	server: Server<'_>,
-	player: Entity<'_>,
-	frags: i32,
-) -> Result<(), ScoreboardError> {
-	set_player_count(server, player, c"m_iFrags", frags)
-}
+	if data.prop().kind() == PropKind::DataTable {
+		for index in 0..data.element_count().unwrap_or(0) {
+			let element = data.element(index)?;
 
-/// Writes the `int` field `name` that `CBasePlayer`'s datamap declares.
-fn set_player_count(
-	server: Server<'_>,
-	player: Entity<'_>,
-	name: &'static CStr,
-	value: i32,
-) -> Result<(), ScoreboardError> {
-	check_game(server)?;
+			if element.prop().name() == c"m_iPoints" {
+				int_range(element.prop(), element.storage(), "m_iPoints")?;
 
-	if !player.has_data_map_class(c"CTFPlayer") {
-		return Err(ScoreboardError::NotTfPlayer);
+				return Ok(element.offset());
+			}
+		}
 	}
 
-	let offset = player
-		.data_maps()
-		.find(|&map| map.class_name() == Some(c"CBasePlayer"))
-		.and_then(|map| map.field_offset(name, sys::_fieldtypes_FIELD_INTEGER))
-		.filter(|&offset| offset < MAX_FIELD_OFFSET && offset.is_multiple_of(ELEMENT_SIZE))
-		.ok_or_else(|| ScoreboardError::MissingField {
-			class: "CBasePlayer",
-			name: name.to_str().unwrap_or_default(),
-		})?;
-
-	// SAFETY: `CBasePlayer`'s own datamap, which the player's chain includes,
-	// declares an `int` at the offset. The game assigns the field the same way,
-	// without notifying anything.
-	unsafe { IntField::new(player, offset) }.write(value);
-
-	Ok(())
+	Err(NetPropError::NotFound {
+		table: table.to_string_lossy().into_owned(),
+		name: "m_iPoints".to_owned(),
+	}
+	.into())
 }
 
 /// Sets how many flags a team captured this round, as
@@ -2046,18 +1863,17 @@ fn set_player_count(
 ///   winner when time runs out from it (`tf_passtime_logic.cpp:1345`,
 ///   `1706-1707`, `1785-1812`).
 ///
-/// While a [`Scoreboard`] overrides [`TeamStat::FlagCaptures`], set it through
-/// [`Scoreboard::set_real_team_stat`] instead, which this otherwise matches.
+/// The game resets it when each round starts (`tf_gamerules.cpp:15089-15098`).
 ///
-/// Fails as [`Scoreboard::set_real_team_stat`] does; the SDK networks -128 to
+/// Fails as [`ScoreboardLayout::set_team_stat`] does; the SDK networks -128 to
 /// 127.
 #[doc(alias("SetFlagCaptures", "m_nFlagCaptures"))]
 pub fn set_team_flag_captures(
 	server: Server<'_>,
 	team: ScoringTeam,
 	captures: i32,
-) -> Result<(), ScoreboardError> {
-	Scoreboard::new().set_real_team_stat(server, team, TeamStat::FlagCaptures, captures)
+) -> Result<(), ScoreError> {
+	ScoreboardLayout::new().set_team_stat(server, team, TeamStat::FlagCaptures, captures)
 }
 
 /// Sets a team's score, as `CTeam::SetScore` does, and marks it changed for
@@ -2068,30 +1884,21 @@ pub fn set_team_flag_captures(
 /// This is the game's state, not only what clients see. A score reaching
 /// `mp_winlimit`, or leading by `mp_windifference`, ends the map at the game's
 /// next check (`tf_gamerules.cpp:9424-9470`), and arena and team balancing use
-/// it too.
+/// it too. Restarts and some modes reset it.
 ///
-/// While a [`Scoreboard`] overrides [`TeamStat::Score`], set it through
-/// [`Scoreboard::set_real_team_stat`] instead, which this otherwise matches.
-///
-/// Fails as [`Scoreboard::set_real_team_stat`] does.
+/// Fails as [`ScoreboardLayout::set_team_stat`] does.
 #[doc(alias("SetScore", "m_iScore"))]
-pub fn set_team_score(
-	server: Server<'_>,
-	team: ScoringTeam,
-	score: i32,
-) -> Result<(), ScoreboardError> {
-	Scoreboard::new().set_real_team_stat(server, team, TeamStat::Score, score)
+pub fn set_team_score(server: Server<'_>, team: ScoringTeam, score: i32) -> Result<(), ScoreError> {
+	ScoreboardLayout::new().set_team_stat(server, team, TeamStat::Score, score)
 }
 
 /// Finds a team's entity again through `cache`, or anew if the cached entity
-/// is gone or has another class. What `state` remembers of the old entity is
-/// then dropped, without writing to the new one.
+/// is gone or has another class.
 fn team_entity<'c, 's>(
 	cache: &'c mut Option<TeamCache>,
-	state: &mut TeamSlot,
 	context: Context<'s>,
 	team: ScoringTeam,
-) -> Result<(Entity<'s>, Edict<'s>, &'c TeamCache), ScoreboardError> {
+) -> Result<(Entity<'s>, Edict<'s>, &'c TeamCache), ScoreError> {
 	let found = cache
 		.as_ref()
 		.and_then(|cached| live(context.tools, cached.handle, cached.class));
@@ -2100,9 +1907,7 @@ fn team_entity<'c, 's>(
 		Some(found) => found,
 
 		None => {
-			if cache.take().is_some() {
-				state.fields.iter_mut().for_each(FieldState::forget_memory);
-			}
+			*cache = None;
 
 			let entity = find_team(context, team)?;
 			let (class, edict) = networking(entity)?;
@@ -2112,7 +1917,21 @@ fn team_entity<'c, 's>(
 		}
 	};
 
-	let cached = cache.as_ref().ok_or(ScoreboardError::NoTeam(team))?;
+	let cached = cache.as_ref().ok_or(ScoreError::NoTeam(team))?;
 
 	Ok((entity, edict, cached))
+}
+
+/// Writes a team's variable and marks it changed, as the game's setters do.
+fn write_team_variable(
+	variable: IntField<'_>,
+	value: i32,
+	edict: Edict<'_>,
+	engine: ValveEngine<'_>,
+) {
+	let mut changes = Changes::default();
+
+	variable.write(value);
+	changes.mark(variable.offset);
+	changes.flush(engine, edict);
 }
