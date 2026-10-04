@@ -322,4 +322,16 @@ impl<'s> GlobalVars<'s> {
 		// SAFETY: As for `global_var!`. The name is copied immediately.
 		unsafe { copy_cstr((&raw const (*self.raw.as_ptr()).mapname.pszValue).read()) }
 	}
+
+	/// The tick at which a think scheduled for the game time `time` runs, as
+	/// the game's `TIME_TO_TICKS` computes it from the
+	/// [seconds per tick](Self::interval_per_tick), in `float` arithmetic:
+	/// `0.5 + time / interval`, truncated towards zero.
+	///
+	/// A time beyond what an `int` counts in ticks gives its bounds, and NaN
+	/// gives 0, where the game's conversion is undefined.
+	#[doc(alias("TIME_TO_TICKS"))]
+	pub fn time_to_ticks(self, time: f32) -> c_int {
+		sdk_raw::entities::think::time_to_ticks(time, self.interval_per_tick())
+	}
 }

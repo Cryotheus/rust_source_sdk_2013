@@ -123,6 +123,8 @@ impl Tables {
 				PropFlags::UNSIGNED,
 				Some(int32_proxy),
 			),
+			handle_prop(c"m_hOwnerEntity", 128, Some(custom_proxy)),
+			handle_prop(c"m_nPlain", 132, Some(int32_proxy)),
 		]);
 
 		let array_prop = &raw mut tables.derived_props[2];
@@ -146,6 +148,84 @@ impl Tables {
 		// which stay in place while it is borrowed.
 		unsafe { StandardSendProxies::from_raw(NonNull::from(&*self.proxies)) }
 	}
+}
+
+/// An unsigned integer property of `NUM_NETWORKED_EHANDLE_BITS` bits, as
+/// `SendPropEHandle` declares handles.
+fn handle_prop(name: &'static CStr, offset: c_int, proxy: sys::SendVarProxyFn) -> sys::SendProp {
+	let mut prop = prop(
+		name,
+		sys::SendPropType_DPT_Int,
+		offset,
+		PropFlags::UNSIGNED,
+		proxy,
+	);
+
+	prop.m_nBits = NUM_NETWORKED_EHANDLE_BITS as c_int;
+	prop
+}
+
+#[test]
+fn handles_are_read_and_written_with_their_serial_numbers() {
+	let tables = Tables::new();
+	let proxies = tables.proxies();
+	let derived = Tables::table(&tables.derived);
+	let mut mock = MockEntity::new(3);
+
+	let mut class = sys::ServerClass {
+		m_pNetworkName: c"CDerived".as_ptr(),
+		m_pTable: (&raw const *tables.derived).cast_mut(),
+		m_pNext: null_mut(),
+		m_ClassID: 1,
+		m_InstanceBaselineIndex: 0,
+	};
+	let mut slot = mock_edict(3, false);
+	set_networking(&raw mut class, &raw mut slot);
+
+	let entity = mock.entity();
+	let owner_at = || {
+		// SAFETY: The handle's offset lies within the mock's storage, aligned
+		// for it.
+		unsafe { entity.as_ptr().cast::<u8>().add(128).cast::<u32>() }
+	};
+
+	// SAFETY: As above.
+	unsafe { owner_at().write(0x1234_0007) };
+
+	let owner = NetProp::resolve(derived, c"m_hOwnerEntity", proxies).unwrap();
+	let handle = owner.get_handle(entity).unwrap();
+	assert_eq!((handle.index(), handle.serial_number()), (Some(7), 0x1234));
+
+	let engine = change_tracking_engine();
+
+	// SAFETY: No game code reads the mock's owner.
+	unsafe { owner.set_handle(engine, entity, EntityHandle::INVALID) }.unwrap();
+	// SAFETY: As above.
+	assert_eq!(unsafe { owner_at().read() }, 0xFFFF_FFFF);
+	assert_ne!(slot._base.m_fStateFlags & 1, 0);
+
+	// The game indexes its entity list with a handle's slot, of which it has
+	// `NUM_ENT_ENTRIES`, 8192, though a handle holds 16 bits of it.
+	assert!(matches!(
+		// SAFETY: As above.
+		unsafe { owner.set_handle(engine, entity, EntityHandle::from_raw(0x0001_2000)) },
+		Err(NetPropError::HandleOutOfRange { .. })
+	));
+	// SAFETY: As above.
+	assert_eq!(unsafe { owner_at().read() }, 0xFFFF_FFFF);
+
+	// A standard proxy makes a 21-bit unsigned integer a plain integer, and
+	// handles are 21 bits.
+	for name in [c"m_nPlain", c"m_hOwner"] {
+		let plain = NetProp::resolve(derived, name, proxies).unwrap();
+
+		assert!(matches!(
+			plain.get_handle(entity),
+			Err(NetPropError::NotAHandle { .. })
+		));
+	}
+
+	set_networking(null_mut(), null_mut());
 }
 
 /// A signed integer property.

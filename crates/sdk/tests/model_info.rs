@@ -17,11 +17,23 @@ const MODEL: *const sys::model_t = 0x10 as *const sys::model_t;
 thread_local! {
 	/// The studio header the mock gives every model.
 	static STUDIO: Cell<*mut sys::studiohdr_t> = const { Cell::new(null_mut()) };
+
+	/// The collision model the mock gives every model.
+	static VCOLLIDE: Cell<*mut sys::vcollide_t> = const { Cell::new(null_mut()) };
 }
 
 /// `IVModelInfo::GetModel`, which knows only the model at index -2.
 unsafe extern "C" fn get_model(_: *mut sys::IVModelInfo, index: c_int) -> *const sys::model_t {
 	if index == -2 { MODEL } else { null() }
+}
+
+/// `IVModelInfo::GetVCollide`, which returns [`VCOLLIDE`].
+unsafe extern "C" fn get_vcollide(
+	_: *mut sys::IVModelInfo,
+	model: *const sys::model_t,
+) -> *mut sys::vcollide_t {
+	assert_eq!(model, MODEL);
+	VCOLLIDE.get()
 }
 
 /// `IVModelInfo::GetStudiomodel`, which returns [`STUDIO`].
@@ -42,6 +54,7 @@ fn missing_models_are_recognized_by_their_stand_in() {
 		mock_vtable::<sys::IVModelInfo__bindgen_vtable>(unexpected_call as *const (), |vtable| {
 			(&raw mut (*vtable).IVModelInfo_GetModel).write(get_model);
 			(&raw mut (*vtable).IVModelInfo_GetStudiomodel).write(get_studiomodel);
+			(&raw mut (*vtable).IVModelInfo_GetVCollide).write(get_vcollide);
 		})
 	};
 
@@ -75,6 +88,43 @@ fn missing_models_are_recognized_by_their_stand_in() {
 	assert!(!info.is_error_model(5));
 	STUDIO.set(null_mut());
 	assert_eq!(info.studio_name(-2), None);
+}
+
+#[test]
+fn solids_are_counted_in_the_collision_model_bit_field() {
+	// SAFETY: As in the test above.
+	let vtable = unsafe {
+		mock_vtable::<sys::IVModelInfo__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IVModelInfo_GetModel).write(get_model);
+			(&raw mut (*vtable).IVModelInfo_GetVCollide).write(get_vcollide);
+		})
+	};
+
+	export(
+		Module::Engine,
+		ModelInfo::VERSION,
+		leak(sys::IVModelInfo {
+			vtable_: Box::leak(vtable),
+		}),
+	);
+
+	let scope = ();
+	let info = mock_server(&scope).model_info().unwrap();
+
+	// `solidCount` is the low 15 bits of a `unsigned short` it shares with
+	// `isPacked`.
+	VCOLLIDE.set(leak(sys::vcollide_t {
+		_bitfield_1: sys::vcollide_t::new_bitfield_1(17, 1),
+		descSize: 0,
+		solids: null_mut(),
+		pKeyValues: null_mut(),
+	}));
+	assert_eq!(info.vcollide_solid_count(-2), Some(17));
+
+	// Unknown indices and models without a collision model.
+	assert_eq!(info.vcollide_solid_count(5), None);
+	VCOLLIDE.set(null_mut());
+	assert_eq!(info.vcollide_solid_count(-2), None);
 }
 
 /// A leaked studio header named `name`, as the engine loads one.

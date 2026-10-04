@@ -7,6 +7,7 @@
 
 use crate::Server;
 use crate::entities::{Entity, EntityHandle};
+use crate::math::Vector;
 use sdk_raw::tf2::damage;
 use std::fmt;
 use std::mem::{MaybeUninit, offset_of};
@@ -267,6 +268,22 @@ impl DamageInfo {
 		}
 	}
 
+	/// The force the damage applies (`m_vecDamageForce`), which pushes the
+	/// victim, or its ragdoll, in its direction.
+	#[doc(alias("GetDamageForce"))]
+	pub fn damage_force(&self) -> Vector {
+		// SAFETY: Constructor-initialized vector in owned memory.
+		unsafe { (&raw const (*self.as_ptr()).m_vecDamageForce).read() }.into()
+	}
+
+	/// Where the damage was dealt (`m_vecDamagePosition`), at which its force
+	/// is applied.
+	#[doc(alias("GetDamagePosition"))]
+	pub fn damage_position(&self) -> Vector {
+		// SAFETY: Constructor-initialized vector in owned memory.
+		unsafe { (&raw const (*self.as_ptr()).m_vecDamagePosition).read() }.into()
+	}
+
 	/// The damage bitmask, including unknown and game-specific bits.
 	#[doc(alias("GetDamageType"))]
 	pub fn damage_type(&self) -> DamageType {
@@ -291,6 +308,15 @@ impl DamageInfo {
 	#[doc(alias("GetInflictor"))]
 	pub fn inflictor(&self) -> EntityHandle {
 		self.handle(offset_of!(sys::CTakeDamageInfo, m_hInflictor))
+	}
+
+	/// The position the victim is told the damage came from
+	/// (`m_vecReportedPosition`), which its client's damage indicator points
+	/// to.
+	#[doc(alias("GetReportedPosition"))]
+	pub fn reported_position(&self) -> Vector {
+		// SAFETY: Constructor-initialized vector in owned memory.
+		unsafe { (&raw const (*self.as_ptr()).m_vecReportedPosition).read() }.into()
 	}
 
 	/// Multiplies the damage amount by `factor`.
@@ -318,6 +344,31 @@ impl DamageInfo {
 			offset_of!(sys::CTakeDamageInfo, m_hDamageBonusProvider),
 			handle,
 		);
+	}
+
+	/// Replaces the force the damage applies.
+	///
+	/// # Panics
+	/// If a component of `force` is not finite.
+	#[doc(alias("SetDamageForce"))]
+	pub fn set_damage_force(&mut self, force: Vector) {
+		assert!(force.is_finite(), "invalid damage field: m_vecDamageForce");
+		// SAFETY: Vector field in our allocated record.
+		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_vecDamageForce).write(force.into()) };
+	}
+
+	/// Replaces where the damage was dealt.
+	///
+	/// # Panics
+	/// If a component of `position` is not finite.
+	#[doc(alias("SetDamagePosition"))]
+	pub fn set_damage_position(&mut self, position: Vector) {
+		assert!(
+			position.is_finite(),
+			"invalid damage field: m_vecDamagePosition"
+		);
+		// SAFETY: Vector field in our allocated record.
+		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_vecDamagePosition).write(position.into()) };
 	}
 
 	/// Replaces the damage bitmask, keeping all 32 bits.
@@ -373,6 +424,20 @@ impl DamageInfo {
 	#[doc(alias("SetInflictor"))]
 	pub fn set_inflictor(&mut self, handle: EntityHandle) {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hInflictor), handle);
+	}
+
+	/// Replaces the position the victim is told the damage came from.
+	///
+	/// # Panics
+	/// If a component of `position` is not finite.
+	#[doc(alias("SetReportedPosition"))]
+	pub fn set_reported_position(&mut self, position: Vector) {
+		assert!(
+			position.is_finite(),
+			"invalid damage field: m_vecReportedPosition"
+		);
+		// SAFETY: Vector field in our allocated record.
+		unsafe { (&raw mut (*self.raw.as_mut_ptr()).m_vecReportedPosition).write(position.into()) };
 	}
 
 	/// Replaces the weapon.

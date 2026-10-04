@@ -88,4 +88,36 @@ impl<'s> ModelInfo<'s> {
 
 		CString::new(&bytes[..len]).ok()
 	}
+
+	/// The number of solids in the collision model of the model at an index
+	/// (`vcollide_t::solidCount`), which the engine loads from the model's
+	/// `.phy` file, or `None` if no model has the index or it has no collision
+	/// model.
+	///
+	/// A ragdoll of a studio model has a physics object for each solid, and
+	/// the game makes none for a model with more than 24
+	/// (`RAGDOLL_MAX_ELEMENTS`).
+	#[doc(alias("GetVCollide", "solidCount"))]
+	pub fn vcollide_solid_count(self, index: c_int) -> Option<c_int> {
+		// SAFETY: As for `model_index`.
+		let model = unsafe { vcall!(self.as_ptr() => IVModelInfo_GetModel(index)) };
+
+		if model.is_null() {
+			return None;
+		}
+
+		// SAFETY: As for `model_index`, and the model is live.
+		let collide = unsafe { vcall!(self.as_ptr() => IVModelInfo_GetVCollide(model)) };
+
+		if collide.is_null() {
+			return None;
+		}
+
+		// SAFETY: The collision model belongs to the model, which stays loaded
+		// while the level runs. Its bit-field is read without forming a
+		// reference to it.
+		Some(c_int::from(unsafe {
+			sys::vcollide_t::solidCount_raw(collide)
+		}))
+	}
 }

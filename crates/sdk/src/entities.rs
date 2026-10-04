@@ -4,9 +4,10 @@
 //! server-only ones. Properties use the native entity interfaces instead of
 //! key values, and networked variables are reached through
 //! [`NetProp`](crate::datatables::NetProp). Health, life state and damage
-//! modes are in [`health`].
+//! modes are in [`health`], and think contexts in [`think`].
 
 pub mod health;
+pub mod think;
 
 #[cfg(test)]
 #[path = "tests/entities.rs"]
@@ -19,8 +20,14 @@ use crate::math::{QAngle, Vector};
 use sdk_raw::entities::datamap::DataMaps;
 
 use sdk_raw::entities::{
-	EFL_KILLME, ENT_ENTRY_MASK, INVALID_EHANDLE_INDEX, NUM_ENT_ENTRIES, NUM_SERIAL_NUM_SHIFT_BITS,
-	TeleportSlot,
+	COLLISION_GROUP_BREAKABLE_GLASS, COLLISION_GROUP_DEBRIS, COLLISION_GROUP_DEBRIS_TRIGGER,
+	COLLISION_GROUP_DISSOLVING, COLLISION_GROUP_DOOR_BLOCKER, COLLISION_GROUP_IN_VEHICLE,
+	COLLISION_GROUP_INTERACTIVE, COLLISION_GROUP_INTERACTIVE_DEBRIS, COLLISION_GROUP_NONE,
+	COLLISION_GROUP_NPC, COLLISION_GROUP_NPC_ACTOR, COLLISION_GROUP_NPC_SCRIPTED,
+	COLLISION_GROUP_PASSABLE_DOOR, COLLISION_GROUP_PLAYER, COLLISION_GROUP_PLAYER_MOVEMENT,
+	COLLISION_GROUP_PROJECTILE, COLLISION_GROUP_PUSHAWAY, COLLISION_GROUP_VEHICLE,
+	COLLISION_GROUP_VEHICLE_CLIP, COLLISION_GROUP_WEAPON, EFL_KILLME, ENT_ENTRY_MASK,
+	INVALID_EHANDLE_INDEX, NUM_ENT_ENTRIES, NUM_SERIAL_NUM_SHIFT_BITS, TeleportSlot,
 };
 
 use sdk_raw::util::cstr::borrow_cstr;
@@ -31,6 +38,158 @@ use std::marker::PhantomData;
 use std::num::NonZero;
 use std::ptr::{self, NonNull};
 use std::sync::OnceLock;
+
+/// Which entities an entity collides with (`Collision_Group_t`), and which
+/// traces hit it, as the game rules' `ShouldCollide` decides, which games
+/// refine.
+///
+/// These are the groups every game shares. Games define more past
+/// [`LAST_SHARED_COLLISION_GROUP`](sdk_raw::entities::LAST_SHARED_COLLISION_GROUP),
+/// as TF2's `TFCOLLISION_GROUP_*` are, which [`from_raw`](Self::from_raw) does
+/// not convert.
+#[doc(alias("Collision_Group_t"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CollisionGroup {
+	/// Collides with everything, as most entities do.
+	#[doc(alias("COLLISION_GROUP_NONE"))]
+	None,
+
+	/// Collides only with entities of [`None`](Self::None), such as the
+	/// world, and of [`Pushaway`](Self::Pushaway): players, bullets,
+	/// projectiles and other debris pass through it.
+	#[doc(alias("COLLISION_GROUP_DEBRIS"))]
+	Debris,
+
+	/// As [`Debris`](Self::Debris), but touches triggers.
+	#[doc(alias("COLLISION_GROUP_DEBRIS_TRIGGER"))]
+	DebrisTrigger,
+
+	/// Collides with everything but debris, interactive or not.
+	#[doc(alias("COLLISION_GROUP_INTERACTIVE_DEBRIS"))]
+	InteractiveDebris,
+
+	/// Collides with everything but interactive debris and debris.
+	#[doc(alias("COLLISION_GROUP_INTERACTIVE"))]
+	Interactive,
+
+	/// Players.
+	#[doc(alias("COLLISION_GROUP_PLAYER"))]
+	Player,
+
+	/// Breakable glass.
+	#[doc(alias("COLLISION_GROUP_BREAKABLE_GLASS"))]
+	BreakableGlass,
+
+	/// Vehicles.
+	#[doc(alias("COLLISION_GROUP_VEHICLE"))]
+	Vehicle,
+
+	/// The group player movement traces with, which TF2 uses to filter out
+	/// other players and its buildings.
+	#[doc(alias("COLLISION_GROUP_PLAYER_MOVEMENT"))]
+	PlayerMovement,
+
+	/// Non-player characters.
+	#[doc(alias("COLLISION_GROUP_NPC"))]
+	Npc,
+
+	/// Entities inside a vehicle.
+	#[doc(alias("COLLISION_GROUP_IN_VEHICLE"))]
+	InVehicle,
+
+	/// Weapons that need collision detection.
+	#[doc(alias("COLLISION_GROUP_WEAPON"))]
+	Weapon,
+
+	/// Brushes that only block vehicles.
+	#[doc(alias("COLLISION_GROUP_VEHICLE_CLIP"))]
+	VehicleClip,
+
+	/// Projectiles.
+	#[doc(alias("COLLISION_GROUP_PROJECTILE"))]
+	Projectile,
+
+	/// Blocks the entities that may not come near moving doors.
+	#[doc(alias("COLLISION_GROUP_DOOR_BLOCKER"))]
+	DoorBlocker,
+
+	/// Doors players do not collide with.
+	#[doc(alias("COLLISION_GROUP_PASSABLE_DOOR"))]
+	PassableDoor,
+
+	/// Entities being dissolved.
+	#[doc(alias("COLLISION_GROUP_DISSOLVING"))]
+	Dissolving,
+
+	/// Not solid, but pushed away by players' movement.
+	#[doc(alias("COLLISION_GROUP_PUSHAWAY"))]
+	Pushaway,
+
+	/// Non-player characters in scripts, which ignore the player.
+	#[doc(alias("COLLISION_GROUP_NPC_ACTOR"))]
+	NpcActor,
+
+	/// Non-player characters in scripts that should not collide with each
+	/// other.
+	#[doc(alias("COLLISION_GROUP_NPC_SCRIPTED"))]
+	NpcScripted,
+}
+
+impl CollisionGroup {
+	/// Converts a shared `COLLISION_GROUP_*` value, or returns `None` for
+	/// another, such as one a game defines for itself.
+	pub const fn from_raw(value: c_int) -> Option<Self> {
+		match value {
+			COLLISION_GROUP_NONE => Some(Self::None),
+			COLLISION_GROUP_DEBRIS => Some(Self::Debris),
+			COLLISION_GROUP_DEBRIS_TRIGGER => Some(Self::DebrisTrigger),
+			COLLISION_GROUP_INTERACTIVE_DEBRIS => Some(Self::InteractiveDebris),
+			COLLISION_GROUP_INTERACTIVE => Some(Self::Interactive),
+			COLLISION_GROUP_PLAYER => Some(Self::Player),
+			COLLISION_GROUP_BREAKABLE_GLASS => Some(Self::BreakableGlass),
+			COLLISION_GROUP_VEHICLE => Some(Self::Vehicle),
+			COLLISION_GROUP_PLAYER_MOVEMENT => Some(Self::PlayerMovement),
+			COLLISION_GROUP_NPC => Some(Self::Npc),
+			COLLISION_GROUP_IN_VEHICLE => Some(Self::InVehicle),
+			COLLISION_GROUP_WEAPON => Some(Self::Weapon),
+			COLLISION_GROUP_VEHICLE_CLIP => Some(Self::VehicleClip),
+			COLLISION_GROUP_PROJECTILE => Some(Self::Projectile),
+			COLLISION_GROUP_DOOR_BLOCKER => Some(Self::DoorBlocker),
+			COLLISION_GROUP_PASSABLE_DOOR => Some(Self::PassableDoor),
+			COLLISION_GROUP_DISSOLVING => Some(Self::Dissolving),
+			COLLISION_GROUP_PUSHAWAY => Some(Self::Pushaway),
+			COLLISION_GROUP_NPC_ACTOR => Some(Self::NpcActor),
+			COLLISION_GROUP_NPC_SCRIPTED => Some(Self::NpcScripted),
+			_ => None,
+		}
+	}
+
+	/// The group's `COLLISION_GROUP_*` value.
+	pub const fn to_raw(self) -> c_int {
+		match self {
+			Self::None => COLLISION_GROUP_NONE,
+			Self::Debris => COLLISION_GROUP_DEBRIS,
+			Self::DebrisTrigger => COLLISION_GROUP_DEBRIS_TRIGGER,
+			Self::InteractiveDebris => COLLISION_GROUP_INTERACTIVE_DEBRIS,
+			Self::Interactive => COLLISION_GROUP_INTERACTIVE,
+			Self::Player => COLLISION_GROUP_PLAYER,
+			Self::BreakableGlass => COLLISION_GROUP_BREAKABLE_GLASS,
+			Self::Vehicle => COLLISION_GROUP_VEHICLE,
+			Self::PlayerMovement => COLLISION_GROUP_PLAYER_MOVEMENT,
+			Self::Npc => COLLISION_GROUP_NPC,
+			Self::InVehicle => COLLISION_GROUP_IN_VEHICLE,
+			Self::Weapon => COLLISION_GROUP_WEAPON,
+			Self::VehicleClip => COLLISION_GROUP_VEHICLE_CLIP,
+			Self::Projectile => COLLISION_GROUP_PROJECTILE,
+			Self::DoorBlocker => COLLISION_GROUP_DOOR_BLOCKER,
+			Self::PassableDoor => COLLISION_GROUP_PASSABLE_DOOR,
+			Self::Dissolving => COLLISION_GROUP_DISSOLVING,
+			Self::Pushaway => COLLISION_GROUP_PUSHAWAY,
+			Self::NpcActor => COLLISION_GROUP_NPC_ACTOR,
+			Self::NpcScripted => COLLISION_GROUP_NPC_SCRIPTED,
+		}
+	}
+}
 
 /// An entity in the server's entity list, as referred to by a `CBaseEntity *`.
 ///
@@ -258,6 +417,46 @@ impl<'s> Entity<'s> {
 		NonNull::new(unsafe { vcall!(self.server_entity() => IServerEntity_GetNetworkable()) })
 	}
 
+	/// The handle of the entity's owner (`m_hOwnerEntity`), or `None` if it
+	/// has none. The owner may have been removed since, which looking the
+	/// handle up tells.
+	///
+	/// The game sets an owner on what an entity creates or drops, such as a
+	/// player's projectiles and, in TF2, the ammo packs a player drops, which
+	/// TF2 limits by owner. The member is read directly, at the offset the
+	/// `CBaseEntity` datamap gives for it.
+	///
+	/// Fails with [`OwnerError::UnsupportedLayout`] if that datamap does not
+	/// declare it as an entity handle at a plausible offset.
+	#[doc(alias("GetOwnerEntity", "m_hOwnerEntity"))]
+	pub fn owner(self) -> Result<Option<EntityHandle>, OwnerError> {
+		static OWNER_OFFSET: OnceLock<usize> = OnceLock::new();
+
+		let offset = match OWNER_OFFSET.get() {
+			Some(&offset) => offset,
+
+			None => {
+				let offset = self
+					.find_base_entity_field(
+						c"m_hOwnerEntity",
+						sys::_fieldtypes_FIELD_EHANDLE,
+						size_of::<u32>(),
+					)
+					.ok_or(OwnerError::UnsupportedLayout)?;
+
+				*OWNER_OFFSET.get_or_init(|| offset)
+			}
+		};
+
+		// SAFETY: The offset was validated against the entity datamap, which
+		// every entity shares through its `CBaseEntity` base, for a handle,
+		// whose `CBaseHandle` holds only its raw value. The member is read
+		// without forming a reference, as the game writes it too.
+		let handle = EntityHandle(unsafe { self.as_ptr().byte_add(offset).cast::<u32>().read() });
+
+		Ok(handle.is_valid().then_some(handle))
+	}
+
 	/// Reads the absolute origin without key-value conversion.
 	///
 	/// Source's collision property returns its owner's `GetAbsOrigin()` here.
@@ -297,6 +496,34 @@ impl<'s> Entity<'s> {
 	fn server_entity(self) -> *mut sys::IServerEntity {
 		// SAFETY: The entity is live, and its base is only projected to.
 		unsafe { &raw mut (*self.as_ptr())._base }
+	}
+
+	/// Sets the entity's owner (`m_hOwnerEntity`), or clears it for `None`,
+	/// through the game's `SetOwnerEntity`, which records the change for
+	/// networking.
+	///
+	/// The game's collision and trace filters let an entity and its owner
+	/// pass through each other, so changing the owner rechecks the collision
+	/// filters of the entity's VPhysics objects. TF2 keeps at most 3 of a
+	/// player's dropped ammo packs, by owner, so clearing a pack's owner
+	/// takes it out of that count.
+	///
+	/// The game warns that changing collision rules while VPhysics simulates
+	/// or runs one of its callbacks is likely to crash, which no callback a
+	/// plugin is given is known to run within.
+	#[doc(alias("SetOwnerEntity", "m_hOwnerEntity"))]
+	pub fn set_owner(self, owner: Option<Entity<'_>>) {
+		// SAFETY: The entities are live during `'s`, on the main thread, and
+		// every game DLL's vtable has `SetOwnerEntity` where the generated one
+		// does. The game defers its own damage and removals during VPhysics
+		// callbacks, and buffers the touches it runs from them, so the plugin
+		// callbacks `'s` lies in are not known to run within one.
+		unsafe {
+			sdk_raw::entities::set_owner_entity(
+				self.as_ptr(),
+				owner.map_or(ptr::null_mut(), Entity::as_ptr),
+			)
+		};
 	}
 
 	/// The `string_t` field `GetKeyValue` reads for a key, or `None` if the key
@@ -470,6 +697,15 @@ impl Display for HammerId {
 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		Display::fmt(&self.0, f)
 	}
+}
+
+/// An entity's owner could not be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum OwnerError {
+	/// `CBaseEntity`'s datamap does not declare `m_hOwnerEntity` as an entity
+	/// handle at a plausible offset, so the game DLL does not match the SDK.
+	#[error("the game's CBaseEntity datamap does not declare m_hOwnerEntity as the SDK does")]
+	UnsupportedLayout,
 }
 
 /// Why [`ServerTools::remove`] refused an entity: the game keeps using it

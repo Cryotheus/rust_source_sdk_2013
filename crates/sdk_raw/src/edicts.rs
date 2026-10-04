@@ -25,11 +25,28 @@ const _: () = {
 
 const _: () = assert!(MAX_EDICTS == 1 << MAX_EDICT_BITS);
 
+/// `FL_EDICT_ALWAYS` from `public/edict.h`: the entity is sent to every
+/// client, wherever it is.
+pub const FL_EDICT_ALWAYS: c_int = 1 << 3;
+
 /// `FL_EDICT_CHANGED` from `public/edict.h`, set when a networked variable changes.
 pub const FL_EDICT_CHANGED: c_int = 1 << 0;
 
+/// `FL_EDICT_DONTSEND` from `public/edict.h`: the entity is sent to no
+/// client. `CBaseEntity::UpdateTransmitState` gives it to an entity drawn
+/// with `EF_NODRAW`, unless another entity moves with it.
+pub const FL_EDICT_DONTSEND: c_int = 1 << 4;
+
 /// `FL_EDICT_FREE` from `public/edict.h`, set while a slot holds no entity.
 pub const FL_EDICT_FREE: c_int = 1 << 1;
+
+/// `FL_EDICT_FULL` from `public/edict.h`: the slot holds a full server
+/// entity.
+pub const FL_EDICT_FULL: c_int = 1 << 2;
+
+/// `FL_EDICT_PVSCHECK` from `public/edict.h`: the entity is sent to the
+/// clients whose potentially visible set holds it.
+pub const FL_EDICT_PVSCHECK: c_int = 1 << 5;
 
 /// `FL_FULL_EDICT_CHANGED` from `public/edict.h`, set when every networked
 /// variable must be compared rather than only the recorded offsets.

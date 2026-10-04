@@ -114,6 +114,20 @@ impl<'s> ValveEngine<'s> {
 			.find(|&edict| !edict.is_free() && self.user_id_of_edict(edict) == Some(user_id))
 	}
 
+	/// The number of edicts in use (`GetEntityCount`), one for each networked
+	/// entity, of the [`MAX_EDICTS`] the edict table holds. Server-only
+	/// entities take none.
+	///
+	/// The count is optimistic about how many more entities the engine can
+	/// network: it reuses a freed edict only once a second has passed since it
+	/// was freed, and stops the server with a fatal error when it needs an
+	/// edict while the table holds none it can use.
+	#[doc(alias("GetEntityCount"))]
+	pub fn entity_count(self) -> c_int {
+		// SAFETY: As for `change_level`.
+		unsafe { vcall!(self.as_ptr() => IVEngineServer_GetEntityCount()) }
+	}
+
 	/// The path of the game directory, such as `.../tf`.
 	#[doc(alias("GetGameDir"))]
 	pub fn game_dir(self) -> CString {

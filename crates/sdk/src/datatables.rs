@@ -16,7 +16,7 @@ mod tests;
 
 use crate::NotThreadSafe;
 use crate::edicts::Edict;
-use crate::entities::Entity;
+use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::ValveEngine;
 use crate::math::{QAngle, Vector};
 use glam::Vec2;
@@ -29,6 +29,7 @@ use sdk_raw::datatables::{
 	standard_var_proxies,
 };
 
+use sdk_raw::entities::NUM_NETWORKED_EHANDLE_BITS;
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use std::any::type_name;
 use std::ffi::{CStr, CString, c_int, c_void};
@@ -916,6 +917,25 @@ impl<'s> NetProp<'s> {
 		Ok(edict)
 	}
 
+	/// Checks that the variable is an entity handle, as `SendPropEHandle`
+	/// declares them: a [`PropKind::Int`] of `NUM_NETWORKED_EHANDLE_BITS`
+	/// unsigned bits, whose proxy is not one of the standard integer proxies,
+	/// which would make it a plain integer.
+	fn check_handle(self) -> Result<(), NetPropError> {
+		let is_handle = self.prop.kind() == PropKind::Int
+			&& self.prop.flags().contains(PropFlags::UNSIGNED)
+			&& u32::try_from(self.prop.bits()) == Ok(NUM_NETWORKED_EHANDLE_BITS)
+			&& self.storage() == Storage::Unknown;
+
+		if is_handle {
+			Ok(())
+		} else {
+			Err(NetPropError::NotAHandle {
+				name: lossy(self.prop.name()),
+			})
+		}
+	}
+
 	/// Checks that the variable is a single value stored compatibly with `T`.
 	fn check_storage<T: NetVar>(self) -> Result<(), NetPropError> {
 		let name = || lossy(self.prop.name());
@@ -1043,6 +1063,36 @@ impl<'s> NetProp<'s> {
 		Ok(unsafe { T::read(entity.as_ptr().cast::<u8>().add(self.offset)) })
 	}
 
+	/// Reads an entity handle variable (`CHandle`) from an entity, as stored,
+	/// with its full serial number, unlike the value clients receive, which
+	/// [`value`](Self::value) reads.
+	///
+	/// Fails if the entity is not networked or its class does not derive from
+	/// the one the variable was resolved in, or with
+	/// [`NetPropError::NotAHandle`] if the property is not declared as
+	/// `SendPropEHandle` declares handles: an unsigned integer of 21 bits
+	/// (`NUM_NETWORKED_EHANDLE_BITS`), sent through a proxy other than the
+	/// standard integer ones, such as `SendProxy_EHandleToInt`.
+	#[doc(alias("SendPropEHandle", "CHandle", "EHANDLE"))]
+	pub fn get_handle(self, entity: Entity<'_>) -> Result<EntityHandle, NetPropError> {
+		self.check_entity(entity)?;
+		self.check_handle()?;
+
+		// SAFETY: The entity's class derives from the class the offset was
+		// resolved in, and the variable is a handle, whose `CBaseHandle` holds
+		// only its raw value, read without forming a reference or assuming
+		// alignment. Entities are zeroed when allocated, so every byte is
+		// initialized.
+		Ok(EntityHandle::from_raw(unsafe {
+			entity
+				.as_ptr()
+				.cast::<u8>()
+				.add(self.offset)
+				.cast::<u32>()
+				.read_unaligned()
+		}))
+	}
+
 	/// Bytes from the start of the entity to the variable.
 	pub const fn offset(self) -> usize {
 		self.offset
@@ -1075,6 +1125,62 @@ impl<'s> NetProp<'s> {
 		// SAFETY: As for `get`. The game writes its variables the same way,
 		// through its own pointers, on the main thread.
 		unsafe { value.write(entity.as_ptr().cast::<u8>().add(self.offset)) };
+
+		match u16::try_from(self.offset) {
+			Ok(offset) => edict.state_changed(engine, offset),
+			Err(_) => edict.full_state_changed(engine),
+		}
+
+		Ok(())
+	}
+
+	/// Writes an entity handle variable (`CHandle`) of an entity, and records
+	/// the change so the engine sends it to clients.
+	///
+	/// This assigns the member, as the game's network variables do, without
+	/// what the game's setter of it may also do, such as `SetOwnerEntity`
+	/// rechecking collision rules for `m_hOwnerEntity`, which
+	/// [`Entity::set_owner`] calls.
+	///
+	/// Fails, without writing, as [`get_handle`](Self::get_handle) does, or
+	/// with [`NetPropError::HandleOutOfRange`] for a handle whose slot lies
+	/// past the entity list, which the game would index with it.
+	///
+	/// # Safety
+	///
+	/// The game must accept the entity `handle` refers to, if any, for this
+	/// variable. Game code may cast what a handle refers to unchecked, as
+	/// TF2's client casts a player's `m_hRagdoll` to its ragdoll class.
+	#[doc(alias("SendPropEHandle", "CHandle", "EHANDLE"))]
+	pub unsafe fn set_handle(
+		self,
+		engine: ValveEngine<'_>,
+		entity: Entity<'_>,
+		handle: EntityHandle,
+	) -> Result<(), NetPropError> {
+		let edict = self.check_entity(entity)?;
+		self.check_handle()?;
+
+		if handle
+			.index()
+			.is_some_and(|index| index >= EntityHandle::SLOTS)
+		{
+			return Err(NetPropError::HandleOutOfRange {
+				name: lossy(self.prop.name()),
+				handle,
+			});
+		}
+
+		// SAFETY: As for `get_handle`. The game writes its variables the same
+		// way, through its own pointers, on the main thread.
+		unsafe {
+			entity
+				.as_ptr()
+				.cast::<u8>()
+				.add(self.offset)
+				.cast::<u32>()
+				.write_unaligned(handle.to_raw())
+		};
 
 		match u16::try_from(self.offset) {
 			Ok(offset) => edict.state_changed(engine, offset),
@@ -1209,6 +1315,25 @@ pub enum NetPropError {
 
 		/// The offset the property gives, in bytes.
 		offset: c_int,
+	},
+
+	/// [`NetProp::get_handle`] or [`NetProp::set_handle`] was called on a
+	/// property that is not declared as an entity handle.
+	#[error("`{name}` is not networked as an entity handle")]
+	NotAHandle {
+		/// The property's name.
+		name: String,
+	},
+
+	/// [`NetProp::set_handle`] was given a handle whose slot lies past the
+	/// entity list.
+	#[error("`{name}` cannot hold handle {handle}, whose slot lies past the entity list")]
+	HandleOutOfRange {
+		/// The variable's name.
+		name: String,
+
+		/// The handle refused.
+		handle: EntityHandle,
 	},
 
 	/// The property is an array, a nested table, or of a type this crate does
