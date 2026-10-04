@@ -17,7 +17,7 @@ mod tests;
 
 use crate::abi::VTABLE_SLOT_SIZE;
 use crate::tf2::damage::{DMG_CRUSH, DMG_VEHICLE};
-use crate::util::{Image, SignaturePattern, relative, word_at};
+use crate::util::{Image, SignaturePattern, is_exact, relative, word_at};
 use crate::{sig, vtable_slot};
 use std::mem::offset_of;
 
@@ -93,11 +93,6 @@ fn calls(image: &Image, caller: usize, other: usize, target: usize) -> bool {
 		.iter()
 		.enumerate()
 		.any(|(offset, &byte)| byte == CALL && relative(caller, bytes, offset + 1) == Some(target))
-}
-
-/// Whether `signature` matches exactly `byte` at `at`.
-const fn is_exact(signature: &[SignaturePattern], at: usize, byte: u8) -> bool {
-	at < signature.len() && matches!(signature[at], SignaturePattern::Exact(found) if found == byte)
 }
 
 /// Resolves `CreateServerRagdoll` in the module containing `address`.
