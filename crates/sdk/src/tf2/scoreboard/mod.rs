@@ -53,12 +53,16 @@
 //! the war tracker and match experience listen to
 //! (`tf_player_shared.cpp:14606-14618`).
 //!
-//! Changing statistics with [`PlayerScore`] reports none of this: it also adds
-//! the change in each score to the values the game compares against, and marks
-//! them changed for clients, which receive the new values at once. Points the
-//! game awards are still reported as usual, including those it awards between
-//! a change and its next think. Nothing here reports plugin-made points as item
-//! progress.
+//! Changing statistics with [`PlayerScore`] reports none of this when it is
+//! made: it also adds the change in each score to the values the game compares
+//! against, and marks them changed for clients, which receive the new values at
+//! once. Points the game awards are still reported as usual, including those it
+//! awards between a change and its next think. The plugin's change stays in
+//! those values, though, so when one of the game's [resets](#resets) later
+//! drops the player's Score, the game reports the whole drop, including the
+//! plugin's points, as negative progress (to the item servers, or to Mann vs.
+//! Machine's statistics). Vanilla would report only the points the game
+//! awarded.
 //!
 //! # Resets
 //!
@@ -90,6 +94,9 @@
 //!
 //! The event only fires when the session's points rise, so the listener sees
 //! no decrease or reset: apply the held value again after the resets above.
+//! Applied from a [`GameEventId::ScorestatsAccumulatedReset`] listener, the
+//! held value shows on top of the player's previous Score until the player
+//! resource's next think, which then sends the held Score.
 //! A script's `ResetScores` on the player clears their scoring data but not
 //! their statistics, so the next think fires the event with their whole
 //! Score as its increase.
@@ -514,7 +521,10 @@ impl<'s> PlayerScore<'s> {
 	/// `CalcPlayerScore`, as the [module documentation](self#points) describes,
 	/// and clients receive them at once. The game does not report the change
 	/// to item servers, its Mann vs. Machine statistics, or
-	/// `player_score_changed` listeners.
+	/// `player_score_changed` listeners when it is made, but a later reset of
+	/// the player's statistics reports the change as part of the Score it
+	/// drops, as the [module documentation](self#what-the-game-reports)
+	/// describes.
 	///
 	/// Fails with [`ScoreError::Overflow`], writing nothing, if a statistic, or
 	/// a score the game compares against, would not fit an `i32`. The game sums

@@ -20,20 +20,17 @@
 //!
 //! Resolution inspects the whole module: on Windows it snapshots and scans its
 //! image, and on Linux it reads and parses its file. [`ItemGeneration::cached`]
-//! therefore keeps the last successful resolution for the rest of the process,
-//! keyed by the address of the factory and the base address of the module
-//! containing it, which it looks up through the loader on each call, and
-//! returns it again without inspecting the module. A call for another factory
-//! or module base resolves anew and replaces it. Failures are not kept, so the
-//! next call inspects the module again instead of repeating an error that may
-//! have been transient, such as a failed read.
+//! therefore keeps the last successful resolution for the rest of the process
+//! in a [`ModuleCache`], keyed by the address of the factory and the base
+//! address of the module containing it, which it looks up through the loader
+//! on each call, and returns it again without inspecting the module. A call
+//! for another factory or module base resolves anew and replaces it. Failures
+//! are not kept, so the next call inspects the module again instead of
+//! repeating an error that may have been transient, such as a failed read.
 //!
 //! The cache cannot tell a module from a different image later loaded at the
-//! same base with its `CreateInterface` at the same address, and assumes that
-//! this does not happen. Source never unloads the game server module while
-//! plugins are loaded: Metamod:Source and the engine unload plugins first, and
-//! the cache, a static of the plugin that links this crate, is unloaded with
-//! it.
+//! same base with its `CreateInterface` at the same address, and assumes, as
+//! [`ModuleCache`] describes, that this does not happen.
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
@@ -45,12 +42,11 @@ mod platform;
 
 use crate::interfaces::CreateInterfaceFn;
 use crate::sig;
-use crate::util::{Module, SignaturePattern};
+use crate::util::{ModuleCache, ModuleKey, SignaturePattern};
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::transmute;
 use std::num::NonZeroUsize;
 use std::ptr::{self, NonNull};
-use std::sync::{Mutex, PoisonError};
 
 /// `CEconItemSchema::GetItemDefinition(int)`.
 type GetItemDefinitionFn = unsafe extern "C" fn(
@@ -110,7 +106,7 @@ const SINGLETON_LEN: usize = 16;
 
 /// The last resolution [`ItemGeneration::cached`] kept, with the module it was
 /// resolved in.
-static CACHE: Mutex<Option<(ModuleKey, Addresses)>> = Mutex::new(None);
+static CACHE: ModuleCache<Addresses> = ModuleCache::new();
 
 /// The addresses of the item generation functions and singleton in a module,
 /// as the platform's resolver verified them.
@@ -170,27 +166,20 @@ impl ItemGeneration {
 	///   `CreateInterface` at the same address, the module containing `factory`
 	///   must be that same image, with the code and singleton that call found
 	///   unchanged, since a cache hit returns that call's addresses without
-	///   inspecting the module. This holds unless that module was unloaded and
-	///   a different image loaded at the same base since, which Source never
-	///   does to the game server module while plugins are loaded.
+	///   inspecting the module. This holds under the assumption
+	///   [`ModuleCache`] describes.
 	pub unsafe fn cached(factory: CreateInterfaceFn) -> Result<Self, ItemGenerationError> {
 		let factory = factory as usize;
 
-		// SAFETY: The caller keeps the factory's module loaded for this call, so
-		// it stays loaded while the loader finds it. On Windows, the loader
-		// reference `Module` takes is released when it drops, at the end of this
-		// statement.
-		let base = unsafe { Module::at(factory) }
-			.map_err(|_| ItemGenerationError::Unresolved)?
-			.base();
+		// SAFETY: The caller keeps the factory's module loaded for this call.
+		let key = unsafe { ModuleKey::of(factory) }.map_err(|_| ItemGenerationError::Unresolved)?;
 
-		let addresses = lookup(ModuleKey { base, factory }, || {
+		let addresses = CACHE.get_or_resolve(key, || {
 			// SAFETY: The caller keeps the factory's module loaded, with its image
 			// mappings unchanged, for this call, including the loader metadata the
 			// resolver inspects.
-			unsafe { platform::resolve(factory) }
-		})
-		.ok_or(ItemGenerationError::Unresolved)?;
+			unsafe { platform::resolve(factory) }.ok_or(ItemGenerationError::Unresolved)
+		})?;
 
 		// SAFETY: The resolver verified the addresses in this module: in this
 		// call, or, on a cache hit, in an earlier call, for a module mapped at
@@ -366,38 +355,4 @@ pub enum ItemGenerationError {
 	/// [module documentation](crate::tf2::item_generation) describes.
 	#[error("the game's item generation functions could not be found")]
 	Unresolved,
-}
-
-/// The module [`ItemGeneration::cached`] resolved: the base address it is
-/// mapped at, and the address of its `CreateInterface` export.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ModuleKey {
-	/// The module's base address.
-	base: usize,
-
-	/// The address of the module's `CreateInterface` export.
-	factory: usize,
-}
-
-/// The addresses [`CACHE`] holds for `key`, or else those `resolve` finds,
-/// which then replace its entry. A failure leaves the entry as it was.
-fn lookup(key: ModuleKey, resolve: impl FnOnce() -> Option<Addresses>) -> Option<Addresses> {
-	// Nothing that can panic runs while the lock is held, and the entry is
-	// `Copy` and written in one assignment, so even a poisoned lock would hold a
-	// complete entry.
-	let cached = *CACHE.lock().unwrap_or_else(PoisonError::into_inner);
-
-	if let Some((cached_key, addresses)) = cached
-		&& cached_key == key
-	{
-		return Some(addresses);
-	}
-
-	// Resolution runs without the lock: concurrent misses each resolve, and the
-	// last to finish keeps its entry.
-	let addresses = resolve()?;
-
-	*CACHE.lock().unwrap_or_else(PoisonError::into_inner) = Some((key, addresses));
-
-	Some(addresses)
 }

@@ -12,6 +12,7 @@ use crate::test_support::server::{export, mock_server, null_server};
 use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
 use sdk_raw::entities::NUM_SERIAL_NUM_SHIFT_BITS;
 use sdk_raw::test_support::entities::{data_map, field};
+use sdk_raw::test_support::tf2::scoreboard::game_stats;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 
 use sdk_raw::tf2::scoreboard::{
@@ -376,7 +377,7 @@ impl World {
 
 		// SAFETY: The singleton is bytes, for which zero is valid.
 		let singleton = Box::into_raw(unsafe { Box::<Singleton>::new_zeroed().assume_init() });
-		let game_stats = GameStats::fake(
+		let game_stats = game_stats(
 			NonNull::new(singleton).unwrap().cast(),
 			size_of::<Singleton>(),
 			ARRAY,

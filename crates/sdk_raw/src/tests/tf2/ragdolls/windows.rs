@@ -3,7 +3,6 @@
 //! synthetic image and against a retail `server.dll`.
 
 use super::*;
-use crate::tf2::ragdolls::{ModuleKey, lookup};
 use crate::util::{Section, SignaturePattern};
 
 const BASE: usize = 0x180000000;
@@ -124,20 +123,6 @@ fn retail_create_server_ragdoll_callers() {
 	let target = resolve_image(&image).expect("a unique prologue and agreeing callers");
 
 	assert!(image.executable(target));
-
-	// Resolving the same module twice through the cache inspects it once.
-	// A file has no loader to find its factory by, so another of its
-	// addresses stands in for it.
-	let key = ModuleKey {
-		base: image.base,
-		factory: target,
-	};
-
-	assert_eq!(lookup(key, || resolve_image(&image)), Some(target));
-	assert_eq!(
-		lookup(key, || panic!("a cache hit inspected the module again")),
-		Some(target)
-	);
 }
 
 /// Writes `call target` at `at`.

@@ -1,7 +1,8 @@
 //! TF2's game events, identified by [`GameEventId`].
 
 use crate::interfaces::game_event::GameEvent;
-use std::ffi::CStr;
+use sdk_raw::tf2::game_events as raw;
+use std::ffi::{CStr, c_int};
 use std::fmt::{Display, Formatter};
 
 /// Declares the event ID enum from `Variant = "event_name"` pairs, documenting
@@ -497,6 +498,61 @@ game_events! {
 		WinlimitChanged = "winlimit_changed",
 		WinpanelShowScores = "winpanel_show_scores",
 		WorldStatusChanged = "world_status_changed",
+	}
+}
+
+bitflags::bitflags! {
+	/// The `TF_DEATH_*` flags of [`GameEventId::PlayerDeath`]'s `death_flags`,
+	/// from `game/shared/tf/tf_shareddefs.h`.
+	///
+	/// Read them with [`from_bits_retain`](Self::from_bits_retain), which
+	/// keeps bits without a constant here.
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+	pub struct DeathFlags: c_int {
+		/// The killer is dominating the victim.
+		#[doc(alias("TF_DEATH_DOMINATION"))]
+		const DOMINATION = raw::TF_DEATH_DOMINATION;
+
+		/// The assister is dominating the victim.
+		#[doc(alias("TF_DEATH_ASSISTER_DOMINATION"))]
+		const ASSISTER_DOMINATION = raw::TF_DEATH_ASSISTER_DOMINATION;
+
+		/// The killer got revenge on the victim.
+		#[doc(alias("TF_DEATH_REVENGE"))]
+		const REVENGE = raw::TF_DEATH_REVENGE;
+
+		/// The assister got revenge on the victim.
+		#[doc(alias("TF_DEATH_ASSISTER_REVENGE"))]
+		const ASSISTER_REVENGE = raw::TF_DEATH_ASSISTER_REVENGE;
+
+		/// The death triggered a first blood.
+		#[doc(alias("TF_DEATH_FIRST_BLOOD"))]
+		const FIRST_BLOOD = raw::TF_DEATH_FIRST_BLOOD;
+
+		/// A feigned death, by a Spy's Dead Ringer: the victim lives on.
+		#[doc(alias("TF_DEATH_FEIGN_DEATH"))]
+		const FEIGN_DEATH = raw::TF_DEATH_FEIGN_DEATH;
+
+		/// The death interrupted the victim doing an important game event,
+		/// like capturing a point or carrying the flag.
+		#[doc(alias("TF_DEATH_INTERRUPTED"))]
+		const INTERRUPTED = raw::TF_DEATH_INTERRUPTED;
+
+		/// The victim was gibbed.
+		#[doc(alias("TF_DEATH_GIBBED"))]
+		const GIBBED = raw::TF_DEATH_GIBBED;
+
+		/// The victim died while in purgatory.
+		#[doc(alias("TF_DEATH_PURGATORY"))]
+		const PURGATORY = raw::TF_DEATH_PURGATORY;
+
+		/// The victim was a miniboss.
+		#[doc(alias("TF_DEATH_MINIBOSS"))]
+		const MINIBOSS = raw::TF_DEATH_MINIBOSS;
+
+		/// The victim was killed by an Australium weapon.
+		#[doc(alias("TF_DEATH_AUSTRALIUM"))]
+		const AUSTRALIUM = raw::TF_DEATH_AUSTRALIUM;
 	}
 }
 

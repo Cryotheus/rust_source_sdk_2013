@@ -13,6 +13,7 @@ pub mod attributes;
 pub mod class;
 pub mod conditions;
 pub mod damage;
+pub mod game_events;
 pub mod host_timescale;
 pub mod item_generation;
 pub mod ragdolls;

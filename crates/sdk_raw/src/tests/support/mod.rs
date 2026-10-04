@@ -11,6 +11,9 @@ pub mod edicts;
 pub mod entities;
 pub mod net;
 
+#[cfg(feature = "tf2")]
+pub mod tf2;
+
 use crate::abi::VTABLE_SLOT_SIZE;
 use std::ffi::c_int;
 

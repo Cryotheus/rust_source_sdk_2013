@@ -2,6 +2,7 @@
 //! `CalcPlayerScore`, against fakes of the game's functions.
 
 use super::*;
+use crate::test_support::tf2::scoreboard::game_stats;
 
 /// Where the fake singleton holds its array, as the Windows build does.
 const ARRAY: usize = 0xd8;
@@ -60,7 +61,7 @@ unsafe extern "C" fn find(this: *mut c_void, player: *mut sys::CBasePlayer) -> *
 fn player_stats_are_the_blocks_of_their_entity_indices() {
 	let mut singleton = Box::new(Singleton([0; _]));
 	let instance = NonNull::from(&mut *singleton).cast::<c_void>();
-	let stats = GameStats::fake(instance, size_of::<Singleton>(), ARRAY, calc, find);
+	let stats = game_stats(instance, size_of::<Singleton>(), ARRAY, calc, find);
 
 	for index in [1, 24, MAX_PLAYERS_ARRAY_SAFE - 1] {
 		let mut player = Player {
@@ -106,8 +107,8 @@ fn player_stats_are_the_blocks_of_their_entity_indices() {
 
 	// An array that does not fit the singleton, or that lies elsewhere than
 	// the resolver verified, finds nothing.
-	let short = GameStats::fake(instance, size_of::<Singleton>() - 4, ARRAY, calc, find);
-	let moved = GameStats::fake(instance, size_of::<Singleton>(), ARRAY + 4, calc, find);
+	let short = game_stats(instance, size_of::<Singleton>() - 4, ARRAY, calc, find);
+	let moved = game_stats(instance, size_of::<Singleton>(), ARRAY + 4, calc, find);
 
 	// SAFETY: As above.
 	unsafe {

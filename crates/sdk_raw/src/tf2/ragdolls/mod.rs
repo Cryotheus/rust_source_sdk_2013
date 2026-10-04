@@ -18,8 +18,8 @@
 //! # Caching
 //!
 //! [`ServerRagdolls::cached`] keeps the last successful resolution for the rest
-//! of the process, keyed by the address of the factory and the base address of
-//! the module containing it, as
+//! of the process in a [`ModuleCache`], keyed by the address of the factory and
+//! the base address of the module containing it, as
 //! [`ItemGeneration::cached`](crate::tf2::item_generation::ItemGeneration::cached)
 //! does, under the same assumption: Source never unloads the game server
 //! module while plugins are loaded, so a module at the same base with its
@@ -35,11 +35,10 @@ mod platform;
 mod platform;
 
 use crate::interfaces::CreateInterfaceFn;
-use crate::util::Module;
+use crate::util::{ModuleCache, ModuleKey};
 use std::ffi::c_int;
 use std::mem::transmute;
 use std::ptr::{self, NonNull};
-use std::sync::{Mutex, PoisonError};
 
 /// `CreateServerRagdoll(CBaseAnimating *, int, const CTakeDamageInfo &, int,
 /// bool)`, which returns the new ragdoll.
@@ -59,6 +58,11 @@ const _: () = {
 
 	assert_plain::<ServerRagdolls>();
 };
+
+/// The force bone [`ServerRagdolls::create`] takes for none, which applies
+/// `CreateServerRagdoll`'s damage force to no single physics object. The game
+/// (`RagdollCreate`) treats any index outside the ragdoll's elements the same.
+pub const NO_FORCE_BONE: c_int = -1;
 
 /// The most solids a ragdoll's collision model may have. The game creates no
 /// physics objects for a model with more, nor for one without a collision
@@ -94,18 +98,7 @@ pub const SF_RAGDOLLPROP_USE_LRU_RETIREMENT: c_int = 0x1000;
 
 /// The last resolution [`ServerRagdolls::cached`] kept, with the module it
 /// was resolved in.
-static CACHE: Mutex<Option<(ModuleKey, usize)>> = Mutex::new(None);
-
-/// The module [`ServerRagdolls::cached`] resolved: the base address it is
-/// mapped at, and the address of its `CreateInterface` export.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ModuleKey {
-	/// The module's base address.
-	base: usize,
-
-	/// The address of the module's `CreateInterface` export.
-	factory: usize,
-}
+static CACHE: ModuleCache<usize> = ModuleCache::new();
 
 /// TF2's `CreateServerRagdoll`, resolved in a game server module.
 ///
@@ -137,25 +130,19 @@ impl ServerRagdolls {
 	///   `CreateInterface` at the same address, the module containing `factory`
 	///   must be that same image, with the code that call found unchanged,
 	///   since a cache hit returns that call's address without inspecting the
-	///   module.
+	///   module. This holds under the assumption [`ModuleCache`] describes.
 	pub unsafe fn cached(factory: CreateInterfaceFn) -> Result<Self, ServerRagdollsError> {
 		let factory = factory as usize;
 
-		// SAFETY: The caller keeps the factory's module loaded for this call, so
-		// it stays loaded while the loader finds it. On Windows, the loader
-		// reference `Module` takes is released when it drops, at the end of this
-		// statement.
-		let base = unsafe { Module::at(factory) }
-			.map_err(|_| ServerRagdollsError::Unresolved)?
-			.base();
+		// SAFETY: The caller keeps the factory's module loaded for this call.
+		let key = unsafe { ModuleKey::of(factory) }.map_err(|_| ServerRagdollsError::Unresolved)?;
 
-		let address = lookup(ModuleKey { base, factory }, || {
+		let address = CACHE.get_or_resolve(key, || {
 			// SAFETY: The caller keeps the factory's module loaded, with its image
 			// mappings unchanged, for this call, including the loader metadata the
 			// resolver inspects.
-			unsafe { platform::resolve(factory) }
-		})
-		.ok_or(ServerRagdollsError::Unresolved)?;
+			unsafe { platform::resolve(factory) }.ok_or(ServerRagdollsError::Unresolved)
+		})?;
 
 		// SAFETY: The resolver verified the address in this module: in this call,
 		// or, on a cache hit, in an earlier call, for a module mapped at the same
@@ -212,9 +199,10 @@ impl ServerRagdolls {
 	/// Calls `CreateServerRagdoll`, which creates a `prop_ragdoll` without
 	/// spawning it, in `animating`'s current pose and with its velocity, and
 	/// applies `info`'s damage force to the physics object of `force_bone`, or
-	/// to none for -1, and to the others from `info`'s damage position unless
-	/// it is the origin. The ragdoll is put in `collision_group`, a
-	/// `COLLISION_GROUP_*` value, and owned by `animating`.
+	/// to none for [`NO_FORCE_BONE`], and to the others from `info`'s damage
+	/// position unless it is the origin. The ragdoll is put in
+	/// `collision_group`, a `COLLISION_GROUP_*` value, and owned by
+	/// `animating`.
 	///
 	/// With `use_lru_retirement`, the game adds the ragdoll to the ones it
 	/// retires by fading them out once it keeps too many. Without it, the
@@ -275,27 +263,4 @@ pub enum ServerRagdollsError {
 	/// not match retail TF2's, as the [module documentation](self) describes.
 	#[error("the game's CreateServerRagdoll could not be found")]
 	Unresolved,
-}
-
-/// The address [`CACHE`] holds for `key`, or else the one `resolve` finds,
-/// which then replaces its entry. A failure leaves the entry as it was.
-fn lookup(key: ModuleKey, resolve: impl FnOnce() -> Option<usize>) -> Option<usize> {
-	// Nothing that can panic runs while the lock is held, and the entry is
-	// `Copy` and written in one assignment, so even a poisoned lock would hold a
-	// complete entry.
-	let cached = *CACHE.lock().unwrap_or_else(PoisonError::into_inner);
-
-	if let Some((cached_key, address)) = cached
-		&& cached_key == key
-	{
-		return Some(address);
-	}
-
-	// Resolution runs without the lock: concurrent misses each resolve, and the
-	// last to finish keeps its entry.
-	let address = resolve()?;
-
-	*CACHE.lock().unwrap_or_else(PoisonError::into_inner) = Some((key, address));
-
-	Some(address)
 }

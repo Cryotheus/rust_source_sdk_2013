@@ -33,8 +33,8 @@
 //! # Caching
 //!
 //! [`GameStats::cached`] keeps the last successful resolution for the rest of
-//! the process, keyed by the address of the factory and the base address of
-//! the module containing it, as `ItemGeneration::cached` in
+//! the process in a [`ModuleCache`], keyed by the address of the factory and
+//! the base address of the module containing it, as `ItemGeneration::cached` in
 //! [`tf2::item_generation`](crate::tf2::item_generation#caching) does, under
 //! the same assumption: Source never unloads the game server module while
 //! plugins are loaded. Failures are not kept.
@@ -53,12 +53,11 @@ mod tests;
 
 use crate::interfaces::CreateInterfaceFn;
 use crate::players::FIRST_GAME_TEAM;
-use crate::util::Module;
+use crate::util::{ModuleCache, ModuleKey};
 use std::ffi::{c_int, c_void};
 use std::mem::transmute;
 use std::num::NonZeroUsize;
 use std::ptr::{self, NonNull};
-use std::sync::{Mutex, PoisonError};
 
 /// `CTFGameRules::CalcPlayerScore(RoundStats_t *, CTFPlayer *)`, a static
 /// member function, which scores `stats`, adding the `scoreboard_minigame`
@@ -237,7 +236,7 @@ pub const TFSTAT_TOTAL: usize = 45;
 
 /// The last resolution [`GameStats::cached`] kept, with the module it was
 /// resolved in.
-static CACHE: Mutex<Option<(ModuleKey, Addresses)>> = Mutex::new(None);
+static CACHE: ModuleCache<Addresses> = ModuleCache::new();
 
 /// The addresses of the game statistics singleton and its functions in a
 /// module, as the platform's resolver verified them.
@@ -271,11 +270,11 @@ struct Addresses {
 #[doc(alias("CTFGameStats", "CTF_GameStats"))]
 #[derive(Debug, Clone, Copy)]
 pub struct GameStats {
-	calc_player_score: CalcPlayerScoreFn,
-	find_player_stats: FindPlayerStatsFn,
-	instance: NonZeroUsize,
-	player_stats: Option<usize>,
-	size: usize,
+	pub(crate) calc_player_score: CalcPlayerScoreFn,
+	pub(crate) find_player_stats: FindPlayerStatsFn,
+	pub(crate) instance: NonZeroUsize,
+	pub(crate) player_stats: Option<usize>,
+	pub(crate) size: usize,
 }
 
 impl GameStats {
@@ -295,21 +294,15 @@ impl GameStats {
 	///   `CreateInterface` at the same address, the module containing `factory`
 	///   must be that same image, with the code and singleton that call found
 	///   unchanged, since a cache hit returns that call's addresses without
-	///   inspecting the module. This holds unless that module was unloaded and
-	///   a different image loaded at the same base since, which Source never
-	///   does to the game server module while plugins are loaded.
+	///   inspecting the module. This holds under the assumption
+	///   [`ModuleCache`] describes.
 	pub unsafe fn cached(factory: CreateInterfaceFn) -> Result<Self, GameStatsError> {
 		let factory = factory as usize;
 
-		// SAFETY: The caller keeps the factory's module loaded for this call, so
-		// it stays loaded while the loader finds it. On Windows, the loader
-		// reference `Module` takes is released when it drops, at the end of this
-		// statement.
-		let base = unsafe { Module::at(factory) }
-			.map_err(|_| GameStatsError::Unresolved)?
-			.base();
+		// SAFETY: The caller keeps the factory's module loaded for this call.
+		let key = unsafe { ModuleKey::of(factory) }.map_err(|_| GameStatsError::Unresolved)?;
 
-		let addresses = lookup(ModuleKey { base, factory }, || {
+		let addresses = CACHE.get_or_resolve(key, || {
 			// SAFETY: The caller keeps the factory's module loaded, with its image
 			// mappings unchanged, for this call, on the server's main thread.
 			unsafe { resolve_tested(factory) }
@@ -320,29 +313,6 @@ impl GameStats {
 		// mapped at the same base with the same factory, which the caller
 		// guarantees is this same, unchanged image, still mapped for this call.
 		Ok(unsafe { Self::from_addresses(addresses) })
-	}
-
-	/// A `GameStats` over fakes, for tests of code built on this crate: its
-	/// singleton is `instance`, whose first `size` bytes hold `m_aPlayerStats`
-	/// at `player_stats`, and its functions are the given ones.
-	///
-	/// For tests only.
-	#[cfg(any(test, feature = "_test-support"))]
-	#[doc(hidden)]
-	pub fn fake(
-		instance: NonNull<c_void>,
-		size: usize,
-		player_stats: usize,
-		calc_player_score: CalcPlayerScoreFn,
-		find_player_stats: FindPlayerStatsFn,
-	) -> Self {
-		Self {
-			calc_player_score,
-			find_player_stats,
-			instance: instance.addr(),
-			player_stats: Some(player_stats),
-			size,
-		}
 	}
 
 	/// Types the addresses a platform resolver verified.
@@ -507,17 +477,6 @@ pub enum GameStatsError {
 	Unresolved,
 }
 
-/// The module [`GameStats::cached`] resolved: the base address it is mapped
-/// at, and the address of its `CreateInterface` export.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ModuleKey {
-	/// The module's base address.
-	base: usize,
-
-	/// The address of the module's `CreateInterface` export.
-	factory: usize,
-}
-
 /// A player's statistics, `PlayerStats_t` from
 /// `game/shared/tf/tf_gamestats_shared.h`: its current life's, current
 /// round's, and session's [`RoundStats`], at [`STATS_CURRENT_LIFE`],
@@ -574,32 +533,6 @@ impl RoundStats {
 	pub const ZERO: Self = Self {
 		stat: [0; TFSTAT_TOTAL],
 	};
-}
-
-/// The addresses [`CACHE`] holds for `key`, or else those `resolve` finds,
-/// which then replace its entry. A failure leaves the entry as it was.
-fn lookup(
-	key: ModuleKey,
-	resolve: impl FnOnce() -> Result<Addresses, GameStatsError>,
-) -> Result<Addresses, GameStatsError> {
-	// Nothing that can panic runs while the lock is held, and the entry is
-	// `Copy` and written in one assignment, so even a poisoned lock would hold a
-	// complete entry.
-	let cached = *CACHE.lock().unwrap_or_else(PoisonError::into_inner);
-
-	if let Some((cached_key, addresses)) = cached
-		&& cached_key == key
-	{
-		return Ok(addresses);
-	}
-
-	// Resolution runs without the lock: concurrent misses each resolve, and the
-	// last to finish keeps its entry.
-	let addresses = resolve()?;
-
-	*CACHE.lock().unwrap_or_else(PoisonError::into_inner) = Some((key, addresses));
-
-	Ok(addresses)
 }
 
 /// Resolves the game statistics in the module containing `address`, then

@@ -2,7 +2,8 @@
 //! against a retail `server.dll`.
 
 use super::*;
-use crate::tf2::item_generation::{ModuleKey, lookup};
+use crate::tf2::item_generation::CACHE;
+use crate::util::ModuleKey;
 
 #[test]
 #[ignore = "set TF2_SERVER_IMAGE to an authorized retail server.dll for binary validation"]
@@ -27,11 +28,13 @@ fn retail_item_generation_call_chain() {
 		factory: addresses.spawn_item,
 	};
 
-	assert_eq!(lookup(key, || resolve_image(&image)), Some(addresses));
-	assert_eq!(
-		lookup(key, || panic!("a cache hit inspected the module again")),
-		Some(addresses)
-	);
+	let resolved = CACHE.get_or_resolve(key, || resolve_image(&image).ok_or(()));
+	assert_eq!(resolved, Ok(addresses));
+
+	let hit = CACHE.get_or_resolve(key, || -> Result<_, ()> {
+		panic!("a cache hit inspected the module again")
+	});
+	assert_eq!(hit, Ok(addresses));
 
 	// Matching prologues alone are insufficient: redirect the caller to
 	// another executable function and require the cross-check to reject it.

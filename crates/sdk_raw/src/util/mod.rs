@@ -1,5 +1,6 @@
-//! Generic low-level utilities: checked image readers, signature scans,
-//! run-time type information, C strings, vtable calls, and code patching.
+//! Generic low-level utilities: checked image readers, signature scans, a
+//! cache of module resolutions, run-time type information, C strings, vtable
+//! calls, and code patching.
 //!
 //! Snapshots own their bytes; they never borrow mutable engine memory. Returned
 //! addresses describe the snapshot and can become stale when a module unloads.
@@ -8,6 +9,7 @@ mod bytes;
 pub mod cstr;
 pub mod elf;
 mod image;
+mod module_cache;
 pub mod patch;
 pub mod pe;
 pub mod printf;
@@ -26,6 +28,7 @@ mod platform;
 pub use crate::sig;
 pub use bytes::{relative, u16_at, u32_at, word_at};
 pub use image::{Image, Section};
+pub use module_cache::{ModuleCache, ModuleKey};
 pub use platform::{MemoryReader, Module, is_executable, loaded_symbol};
 pub use signature::{SignaturePattern, exact_u32, find_all, is_exact, pattern};
 

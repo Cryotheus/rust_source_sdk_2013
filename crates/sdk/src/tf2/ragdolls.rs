@@ -47,9 +47,6 @@ use std::ptr::NonNull;
 /// clearing `EF_NODRAW`, which also has the engine send it to clients again.
 const ENABLE_INPUT: &CStr = c"Enable";
 
-/// The force bone `CreateServerRagdoll` takes for no bone.
-const NO_FORCE_BONE: c_int = -1;
-
 /// Why a server ragdoll could not be created.
 #[derive(Debug, thiserror::Error)]
 pub enum RagdollError {
@@ -136,10 +133,11 @@ impl<'s> ServerRagdolls<'s> {
 	/// pushed by `info`'s damage force, and shows it.
 	///
 	/// The force is applied to the physics object of `force_bone`, a solid of
-	/// the model's collision model such as a dead player's `m_nForceBone`, or
-	/// to none for -1, and is spread over the others from `info`'s damage
-	/// position, unless it is the origin. A bone the collision model does not
-	/// have counts as -1. `info`'s `DMG_VEHICLE` bit is ignored, which would
+	/// the model's collision model such as a dead player's `m_nForceBone`, and
+	/// spread over the others from that object's position. With `None`, or a
+	/// bone the collision model does not have, it is spread over every object
+	/// from `info`'s damage position, unless that is the origin, which leaves
+	/// the ragdoll unpushed. `info`'s `DMG_VEHICLE` bit is ignored, which would
 	/// take a path of the game's meant for its vehicles and NPCs.
 	///
 	/// The ragdoll is put in `group`, such as [`CollisionGroup::Debris`], with
@@ -160,7 +158,7 @@ impl<'s> ServerRagdolls<'s> {
 	pub fn create_server_ragdoll(
 		self,
 		animating: Entity<'s>,
-		force_bone: c_int,
+		force_bone: Option<usize>,
 		info: &DamageInfo,
 		group: CollisionGroup,
 	) -> Result<Entity<'s>, RagdollError> {
@@ -196,11 +194,10 @@ impl<'s> ServerRagdolls<'s> {
 			.filter(|_| model_info.studio_name(model).is_some())
 			.ok_or(RagdollError::NoCollisionModel)?;
 
-		let force_bone = if (0..solids).contains(&force_bone) {
-			force_bone
-		} else {
-			NO_FORCE_BONE
-		};
+		let force_bone = force_bone
+			.and_then(|bone| c_int::try_from(bone).ok())
+			.filter(|bone| (0..solids).contains(bone))
+			.unwrap_or(raw::NO_FORCE_BONE);
 
 		let mut info = info.clone();
 

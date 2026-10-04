@@ -3,7 +3,6 @@
 //! from bytes of retail `server.dll` and against a retail `server.dll`.
 
 use super::*;
-use crate::tf2::scoreboard::{GameStatsError, ModuleKey, lookup};
 use crate::util::Section;
 
 const BASE: usize = 0x180000000;
@@ -221,24 +220,6 @@ fn retail_game_stats_resolution() {
 	assert_eq!(addresses.instance.get(), instance);
 	assert!(image.executable(addresses.calc_player_score));
 	assert!(image.executable(addresses.find_player_stats));
-
-	// Resolving the same module twice through the cache inspects it once.
-	// A file has no loader to find its factory by, so another of its
-	// addresses stands in for it.
-	let key = ModuleKey {
-		base: image.base,
-		factory: addresses.calc_player_score,
-	};
-
-	assert_eq!(
-		lookup(key, || resolve_image(&image)
-			.ok_or(GameStatsError::Unresolved)),
-		Ok(addresses)
-	);
-	assert_eq!(
-		lookup(key, || panic!("a cache hit inspected the module again")),
-		Ok(addresses)
-	);
 
 	// Matching signatures alone are insufficient: redirect the scoring call to
 	// another executable function and require the cross-check to reject it.
