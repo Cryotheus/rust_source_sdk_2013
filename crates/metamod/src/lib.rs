@@ -12,6 +12,10 @@ mod commands;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod damage_hooks;
 
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod death_hooks;
+
 #[cfg(feature = "sdk")]
 mod server_hooks;
 

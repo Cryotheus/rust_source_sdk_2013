@@ -110,6 +110,9 @@ pub const DMG_USE_HITLOCATIONS: c_int = DMG_AIRBOAT;
 /// [`DMG_SLOWBURN`].
 pub const DMG_USEDISTANCEMOD: c_int = DMG_SLOWBURN;
 
+/// Hit by a vehicle.
+pub const DMG_VEHICLE: c_int = 1 << 4;
+
 /// The value of `CTakeDamageInfo::m_iAmmoType` for damage with no ammo type,
 /// as `CTakeDamageInfo::Init` leaves it (`game/shared/takedamageinfo.cpp`).
 pub const NO_AMMO_TYPE: c_int = -1;

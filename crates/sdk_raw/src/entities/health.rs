@@ -1,7 +1,8 @@
 //! Hand-written ABI of entity health in `game/server/baseentity.h`: the
 //! `DAMAGE_*` values of `m_takedamage` from `game/shared/shareddefs.h`, the
-//! vtable slots of `TakeHealth`, `IsAlive` and `GetMaxHealth`, calls through
-//! them, and layout facts of the members holding health.
+//! vtable slots of `TakeHealth`, `IsAlive`, `Event_Killed` and
+//! `GetMaxHealth`, calls through them, and layout facts of the members
+//! holding health.
 //!
 //! `m_iHealth`, `m_iMaxHealth`, `m_lifeState` and `m_takedamage` are
 //! `CBaseEntity` members its datamap declares, which are found there rather
@@ -9,13 +10,33 @@
 //! out differently. TF2's buildings (`CBaseObject`) also keep their health as
 //! a float, `m_flHealth`, which only the generated TF2 layout gives.
 
+use crate::abi::CppDestructors;
 use crate::util::pointee_size;
 use crate::{vcall, vtable_slot};
 use std::ffi::c_int;
 use std::mem::{MaybeUninit, offset_of};
 
+/// The signature of `CBaseEntity::Event_Killed`, `void (const
+/// CTakeDamageInfo &)`, with the entity as its receiver.
+#[doc(alias("Event_Killed"))]
+pub type EventKilledFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::CTakeDamageInfo);
+
 #[cfg(target_os = "windows")]
 const _: () = assert!(offset_of!(sys::CBaseAnimating, _base) == 0);
+
+// `Event_Killed` is slot 68 of TF2's 64-bit Windows `server.dll`, whose
+// `CTFPlayer` vtable, found through its run-time type information, holds
+// there the function referencing `CTFPlayer::Event_Killed`'s strings, such as
+// `"electrocuted_gibbed_red"`. Linux's Itanium vtables start with two
+// destructor slots instead of MSVC's one. TF2's players keep the slot, and the
+// generated method has the signature of `EventKilledFn`.
+const _: () = {
+	assert!(EVENT_KILLED_SLOT == 67 + CppDestructors::VTABLE_SLOTS);
+	assert!(
+		EVENT_KILLED_SLOT == vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Event_Killed)
+	);
+};
 
 // `CBaseEntity` keeps its health and maximum in `int`s, and its damage mode in
 // one `char`, which the `DAMAGE_*` values are read from as a byte.
@@ -55,6 +76,7 @@ const _: () = {
 
 	assert!(TAKE_HEALTH_SLOT == vtable_slot!(Vtable, CBaseEntity_TakeHealth));
 	assert!(IS_ALIVE_SLOT == vtable_slot!(Vtable, CBaseEntity_IsAlive));
+	assert!(EVENT_KILLED_SLOT == vtable_slot!(Vtable, CBaseEntity_Event_Killed));
 };
 
 // A `CBaseEntity *` to a TF2 building is also a `CBaseObject *`, whose chain
@@ -66,6 +88,9 @@ const _: () = assert!(
 		&& offset_of!(sys::CBaseFlex, _base) == 0
 		&& offset_of!(sys::CBaseAnimatingOverlay, _base) == 0
 );
+
+const _: fn(&sys::CBaseEntity__bindgen_vtable) -> EventKilledFn =
+	|vtable| vtable.CBaseEntity_Event_Killed;
 
 /// The `m_takedamage` of an entity that takes damage, and which aim
 /// assistance may target.
@@ -94,6 +119,14 @@ pub const DAMAGE_YES: u8 = 2;
 /// The `DMG_*` mask of no particular kind of damage, from
 /// `game/shared/shareddefs.h`, which plain healing passes to `TakeHealth`.
 pub const DMG_GENERIC: c_int = 0;
+
+/// `CBaseEntity::Event_Killed` in the primary vtable, which directly follows
+/// [`IS_ALIVE_SLOT`], so it too is the same for every game.
+///
+/// The game calls it once for each death, after the entity's health reached
+/// zero, with the damage that killed it.
+#[doc(alias("Event_Killed"))]
+pub const EVENT_KILLED_SLOT: usize = IS_ALIVE_SLOT + 1;
 
 /// `CBaseEntity::IsAlive` in the primary vtable.
 ///

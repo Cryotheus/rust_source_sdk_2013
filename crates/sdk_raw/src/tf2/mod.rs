@@ -15,6 +15,7 @@ pub mod conditions;
 pub mod damage;
 pub mod host_timescale;
 pub mod item_generation;
+pub mod ragdolls;
 pub mod scoreboard;
 pub mod script_binding;
 pub mod voice;

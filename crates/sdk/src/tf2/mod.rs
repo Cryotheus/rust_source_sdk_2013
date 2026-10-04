@@ -14,6 +14,7 @@ pub mod damage;
 pub mod game_events;
 pub mod host_timescale;
 pub mod overlays;
+pub mod ragdolls;
 pub mod scoreboard;
 mod script_binding;
 pub mod sound;
