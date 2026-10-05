@@ -9,6 +9,7 @@
 //! `CBaseAnimating` as opaque blobs, whose single, polymorphic primary bases
 //! that ABI also places first.
 
+pub mod ammo;
 pub mod attributes;
 pub mod class;
 pub mod conditions;

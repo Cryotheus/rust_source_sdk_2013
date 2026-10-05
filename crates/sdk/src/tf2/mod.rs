@@ -7,6 +7,7 @@
 //! given, and return an error for anything else.
 
 pub mod achievements;
+pub mod ammo;
 pub mod attributes;
 mod class;
 pub mod conditions;
