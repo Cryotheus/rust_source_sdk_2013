@@ -18,6 +18,7 @@ pub mod gc;
 pub mod host_timescale;
 pub mod item_generation;
 pub mod ragdolls;
+pub mod respawn;
 pub mod scoreboard;
 pub mod script_binding;
 pub mod voice;

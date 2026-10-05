@@ -13,10 +13,10 @@ pub mod think;
 #[path = "tests/entities.rs"]
 mod tests;
 
-use crate::NotThreadSafe;
 use crate::datatables::ServerClass;
 use crate::edicts::Edict;
 use crate::math::{QAngle, Vector};
+use crate::{NotThreadSafe, Server};
 use sdk_raw::entities::datamap::DataMaps;
 
 use sdk_raw::entities::{
@@ -205,6 +205,20 @@ pub struct Entity<'s> {
 }
 
 impl<'s> Entity<'s> {
+	/// Wraps a pointer to an entity the engine or game passed to a callback,
+	/// such as the receiver of a hooked virtual method, for the callback's
+	/// scope.
+	///
+	/// # Safety
+	///
+	/// `raw` must point to an entity in the entity list of the server
+	/// `_server` belongs to, which stays allocated for `'s`, and the call must
+	/// obey [`Server::new`]'s main-thread and reentrancy contract.
+	pub unsafe fn from_live(_server: Server<'s>, raw: NonNull<sys::CBaseEntity>) -> Self {
+		// SAFETY: The caller vouches for the entity's lifetime during `'s`.
+		unsafe { Self::from_raw(raw) }
+	}
+
 	/// Wraps a pointer to an entity.
 	///
 	/// # Safety

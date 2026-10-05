@@ -16,6 +16,7 @@ pub mod gc;
 pub mod host_timescale;
 pub mod overlays;
 pub mod ragdolls;
+pub mod respawn;
 pub mod scoreboard;
 mod script_binding;
 pub mod sound;
