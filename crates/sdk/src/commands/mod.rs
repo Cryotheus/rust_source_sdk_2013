@@ -58,7 +58,7 @@ pub use error::{
 pub use object::ConsoleCommand;
 pub use registrar::{CommandRegistrar, UnlinksBeforeUnload};
 pub use route::{ClientRoute, route_client_command};
-pub use source_sdk_2013_declmacros::commands;
+pub use source_sdk_2013_declmacros::{commands, convars};
 pub use variable::ConsoleVariable;
 
 /// A plain function handler, which keeps `ConsoleCommand<CommandFn>` nameable

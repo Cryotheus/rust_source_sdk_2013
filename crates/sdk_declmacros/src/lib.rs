@@ -13,7 +13,7 @@ macro_rules! commands {
 			$StaticVis:vis static $Static:ident = fn $Command:ident ($Ctx:pat) {
 				$($Body:tt)*
 			}
-		)+
+		)*
 	) => {
 		$(
 		$(#[$StaticMeta])*
@@ -30,11 +30,43 @@ macro_rules! commands {
 				}
 			)
 			$( .$Method($($MethodArgs),*) )*;
-		)+
+		)*
 	};
 
 	($($Tokens:tt)*) => {
 		$crate::commands! {
+			extern crate source_sdk_2013;
+			$($Tokens)*
+		}
+	};
+}
+
+/// Adaptation of the [`commands`] macro.
+///
+/// Todo: invocation syntax
+#[macro_export]
+macro_rules! convars {
+	(
+		extern crate $Package:ident;
+
+		$(
+			$(#[$StaticMeta:meta])*
+			$(@[$Method:ident $($MethodArgs:expr),* $(,)? ])*
+			$StaticVis:vis static $Static:ident $Convar:ident = $Default:expr;
+		)*
+	) => {
+		$(
+		$(#[$StaticMeta])*
+		$StaticVis static $Static: ::$Package::commands::variable::ConsoleVariable = ::$Package::commands::variable::ConsoleVariable::new(
+			$crate::__private_stringify_cstr!($Convar),
+			$Default
+		)
+		$( .$Method($($MethodArgs),*) )*;
+		)*
+	};
+
+	($($Tokens:tt)*) => {
+		$crate::convars! {
 			extern crate source_sdk_2013;
 			$($Tokens)*
 		}
