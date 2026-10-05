@@ -514,6 +514,47 @@ impl<'s> ItemAttributes<'s> {
 			.ok_or(AttributeError::InvalidValue)
 	}
 
+	/// The effective value on the item of the attribute named `name`, as for
+	/// [`Self::get`], but for any attribute, as the 32 bits the game stores read
+	/// as a float: the value of TF2's legacy default type. `None` when the
+	/// running schema has no attribute of that name, when the item has no value
+	/// for it, or when it stores NaN.
+	///
+	/// The getter only finds values of the legacy default type, whatever their
+	/// meaning: an integer stored as such (`stored_as_integer`) reads as the
+	/// float of the same bits, and a string or other blob type as absent.
+	/// Besides the runtime list and the item definition's static attributes, it
+	/// reads the attributes of the economy item a player's inventory holds, such
+	/// as paint (`set item tint rgb`).
+	///
+	/// The getter iterates the item's attributes through their types, which
+	/// the token vouches for.
+	#[doc(alias("GetAttribute"))]
+	pub fn get_by_name(
+		self,
+		token: SchemaToken<'s>,
+		name: &CStr,
+	) -> Result<Option<f32>, AttributeError> {
+		let _ = token;
+
+		self.check_live()?;
+
+		// SAFETY: The getter iterates the item's attributes, whose types the
+		// token vouches for, and keeps no pointer to the name.
+		let result = unsafe {
+			self.call(
+				c"GetAttribute",
+				&mut [binding::string(name), binding::float(f32::NAN)],
+				binding::FLOAT,
+			)
+		}?;
+
+		// SAFETY: `call` checked FIELD_FLOAT before returning.
+		let value = unsafe { result.__bindgen_anon_1.m_float };
+
+		Ok((!value.is_nan()).then_some(value))
+	}
+
 	/// Native `ReapplyProvision`, which links the item's attributes to its
 	/// current owner, honoring [`catalog::PROVIDE_ON_ACTIVE`] on weapons. Use
 	/// it after changing that attribute or the item's owner. It can also
