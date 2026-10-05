@@ -109,8 +109,8 @@ impl Handler<ClientCommandKeyValues> for KeyValuesRoute {
 		// SAFETY: The engine passes the client's slot of its edict table.
 		let edict = unsafe { Edict::from_live(server, edict) };
 
-		// SAFETY: The engine made the key values, which it frees only after the
-		// call, and names them in the process's symbol table.
+		// SAFETY: The engine made the key values, laid out as TF2's, which it
+		// neither renames nor frees during the call.
 		let key_values = unsafe { KeyValues::from_raw(key_values) };
 
 		match (routed.callback)(server, edict, key_values) {

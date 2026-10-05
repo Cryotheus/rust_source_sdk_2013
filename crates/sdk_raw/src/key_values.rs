@@ -1,5 +1,5 @@
 //! tier1's `KeyValues`, as far as reading the name of key values the engine
-//! made, and vstdlib's `IKeyValuesSystem`, whose symbol table holds the names.
+//! made, and vstdlib's `IKeyValuesSystem`, whose symbol table holds most names.
 //!
 //! Key values name themselves by a symbol, which `KeyValues::GetName` looks up
 //! in the table of the `IKeyValuesSystem` that vstdlib's `KeyValuesSystem`
@@ -7,6 +7,16 @@
 //! its own key values to a table of their own
 //! (`KeyValues::SetUseGrowableStringTable`), which neither the SDK's game code
 //! nor its tier1 does by default.
+//!
+//! TF2 is built with a newer tier1 than the SDK's, whose key values can also
+//! keep their names in a table of their own. TF2's engine makes the key values
+//! it reads from clients' commands so (`Base_CmdKeyValues::ReadFromBuffer`),
+//! which keeps clients from filling the process's table. Those key values set
+//! the byte the SDK's header leaves `unused`, and are 72 bytes rather than 64,
+//! with a pointer to their table after the SDK's fields. Their symbols are
+//! offsets into the table's strings. This layout was read from TF2's 64-bit
+//! Windows `engine.dll` and `server.dll`. The Linux build is assumed to match,
+//! and [`key_name`] reads only from tables that look as expected.
 
 #[cfg(test)]
 #[path = "tests/key_values.rs"]
@@ -15,7 +25,7 @@ mod tests;
 use crate::util::loaded_symbol;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::offset_of;
-use std::ptr::NonNull;
+use std::ptr::{NonNull, null};
 use std::sync::OnceLock;
 
 /// `IKeyValuesSystem::GetStringForSymbol`: the name `symbol` stands for.
@@ -45,10 +55,12 @@ pub type KeyValuesSystemFn = unsafe extern "C" fn() -> *mut IKeyValuesSystem;
 // ABIs, in the order `public/vstdlib/IKeyValuesSystem.h` declares them.
 // `KeyValues` declares no virtual function: `m_iKeyName` is its first field,
 // at offset 0, of the 64 bytes the generated bindings assert on both ABIs.
+// TF2's tier1 puts the pointer to the key values' own table after those.
 const _: () = assert!(
 	GET_SYMBOL_FOR_STRING_SLOT == 3
 		&& GET_STRING_FOR_SYMBOL_SLOT == 4
 		&& size_of::<sys::KeyValues>() == 64
+		&& OWN_NAMES_TABLE_OFFSET == 64
 );
 
 /// `IKeyValuesSystem::GetStringForSymbol`'s slot.
@@ -61,12 +73,38 @@ pub const GET_STRING_FOR_SYMBOL_SLOT: usize =
 pub const GET_SYMBOL_FOR_STRING_SLOT: usize =
 	offset_of!(IKeyValuesSystemVtable, get_symbol_for_string) / size_of::<usize>();
 
+/// `INVALID_KEY_SYMBOL`: the symbol of key values without a name.
+const INVALID_KEY_SYMBOL: HKeySymbol = -1;
+
 /// The names vstdlib has: on Windows, and in 64-bit and older Linux dedicated
 /// servers.
 const LIBRARIES: &[&CStr] = cfg_select! {
 	windows => &[c"vstdlib.dll"],
 	target_os = "linux" => &[c"libvstdlib.so", c"libvstdlib_srv.so"],
 };
+
+/// Where, in a table of names that key values keep for themselves, its
+/// `CUtlVector<char>` of strings has its elements' pointer, which mirrors its
+/// memory's.
+const OWN_NAMES_ELEMENTS_OFFSET: usize = 0x70;
+
+/// Where, in key values that keep their names in a table of their own, TF2's
+/// tier1 marks them so: the byte the SDK's header leaves `unused`, after
+/// `m_bEvaluateConditionals`.
+const OWN_NAMES_FLAG_OFFSET: usize = 0x23;
+
+/// Where, in a table of names that key values keep for themselves, its
+/// `CUtlVector<char>` of strings has its memory's pointer: after the table's
+/// mutex and its hash of symbols.
+const OWN_NAMES_MEMORY_OFFSET: usize = 0x58;
+
+/// Where, in a table of names that key values keep for themselves, its
+/// `CUtlVector<char>` of strings has its size.
+const OWN_NAMES_SIZE_OFFSET: usize = 0x68;
+
+/// Where, in key values that keep their names in a table of their own, TF2's
+/// tier1 keeps the pointer to the table: after the SDK's 64 bytes.
+const OWN_NAMES_TABLE_OFFSET: usize = 0x40;
 
 /// `IKeyValuesSystem`, the process's store of key values' names and memory,
 /// from `public/vstdlib/IKeyValuesSystem.h`.
@@ -113,21 +151,50 @@ fn find_key_values_system() -> Option<KeyValuesSystemFn> {
 	Some(unsafe { std::mem::transmute::<*mut c_void, KeyValuesSystemFn>(address.as_ptr()) })
 }
 
-/// The name of `key_values`: the string its symbol stands for in `system`'s
-/// table, which lives as long as `system` does.
+/// The name of `key_values`, found as TF2's `KeyValues::GetName` finds it: in
+/// their own table of names if they keep one, as the key values the engine
+/// reads from clients do, or else as the string their symbol stands for in
+/// `system`'s table.
+///
+/// Returns null if the name is in `system`'s table and `system` is `None`, or
+/// in a table of their own that does not look as TF2's tier1 lays it out, or
+/// that does not have their symbol.
 ///
 /// # Safety
 ///
-/// `system` must be live, and `key_values` must point to live key values
-/// named by a symbol of `system`'s table, such as those the engine makes.
+/// `key_values` must point to live key values laid out as TF2's tier1 lays
+/// them out: 72 bytes if they keep their names in a table of their own, whose
+/// pointer, if not null, points to that live table of 120 bytes. If they are
+/// named by a symbol of the process's table, `system` must be live if `Some`.
+///
+/// A name from `system`'s table lives as long as `system` does, and one from
+/// the key values' own table as long as the key values do, unchanged.
 #[doc(alias("GetName"))]
 pub unsafe fn key_name(
-	system: NonNull<IKeyValuesSystem>,
+	system: Option<NonNull<IKeyValuesSystem>>,
 	key_values: NonNull<sys::KeyValues>,
 ) -> *const c_char {
+	let bytes = key_values.cast::<u8>();
+
 	// SAFETY: The caller passes live key values, whose first field is
-	// `m_iKeyName`.
-	let symbol = unsafe { key_values.cast::<HKeySymbol>().read() };
+	// `m_iKeyName`, and which have the flag among their first 64 bytes.
+	let (symbol, own_names) = unsafe {
+		(
+			key_values.cast::<HKeySymbol>().read(),
+			bytes.add(OWN_NAMES_FLAG_OFFSET).read() != 0,
+		)
+	};
+
+	if own_names {
+		// SAFETY: Key values that keep their names are 72 bytes, the last 8 of
+		// them the aligned pointer to their table, as the caller promises.
+		let table = unsafe { bytes.add(OWN_NAMES_TABLE_OFFSET).cast::<*const u8>().read() };
+
+		// SAFETY: The caller promises the table is null or live.
+		return unsafe { own_name(table, symbol) };
+	}
+
+	let Some(system) = system else { return null() };
 
 	// SAFETY: The caller passes a live system, whose vtable has
 	// `GetStringForSymbol` at its slot, and a symbol of its table.
@@ -149,4 +216,50 @@ pub fn key_values_system() -> Option<NonNull<IKeyValuesSystem>> {
 	// vstdlib, which every Source module links against, stays loaded for as
 	// long as any module that uses this crate.
 	NonNull::new(unsafe { key_values_system() })
+}
+
+/// The name `symbol` stands for in `table`, a table of names that key values
+/// keep for themselves: the string at that offset in its strings. Returns an
+/// empty name for [`INVALID_KEY_SYMBOL`], as the game does, and null if
+/// `table` is null, its strings' vector does not look as TF2's tier1 lays it
+/// out, or `symbol` is not among its strings.
+///
+/// # Safety
+///
+/// `table` must be null or point to a live table of 120 bytes, aligned for
+/// pointers.
+unsafe fn own_name(table: *const u8, symbol: HKeySymbol) -> *const c_char {
+	if symbol == INVALID_KEY_SYMBOL {
+		return c"".as_ptr();
+	}
+
+	if table.is_null() {
+		return null();
+	}
+
+	// SAFETY: The table is live, aligned and 120 bytes, as the caller
+	// promises, which covers each field, at an offset aligned for it.
+	let (memory, size, elements) = unsafe {
+		(
+			table
+				.add(OWN_NAMES_MEMORY_OFFSET)
+				.cast::<*const c_char>()
+				.read(),
+			table.add(OWN_NAMES_SIZE_OFFSET).cast::<c_int>().read(),
+			table
+				.add(OWN_NAMES_ELEMENTS_OFFSET)
+				.cast::<*const c_char>()
+				.read(),
+		)
+	};
+
+	// `CUtlVector` keeps its elements' pointer equal to its memory's, so
+	// fields read from elsewhere are unlikely to pass.
+	if memory.is_null() || memory != elements || !(0..size).contains(&symbol) {
+		return null();
+	}
+
+	// SAFETY: The symbol is an offset within the vector's `size` bytes, where
+	// the table writes each name with its NUL.
+	unsafe { memory.add(symbol as usize) }
 }
