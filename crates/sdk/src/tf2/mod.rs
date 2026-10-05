@@ -14,6 +14,7 @@ pub mod damage;
 pub mod game_events;
 pub mod gc;
 pub mod host_timescale;
+pub mod observer;
 pub mod overlays;
 pub mod ragdolls;
 pub mod respawn;
