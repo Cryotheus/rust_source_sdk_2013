@@ -64,4 +64,15 @@ impl TouchVtables {
 	pub fn find(&self, class: &str) -> Option<NonNull<*mut c_void>> {
 		NonNull::new(self.0.primary_vtable(class, TOUCH_SLOT)? as *mut *mut c_void)
 	}
+
+	/// The tables [`Self::find`] finds for each of `classes`, in their order.
+	/// Each search reads the whole snapshot a few times, and this reads it as
+	/// often for every class as [`Self::find`] does for one.
+	pub fn find_all(&self, classes: &[&str]) -> Vec<Option<NonNull<*mut c_void>>> {
+		self.0
+			.primary_vtables(classes, TOUCH_SLOT)
+			.into_iter()
+			.map(|table| NonNull::new(table? as *mut *mut c_void))
+			.collect()
+	}
 }

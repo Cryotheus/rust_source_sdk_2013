@@ -96,4 +96,21 @@ impl<'s> TouchTargets<'s> {
 			_scope: PhantomData,
 		})
 	}
+
+	/// The vtables [`Self::find`] finds for each of `classes`, in their order.
+	/// Searching reads the whole module's snapshot a few times, and this reads
+	/// it as often for every class as [`Self::find`] does for one, so find the
+	/// classes needed together.
+	pub fn find_all(&self, classes: &[&str]) -> Vec<Option<TouchTarget<'s>>> {
+		self.vtables
+			.find_all(classes)
+			.into_iter()
+			.map(|vtable| {
+				vtable.map(|vtable| TouchTarget {
+					vtable,
+					_scope: PhantomData,
+				})
+			})
+			.collect()
+	}
 }
