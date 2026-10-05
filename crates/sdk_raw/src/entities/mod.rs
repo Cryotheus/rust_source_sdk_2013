@@ -240,6 +240,46 @@ pub const EFL_KILLME: c_int = 1 << 0;
 /// value holding the entity's slot in the entity list.
 pub const ENT_ENTRY_MASK: u32 = (1 << NUM_SERIAL_NUM_BITS) - 1;
 
+/// `FSOLID_CUSTOMBOXTEST` from `public/const.h`: the engine's swept box
+/// traces against the entity ask its `TestCollision`, whatever its solid type.
+pub const FSOLID_CUSTOMBOXTEST: u16 = 0x0002;
+
+/// `FSOLID_CUSTOMRAYTEST` from `public/const.h`: the engine's ray traces,
+/// lines and points, against the entity ask its `TestCollision`, whatever its
+/// solid type. `CBaseEntity`'s reports no hit.
+pub const FSOLID_CUSTOMRAYTEST: u16 = 0x0001;
+
+/// `FSOLID_FORCE_WORLD_ALIGNED` from `public/const.h`: the entity collides
+/// as a world-aligned box, even with a `SOLID_BSP` or `SOLID_VPHYSICS` model.
+pub const FSOLID_FORCE_WORLD_ALIGNED: u16 = 0x0040;
+
+/// `FSOLID_NOT_SOLID` from `public/const.h`: the entity is not solid.
+pub const FSOLID_NOT_SOLID: u16 = 0x0004;
+
+/// `FSOLID_NOT_STANDABLE` from `public/const.h`: nothing can stand on the
+/// entity.
+pub const FSOLID_NOT_STANDABLE: u16 = 0x0010;
+
+/// `FSOLID_ROOT_PARENT_ALIGNED` from `public/const.h`: the entity's
+/// collisions are in its root parent's local space.
+pub const FSOLID_ROOT_PARENT_ALIGNED: u16 = 0x0100;
+
+/// `FSOLID_TRIGGER` from `public/const.h`: the entity runs touch functions,
+/// as triggers do.
+pub const FSOLID_TRIGGER: u16 = 0x0008;
+
+/// `FSOLID_TRIGGER_TOUCH_DEBRIS` from `public/const.h`: the trigger touches
+/// debris.
+pub const FSOLID_TRIGGER_TOUCH_DEBRIS: u16 = 0x0200;
+
+/// `FSOLID_USE_TRIGGER_BOUNDS` from `public/const.h`: the entity has trigger
+/// bounds of its own, apart from its box.
+pub const FSOLID_USE_TRIGGER_BOUNDS: u16 = 0x0080;
+
+/// `FSOLID_VOLUME_CONTENTS` from `public/const.h`: the entity has contents
+/// throughout its volume, as water does.
+pub const FSOLID_VOLUME_CONTENTS: u16 = 0x0020;
+
 /// `CBaseEntity::GetDataDescMap` in the Source SDK 2013 primary vtable.
 /// Derived from `game/server/cbase.h` with the MSVC ABI model on Windows and
 /// the Itanium ABI model on Linux.
@@ -456,6 +496,39 @@ pub fn find_base_entity_field(
 	let is_aligned = offset.is_multiple_of(size.min(align_of::<*const ()>()));
 
 	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && is_aligned).then_some(offset)
+}
+
+/// Finds the offset of the entity's solid flags, `m_usSolidFlags`, the
+/// `unsigned short` of its collision property, `m_Collision`, which
+/// `CBaseEntity`'s own map in `maps` embeds.
+///
+/// Returns `None` unless `CCollisionProperty`'s map declares the flags, and
+/// they lie under [`BASE_ENTITY_FIELD_OFFSET_LIMIT`], aligned.
+#[doc(alias("m_usSolidFlags", "m_Collision"))]
+pub fn find_solid_flags_field(mut maps: DataMaps<'_>) -> Option<usize> {
+	let map = maps.find(|map| map.class_name() == Some(c"CBaseEntity"))?;
+
+	let collision = map.fields().iter().find(|field| {
+		field.fieldType == sys::_fieldtypes_FIELD_EMBEDDED
+			&& field.fieldSize == 1
+			&& field.name() == Some(c"m_Collision")
+	})?;
+
+	let flags = collision
+		.embedded()
+		.find(|map| map.class_name() == Some(c"CCollisionProperty"))?
+		.fields()
+		.iter()
+		.find(|field| {
+			field.fieldType == sys::_fieldtypes_FIELD_SHORT
+				&& usize::try_from(field.fieldSizeInBytes) == Ok(size_of::<u16>())
+				&& field.name() == Some(c"m_usSolidFlags")
+		})?;
+
+	let offset = collision.offset()?.checked_add(flags.offset()?)?;
+
+	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && offset.is_multiple_of(align_of::<u16>()))
+		.then_some(offset)
 }
 
 /// Calls `CBaseEntity::SetOwnerEntity`, which sets the entity's owner,
