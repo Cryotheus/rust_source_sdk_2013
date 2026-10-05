@@ -33,6 +33,8 @@ macro_rules! commands {
 		)*
 	};
 
+	(extern crate $Package:ident; $($Tokens:tt)*) => { ::core::compile_error!("Invalid `commands!` input") };
+
 	($($Tokens:tt)*) => {
 		$crate::commands! {
 			extern crate source_sdk_2013;
@@ -52,18 +54,21 @@ macro_rules! convars {
 		$(
 			$(#[$StaticMeta:meta])*
 			$(@[$Method:ident $($MethodArgs:expr),* $(,)? ])*
-			$StaticVis:vis static $Static:ident $Convar:ident = $Default:expr;
+			$StaticVis:vis static $Static:ident $Convar:ident = $Default:expr $(, $($Min:literal)? ..= $($Max:literal)?)?;
 		)*
 	) => {
 		$(
 		$(#[$StaticMeta])*
-		$StaticVis static $Static: ::$Package::commands::variable::ConsoleVariable = ::$Package::commands::variable::ConsoleVariable::new(
+		$StaticVis static $Static: ::$Package::commands::ConsoleVariable = ::$Package::commands::ConsoleVariable::new(
 			$crate::__private_stringify_cstr!($Convar),
 			$Default
 		)
+		$($(.min($Min))? $(.max($Max))?)?
 		$( .$Method($($MethodArgs),*) )*;
 		)*
 	};
+
+	(extern crate $Package:ident; $($Tokens:tt)*) => { ::core::compile_error!("Invalid `convars!` input") };
 
 	($($Tokens:tt)*) => {
 		$crate::convars! {
