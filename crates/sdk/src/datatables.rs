@@ -538,7 +538,7 @@ impl<'s> StandardSendProxies<'s> {
 	/// Whether a nested table property's proxy passes its data through
 	/// unchanged, so offsets into the nested table are relative to the
 	/// containing structure.
-	fn is_direct(self, prop: SendProp<'_>) -> bool {
+	pub(crate) fn is_direct(self, prop: SendProp<'_>) -> bool {
 		// SAFETY: The proxies are the game DLL's, set up before any plugin
 		// loads, and their list of pointer-preserving proxies holds statics of
 		// the game DLL, which stays loaded for `'s`. The property is one of its
@@ -1061,6 +1061,25 @@ impl<'s> NetProp<'s> {
 		// resolved in, and the variable's storage is compatible with `T`. Entities are zeroed
 		// when allocated, so every byte is initialized.
 		Ok(unsafe { T::read(entity.as_ptr().cast::<u8>().add(self.offset)) })
+	}
+
+	/// Reads the variable, as stored, from the structure at `base`, such as an
+	/// object a nested table's relocating proxy gave.
+	///
+	/// Fails if the variable is not a single value stored
+	/// [compatibly](Storage::is_compatible) with `T`.
+	///
+	/// # Safety
+	///
+	/// `base` must point to a live, initialized structure laid out as the table
+	/// the variable was resolved in describes.
+	#[cfg(feature = "tf2")]
+	pub(crate) unsafe fn get_at<T: NetVar>(self, base: NonNull<c_void>) -> Result<T, NetPropError> {
+		self.check_storage::<T>()?;
+
+		// SAFETY: The structure is laid out as the variable's table describes, as
+		// the caller promises, and the variable's storage is compatible with `T`.
+		Ok(unsafe { T::read(base.as_ptr().cast::<u8>().add(self.offset)) })
 	}
 
 	/// Reads an entity handle variable (`CHandle`) from an entity, as stored,
