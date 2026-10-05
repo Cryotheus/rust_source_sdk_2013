@@ -28,6 +28,10 @@ pub mod respawn_hooks;
 mod server_hooks;
 
 #[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod touch_hooks;
+
+#[cfg(feature = "tf2")]
 mod vote_hooks;
 
 #[cfg(test)]
