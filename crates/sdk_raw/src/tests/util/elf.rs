@@ -39,6 +39,35 @@ fn loaded_function_requires_matching_file_and_memory() {
 }
 
 #[test]
+fn function_addresses_ignore_the_body_but_not_the_kind() {
+	let anchor = source_sdk_raw_loaded_elf_test_anchor as *const () as usize;
+	// SAFETY: The test executable remains loaded throughout this test.
+	let mut loaded = unsafe { LoadedElf::at(anchor) }.unwrap();
+	let name = b"source_sdk_raw_loaded_elf_test_anchor";
+	assert_eq!(loaded.function_address(name), Some(anchor));
+
+	// A body differing from the file, as a detour leaves it, still names the
+	// function.
+	let elf = Elf::new(&loaded.bytes).unwrap();
+	let (_, body) = elf.symbol(name).unwrap();
+	let file_offset = body.as_ptr() as usize - loaded.bytes.as_ptr() as usize;
+	loaded.bytes[file_offset] ^= 1;
+	assert!(loaded.resolve(name).is_none());
+	assert_eq!(loaded.function_address(name), Some(anchor));
+
+	assert!(
+		loaded
+			.function_address(b"SOURCE_SDK_RAW_LOADED_ELF_TEST_VARIABLE")
+			.is_none()
+	);
+	assert!(
+		loaded
+			.function_address(b"source_sdk_raw_loaded_elf_test_missing")
+			.is_none()
+	);
+}
+
+#[test]
 fn loaded_variables_require_a_writable_load_range() {
 	let anchor = source_sdk_raw_loaded_elf_test_anchor as *const () as usize;
 	// SAFETY: The test executable remains loaded throughout this test.
