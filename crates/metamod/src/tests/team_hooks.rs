@@ -6,6 +6,8 @@ use crate::test_support::harness::{Harness, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
 use std::cell::RefCell;
 
+use source_sdk_2013::sys;
+
 thread_local! {
 	/// What ran during the calls since the last [`change_team`], in order,
 	/// with the team each was given.
@@ -31,6 +33,10 @@ impl Mock {
 
 	fn ptr(&mut self) -> NonNull<sys::CBaseEntity> {
 		NonNull::from(self).cast()
+	}
+
+	fn vtable(&self) -> NonNull<*mut c_void> {
+		NonNull::new(self.vtable).unwrap()
 	}
 }
 
@@ -67,17 +73,17 @@ fn team_changes_are_allowed_replaced_or_refused() {
 		let mut regenerate = Mock::of_new_class(game_change_team);
 		let mut blocked = Mock::of_new_class(game_change_team);
 
-		for object in [room.ptr(), regenerate.ptr()] {
+		for vtable in [room.vtable(), regenerate.vtable()] {
 			// SAFETY: The mock classes have `ChangeTeam` at the slot, and are
 			// leaked.
-			unsafe { api.install_team(object, tf2_binding(no_interfaces), on_change) }.unwrap();
+			unsafe { api.install_team(vtable, tf2_binding(no_interfaces), on_change) }.unwrap();
 		}
 
 		// A second hook of a class is refused, so that each change is decided
 		// once.
 		assert!(matches!(
 			// SAFETY: As above.
-			unsafe { api.install_team(room.ptr(), tf2_binding(no_interfaces), on_change) },
+			unsafe { api.install_team(room.vtable(), tf2_binding(no_interfaces), on_change) },
 			Err(TeamHookError::Hook(HookError::AlreadyInstalled))
 		));
 
@@ -117,10 +123,36 @@ fn team_changes_are_allowed_replaced_or_refused() {
 				&refuse,
 			)
 			.unwrap();
-			api.install_team(blocked.ptr(), tf2_binding(no_interfaces), on_change)
+			api.install_team(blocked.vtable(), tf2_binding(no_interfaces), on_change)
 				.unwrap();
 		}
 
 		assert_eq!(change_team(harness, &mut blocked, 2), []);
+	});
+}
+
+#[test]
+fn classes_hooked_by_vtable_cover_their_later_entities() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut first = Mock::of_new_class(game_change_team);
+
+		// SAFETY: The mock class has `ChangeTeam` at the slot, and is leaked.
+		unsafe { api.install_team(first.vtable(), tf2_binding(no_interfaces), on_change) }.unwrap();
+
+		// An entity created after the hook, sharing the class's vtable, is
+		// covered too.
+		let mut later = Box::new(Mock {
+			vtable: first.vtable,
+		});
+
+		assert_eq!(
+			change_team(harness, &mut later, 3),
+			[("callback", 3), ("game", 0)]
+		);
+		assert_eq!(
+			change_team(harness, &mut first, 2),
+			[("callback", 2), ("game", 0)]
+		);
 	});
 }

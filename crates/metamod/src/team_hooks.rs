@@ -12,11 +12,14 @@
 //! the team without the method, and so does the game wherever it assigns the
 //! member itself.
 //!
-//! Install for each entity class to hook, from one of its entities. Hooks
-//! cover that class, including its entities created later, such as those a
-//! round's restart creates again, until removed or the plugin unloads, but
-//! not the classes deriving from it, which have vtables of their own. As with
-//! other Metamod hooks, they stop calling handlers while the plugin is paused.
+//! Install for each entity class to hook, from one of its entities, or from
+//! the class's vtable, which
+//! [`TeamTargets`](source_sdk_2013::tf2::teams::TeamTargets) finds by the
+//! class's C++ name even before any of its entities exists. Hooks cover that
+//! class, including its entities created later, such as those a round's
+//! restart creates again, until removed or the plugin unloads, but not the
+//! classes deriving from it, which have vtables of their own. As with other
+//! Metamod hooks, they stop calling handlers while the plugin is paused.
 
 #[cfg(test)]
 #[path = "tests/team_hooks.rs"]
@@ -30,8 +33,11 @@ use crate::hook::{
 
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::teams::{CHANGE_TEAM_SLOT, ChangeTeamFn as ChangeTeam};
+
+use source_sdk_2013::tf2::teams::TeamTarget;
+
 use source_sdk_2013::raw::util::vtable::vtable_pointer;
-use source_sdk_2013::{Game, Server, ServerBinding, sys};
+use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
 use std::ffi::{c_int, c_void};
 use std::ptr::NonNull;
@@ -155,6 +161,8 @@ impl MetamodApi<'_> {
 	/// to hook. Repeating a class returns [`HookError::AlreadyInstalled`];
 	/// removing its ID allows replacement. At most 16 classes can be hooked at
 	/// once, past which installation returns [`HookError::TooManyFunctions`].
+	/// [`Self::hook_class_team_changes`] hooks a class without any of its
+	/// entities.
 	///
 	/// The callback is not run once an earlier hook superseded the change, as
 	/// far as the hooking library reports it (see [`crate::hook`]). It may run
@@ -177,32 +185,62 @@ impl MetamodApi<'_> {
 			return Err(TeamHookError::NotTf2);
 		}
 
+		// SAFETY: The entity is live, and starts with its primary vtable pointer.
+		let vtable = unsafe { vtable_pointer::<*mut c_void>(entity.as_ptr()) };
+		let vtable = NonNull::new(vtable.cast_mut()).ok_or(HookError::InvalidArgument)?;
+
 		// SAFETY: The entity is live on a TF2 server, whose entities' vtables
 		// belong to the server DLL, which outlives this plugin.
-		unsafe { self.install_team(NonNull::new(entity.as_ptr()).unwrap(), binding, callback) }
+		unsafe { self.install_team(vtable, binding, callback) }
 	}
 
-	/// Hooks `ChangeTeam` on the class of `object`.
+	/// Runs `callback` before each `CBaseEntity::ChangeTeam` of a TF2 entity
+	/// of `target`'s class, as [`Self::hook_team_changes`] does, but from the
+	/// class's vtable, so that it covers the class's entities created later
+	/// even when none exists yet. Find the vtables of the classes to hook
+	/// together with
+	/// [`TeamTargets::find_all`](source_sdk_2013::tf2::teams::TeamTargets::find_all).
 	///
-	/// # Safety
-	///
-	/// `object` must be live, and its primary vtable must hold a function of
-	/// the signature [`ChangeTeam`] at [`CHANGE_TEAM_SLOT`], and stay loaded
-	/// until Metamod unloads the plugin.
-	unsafe fn install_team(
+	/// `binding` must describe the running server the target was found in. The
+	/// hook holds no entity, so it lasts through level changes, until removed
+	/// or the plugin unloads. A class hooked from one of its entities is
+	/// already installed, and the other way around.
+	pub fn hook_class_team_changes(
 		self,
-		object: NonNull<sys::CBaseEntity>,
+		target: TeamTarget<'_>,
 		binding: ServerBinding,
 		callback: TeamChangeFn,
 	) -> Result<HookId, TeamHookError> {
-		// SAFETY: The object is live, and starts with its primary vtable
-		// pointer, of which only the address is used.
-		let vtable = unsafe { vtable_pointer::<c_void>(object.as_ptr()) }.addr();
+		if binding.game() != Game::TeamFortress2 {
+			return Err(TeamHookError::NotTf2);
+		}
+
+		// SAFETY: The SDK matched the class's primary RTTI vtable and verified an
+		// executable `ChangeTeam` slot, whose ABI comes from the generated
+		// `CBaseEntity` declaration. The game module stays loaded until Metamod
+		// unloads this plugin.
+		unsafe { self.install_team(target.as_ptr(), binding, callback) }
+	}
+
+	/// Hooks `ChangeTeam` through `vtable`, for every entity of its class.
+	///
+	/// # Safety
+	///
+	/// `vtable` must be a live primary vtable that holds a function of the
+	/// signature [`ChangeTeam`] at [`CHANGE_TEAM_SLOT`], and stays loaded until
+	/// Metamod unloads the plugin.
+	unsafe fn install_team(
+		self,
+		vtable: NonNull<*mut c_void>,
+		binding: ServerBinding,
+		callback: TeamChangeFn,
+	) -> Result<HookId, TeamHookError> {
+		let address = vtable.as_ptr().addr();
 		if ROUTES.iter().any(|route| {
 			route
 				.state
 				.get()
-				.is_some_and(|state| state.vtable == vtable && self.has_hook(state.hook))
+				.is_some_and(|state| state.vtable == address && self.has_hook(state.hook))
 		}) {
 			return Err(HookError::AlreadyInstalled.into());
 		}
@@ -215,9 +253,9 @@ impl MetamodApi<'_> {
 					.is_none_or(|state| !self.has_hook(state.hook))
 			})
 			.ok_or(HookError::TooManyFunctions)?;
-		let target = HookTarget::class_of(object);
-		// SAFETY: As the caller promises, the object is live, and its vtable has
-		// `void (int)` at the slot, and stays loaded.
+		let target = HookTarget::vtable(vtable);
+		// SAFETY: As the caller promises, the vtable is live, has `void (int)` at
+		// the slot, and stays loaded.
 		let original = unsafe { self.original_function(CHANGE_TEAM, target) }?;
 		// SAFETY: As above.
 		let hook = unsafe { self.add_hook(CHANGE_TEAM, target, HookTiming::Pre, route) }?;
@@ -226,7 +264,7 @@ impl MetamodApi<'_> {
 			callback,
 			hook,
 			original,
-			vtable,
+			vtable: address,
 		}));
 		Ok(hook)
 	}
