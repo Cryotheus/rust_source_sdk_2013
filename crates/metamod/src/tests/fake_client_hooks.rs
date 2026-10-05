@@ -1,16 +1,27 @@
-//! Tests of `crate::fake_client_hooks`: pre hooks of `CreateFakeClient` and
-//! `CreateFakeClientEx` on a mock engine, through the mock SourceHook and
-//! KHook.
+//! Tests of `crate::fake_client_hooks`: hooks of `CreateFakeClient` and
+//! `CreateFakeClientEx` on a mock engine that creates clients as TF2's does,
+//! through the mock SourceHook and KHook.
 
 use super::*;
-use crate::test_support::harness::on_both;
-use std::cell::RefCell;
+use crate::test_support::harness::{Harness, on_both};
+use std::cell::{Cell, RefCell};
 use std::ffi::{CString, c_void};
 
 thread_local! {
-	/// The engine's functions that ran since the last [`take`], with the name
-	/// and whether the client is reported.
-	static CALLS: RefCell<Vec<(&'static str, CString, bool)>> = const { RefCell::new(Vec::new()) };
+	/// What the callback was asked since the last [`take`]: each client's name,
+	/// and whether its creator asked for it to be reported.
+	static ASKED: RefCell<Vec<(CString, bool)>> = const { RefCell::new(Vec::new()) };
+
+	/// The clients the engine created since the last [`take`], with whether it
+	/// reports each.
+	static CREATED: RefCell<Vec<(CString, bool)>> = const { RefCell::new(Vec::new()) };
+
+	/// The harness the engine's `CreateFakeClientEx` calls `CreateFakeClient`
+	/// through, as the engine calls it through its hooked vtable.
+	static HARNESS: Cell<*const Harness> = const { Cell::new(std::ptr::null()) };
+
+	/// The engine's choice for the fake clients it creates.
+	static REPORT: Cell<bool> = const { Cell::new(true) };
 }
 
 /// What the mock engine's functions return, as the edict they created.
@@ -39,55 +50,69 @@ impl Engine {
 	}
 }
 
-/// Notes that one of the engine's functions ran.
-///
-/// # Safety
-///
-/// `name` must be a string.
-unsafe fn note(function: &'static str, name: *const c_char, report: bool) {
-	// SAFETY: As the caller promises.
-	let name = unsafe { CStr::from_ptr(name) }.to_owned();
-
-	CALLS.with_borrow_mut(|calls| calls.push((function, name, report)));
+/// The client with `name` and the engine's choice.
+fn client(name: &CStr, report: bool) -> (CString, bool) {
+	(name.to_owned(), report)
 }
 
-/// The engine's `CreateFakeClient`, which reports the client.
+/// The engine's `CreateFakeClient`, which reports the client as the engine
+/// chose.
 unsafe extern "C" fn engine_create(
 	_this: *mut sys::IVEngineServer,
 	name: *const c_char,
 ) -> *mut sys::edict_t {
 	// SAFETY: The tests pass strings.
-	unsafe { note("create", name, true) };
+	let name = unsafe { CStr::from_ptr(name) };
+
+	CREATED.with_borrow_mut(|created| created.push(client(name, REPORT.get())));
 	EDICT
 }
 
-/// The engine's `CreateFakeClientEx`.
+/// The engine's `CreateFakeClientEx`, which calls `CreateFakeClient` through
+/// its vtable with its choice, as TF2's does.
 unsafe extern "C" fn engine_create_ex(
-	_this: *mut sys::IVEngineServer,
+	this: *mut sys::IVEngineServer,
 	name: *const c_char,
 	report: bool,
 ) -> *mut sys::edict_t {
-	// SAFETY: The tests pass strings.
-	unsafe { note("create_ex", name, report) };
-	EDICT
+	// SAFETY: The test running set the harness, which outlives its calls.
+	let harness = unsafe { &*HARNESS.get() };
+
+	REPORT.set(report);
+
+	let edict = harness.call::<CreateFakeClient>(this, CREATE_FAKE_CLIENT_SLOT, (name,));
+
+	REPORT.set(true);
+	edict
 }
 
-/// Reports what its creator asks to, unless its name starts with `hidden`.
+/// Hides the clients whose names start with `hidden`, reports those whose
+/// names start with `shown`, and the rest as their creators ask.
 fn report(name: &CStr, requested: bool) -> bool {
-	requested && !name.to_bytes().starts_with(b"hidden")
+	ASKED.with_borrow_mut(|asked| asked.push(client(name, requested)));
+
+	match name.to_bytes() {
+		hidden if hidden.starts_with(b"hidden") => false,
+		shown if shown.starts_with(b"shown") => true,
+		_ => requested,
+	}
 }
 
-fn take() -> Vec<(&'static str, CString, bool)> {
-	CALLS.take()
-}
+/// Clients' names, each with whether it was asked for or created reported.
+type Clients = Vec<(CString, bool)>;
 
-fn call(function: &'static str, name: &CStr, report: bool) -> (&'static str, CString, bool) {
-	(function, name.to_owned(), report)
+/// What the callback was asked, and the clients the engine created, since the
+/// last call.
+fn take() -> (Clients, Clients) {
+	assert!(REPORT.get(), "the engine's choice is left at reporting");
+	(ASKED.take(), CREATED.take())
 }
 
 #[test]
-fn chosen_clients_are_created_unreported_and_the_rest_as_asked() {
+fn the_callback_chooses_once_for_each_client_how_it_is_created() {
 	on_both(|harness| {
+		HARNESS.set(harness);
+
 		let api = harness.api();
 		let mut engine = Engine::new();
 		let this = engine.ptr().as_ptr();
@@ -114,35 +139,73 @@ fn chosen_clients_are_created_unreported_and_the_rest_as_asked() {
 			)
 		};
 
+		// `CreateFakeClient` reports clients.
 		assert_eq!(create(c"Scout"), EDICT);
-		assert_eq!(take(), [call("create", c"Scout", true)]);
+		assert_eq!(
+			take(),
+			(vec![client(c"Scout", true)], vec![client(c"Scout", true)])
+		);
 
-		// The engine's own `CreateFakeClientEx` creates the client in its place,
-		// once.
 		assert_eq!(create(c"hidden Spy"), EDICT);
-		assert_eq!(take(), [call("create_ex", c"hidden Spy", false)]);
+		assert_eq!(
+			take(),
+			(
+				vec![client(c"hidden Spy", true)],
+				vec![client(c"hidden Spy", false)]
+			)
+		);
+
+		// `CreateFakeClientEx` reports them as its creator asks, through
+		// `CreateFakeClient`.
+		assert_eq!(create_ex(c"Medic", true), EDICT);
+		assert_eq!(
+			take(),
+			(vec![client(c"Medic", true)], vec![client(c"Medic", true)])
+		);
+
+		assert_eq!(create_ex(c"Robot", false), EDICT);
+		assert_eq!(
+			take(),
+			(vec![client(c"Robot", false)], vec![client(c"Robot", false)])
+		);
 
 		assert_eq!(create_ex(c"hidden Heavy", true), EDICT);
-		assert_eq!(take(), [call("create_ex", c"hidden Heavy", false)]);
+		assert_eq!(
+			take(),
+			(
+				vec![client(c"hidden Heavy", true)],
+				vec![client(c"hidden Heavy", false)]
+			)
+		);
 
-		// A client its creator asks not to report stays unreported.
-		assert_eq!(create_ex(c"Robot", false), EDICT);
-		assert_eq!(take(), [call("create_ex", c"Robot", false)]);
-
-		assert_eq!(create_ex(c"Medic", true), EDICT);
-		assert_eq!(take(), [call("create_ex", c"Medic", true)]);
+		assert_eq!(create_ex(c"shown Robot", false), EDICT);
+		assert_eq!(
+			take(),
+			(
+				vec![client(c"shown Robot", false)],
+				vec![client(c"shown Robot", true)]
+			)
+		);
 
 		hooks.remove(api);
 
 		assert_eq!(create(c"hidden Pyro"), EDICT);
-		assert_eq!(take(), [call("create", c"hidden Pyro", true)]);
+		assert_eq!(take(), (vec![], vec![client(c"hidden Pyro", true)]));
 
 		// Removed hooks can be replaced.
 		// SAFETY: As above.
 		let hooks = unsafe { api.install_fake_clients(engine.ptr(), report) }.unwrap();
 
-		assert_eq!(create(c"hidden Pyro"), EDICT);
-		assert_eq!(take(), [call("create_ex", c"hidden Pyro", false)]);
+		assert_eq!(create_ex(c"hidden Pyro", true), EDICT);
+		assert_eq!(
+			take(),
+			(
+				vec![client(c"hidden Pyro", true)],
+				vec![client(c"hidden Pyro", false)]
+			)
+		);
+
 		hooks.remove(api);
+		HARNESS.set(std::ptr::null());
 	});
 }

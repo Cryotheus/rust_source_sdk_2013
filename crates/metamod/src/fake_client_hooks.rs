@@ -8,18 +8,20 @@
 //! Machine's robots. The engine's own SourceTV and replay clients do not go
 //! through the interface.
 //!
-//! The hooks run before both functions on the engine's interface object. When
-//! the callback's choice differs from the creator's, they call the engine's
-//! `CreateFakeClientEx` with the callback's choice in place of the creator's
-//! call, so a `CreateFakeClient` the callback keeps from being reported
-//! becomes a `CreateFakeClientEx`. Calling the engine's own function skips
-//! every plugin's hooks on it, as with [`DamageAction::Apply`].
+//! `CreateFakeClientEx` sets the engine's choice, calls `CreateFakeClient`
+//! through the interface's vtable, and sets the choice back to reporting, so
+//! every client the interface creates passes through `CreateFakeClient`. The
+//! callback runs once for each, in a hook before `CreateFakeClient`, with the
+//! choice of the `CreateFakeClientEx` call it is part of, which two more hooks
+//! note before and after that call. When the callback's choice differs, the
+//! hook calls the engine's own `CreateFakeClientEx` with it in place of the
+//! creator's call, which skips every plugin's hooks on that function, but not
+//! on the `CreateFakeClient` it calls.
 //!
-//! The engine is not public, so what it leaves out for an unreported client is
-//! not documented: Steam's player list and count of bots, which the server
-//! browser shows, are what Mann vs. Machine keeps its robots out of.
-//!
-//! [`DamageAction::Apply`]: crate::damage_hooks::DamageAction::Apply
+//! The engine is not public. TF2's leaves an unreported client out of what it
+//! tells Steam, as it does SourceTV: it counts neither a bot nor a slot in the
+//! counts the server browser shows, and any session the client has with Steam
+//! ends, which leaves it out of the server's players.
 
 #[cfg(test)]
 #[path = "tests/fake_client_hooks.rs"]
@@ -60,7 +62,7 @@ const CREATE_EX: VirtualFunction<CreateFakeClientEx> =
 
 static ROUTE: FakeClientRoute = FakeClientRoute::new();
 
-/// The two hooks [`MetamodApi::hook_fake_client_reports`] installs.
+/// The hooks [`MetamodApi::hook_fake_client_reports`] installs.
 ///
 /// Metamod disables them while the plugin is paused, and removes them before
 /// it unloads. [`Self::remove`] stops them earlier.
@@ -69,54 +71,104 @@ static ROUTE: FakeClientRoute = FakeClientRoute::new();
 pub struct FakeClientHooks {
 	create: HookId,
 	create_ex: HookId,
+	create_ex_post: HookId,
 }
 
 impl FakeClientHooks {
-	/// Stops both hooks, so every fake client is reported as its creator asks.
+	/// Stops the hooks, so every fake client is reported as its creator asks.
 	pub fn remove(self, api: MetamodApi<'_>) {
 		api.remove_hook(self.create);
 		api.remove_hook(self.create_ex);
+		api.remove_hook(self.create_ex_post);
 		ROUTE.state.set(None);
+		ROUTE.creating.set(None);
 	}
+}
+
+/// A client a call of `CreateFakeClientEx` is creating.
+#[derive(Clone, Copy)]
+struct Creating {
+	/// The name the creator passed, which `CreateFakeClientEx` passes on to
+	/// `CreateFakeClient`.
+	name: *const c_char,
+
+	/// Whether the client is to be reported.
+	report: bool,
+
+	/// Whether the callback chose already, so that `CreateFakeClient` runs as
+	/// it was called.
+	chosen: bool,
 }
 
 struct FakeClientRoute {
 	state: Cell<Option<RoutedFakeClients>>,
+
+	/// The client the running call of `CreateFakeClientEx` is creating.
+	creating: Cell<Option<Creating>>,
 }
 
 impl FakeClientRoute {
 	const fn new() -> Self {
 		Self {
 			state: Cell::new(None),
+			creating: Cell::new(None),
 		}
 	}
 
-	/// The callback's choice for a client named `name`, which its creator
-	/// asked to be reported or not, if the choice differs: whether to report
-	/// it, and the engine's own `CreateFakeClientEx` to create it with.
+	/// Lets the creator's call of `CreateFakeClient` run, or if the callback
+	/// chooses otherwise than the creator, creates the client in its place
+	/// through the engine's own `CreateFakeClientEx`.
 	///
 	/// # Safety
 	///
-	/// `name` must be null or the name a call of either hooked function is
-	/// about to create a client with.
-	unsafe fn overrule(
+	/// `this` and `name` must be the arguments of a call of `CreateFakeClient`
+	/// about to run.
+	unsafe fn create(
 		&self,
+		this: *mut sys::IVEngineServer,
 		name: *const c_char,
-		requested: bool,
 		superseded: Option<bool>,
-	) -> Option<(CreateFakeClientEx, bool)> {
+	) -> HookAction<*mut sys::edict_t> {
 		// An earlier hook already created the client, or refused to.
 		if superseded == Some(true) || name.is_null() {
-			return None;
+			return HookAction::Ignore;
 		}
 
-		let route = self.state.get()?;
+		let Some(route) = self.state.get() else {
+			return HookAction::Ignore;
+		};
+
+		let creating = self.creating.get();
+
+		let requested = match creating.filter(|creating| creating.name == name) {
+			Some(Creating { chosen: true, .. }) => return HookAction::Ignore,
+			Some(creating) => creating.report,
+
+			// The engine reports what `CreateFakeClient` creates on its own.
+			None => true,
+		};
 
 		// SAFETY: The caller passes the creator's name, a string that lives
 		// through the call.
 		let report = (route.callback)(unsafe { CStr::from_ptr(name) }, requested);
 
-		(report != requested).then_some((route.original_ex, report))
+		if report == requested {
+			return HookAction::Ignore;
+		}
+
+		self.creating.set(Some(Creating {
+			name,
+			report,
+			chosen: true,
+		}));
+
+		// SAFETY: The engine's unhooked function, called on its own object with
+		// the creator's name, in place of the creator's call. It calls
+		// `CreateFakeClient` again through the vtable, which this hook lets run.
+		let edict = unsafe { (route.original_ex)(this, name, report) };
+
+		self.creating.set(creating);
+		HookAction::Supersede(edict)
 	}
 }
 
@@ -124,31 +176,34 @@ impl Handler<CreateFakeClient> for FakeClientRoute {
 	fn call(&self, call: &HookCall<'_, CreateFakeClient>) -> HookAction<*mut sys::edict_t> {
 		let (name,) = call.args();
 
-		// SAFETY: The hook runs before the engine's `CreateFakeClient`, which
-		// reports the client, with its arguments.
-		unsafe {
-			create(
-				call.this(),
-				name,
-				self.overrule(name, true, call.superseded()),
-			)
-		}
+		// SAFETY: The hook runs before the engine's `CreateFakeClient`, with its
+		// arguments.
+		unsafe { self.create(call.this(), name, call.superseded()) }
 	}
 }
 
 impl Handler<CreateFakeClientEx> for FakeClientRoute {
+	/// Notes the creator's choice before the call, for the hook on the
+	/// `CreateFakeClient` it calls, and forgets it after.
 	fn call(&self, call: &HookCall<'_, CreateFakeClientEx>) -> HookAction<*mut sys::edict_t> {
-		let (name, requested) = call.args();
+		let (name, report) = call.args();
 
-		// SAFETY: The hook runs before the engine's `CreateFakeClientEx`, with
-		// its arguments.
-		unsafe {
-			create(
-				call.this(),
+		match call.timing() {
+			// Nothing will be created if an earlier hook superseded the call.
+			HookTiming::Pre if call.superseded() == Some(true) => {}
+
+			HookTiming::Pre => self.creating.set(Some(Creating {
 				name,
-				self.overrule(name, requested, call.superseded()),
-			)
+				report,
+				chosen: false,
+			})),
+
+			// Any client a plugin creates while the engine creates this one comes
+			// after the callback chose for this one.
+			HookTiming::Post => self.creating.set(None),
 		}
+
+		HookAction::Ignore
 	}
 }
 
@@ -164,7 +219,7 @@ struct RoutedFakeClients {
 }
 
 impl MetamodApi<'_> {
-	/// Runs `callback` before the engine creates each fake client through
+	/// Runs `callback` once before the engine creates each fake client through
 	/// `engine`, which decides whether the engine reports it to Steam; see the
 	/// [module documentation](crate::fake_client_hooks).
 	///
@@ -186,7 +241,8 @@ impl MetamodApi<'_> {
 		unsafe { self.install_fake_clients(NonNull::new(engine.as_ptr()).unwrap(), callback) }
 	}
 
-	/// Hooks `CreateFakeClient` and `CreateFakeClientEx` on `engine`.
+	/// Hooks `CreateFakeClient`, and `CreateFakeClientEx` before and after, on
+	/// `engine`.
 	///
 	/// # Safety
 	///
@@ -201,7 +257,7 @@ impl MetamodApi<'_> {
 		if ROUTE
 			.state
 			.get()
-			.is_some_and(|state| self.has_hook(state.hooks.create_ex))
+			.is_some_and(|state| self.has_hook(state.hooks.create))
 		{
 			return Err(HookError::AlreadyInstalled);
 		}
@@ -212,21 +268,29 @@ impl MetamodApi<'_> {
 		let original_ex = unsafe { self.original_function(CREATE_EX, target) }?;
 
 		ROUTE.state.set(None);
+		ROUTE.creating.set(None);
 
 		// SAFETY: As the caller promises.
-		let create = unsafe { self.add_hook(CREATE, target, HookTiming::Pre, &ROUTE) }?;
+		let create_ex = unsafe { self.add_hook(CREATE_EX, target, HookTiming::Pre, &ROUTE) }?;
 
 		// SAFETY: As the caller promises.
-		let create_ex = match unsafe { self.add_hook(CREATE_EX, target, HookTiming::Pre, &ROUTE) } {
-			Ok(hook) => hook,
+		let create_ex_post = unsafe { self.add_hook(CREATE_EX, target, HookTiming::Post, &ROUTE) }
+			.inspect_err(|_| {
+				self.remove_hook(create_ex);
+			})?;
 
-			Err(error) => {
-				self.remove_hook(create);
-				return Err(error);
-			}
+		// SAFETY: As the caller promises.
+		let create = unsafe { self.add_hook(CREATE, target, HookTiming::Pre, &ROUTE) }
+			.inspect_err(|_| {
+				self.remove_hook(create_ex);
+				self.remove_hook(create_ex_post);
+			})?;
+
+		let hooks = FakeClientHooks {
+			create,
+			create_ex,
+			create_ex_post,
 		};
-
-		let hooks = FakeClientHooks { create, create_ex };
 
 		ROUTE.state.set(Some(RoutedFakeClients {
 			callback,
@@ -235,28 +299,5 @@ impl MetamodApi<'_> {
 		}));
 
 		Ok(hooks)
-	}
-}
-
-/// Lets the creator's call run, or with the callback's choice, creates the
-/// client in its place through the engine's own `CreateFakeClientEx`.
-///
-/// # Safety
-///
-/// `this` and `name` must be the arguments of a call of either hooked function,
-/// about to run, and `overrule` its [`FakeClientRoute::overrule`].
-unsafe fn create(
-	this: *mut sys::IVEngineServer,
-	name: *const c_char,
-	overrule: Option<(CreateFakeClientEx, bool)>,
-) -> HookAction<*mut sys::edict_t> {
-	match overrule {
-		None => HookAction::Ignore,
-
-		// SAFETY: The engine's unhooked function, called on its own object with
-		// the creator's name, in place of the creator's call.
-		Some((original_ex, report)) => {
-			HookAction::Supersede(unsafe { original_ex(this, name, report) })
-		}
 	}
 }

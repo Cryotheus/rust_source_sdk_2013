@@ -77,8 +77,12 @@ pub type CreateFakeClientFn =
 /// `IVEngineServer::CreateFakeClientEx`: as [`CreateFakeClientFn`], with the
 /// engine's `bReportFakeClient` as `report`, which the header defaults to true.
 /// The game passes false only for Mann vs. Machine's robots, through
-/// `NextBotCreatePlayerBot`; the engine is not public, so what it leaves out
-/// for an unreported client is not documented.
+/// `NextBotCreatePlayerBot`.
+///
+/// The engine is not public. TF2's sets its choice for new fake clients,
+/// calls `CreateFakeClient` through the vtable, and sets the choice back to
+/// true. It tells Steam of an unreported client as it does of SourceTV: as
+/// neither a bot nor a slot, and not as a player.
 #[doc(alias("CreateFakeClientEx"))]
 pub type CreateFakeClientExFn = unsafe extern "C" fn(
 	this: *mut sys::IVEngineServer,
