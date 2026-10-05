@@ -128,10 +128,10 @@ struct Addresses {
 /// TF2's item generation functions, resolved in a game server module.
 ///
 /// It is a plain bundle of the addresses the resolver verified, so it is
-/// `Copy`, `Send`, and `Sync`: only [`Self::spawn`], which must be called on
-/// the server's main thread, uses them. Holding one does not keep that module
-/// loaded: its functions may only be called while the module it was resolved
-/// in stays loaded.
+/// `Copy`, `Send`, and `Sync`: only [`Self::definition`] and [`Self::spawn`],
+/// which must be called on the server's main thread, use them. Holding one
+/// does not keep that module loaded: its functions may only be called while
+/// the module it was resolved in stays loaded.
 #[doc(alias("CItemGeneration"))]
 #[derive(Debug, Clone, Copy)]
 pub struct ItemGeneration {
@@ -241,6 +241,62 @@ impl ItemGeneration {
 		Ok(unsafe { Self::from_addresses(addresses) })
 	}
 
+	/// The item schema's definition with the index, through
+	/// `CEconItemSchema::GetItemDefinition`.
+	///
+	/// Fails with [`ItemGenerationError::NoSchema`] before the game has an item
+	/// schema, and with [`ItemGenerationError::UnknownDefinition`] if the schema
+	/// has no definition with that index, for which `GetItemDefinition`
+	/// returns the schema's default definition instead.
+	///
+	/// The definition is the schema's own. The game replaces the schema, and
+	/// frees its definitions, when the Game Coordinator sends a newer one,
+	/// which it applies at a level change, so the pointer is only valid during
+	/// the callback it was found in.
+	///
+	/// # Safety
+	///
+	/// - The module this was resolved in, by [`Self::resolve`] or
+	///   [`Self::cached`], is still loaded, with its image mappings unchanged,
+	///   for the whole call.
+	/// - The call is made on the server's main thread.
+	#[doc(alias("GetItemDefinition"))]
+	pub unsafe fn definition(
+		&self,
+		definition: u16,
+	) -> Result<NonNull<sys::CEconItemDefinition>, ItemGenerationError> {
+		// SAFETY: The caller keeps the resolved module loaded and calls on the
+		// main thread. The getter takes no arguments, and returns the game's
+		// item system or schema, or null before the game created it.
+		let system = unsafe { (self.schema_getter)() };
+
+		if system.is_null() {
+			return Err(ItemGenerationError::NoSchema);
+		}
+
+		// SAFETY: The schema lies `SCHEMA_OFFSET` bytes into the object the
+		// getter returns, which on Windows is the item system holding it, as
+		// `SpawnItem`'s own call to `GetItemDefinition` passes it.
+		let schema = unsafe { system.byte_add(platform::SCHEMA_OFFSET) }.cast();
+
+		// SAFETY: `schema` points to the game's live item schema.
+		// `GetItemDefinition` only looks the index up, returning the default
+		// definition for an index it does not have.
+		let (fallback, item) = unsafe {
+			(
+				(self.get_item_definition)(schema, NO_DEFINITION),
+				(self.get_item_definition)(schema, c_int::from(definition)),
+			)
+		};
+
+		// An unknown index gives the default item.
+		if item == fallback {
+			return Err(ItemGenerationError::UnknownDefinition);
+		}
+
+		NonNull::new(item).ok_or(ItemGenerationError::UnknownDefinition)
+	}
+
 	/// Creates the economy item `definition` at `origin` through
 	/// `CItemGeneration::SpawnItem`, as `GenerateItemFromDefIndex` does: at
 	/// level 1, with Unique quality, and without rotation. With `classname`,
@@ -277,35 +333,12 @@ impl ItemGeneration {
 		origin: sys::Vector,
 		classname: Option<&CStr>,
 	) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
-		// SAFETY: The caller keeps the resolved module loaded and calls on the
-		// main thread. The getter takes no arguments, and returns the game's
-		// item system or schema, or null before the game created it.
-		let system = unsafe { (self.schema_getter)() };
-
-		if system.is_null() {
-			return Err(ItemGenerationError::NoSchema);
-		}
-
-		// SAFETY: The schema lies `SCHEMA_OFFSET` bytes into the object the
-		// getter returns, which on Windows is the item system holding it, as
-		// `SpawnItem`'s own call to `GetItemDefinition` passes it.
-		let schema = unsafe { system.byte_add(platform::SCHEMA_OFFSET) }.cast();
-
-		// SAFETY: `schema` points to the game's live item schema.
-		// `GetItemDefinition` only looks the index up, returning the default
-		// definition for an index it does not have.
-		let (fallback, item) = unsafe {
-			(
-				(self.get_item_definition)(schema, NO_DEFINITION),
-				(self.get_item_definition)(schema, c_int::from(definition)),
-			)
-		};
-
 		// An unknown index gives the default item, which could otherwise create
 		// an unrelated entity.
-		if item.is_null() || item == fallback {
-			return Err(ItemGenerationError::UnknownDefinition);
-		}
+		//
+		// SAFETY: The caller keeps the resolved module loaded and calls on the
+		// main thread.
+		unsafe { self.definition(definition) }?;
 
 		let angles = sys::QAngle {
 			x: 0.0,
