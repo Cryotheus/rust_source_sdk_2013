@@ -1,14 +1,16 @@
 //! Hand-written ABI of `CBaseEntity`: the vtable slots of methods that the
 //! generated bindings do not give for every game, calls through them, and
 //! header values describing entities, their handles, effects and collision
-//! groups. Data description maps are in [`datamap`], health in [`health`], and
-//! think contexts in [`think`].
+//! groups. Data description maps are in [`datamap`], the factories entities are
+//! created with in [`factory`], health in [`health`], and think contexts in
+//! [`think`].
 //!
 //! The generated `CBaseEntity` vtable is TF2's. Slots are numbered from the
 //! primary vtable's first entry, counting each destructor slot, under the
 //! target's C++ ABI.
 
 pub mod datamap;
+pub mod factory;
 pub mod health;
 pub mod think;
 
