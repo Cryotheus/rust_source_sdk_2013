@@ -1,5 +1,9 @@
 //! The crate's entry point, through which every other interface is reached.
 
+#[cfg(test)]
+#[path = "tests/server.rs"]
+mod tests;
+
 use crate::NotThreadSafe;
 
 use crate::interfaces::{
@@ -29,13 +33,15 @@ pub enum Game {
 
 	/// A Source SDK 2013 mod whose game DLL is built with neither `TF_DLL` nor
 	/// `NEXT_BOT`, as `server_hl2.vpc`, `server_episodic.vpc`, and
-	/// `server_lostcoast.vpc` build it. A mod built from `server_hl2mp.vpc`,
-	/// which defines `NEXT_BOT`, is [`Game::SourceSdk2013NextBot`].
+	/// `server_lostcoast.vpc` build it, or with `NEXT_BOT` from sources older
+	/// than `IsNextBot`, which Valve's `baseentity.h` has declared only since
+	/// March 2025. A mod built from the current `server_hl2mp.vpc`, which
+	/// defines `NEXT_BOT`, is [`Game::SourceSdk2013NextBot`].
 	SourceSdk2013,
 
 	/// A Source SDK 2013 mod whose game DLL is built with `NEXT_BOT` but not
-	/// `TF_DLL`, as `server_hl2mp.vpc` builds Half-Life 2: Deathmatch and the
-	/// mods based on it.
+	/// `TF_DLL`, from sources that declare `IsNextBot`, as `server_hl2mp.vpc`
+	/// builds Half-Life 2: Deathmatch and the mods based on it.
 	SourceSdk2013NextBot,
 }
 

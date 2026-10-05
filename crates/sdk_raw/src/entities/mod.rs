@@ -296,6 +296,11 @@ pub const NUM_SERIAL_NUM_SHIFT_BITS: u32 = 32 - NUM_SERIAL_NUM_BITS;
 /// `game/server/baseentity.h` with the MSVC ABI model on Windows and the
 /// Itanium ABI model on Linux, and verified against SourceMod's
 /// `sdktools.games/game.hl2mp.txt` gamedata.
+///
+/// Valve's `baseentity.h` has declared `IsNextBot` only since March 2025, so
+/// a game DLL built with `NEXT_BOT` from older sources has `Teleport` at
+/// [`SDK2013_TELEPORT_SLOT`]. SourceMod's gamedata had HL2:DM's `Teleport`
+/// there too until August 2026.
 #[doc(alias("Teleport"))]
 pub const SDK2013_NEXT_BOT_TELEPORT_SLOT: usize = cfg_select! {
 	target_os = "windows" => 111,
@@ -304,11 +309,13 @@ pub const SDK2013_NEXT_BOT_TELEPORT_SLOT: usize = cfg_select! {
 
 /// `CBaseEntity::Teleport` in a Source SDK 2013 game DLL built with neither
 /// `TF_DLL` nor `NEXT_BOT`, as `server_hl2.vpc`, `server_episodic.vpc`, and
-/// `server_lostcoast.vpc` build it. Derived from `game/server/baseentity.h`
-/// with the MSVC ABI model on Windows and the Itanium ABI model on Linux.
+/// `server_lostcoast.vpc` build it, or with `NEXT_BOT` from sources older
+/// than `IsNextBot`. Derived from `game/server/baseentity.h` with the MSVC ABI
+/// model on Windows and the Itanium ABI model on Linux.
 ///
-/// A game DLL built with `NEXT_BOT` has `SUB_AllowedToFade` here instead, and
-/// `Teleport` at [`SDK2013_NEXT_BOT_TELEPORT_SLOT`].
+/// A game DLL built with `NEXT_BOT` from sources that declare `IsNextBot` has
+/// `SUB_AllowedToFade` here instead, and `Teleport` at
+/// [`SDK2013_NEXT_BOT_TELEPORT_SLOT`].
 #[doc(alias("Teleport"))]
 pub const SDK2013_TELEPORT_SLOT: usize = cfg_select! {
 	target_os = "windows" => 110,
@@ -343,11 +350,13 @@ pub enum TeleportSlot {
 	TeamFortress2,
 
 	/// [`SDK2013_TELEPORT_SLOT`], that of a Source SDK 2013 game DLL built
-	/// with neither `TF_DLL` nor `NEXT_BOT`.
+	/// with neither `TF_DLL` nor `NEXT_BOT`, or with `NEXT_BOT` from sources
+	/// older than `IsNextBot`.
 	SourceSdk2013,
 
 	/// [`SDK2013_NEXT_BOT_TELEPORT_SLOT`], that of a Source SDK 2013 game DLL
-	/// built with `NEXT_BOT` but not `TF_DLL`.
+	/// built with `NEXT_BOT` but not `TF_DLL`, from sources that declare
+	/// `IsNextBot`.
 	SourceSdk2013NextBot,
 }
 
@@ -484,8 +493,8 @@ pub unsafe fn set_owner_entity(entity: *mut sys::CBaseEntity, owner: *mut sys::C
 /// Calls `CBaseEntity::Teleport`, at `slot` of the entity's primary vtable,
 /// with each of the origin, angles, and velocity to set, or null to leave it.
 ///
-/// TF2's slot is called through the generated vtable, and the generic Source
-/// SDK 2013 game DLL's through a [`TeleportFn`] read from its slot.
+/// TF2's slot is called through the generated vtable, and either Source SDK
+/// 2013 slot through a [`TeleportFn`] read from it.
 ///
 /// # Safety
 ///
