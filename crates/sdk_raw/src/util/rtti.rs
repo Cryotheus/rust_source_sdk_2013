@@ -38,6 +38,12 @@ const _: () = {
 	assert!(offset_of!(TypeDescriptor<1>, name) == TYPE_DESCRIPTOR_NAME_OFFSET);
 };
 
+/// The alignment of an MSVC `_TypeDescriptor`, which starts with its vtable
+/// pointer, and so of its decorated name, [`TYPE_DESCRIPTOR_NAME_OFFSET`]
+/// bytes into it: searches for names only read offsets aligned so.
+#[cfg(any(target_os = "windows", test))]
+const TYPE_DESCRIPTOR_ALIGNMENT: usize = align_of::<*const c_void>();
+
 /// Where an MSVC `_TypeDescriptor`'s decorated name starts: after its vtable
 /// pointer and the undecorated name the runtime caches.
 #[cfg(any(target_os = "windows", test))]
@@ -288,7 +294,10 @@ impl Image {
 
 		// Locators refer to a class's type descriptor by its offset in the image.
 		let descriptors: Vec<([u8; 4], usize)> = self
-			.matches_any(&names.iter().map(Vec::as_slice).collect::<Vec<_>>(), 1)
+			.matches_any(
+				&names.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+				TYPE_DESCRIPTOR_ALIGNMENT,
+			)
 			.into_iter()
 			.filter_map(|(name, class)| {
 				let descriptor = name.checked_sub(TYPE_DESCRIPTOR_NAME_OFFSET)?;
