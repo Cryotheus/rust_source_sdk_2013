@@ -206,10 +206,12 @@ impl MetamodApi<'_> {
 	/// a TF2 dispenser, sentry gun or teleporter, which decides whether the
 	/// building's blueprint may be built where it is.
 	///
-	/// `binding` must describe the same running server. Install during load:
-	/// every building class must be found before any hook is installed, and
-	/// a refused installation rolls back its earlier hooks. Installing again
-	/// returns [`HookError::AlreadyInstalled`], until the hooks are removed.
+	/// `binding` must describe the same running server. Install once, such as
+	/// during load: it reads the whole game module to find every building
+	/// class before any hook is installed, and a refused installation rolls
+	/// back its earlier hooks. Installing again returns
+	/// [`HookError::AlreadyInstalled`], without reading the module, until the
+	/// hooks are removed.
 	///
 	/// The callback is not run once an earlier hook superseded the check, as
 	/// far as the hooking library reports it (see [`crate::hook`]). It runs
@@ -226,6 +228,10 @@ impl MetamodApi<'_> {
 		binding: ServerBinding,
 		callback: PlacementFn,
 	) -> Result<PlacementHooks, PlacementHookError> {
+		if self.placement_hooked() {
+			return Err(HookError::AlreadyInstalled.into());
+		}
+
 		let targets = object_vtables(server)?
 			.into_iter()
 			.map(|target| (target.kind, target.as_ptr()))
@@ -252,12 +258,7 @@ impl MetamodApi<'_> {
 		binding: ServerBinding,
 		callback: PlacementFn,
 	) -> Result<PlacementHooks, PlacementHookError> {
-		if ROUTES.iter().any(|route| {
-			route
-				.state
-				.get()
-				.is_some_and(|state| self.has_hook(state.hook))
-		}) {
+		if self.placement_hooked() {
 			return Err(HookError::AlreadyInstalled.into());
 		}
 
@@ -303,5 +304,16 @@ impl MetamodApi<'_> {
 		}
 
 		Ok(installed)
+	}
+
+	/// Whether the buildings' placement checks are hooked, for this load of
+	/// the plugin.
+	fn placement_hooked(self) -> bool {
+		ROUTES.iter().any(|route| {
+			route
+				.state
+				.get()
+				.is_some_and(|state| self.has_hook(state.hook))
+		})
 	}
 }
