@@ -5,29 +5,39 @@
 /// Todo: invocation syntax
 #[macro_export]
 macro_rules! commands {
-	($(
-		$(#[$StaticMeta:meta])*
-		$(@[$Method:ident $($MethodArgs:expr),* $(,)? ])*
-		$StaticVis:vis static $Static:ident = fn $Command:ident ($Ctx:pat) {
-			$($Body:tt)*
-		}
-	)+) => {
+	(
+		extern crate $Package:ident;
+		$(
+			$(#[$StaticMeta:meta])*
+			$(@[$Method:ident $($MethodArgs:expr),* $(,)? ])*
+			$StaticVis:vis static $Static:ident = fn $Command:ident ($Ctx:pat) {
+				$($Body:tt)*
+			}
+		)+
+	) => {
 		$(
 		$(#[$StaticMeta])*
-		$StaticVis static $Static: ::source_sdk_2013::commands::ConsoleCommand<::source_sdk_2013::commands::CommandFn> =
-			::source_sdk_2013::commands::ConsoleCommand::new(
+		$StaticVis static $Static: ::$Package::commands::ConsoleCommand<::$Package::commands::CommandFn> =
+			::$Package::commands::ConsoleCommand::new(
 				$crate::__private_stringify_cstr!($Command),
 				{
 					#[allow(non_snake_case)]
-					fn $Command($Ctx: &::source_sdk_2013::commands::CommandContext<'_>) -> ::source_sdk_2013::commands::CommandResult {
+					fn $Command($Ctx: &::$Package::commands::CommandContext<'_>) -> ::$Package::commands::CommandResult {
 						$($Body)*
 					}
 
-					$Command as ::source_sdk_2013::commands::CommandFn
+					$Command as ::$Package::commands::CommandFn
 				}
 			)
 			$( .$Method($($MethodArgs),*) )*;
 		)+
+	};
+
+	($($Tokens:tt)*) => {
+		$crate::commands! {
+			extern crate source_sdk_2013;
+			$($Tokens)*
+		}
 	};
 }
 

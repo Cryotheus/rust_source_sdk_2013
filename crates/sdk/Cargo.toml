@@ -2,7 +2,7 @@
 name = "source_sdk_2013"
 version.workspace = true
 edition = "2024"
-rust-version = "1.98.1"
+rust-version = "1.99.0"
 
 authors.workspace = true
 license.workspace = true
@@ -26,13 +26,13 @@ _test-support = ["sdk_raw/_test-support"]
 [dependencies]
 bitflags.workspace = true
 glam = { version = "0.33.10", features = [] }
-source_sdk_2013_declmacros = { path = "../sdk_declmacros", version = "0.1.0-alpha.5" }
-sys = { path = "../sdk_sys", version = "0.1.0-alpha.5", package = "source_sdk_2013_sys" }
-sdk_raw = { path = "../sdk_raw", version = "0.1.0-alpha.5", package = "source_sdk_2013_raw" }
+source_sdk_2013_declmacros = { path = "../sdk_declmacros", version = "0.1.0-alpha.6" }
+sys = { path = "../sdk_sys", version = "0.1.0-alpha.6", package = "source_sdk_2013_sys" }
+sdk_raw = { path = "../sdk_raw", version = "0.1.0-alpha.6", package = "source_sdk_2013_raw" }
 thiserror.workspace = true
 
 [dev-dependencies]
-sdk_raw = { path = "../sdk_raw", version = "0.1.0-alpha.5", package = "source_sdk_2013_raw", features = ["_test-support"] }
+sdk_raw = { path = "../sdk_raw", version = "0.1.0-alpha.6", package = "source_sdk_2013_raw", features = ["_test-support"] }
 # Gives this crate's own integration tests the `_test-support` helpers.
 source_sdk_2013 = { path = ".", features = ["_test-support"] }
 
