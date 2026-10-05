@@ -10,7 +10,7 @@
 //!
 //! [`NetChannel`]: super::NetChannel
 
-use super::{EncodeError, MessageId, NetMessage};
+use super::{EncodeError, MessageId, NetMessage, Reliability};
 use crate::bitbuf::BitWriter;
 use crate::math::{QAngle, Vector};
 use sdk_raw::edicts::MAX_EDICT_BITS;
@@ -39,6 +39,10 @@ pub const MAX_PRINT_LEN: usize = 2047;
 /// The longest console variable name a query may name, less its terminator.
 pub const MAX_QUERY_NAME_LEN: usize = 255;
 
+/// The most voice a [`VoiceData`] carries, as its length in bits fits in
+/// [`VOICE_LENGTH_BITS`].
+pub const MAX_VOICE_DATA_BYTES: usize = ((1 << VOICE_LENGTH_BITS) - 1) / 8;
+
 /// Bits in a model index (`SP_MODEL_INDEX_BITS`).
 const MODEL_INDEX_BITS: u32 = 13;
 
@@ -50,6 +54,9 @@ const SERVER_CLASS_BITS: u32 = 9;
 
 /// Bits in a sound's precache index (`MAX_SOUND_INDEX_BITS`).
 const SOUND_INDEX_BITS: u32 = 14;
+
+/// Bits in the length, in bits, of a [`VoiceData`]'s voice.
+const VOICE_LENGTH_BITS: u32 = 16;
 
 /// Places a decal on the world or a brush entity (`svc_BSPDecal`).
 #[doc(alias("SVC_BSPDecal"))]
@@ -429,6 +436,47 @@ impl NetMessage for UserMessage<'_> {
 			MAX_MESSAGE_DATA_BYTES,
 		)?;
 		out.write_bits(&body);
+		Ok(())
+	}
+}
+
+/// Voice for the client to play as a player's (`svc_VoiceData`).
+///
+/// The engine relays the voice each player sends (`clc_VoiceData`) to every
+/// client that hears them this way, with the speaker's slot. The voice is in
+/// the codec the server named as the client connected (`svc_VoiceInit`); the
+/// engine passes it along without decoding it.
+///
+/// Voice goes in the unreliable stream, as the engine sends it.
+#[doc(alias("SVC_VoiceData"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VoiceData<'a> {
+	/// The speaker's player slot, from 0: its player's entity index less 1.
+	pub speaker: u8,
+
+	/// The engine's proximity flag, which it sets when the client hears the
+	/// speaker only by proximity (`IClient::IsProximityHearingClient`).
+	pub proximity: bool,
+
+	/// The encoded voice, at most [`MAX_VOICE_DATA_BYTES`] bytes.
+	pub data: &'a [u8],
+}
+
+impl NetMessage for VoiceData<'_> {
+	fn id(&self) -> MessageId {
+		MessageId::VOICE_DATA
+	}
+
+	fn reliability(&self) -> Reliability {
+		Reliability::Unreliable
+	}
+
+	fn write_body(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
+		EncodeError::check_len("voice data", self.data.len(), MAX_VOICE_DATA_BYTES)?;
+		out.write_u8(self.speaker);
+		out.write_u8(self.proximity.into());
+		out.write_u16((self.data.len() * 8) as u16);
+		out.write_bytes(self.data);
 		Ok(())
 	}
 }
