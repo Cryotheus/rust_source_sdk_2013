@@ -2,6 +2,7 @@
 //! describe, and the values sounds are emitted with, from
 //! `public/soundflags.h` and `public/engine/IEngineSound.h`.
 
+use crate::vtable_slot;
 use std::ffi::{CStr, c_char, c_int};
 
 /// `IEngineSound::EmitSound`'s overload that takes a `soundlevel_t`:
@@ -78,6 +79,11 @@ pub const CHAN_WEAPON: c_int = 1;
 /// The special DSP effect sounds are emitted with: the default of
 /// `IEngineSound::EmitSound`'s `iSpecialDSP`, which the game's own calls pass.
 pub const DEFAULT_SPECIAL_DSP: c_int = 0;
+
+/// The slot of [`EmitSoundFn`] in `IEngineSound`'s vtable, which differs
+/// between MSVC and Itanium.
+pub const EMIT_SOUND_SLOT: usize =
+	vtable_slot!(sys::IEngineSound__bindgen_vtable, IEngineSound_EmitSound1);
 
 /// The speaker entity of a sound that plays through no speaker: the default
 /// of `IEngineSound::EmitSound`'s `speakerentity`.

@@ -428,6 +428,72 @@ impl<'e> GameEvent<'e> {
 	}
 }
 
+/// A game event, readable and writable for `'e` (`IGameEvent`), which its
+/// owner frees.
+///
+/// Hooks on the manager's `FireEvent` get one, to edit an event before its
+/// listeners and clients get it. Like [`GameEvent`], it is a handle, and frees
+/// nothing; an event this plugin creates is an [`OwnedGameEvent`] instead.
+#[doc(alias("IGameEvent"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameEventMut<'e>(GameEvent<'e>);
+
+impl<'e> GameEventMut<'e> {
+	/// # Safety
+	///
+	/// `raw` must be a live event that stays allocated for `'e`, which its owner
+	/// lets this plugin edit, used only on the server's main thread.
+	pub const unsafe fn from_raw(raw: NonNull<sys::IGameEvent>) -> Self {
+		// SAFETY: As the caller promises.
+		Self(unsafe { GameEvent::from_raw(raw) })
+	}
+
+	/// Reads the event.
+	pub const fn as_event(self) -> GameEvent<'e> {
+		self.0
+	}
+
+	/// Returns the event pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut sys::IGameEvent {
+		self.0.as_ptr()
+	}
+
+	/// Sets a boolean value for `key`.
+	#[doc(alias("SetBool"))]
+	pub fn set_bool(self, key: &CStr, value: bool) {
+		// SAFETY: The event is live, and its owner lets this plugin edit it.
+		unsafe { vcall!(self.as_ptr() => IGameEvent_SetBool(key.as_ptr(), value)) };
+	}
+
+	/// Sets a float value for `key`.
+	#[doc(alias("SetFloat"))]
+	pub fn set_float(self, key: &CStr, value: f32) {
+		// SAFETY: As for `set_bool`.
+		unsafe { vcall!(self.as_ptr() => IGameEvent_SetFloat(key.as_ptr(), value)) };
+	}
+
+	/// Sets an integer value for `key`.
+	#[doc(alias("SetInt"))]
+	pub fn set_int(self, key: &CStr, value: c_int) {
+		// SAFETY: As for `set_bool`.
+		unsafe { vcall!(self.as_ptr() => IGameEvent_SetInt(key.as_ptr(), value)) };
+	}
+
+	/// Sets a string value for `key`. The event stores a copy of `value`.
+	#[doc(alias("SetString"))]
+	pub fn set_string(self, key: &CStr, value: &CStr) {
+		// SAFETY: As for `set_bool`. The event copies the string.
+		unsafe { vcall!(self.as_ptr() => IGameEvent_SetString(key.as_ptr(), value.as_ptr())) };
+	}
+
+	/// Sets a 64-bit value for `key`.
+	#[doc(alias("SetUint64"))]
+	pub fn set_uint64(self, key: &CStr, value: u64) {
+		// SAFETY: As for `set_bool`.
+		unsafe { vcall!(self.as_ptr() => IGameEvent_SetUint64(key.as_ptr(), value)) };
+	}
+}
+
 /// A game event this plugin created, which is freed when dropped unless fired.
 #[derive(Debug)]
 pub struct OwnedGameEvent<'s> {
@@ -440,6 +506,13 @@ impl<'s> OwnedGameEvent<'s> {
 	pub fn as_event(&self) -> GameEvent<'_> {
 		// SAFETY: The event stays allocated until `self` fires or frees it.
 		unsafe { GameEvent::from_raw(self.raw) }
+	}
+
+	/// Edits the event through a handle, which cannot outlive this owner.
+	pub fn as_event_mut(&mut self) -> GameEventMut<'_> {
+		// SAFETY: The event stays allocated until `self` fires or frees it, and
+		// this plugin owns it.
+		unsafe { GameEventMut::from_raw(self.raw) }
 	}
 
 	/// Delivers the event to every listener, and to clients if `broadcast` is set.
@@ -463,36 +536,31 @@ impl<'s> OwnedGameEvent<'s> {
 	/// Sets a boolean value for `key`.
 	#[doc(alias("SetBool"))]
 	pub fn set_bool(&mut self, key: &CStr, value: bool) {
-		// SAFETY: The event is live and owned by this plugin.
-		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetBool(key.as_ptr(), value)) };
+		self.as_event_mut().set_bool(key, value);
 	}
 
 	/// Sets a float value for `key`.
 	#[doc(alias("SetFloat"))]
 	pub fn set_float(&mut self, key: &CStr, value: f32) {
-		// SAFETY: As for `set_bool`.
-		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetFloat(key.as_ptr(), value)) };
+		self.as_event_mut().set_float(key, value);
 	}
 
 	/// Sets an integer value for `key`.
 	#[doc(alias("SetInt"))]
 	pub fn set_int(&mut self, key: &CStr, value: c_int) {
-		// SAFETY: As for `set_bool`.
-		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetInt(key.as_ptr(), value)) };
+		self.as_event_mut().set_int(key, value);
 	}
 
 	/// Sets a string value for `key`. The event stores a copy of `value`.
 	#[doc(alias("SetString"))]
 	pub fn set_string(&mut self, key: &CStr, value: &CStr) {
-		// SAFETY: As for `set_bool`. The event copies the string.
-		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetString(key.as_ptr(), value.as_ptr())) };
+		self.as_event_mut().set_string(key, value);
 	}
 
 	/// Sets a 64-bit value for `key`.
 	#[doc(alias("SetUint64"))]
 	pub fn set_uint64(&mut self, key: &CStr, value: u64) {
-		// SAFETY: As for `set_bool`.
-		unsafe { vcall!(self.raw.as_ptr() => IGameEvent_SetUint64(key.as_ptr(), value)) };
+		self.as_event_mut().set_uint64(key, value);
 	}
 }
 
