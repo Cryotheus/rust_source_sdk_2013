@@ -47,6 +47,7 @@ pub mod edicts;
 pub mod entities;
 pub mod inputs;
 pub mod interfaces;
+pub mod key_values;
 pub mod math;
 pub mod net;
 pub mod players;

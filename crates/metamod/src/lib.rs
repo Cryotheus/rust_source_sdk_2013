@@ -24,6 +24,10 @@ pub mod event_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod gc_hooks;
 
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod key_values_hooks;
+
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod respawn_hooks;

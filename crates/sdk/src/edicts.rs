@@ -5,6 +5,7 @@
 mod tests;
 
 use crate::NotThreadSafe;
+use crate::Server;
 use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
 use sdk_raw::edicts::FL_EDICT_FREE;
@@ -37,6 +38,22 @@ pub struct Edict<'s> {
 }
 
 impl<'s> Edict<'s> {
+	/// Wraps a pointer to a slot of the edict table the engine or game passed to
+	/// a callback, such as the client of a hooked `IServerGameClients` method,
+	/// for the callback's scope.
+	///
+	/// # Safety
+	///
+	/// `raw` must identify an element of the edict table of the server `_server`
+	/// belongs to, and the call must obey [`Server::new`]'s main-thread and
+	/// reentrancy contract.
+	///
+	/// [`Server::new`]: crate::Server::new
+	pub unsafe fn from_live(_server: Server<'s>, raw: NonNull<sys::edict_t>) -> Self {
+		// SAFETY: The engine's edict table outlives the callback's scope.
+		unsafe { Self::from_raw(raw) }
+	}
+
 	/// Wraps a pointer to a slot of the edict table.
 	///
 	/// # Safety
