@@ -12,6 +12,7 @@ mod class;
 pub mod conditions;
 pub mod damage;
 pub mod game_events;
+pub mod gc;
 pub mod host_timescale;
 pub mod overlays;
 pub mod ragdolls;

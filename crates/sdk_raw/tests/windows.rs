@@ -2,7 +2,9 @@
 //! Tests of finding Windows modules loaded in this process, and reading them
 //! and their memory.
 
-use source_sdk_2013_raw::util::{Error, Image, MemoryReader, Module, is_executable, loaded_symbol};
+use source_sdk_2013_raw::util::{
+	Error, Image, MemoryReader, Module, is_executable, loaded_symbol, pin_module,
+};
 use std::ffi::c_void;
 use std::io;
 
@@ -27,6 +29,25 @@ fn modules_are_found_by_name_only_when_loaded() {
 		Module::loaded("kernel32.dll\0"),
 		Err(Error::Io(error)) if error.kind() == io::ErrorKind::InvalidInput
 	));
+}
+
+#[test]
+fn pins_the_module_containing_an_address() {
+	let address = GetCurrentProcess as *const () as usize;
+	// SAFETY: This process's linked kernel32 module remains loaded.
+	let pinned = unsafe { pin_module(address) }.unwrap();
+	assert_eq!(
+		pinned.base(),
+		Module::loaded("kernel32.dll").unwrap().base()
+	);
+	assert!(pinned.path().is_absolute());
+	assert!(
+		pinned
+			.path()
+			.file_name()
+			.unwrap()
+			.eq_ignore_ascii_case("kernel32.dll")
+	);
 }
 
 #[test]

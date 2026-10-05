@@ -598,7 +598,7 @@ fn self_test_stats() -> RoundStats {
 /// `game/shared/tf/tf_gamestats_shared.h`, named without their `TFSTAT_`
 /// prefix.
 ///
-/// [`TF_SCORE_KILL`](super::TF_SCORE_KILL) and the other `TF_SCORE_` weights
+/// [`TF_SCORE_KILL`] and the other `TF_SCORE_` weights
 /// count some of them toward a player's score.
 #[doc(alias("TFStatType_t"))]
 pub mod stat {

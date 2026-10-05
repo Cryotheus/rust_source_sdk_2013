@@ -2,7 +2,7 @@
 //! Tests of reading Linux modules loaded in this process, and their memory.
 
 use source_sdk_2013_raw::util::{
-	Error, Image, MAX_IMAGE_BYTES, MemoryReader, Module, is_executable, loaded_symbol,
+	Error, Image, MAX_IMAGE_BYTES, MemoryReader, Module, is_executable, loaded_symbol, pin_module,
 };
 
 #[test]
@@ -22,6 +22,17 @@ fn memory_reader_copies_owned_bytes_and_rejects_invalid_ranges() {
 		Err(Error::InvalidImage)
 	));
 	assert!(memory.copy(0, 8).is_err());
+}
+
+#[test]
+fn pins_the_module_containing_an_address() {
+	let address = loaded_symbol(c"libc.so.6", c"getpid").unwrap().as_ptr() as usize;
+	// SAFETY: libc stays loaded for the life of the test process.
+	let module = unsafe { Module::at(address) }.unwrap();
+	// SAFETY: As above.
+	let pinned = unsafe { pin_module(address) }.unwrap();
+	assert_eq!(pinned.base(), module.base());
+	assert_eq!(pinned.path(), module.path());
 }
 
 #[test]

@@ -1,10 +1,23 @@
-use super::{Error, Image, MAX_IMAGE_BYTES, Section, pe};
-use std::ffi::{CStr, c_char, c_void};
+use super::{Error, Image, MAX_IMAGE_BYTES, PinnedModule, Section, pe};
+use std::ffi::{CStr, OsString, c_char, c_void};
 use std::io;
 use std::mem::MaybeUninit;
+use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
 use std::ptr::NonNull;
 
 const _: () = assert!(size_of::<MemoryInformation>() == 48);
+
+/// `GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS`: `GetModuleHandleExW`'s name is
+/// an address in the module, not its name.
+const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 4;
+
+/// `GET_MODULE_HANDLE_EX_FLAG_PIN`: `GetModuleHandleExW` keeps the module
+/// loaded until the process exits, however often it is freed.
+const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 1;
+
+/// The longest path Windows gives a module, in UTF-16 units.
+const MAX_MODULE_PATH: usize = 32768;
 
 /// `PAGE_EXECUTE_READWRITE`: pages that may be executed, read and written.
 pub(super) const PAGE_EXECUTE_READWRITE: u32 = 0x40;
@@ -72,7 +85,14 @@ impl Module {
 		let mut handle = std::ptr::null_mut();
 		// SAFETY: FROM_ADDRESS treats the value as an address rather than UTF-16;
 		// the output is valid and the caller keeps the module loaded during lookup.
-		if unsafe { GetModuleHandleExW(4, address as *const u16, &mut handle) } == 0 {
+		if unsafe {
+			GetModuleHandleExW(
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+				address as *const u16,
+				&mut handle,
+			)
+		} == 0
+		{
 			return Err(std::io::Error::last_os_error().into());
 		}
 		Ok(Self(handle))
@@ -123,6 +143,7 @@ unsafe extern "system" {
 	fn FlushInstructionCache(process: *mut c_void, address: *const c_void, size: usize) -> i32;
 	fn FreeLibrary(module: *mut c_void) -> i32;
 	fn GetCurrentProcess() -> *mut c_void;
+	fn GetModuleFileNameW(module: *mut c_void, name: *mut u16, capacity: u32) -> u32;
 	fn GetModuleHandleExA(flags: u32, name: *const c_char, module: *mut *mut c_void) -> i32;
 	fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut *mut c_void) -> i32;
 	fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
@@ -209,6 +230,72 @@ pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
 
 	// SAFETY: The reference keeps the module loaded during the lookup.
 	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
+}
+
+/// The path of the file the loader mapped `module` from.
+///
+/// # Safety
+///
+/// `module` must be the handle of a module that stays loaded for the call.
+unsafe fn module_path(module: *mut c_void) -> io::Result<PathBuf> {
+	let mut name = vec![0_u16; 260];
+
+	loop {
+		// SAFETY: The buffer holds `name.len()` units, and the caller keeps the
+		// module loaded.
+		let len =
+			unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), name.len() as u32) } as usize;
+
+		if len == 0 {
+			return Err(io::Error::last_os_error());
+		}
+
+		// A path that filled the buffer was truncated.
+		if len < name.len() {
+			name.truncate(len);
+			return Ok(OsString::from_wide(&name).into());
+		}
+
+		if name.len() >= MAX_MODULE_PATH {
+			return Err(io::ErrorKind::InvalidData.into());
+		}
+
+		name.resize(name.len() * 2, 0);
+	}
+}
+
+/// Keeps the module containing `address` loaded until the process exits, and
+/// returns where it is loaded and the file it was mapped from.
+///
+/// Windows ignores every later `FreeLibrary` of a pinned module, so code and
+/// data in it, such as a vtable another library patches, stay mapped for the
+/// rest of the process. Pinning is permanent and cannot be undone.
+///
+/// # Safety
+///
+/// The module must stay loaded until it is pinned.
+pub unsafe fn pin_module(address: usize) -> Result<PinnedModule, Error> {
+	let mut handle = std::ptr::null_mut();
+
+	// SAFETY: FROM_ADDRESS treats the value as an address rather than UTF-16,
+	// the output is valid, and the caller keeps the module loaded until PIN
+	// keeps it loaded for good.
+	if unsafe {
+		GetModuleHandleExW(
+			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+			address as *const u16,
+			&mut handle,
+		)
+	} == 0
+	{
+		return Err(io::Error::last_os_error().into());
+	}
+
+	Ok(PinnedModule {
+		base: handle as usize,
+		// SAFETY: The module is pinned.
+		path: unsafe { module_path(handle) }?,
+	})
 }
 
 /// Sets the protection of the pages holding `len` bytes at `address` to

@@ -52,6 +52,7 @@ pub mod net;
 pub mod players;
 pub mod server;
 pub mod soundscapes;
+pub mod steam;
 pub mod user_messages;
 
 #[cfg(any(test, feature = "_test-support"))]

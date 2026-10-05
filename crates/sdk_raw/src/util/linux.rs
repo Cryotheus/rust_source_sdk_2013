@@ -2,13 +2,17 @@
 #[path = "../tests/util/linux.rs"]
 mod tests;
 
-use super::{Error, Image, MAX_IMAGE_BYTES, Section, u16_at, u32_at, word_at};
-use std::ffi::{CStr, OsStr, c_char, c_int, c_void};
+use super::{Error, Image, MAX_IMAGE_BYTES, PinnedModule, Section, u16_at, u32_at, word_at};
+use std::ffi::{CStr, CString, OsStr, c_char, c_int, c_void};
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
+
+/// `dlopen`'s flag to never unload the library, even once every reference
+/// to it is closed.
+const RTLD_NODELETE: c_int = 0x1000;
 
 /// `dlopen`'s flag to only find a library that is already loaded.
 const RTLD_NOLOAD: c_int = 4;
@@ -233,6 +237,38 @@ pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
 	unsafe { dlclose(handle.as_ptr()) };
 
 	NonNull::new(symbol)
+}
+
+/// Keeps the module containing `address` loaded until the process exits, and
+/// returns where it is loaded and the file it was mapped from.
+///
+/// The module is reopened with `RTLD_NODELETE`, which the loader never
+/// unloads, and the reference that adds is never closed, so code and data in
+/// it, such as a vtable another library patches, stay mapped for the rest of
+/// the process. Pinning is permanent and cannot be undone.
+///
+/// # Safety
+///
+/// The module must stay loaded until it is pinned.
+pub unsafe fn pin_module(address: usize) -> Result<PinnedModule, Error> {
+	// SAFETY: The caller keeps the module loaded during the lookup.
+	let module = unsafe { Module::at(address) }?;
+	let path =
+		CString::new(module.path().as_os_str().as_bytes()).map_err(|_| Error::InvalidImage)?;
+
+	// SAFETY: `RTLD_NOLOAD` only finds the library, which the caller keeps
+	// loaded, by the name the loader gave it, and adds a reference to it;
+	// `RTLD_NODELETE` marks it never to be unloaded.
+	let handle = unsafe { dlopen(path.as_ptr(), RTLD_NOW | RTLD_NOLOAD | RTLD_NODELETE) };
+
+	if handle.is_null() {
+		return Err(Error::InvalidImage);
+	}
+
+	Ok(PinnedModule {
+		base: module.base(),
+		path: module.path,
+	})
 }
 
 pub(super) fn program_headers(

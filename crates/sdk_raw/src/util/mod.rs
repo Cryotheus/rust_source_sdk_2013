@@ -25,11 +25,13 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
+use std::path::{Path, PathBuf};
+
 pub use crate::sig;
 pub use bytes::{relative, u16_at, u32_at, word_at};
 pub use image::{Image, Section};
 pub use module_cache::{ModuleCache, ModuleKey};
-pub use platform::{MemoryReader, Module, is_executable, loaded_symbol};
+pub use platform::{MemoryReader, Module, is_executable, loaded_symbol, pin_module};
 pub use signature::{SignaturePattern, exact_u32, find_all, is_exact, pattern};
 
 /// Upper bound on an individual snapshot or on-disk image allocation.
@@ -46,6 +48,25 @@ pub enum Error {
 	/// The OS refused to describe or read the module.
 	#[error("could not inspect executable image: {0}")]
 	Io(#[from] std::io::Error),
+}
+
+/// A module that [`pin_module`] keeps loaded until the process exits.
+#[derive(Debug, Clone)]
+pub struct PinnedModule {
+	base: usize,
+	path: PathBuf,
+}
+
+impl PinnedModule {
+	/// The module's load address.
+	pub fn base(&self) -> usize {
+		self.base
+	}
+
+	/// The file the loader mapped the module from.
+	pub fn path(&self) -> &Path {
+		&self.path
+	}
 }
 
 /// The size of the place `_place` points to, for compile-time assertions

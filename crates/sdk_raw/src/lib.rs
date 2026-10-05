@@ -52,6 +52,7 @@ pub mod interfaces;
 pub mod net;
 pub mod players;
 pub mod soundscapes;
+pub mod steam;
 pub mod tier0;
 pub mod user_messages;
 pub mod util;
