@@ -6,6 +6,9 @@ pub mod hook;
 mod plugin;
 
 #[cfg(feature = "sdk")]
+mod client_hooks;
+
+#[cfg(feature = "sdk")]
 mod commands;
 
 #[cfg(feature = "tf2")]
@@ -19,6 +22,10 @@ pub mod death_hooks;
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod gc_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod player_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
@@ -38,6 +45,10 @@ pub use api::{
 	LoaderVersionInfo, MetamodApi, MetamodApiBinding, MetamodFeature, MetamodVersion,
 	SourceHookVersions, UnsupportedFeature,
 };
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub use client_hooks::{ClientEvents, ClientFn};
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]

@@ -4,9 +4,9 @@
 #[path = "tests/edicts.rs"]
 mod tests;
 
-use crate::NotThreadSafe;
 use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
+use crate::{NotThreadSafe, Server};
 use sdk_raw::edicts::FL_EDICT_FREE;
 use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
@@ -37,6 +37,21 @@ pub struct Edict<'s> {
 }
 
 impl<'s> Edict<'s> {
+	/// Wraps a pointer to a slot of the edict table that the engine or game
+	/// passed to a callback, such as an argument of a hooked virtual method, for
+	/// the callback's scope.
+	///
+	/// # Safety
+	///
+	/// `pointer` must identify an element of the edict table of the server
+	/// `_server` belongs to, and the call must obey [`Server::new`]'s
+	/// main-thread and reentrancy contract.
+	pub unsafe fn from_live(_server: Server<'s>, pointer: NonNull<sys::edict_t>) -> Self {
+		// SAFETY: The engine keeps its edict table allocated while a level runs,
+		// and the caller vouches for the call's scope.
+		unsafe { Self::from_raw(pointer) }
+	}
+
 	/// Wraps a pointer to a slot of the edict table.
 	///
 	/// # Safety

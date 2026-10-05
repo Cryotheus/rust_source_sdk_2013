@@ -54,6 +54,7 @@ mod tests;
 use crate::interfaces::CreateInterfaceFn;
 use crate::players::FIRST_GAME_TEAM;
 use crate::util::{ModuleCache, ModuleKey};
+use crate::vtable_slot;
 use std::ffi::{c_int, c_void};
 use std::mem::transmute;
 use std::num::NonZeroUsize;
@@ -72,6 +73,28 @@ pub type CalcPlayerScoreFn =
 #[doc(alias("FindPlayerStats"))]
 pub type FindPlayerStatsFn =
 	unsafe extern "C" fn(this: *mut c_void, player: *mut sys::CBasePlayer) -> *mut PlayerStats;
+
+/// `CTFPlayer::ResetScores`, which resets the player's scoring data and
+/// statistics, and with them their Score, frags and deaths.
+///
+/// The generated method takes a `CTFPlayer` receiver. It is the player's
+/// primary base, `CBaseEntity`, at the same address, so the method can be
+/// called and hooked with an entity receiver.
+#[doc(alias("ResetScores"))]
+pub type ResetScoresFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
+
+// The generated method takes no argument and returns nothing.
+const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) =
+	|vtable| vtable.CTFPlayer_ResetScores;
+
+// SourceMod's `sdktools.games/game.tf.txt` gamedata lists
+// `CTFPlayer::CommitSuicide(bool, bool)` at 454 under both ABIs, where the
+// generated vtable has it too, a few slots after `ResetScores`.
+const _: () = {
+	let commit_suicide = vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CommitSuicide);
+
+	assert!(commit_suicide == 454 && RESET_SCORES_SLOT < commit_suicide);
+};
 
 // `PlayerStats_t` starts with its life, round, and session `RoundStats_t`,
 // each `TFSTAT_TOTAL` `int`s, and is made of `int`s only.
@@ -135,6 +158,18 @@ pub const MAX_PLAYERS_ARRAY_SAFE: usize = 102;
 /// the blocks fit `CTF_GameStats`.
 #[doc(alias("PlayerStats_t"))]
 pub const PLAYER_STATS_SIZE: usize = 0x794;
+
+/// The slot of `CTFPlayer::ResetScores` in a TF2 player's primary vtable,
+/// from the generated binding.
+///
+/// The game calls it as a player is first spawned (`CTFPlayer::InitialSpawn`),
+/// for each player as `mp_restartgame`, a tournament restart, or the end of
+/// the wait for players resets every player's scores, and in Mann vs.
+/// Machine, from its population manager. `CTFBot` keeps the same function at
+/// the slot.
+#[doc(alias("ResetScores"))]
+pub const RESET_SCORES_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_ResetScores);
 
 /// The score `CalcPlayerScore` gives [`self_test_stats`] without a player.
 const SELF_TEST_SCORE: c_int = 9;

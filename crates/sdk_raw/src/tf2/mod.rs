@@ -26,6 +26,8 @@ pub mod voting;
 pub mod weapons;
 pub mod wearables;
 
+use crate::entities::SPAWN_SLOT;
+use crate::vtable_slot;
 use std::mem::offset_of;
 
 const _: () = {
@@ -43,3 +45,6 @@ const _: () = {
 		offset_of!(sys::CBasePlayer, _base) == 0 && offset_of!(sys::CBaseAnimating, _base) == 0
 	);
 };
+
+// A TF2 player overrides `Spawn` at the slot every entity has it.
+const _: () = assert!(SPAWN_SLOT == vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Spawn));

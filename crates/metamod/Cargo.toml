@@ -15,7 +15,7 @@ keywords = ["gamedev", "source-engine", "metamod"]
 [features]
 ## Console commands and hooks for `source_sdk_2013`.
 sdk = ["dep:source_sdk_2013"]
-## TF2's vote, damage, death and respawn hooks, through `source_sdk_2013`'s `tf2` module.
+## TF2's vote, damage, death, respawn, spawn and score reset hooks, through `source_sdk_2013`'s `tf2` module.
 tf2 = ["sdk", "source_sdk_2013/tf2"]
 
 [dependencies]
