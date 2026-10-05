@@ -20,8 +20,8 @@ tf2 = ["sdk", "source_sdk_2013/tf2"]
 
 [dependencies]
 crys_bricks.workspace = true
-source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.6", optional = true }
-sys = { path = "../metamod_sys", version = "0.1.0-alpha.6", package = "metamod_source_sys" }
+source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.7", optional = true }
+sys = { path = "../metamod_sys", version = "0.1.0-alpha.7", package = "metamod_source_sys" }
 thiserror.workspace = true
 
 [package.metadata.docs.rs]
