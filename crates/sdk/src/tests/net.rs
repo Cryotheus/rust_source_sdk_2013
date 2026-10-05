@@ -83,7 +83,10 @@ fn voice_longer_than_its_length_field_is_refused() {
 
 	assert!(matches!(
 		voice.encode(),
-		Err(EncodeError::TooLong { max: MAX_VOICE_DATA_BYTES, .. })
+		Err(EncodeError::TooLong {
+			max: MAX_VOICE_DATA_BYTES,
+			..
+		})
 	));
 	assert!(
 		VoiceData {
