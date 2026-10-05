@@ -100,7 +100,7 @@ impl ObjectVtable<'_> {
 /// Finds every building class placed from a blueprint before any hooks are
 /// installed. Missing or ambiguous RTTI is an error; some buildings are never
 /// silently left out. Call once during plugin load: it reads the whole game
-/// module.
+/// module, a few times, however many buildings there are.
 pub fn object_vtables(server: Server<'_>) -> Result<Vec<ObjectVtable<'_>>, ObjectHookTargetError> {
 	if server.game() != Game::TeamFortress2 {
 		return Err(ObjectHookTargetError::WrongGame);
@@ -110,17 +110,15 @@ pub fn object_vtables(server: Server<'_>) -> Result<Vec<ObjectVtable<'_>>, Objec
 	// and the Server's callback scope keeps the module loaded while its sections
 	// are inspected (`Server::new` condition 1).
 	let vtables = unsafe { ObjectVtables::load(server.game_server_factory().as_raw()) }?;
+	let found = vtables.find_all(&ObjectKind::ALL.map(ObjectKind::class));
 
 	ObjectKind::ALL
 		.into_iter()
-		.map(|kind| {
-			let pointer = vtables
-				.find(kind.class())
-				.ok_or(ObjectHookTargetError::UnsupportedObject(kind))?;
-
+		.zip(found)
+		.map(|(kind, pointer)| {
 			Ok(ObjectVtable {
 				kind,
-				vtable: pointer,
+				vtable: pointer.ok_or(ObjectHookTargetError::UnsupportedObject(kind))?,
 				_scope: PhantomData,
 			})
 		})
