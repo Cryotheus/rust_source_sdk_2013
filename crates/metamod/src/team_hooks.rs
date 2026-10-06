@@ -205,7 +205,14 @@ impl MetamodApi<'_> {
 	/// hook holds no entity, so it lasts through level changes, until removed
 	/// or the plugin unloads. A class hooked from one of its entities is
 	/// already installed, and the other way around.
-	pub fn hook_class_team_changes(
+	///
+	/// # Safety
+	///
+	/// `target`'s class must derive from `CBaseEntity` through its primary
+	/// bases, as the game's entity classes do, so that its vtable holds
+	/// `ChangeTeam` at [`CHANGE_TEAM_SLOT`]. The search only checks that the
+	/// slot holds code, which any class with enough virtual methods has.
+	pub unsafe fn hook_class_team_changes(
 		self,
 		target: TeamTarget<'_>,
 		binding: ServerBinding,
@@ -215,10 +222,10 @@ impl MetamodApi<'_> {
 			return Err(TeamHookError::NotTf2);
 		}
 
-		// SAFETY: The SDK matched the class's primary RTTI vtable and verified an
-		// executable `ChangeTeam` slot, whose ABI comes from the generated
-		// `CBaseEntity` declaration. The game module stays loaded until Metamod
-		// unloads this plugin.
+		// SAFETY: The target is a primary vtable from TF2's game module, whose
+		// class the caller promises is an entity class, so the slot holds its
+		// `ChangeTeam`. The game module stays loaded until Metamod unloads this
+		// plugin.
 		unsafe { self.install_team(target.as_ptr(), binding, callback) }
 	}
 
