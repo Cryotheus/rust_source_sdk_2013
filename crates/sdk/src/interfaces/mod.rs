@@ -76,6 +76,7 @@ pub mod server_game_clients;
 pub mod server_game_dll;
 pub mod server_game_ents;
 pub mod server_tools;
+pub mod temp_entities;
 pub mod valve_engine;
 pub mod voice_server;
 
@@ -93,5 +94,6 @@ pub use server_game_clients::ServerGameClients;
 pub use server_game_dll::ServerGameDll;
 pub use server_game_ents::ServerGameEnts;
 pub use server_tools::ServerTools;
+pub use temp_entities::TempEntities;
 pub use valve_engine::ValveEngine;
 pub use voice_server::VoiceServer;
