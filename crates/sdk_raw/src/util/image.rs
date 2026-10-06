@@ -101,19 +101,25 @@ impl Image {
 				continue;
 			}
 
-			let start = (alignment - section.address % alignment) % alignment;
+			let bytes = section.bytes.as_slice();
+			let mut offset = (alignment - section.address % alignment) % alignment;
 
-			for offset in (start..section.bytes.len()).step_by(alignment) {
-				if !first[usize::from(section.bytes[offset])] {
-					continue;
-				}
-
-				for (index, pattern) in patterns.iter().enumerate() {
-					if !pattern.is_empty() && section.bytes[offset..].starts_with(pattern) {
-						// The region's end does not overflow, so neither does this.
-						found.push((section.address + offset, index));
+			// A plain loop, as iterator adapters cost a lot more per offset in
+			// unoptimized builds, which also have to search whole modules.
+			while offset < bytes.len() {
+				if first[usize::from(bytes[offset])] {
+					for (index, pattern) in patterns.iter().enumerate() {
+						if !pattern.is_empty() && bytes[offset..].starts_with(pattern) {
+							// The region's end does not overflow, so neither does this.
+							found.push((section.address + offset, index));
+						}
 					}
 				}
+
+				let Some(next) = offset.checked_add(alignment) else {
+					break;
+				};
+				offset = next;
 			}
 		}
 
