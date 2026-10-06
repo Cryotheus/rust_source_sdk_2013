@@ -551,6 +551,35 @@ impl<'s> Weapon<'s> {
 		ItemAttributes::new(self.server, self.entity)
 	}
 
+	/// The rounds in the weapon's clip (`m_iClip1`), or -1 for a weapon without
+	/// one, such as a melee weapon or a minigun. Energy weapons count their
+	/// shots in energy instead, and leave it unused.
+	///
+	/// Fails with [`WeaponError::UnsupportedLayout`] if `CBaseCombatWeapon`'s
+	/// datamap lacks a usable `m_iClip1` integer.
+	#[doc(alias("m_iClip1"))]
+	pub fn clip(self) -> Result<c_int, WeaponError> {
+		check_live(self.entity)?;
+
+		let offset = self.clip_offset()?;
+
+		// SAFETY: `clip_offset` validated the integer field in the datamap of
+		// `CBaseCombatWeapon`, which `new` found the weapon's class derives from,
+		// through `CTFWeaponBase`. The callback keeps the weapon allocated, and the
+		// member is read without forming a reference, as the game writes it too.
+		Ok(unsafe { self.entity.as_ptr().byte_add(offset).cast::<c_int>().read() })
+	}
+
+	/// The offset of the clip, `m_iClip1`, in `CBaseCombatWeapon`'s own datamap.
+	fn clip_offset(self) -> Result<usize, WeaponError> {
+		self.entity
+			.data_maps()
+			.find(|map| map.class_name() == Some(c"CBaseCombatWeapon"))
+			.and_then(|map| map.field_offset(c"m_iClip1", sys::_fieldtypes_FIELD_INTEGER))
+			.filter(|offset| *offset < 65_536 && offset.is_multiple_of(align_of::<c_int>()))
+			.ok_or(WeaponError::UnsupportedLayout)
+	}
+
 	/// The weapon's item definition index (`m_iItemDefinitionIndex`), such as
 	/// the Iron Bomber's, or `None` for a weapon without one.
 	///
@@ -571,6 +600,41 @@ impl<'s> Weapon<'s> {
 	/// The weapon's entity.
 	pub const fn entity(self) -> Entity<'s> {
 		self.entity
+	}
+
+	/// Whether the weapon counts its shots in energy, which recharges on its own,
+	/// instead of ammo (`IsEnergyWeapon`), as the Cow Mangler 5000 and the
+	/// Righteous Bison do.
+	#[doc(alias("IsEnergyWeapon"))]
+	pub fn is_energy_weapon(self) -> Result<bool, WeaponError> {
+		check_live(self.entity)?;
+
+		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
+
+		// SAFETY: As for `slot_raw`. The generated IsEnergyWeapon entry only reads
+		// the weapon.
+		Ok(unsafe {
+			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_IsEnergyWeapon())
+		})
+	}
+
+	/// The most rounds the weapon's clip holds, after its attributes and its
+	/// owner's powerups (`GetMaxClip1`), or `None` for a weapon without a clip.
+	/// For an energy weapon, it is the most energy the weapon holds instead.
+	#[doc(alias("GetMaxClip1"))]
+	pub fn max_clip(self) -> Result<Option<c_int>, WeaponError> {
+		check_live(self.entity)?;
+
+		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
+
+		// SAFETY: As for `slot_raw`. The generated GetMaxClip1 entry only reads the
+		// weapon, its owner, and their attributes.
+		let max = unsafe {
+			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetMaxClip1())
+		};
+
+		// `WEAPON_NOCLIP` is -1.
+		Ok((max >= 0).then_some(max))
 	}
 
 	/// Its combat owner's handle (`m_hOwner`), or None for a detached weapon.
@@ -617,6 +681,46 @@ impl<'s> Weapon<'s> {
 			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetSlot())
 		})
 	}
+
+	/// Sets the rounds in the weapon's clip (`m_iClip1`), and records the change
+	/// so the engine sends it to the weapon's owner.
+	///
+	/// Fails with [`WeaponError::NoClip`] for a weapon without a clip, or an
+	/// energy weapon, with [`WeaponError::InvalidClip`] for a count outside 0 to
+	/// [`Self::max_clip`], and as [`Self::clip`] does.
+	#[doc(alias("m_iClip1"))]
+	pub fn set_clip(self, clip: c_int) -> Result<(), WeaponError> {
+		if self.is_energy_weapon()? {
+			return Err(WeaponError::NoClip);
+		}
+
+		let max = self.max_clip()?.ok_or(WeaponError::NoClip)?;
+
+		if !(0..=max).contains(&clip) {
+			return Err(WeaponError::InvalidClip { clip, max });
+		}
+
+		let offset = self.clip_offset()?;
+		let changed = u16::try_from(offset).map_err(|_| WeaponError::UnsupportedLayout)?;
+		let engine = self.server.valve_engine()?;
+		let edict = self.entity.edict().ok_or(WeaponError::NotWeapon)?;
+
+		// SAFETY: As for `clip`. The game writes its networked variables the same
+		// way, through its own pointers, on the main thread, and fills clips with
+		// anything from none to their max.
+		unsafe {
+			self.entity
+				.as_ptr()
+				.byte_add(offset)
+				.cast::<c_int>()
+				.write(clip)
+		};
+
+		// The clip is networked from the same member.
+		edict.state_changed(engine, changed);
+
+		Ok(())
+	}
 }
 
 /// Why a weapon or inventory operation failed.
@@ -647,6 +751,16 @@ pub enum WeaponError {
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 
+	/// [`Weapon::set_clip`] was given a count outside 0 to the weapon's max.
+	#[error("cannot fill a clip of at most {max} rounds with {clip}")]
+	InvalidClip {
+		/// The count given.
+		clip: c_int,
+
+		/// The weapon's max clip.
+		max: c_int,
+	},
+
 	/// The player or weapon is already marked for deletion.
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
@@ -654,6 +768,11 @@ pub enum WeaponError {
 	/// The player's position, needed to spawn an economy item, is unavailable.
 	#[error("the player's absolute position could not be read")]
 	MissingOrigin,
+
+	/// The weapon has no clip, as melee weapons and miniguns, or counts its
+	/// shots in energy.
+	#[error("the weapon has no clip")]
+	NoClip,
 
 	/// The entity is not a TF2 player, or the server does not run TF2.
 	#[error("weapon operations require a TF2 player")]
@@ -675,8 +794,9 @@ pub enum WeaponError {
 	SlotOccupied,
 
 	/// The weapon's datamap lacks a usable `m_hOwner` field, or, for
-	/// [`Weapon::definition`], its networked variables do not place its item
-	/// definition index where the SDK's layout does.
+	/// [`Weapon::clip`] and [`Weapon::set_clip`], a usable `m_iClip1` field,
+	/// or, for [`Weapon::definition`], its networked variables do not place its
+	/// item definition index where the SDK's layout does.
 	#[error("the weapon's datamap or networked variables do not match the sdk's layout")]
 	UnsupportedLayout,
 

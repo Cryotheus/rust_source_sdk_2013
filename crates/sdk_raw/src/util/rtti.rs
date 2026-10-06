@@ -38,6 +38,12 @@ const _: () = {
 	assert!(offset_of!(TypeDescriptor<1>, name) == TYPE_DESCRIPTOR_NAME_OFFSET);
 };
 
+/// The alignment of an MSVC `_TypeDescriptor`, which starts with its vtable
+/// pointer, and so of its decorated name, [`TYPE_DESCRIPTOR_NAME_OFFSET`]
+/// bytes into it: searches for names only read offsets aligned so.
+#[cfg(any(target_os = "windows", test))]
+const TYPE_DESCRIPTOR_ALIGNMENT: usize = align_of::<*const c_void>();
+
 /// Where an MSVC `_TypeDescriptor`'s decorated name starts: after its vtable
 /// pointer and the undecorated name the runtime caches.
 #[cfg(any(target_os = "windows", test))]
@@ -196,44 +202,77 @@ pub struct TypeDescriptor<const N: usize> {
 }
 
 impl Image {
-	#[cfg(any(target_os = "linux", test))]
+	#[cfg(test)]
 	fn itanium(&self, class: &str, slot: usize) -> Vec<usize> {
-		let mut tables = Vec::new();
+		self.itanium_all(&[class], slot).pop().unwrap_or_default()
+	}
 
-		for name in self.matches(format!("{}{class}\0", class.len()).as_bytes(), 1) {
-			for name_pointer in self.matches(&name.to_le_bytes(), 8) {
-				let Some(type_info) = name_pointer.checked_sub(8) else {
-					continue;
-				};
+	/// Every Itanium primary vtable of each of `classes` with an executable
+	/// entry at `slot`, sorted, in the classes' order.
+	#[cfg(any(target_os = "linux", test))]
+	fn itanium_all(&self, classes: &[&str], slot: usize) -> Vec<Vec<usize>> {
+		let names = class_patterns(classes, |class| format!("{}{class}\0", class.len()));
+		let names = self.matches_any(&names.iter().map(Vec::as_slice).collect::<Vec<_>>(), 1);
 
-				for reference in self.matches(&type_info.to_le_bytes(), 8) {
-					// The primary address point follows offset-to-top=0 and the
-					// pointer to the class's type_info object.
-					let Some(prefix) = reference.checked_sub(8).and_then(|p| self.rtti_read(p, 8))
-					else {
-						continue;
-					};
-					let Some(table) = reference.checked_add(8) else {
-						continue;
-					};
+		// A class's type_info holds its vtable, then the address of its name.
+		let type_infos: Vec<(usize, usize)> = self
+			.references(
+				&names
+					.iter()
+					.map(|&(name, _)| name.to_le_bytes())
+					.collect::<Vec<_>>(),
+			)
+			.into_iter()
+			.filter_map(|(name_pointer, name)| Some((name_pointer.checked_sub(8)?, names[name].1)))
+			.collect();
 
-					if word_at(prefix, 0) == Some(0) && self.valid_table(table, slot) {
-						tables.push(table);
-					}
-				}
+		let mut tables = vec![Vec::new(); classes.len()];
+
+		for (reference, type_info) in self.references(
+			&type_infos
+				.iter()
+				.map(|&(type_info, _)| type_info.to_le_bytes())
+				.collect::<Vec<_>>(),
+		) {
+			// The primary address point follows offset-to-top=0 and the
+			// pointer to the class's type_info object.
+			let Some(prefix) = reference.checked_sub(8).and_then(|p| self.rtti_read(p, 8)) else {
+				continue;
+			};
+			let Some(table) = reference.checked_add(8) else {
+				continue;
+			};
+
+			if word_at(prefix, 0) == Some(0) && self.valid_table(table, slot) {
+				tables[type_infos[type_info].1].push(table);
 			}
 		}
 
-		tables.sort_unstable();
-		tables.dedup();
+		for tables in &mut tables {
+			tables.sort_unstable();
+			tables.dedup();
+		}
+
 		tables
 	}
 
-	#[cfg(any(target_os = "windows", test))]
+	#[cfg(test)]
 	fn msvc(&self, class: &str, slot: usize) -> Vec<usize> {
-		self.msvc_tables(class, slot)
+		self.msvc_all(&[class], slot).pop().unwrap_or_default()
+	}
+
+	/// Every MSVC x64 primary vtable of each of `classes` with an executable
+	/// entry at `slot`, sorted, in the classes' order.
+	#[cfg(any(target_os = "windows", test))]
+	fn msvc_all(&self, classes: &[&str], slot: usize) -> Vec<Vec<usize>> {
+		self.msvc_tables_all(classes, slot)
 			.into_iter()
-			.filter_map(|(offset, table)| (offset == 0).then_some(table))
+			.map(|tables| {
+				tables
+					.into_iter()
+					.filter_map(|(offset, table)| (offset == 0).then_some(table))
+					.collect()
+			})
 			.collect()
 	}
 
@@ -242,54 +281,88 @@ impl Image {
 	/// table belongs to.
 	#[cfg(any(target_os = "windows", test))]
 	fn msvc_tables(&self, class: &str, slot: usize) -> Vec<(usize, usize)> {
-		let mut tables = Vec::new();
+		self.msvc_tables_all(&[class], slot)
+			.pop()
+			.unwrap_or_default()
+	}
 
-		for name in self.matches(format!(".?AV{class}@@\0").as_bytes(), 1) {
-			let Some(descriptor) = name.checked_sub(TYPE_DESCRIPTOR_NAME_OFFSET) else {
+	/// The tables [`Self::msvc_tables`] finds for each of `classes`, in their
+	/// order.
+	#[cfg(any(target_os = "windows", test))]
+	fn msvc_tables_all(&self, classes: &[&str], slot: usize) -> Vec<Vec<(usize, usize)>> {
+		let names = class_patterns(classes, |class| format!(".?AV{class}@@\0"));
+
+		// Locators refer to a class's type descriptor by its offset in the image.
+		let descriptors: Vec<([u8; 4], usize)> = self
+			.matches_any(
+				&names.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+				TYPE_DESCRIPTOR_ALIGNMENT,
+			)
+			.into_iter()
+			.filter_map(|(name, class)| {
+				let descriptor = name.checked_sub(TYPE_DESCRIPTOR_NAME_OFFSET)?;
+				let relative = u32::try_from(descriptor.checked_sub(self.base)?).ok()?;
+
+				Some((relative.to_le_bytes(), class))
+			})
+			.collect();
+
+		// Each locator, with its class and the offset of its subobject.
+		let mut locators = Vec::new();
+
+		for (reference, descriptor) in self.references(
+			&descriptors
+				.iter()
+				.map(|&(relative, _)| relative)
+				.collect::<Vec<_>>(),
+		) {
+			let Some(locator) =
+				reference.checked_sub(std::mem::offset_of!(CompleteObjectLocator, type_descriptor))
+			else {
 				continue;
 			};
-			let Some(relative) = descriptor
-				.checked_sub(self.base)
-				.and_then(|n| u32::try_from(n).ok())
+			let Some(located) = self
+				.rtti_read(locator, size_of::<CompleteObjectLocator>())
+				.and_then(CompleteObjectLocator::parse)
 			else {
 				continue;
 			};
 
-			for reference in self.matches(&relative.to_le_bytes(), 4) {
-				let Some(locator) = reference
-					.checked_sub(std::mem::offset_of!(CompleteObjectLocator, type_descriptor))
-				else {
-					continue;
-				};
-				let Some(located) = self
-					.rtti_read(locator, size_of::<CompleteObjectLocator>())
-					.and_then(CompleteObjectLocator::parse)
-				else {
-					continue;
-				};
+			// MSVC x64 complete-object locator: signature=1, no construction
+			// displacement, self RVA. Its offset is the subobject's.
+			if located.signature != CompleteObjectLocator::SIGNATURE
+				|| located.constructor_displacement != 0
+				|| self.base.checked_add(located.this as usize) != Some(locator)
+			{
+				continue;
+			}
 
-				// MSVC x64 complete-object locator: signature=1, no construction
-				// displacement, self RVA. Its offset is the subobject's.
-				if located.signature != CompleteObjectLocator::SIGNATURE
-					|| located.constructor_displacement != 0
-					|| self.base.checked_add(located.this as usize) != Some(locator)
-				{
-					continue;
-				}
+			locators.push((locator, descriptors[descriptor].1, located.offset as usize));
+		}
 
-				for pointer in self.matches(&locator.to_le_bytes(), 8) {
-					let Some(table) = pointer.checked_add(8) else {
-						continue;
-					};
-					if self.valid_table(table, slot) {
-						tables.push((located.offset as usize, table));
-					}
-				}
+		let mut tables = vec![Vec::new(); classes.len()];
+
+		for (pointer, locator) in self.references(
+			&locators
+				.iter()
+				.map(|&(locator, ..)| locator.to_le_bytes())
+				.collect::<Vec<_>>(),
+		) {
+			let (_, class, offset) = locators[locator];
+			let Some(table) = pointer.checked_add(8) else {
+				continue;
+			};
+
+			if self.valid_table(table, slot) {
+				tables[class].push((offset, table));
 			}
 		}
 
-		tables.sort_unstable();
-		tables.dedup();
+		for tables in &mut tables {
+			tables.sort_unstable();
+			tables.dedup();
+		}
+
 		tables
 	}
 
@@ -301,20 +374,43 @@ impl Image {
 	/// The returned address is metadata from the snapshot. It does not keep the
 	/// module loaded, establish a function signature, or authorize dereferencing
 	/// the address. Callers must establish those guarantees before using it.
+	///
+	/// Each search reads the whole snapshot a few times, so find several classes
+	/// with [`Self::primary_vtables`].
 	pub fn primary_vtable(&self, class: &str, slot: usize) -> Option<usize> {
-		if self.base == 0 || class.is_empty() || class.as_bytes().contains(&0) {
-			return None;
+		self.primary_vtables(&[class], slot).pop().flatten()
+	}
+
+	/// Finds one primary vtable for each of several global, unqualified C++
+	/// class names, in their order, as [`Self::primary_vtable`] finds one. The
+	/// snapshot is read the same few times however many classes there are.
+	pub fn primary_vtables(&self, classes: &[&str], slot: usize) -> Vec<Option<usize>> {
+		if self.base == 0 {
+			return vec![None; classes.len()];
 		}
 
 		#[cfg(target_os = "windows")]
-		let candidates = self.msvc(class, slot);
+		let candidates = self.msvc_all(classes, slot);
 
 		#[cfg(target_os = "linux")]
-		let candidates = self.itanium(class, slot);
+		let candidates = self.itanium_all(classes, slot);
 
-		let mut candidates = candidates.into_iter();
-		let one = candidates.next()?;
-		candidates.next().is_none().then_some(one)
+		candidates
+			.into_iter()
+			.map(|tables| match tables[..] {
+				[table] => Some(table),
+				_ => None,
+			})
+			.collect()
+	}
+
+	/// Every aligned word in the data regions equal to one of `words`, as their
+	/// little-endian bytes, with the index of the word it equals.
+	fn references<const N: usize>(&self, words: &[[u8; N]]) -> Vec<(usize, usize)> {
+		self.matches_any(
+			&words.iter().map(<[u8; N]>::as_slice).collect::<Vec<_>>(),
+			N,
+		)
 	}
 
 	// RTTI and vtable records must stay wholly inside a data snapshot, even
@@ -381,6 +477,22 @@ unsafe extern "C" {
 	/// calls.
 	#[link_name = "_ZTVN10__cxxabiv117__class_type_infoE"]
 	static CLASS_TYPE_INFO_VTABLE: [*const c_void; 0];
+}
+
+/// The bytes to search for of each class's name, which `pattern` gives as
+/// RTTI stores it, or nothing, which matches nothing, for a name that RTTI
+/// cannot hold.
+fn class_patterns(classes: &[&str], pattern: impl Fn(&str) -> String) -> Vec<Vec<u8>> {
+	classes
+		.iter()
+		.map(|&class| {
+			if class.is_empty() || class.as_bytes().contains(&0) {
+				Vec::new()
+			} else {
+				pattern(class).into_bytes()
+			}
+		})
+		.collect()
 }
 
 /// The address point of libstdc++'s vtable for `__cxxabiv1::__class_type_info`,

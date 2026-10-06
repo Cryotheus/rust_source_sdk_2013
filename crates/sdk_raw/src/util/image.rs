@@ -69,22 +69,61 @@ impl Image {
 	/// Find aligned exact byte strings in non-executable data regions.
 	/// Empty strings or zero alignment have no matches.
 	pub fn matches(&self, bytes: &[u8], alignment: usize) -> Vec<usize> {
-		if bytes.is_empty() || alignment == 0 {
-			return Vec::new();
-		}
-		self.sections
-			.iter()
-			.filter(|section| !section.executable)
-			.filter(|section| section.address.checked_add(section.bytes.len()).is_some())
-			.flat_map(|section| {
-				section.bytes.windows(bytes.len()).enumerate().filter_map(
-					move |(offset, candidate)| {
-						let address = section.address.checked_add(offset)?;
-						(address % alignment == 0 && candidate == bytes).then_some(address)
-					},
-				)
-			})
+		self.matches_any(&[bytes], alignment)
+			.into_iter()
+			.map(|(address, _)| address)
 			.collect()
+	}
+
+	/// Find aligned occurrences of several exact byte strings in non-executable
+	/// data regions, each with the index in `patterns` of the string found
+	/// there, ordered by region, address, then index. The regions are read once
+	/// however many strings there are. Empty strings and zero alignment have no
+	/// matches.
+	pub fn matches_any(&self, patterns: &[&[u8]], alignment: usize) -> Vec<(usize, usize)> {
+		let mut found = Vec::new();
+
+		if alignment == 0 {
+			return found;
+		}
+
+		// Most offsets hold no pattern's first byte, which is all they need checked.
+		let mut first = [false; 256];
+
+		for pattern in patterns {
+			if let Some(&byte) = pattern.first() {
+				first[usize::from(byte)] = true;
+			}
+		}
+
+		for section in self.sections.iter().filter(|section| !section.executable) {
+			if section.address.checked_add(section.bytes.len()).is_none() {
+				continue;
+			}
+
+			let bytes = section.bytes.as_slice();
+			let mut offset = (alignment - section.address % alignment) % alignment;
+
+			// A plain loop, as iterator adapters cost a lot more per offset in
+			// unoptimized builds, which also have to search whole modules.
+			while offset < bytes.len() {
+				if first[usize::from(bytes[offset])] {
+					for (index, pattern) in patterns.iter().enumerate() {
+						if !pattern.is_empty() && bytes[offset..].starts_with(pattern) {
+							// The region's end does not overflow, so neither does this.
+							found.push((section.address + offset, index));
+						}
+					}
+				}
+
+				let Some(next) = offset.checked_add(alignment) else {
+					break;
+				};
+				offset = next;
+			}
+		}
+
+		found
 	}
 
 	/// Read bytes wholly contained in one snapshotted region.

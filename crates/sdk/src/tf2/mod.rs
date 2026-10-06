@@ -7,6 +7,7 @@
 //! given, and return an error for anything else.
 
 pub mod achievements;
+pub mod ammo;
 pub mod attributes;
 mod class;
 pub mod conditions;
@@ -23,6 +24,7 @@ pub mod respawn;
 pub mod scoreboard;
 mod script_binding;
 pub mod sound;
+pub mod touch;
 pub mod user_messages;
 pub mod voice;
 pub mod voting;
