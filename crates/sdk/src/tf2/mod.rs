@@ -15,6 +15,7 @@ pub mod game_events;
 pub mod game_rules;
 pub mod gc;
 pub mod host_timescale;
+pub mod item_schema;
 pub mod overlays;
 pub mod ragdolls;
 pub mod respawn;

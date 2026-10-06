@@ -1,10 +1,11 @@
-//! TF2 player damage hooks with owned, editable damage arguments.
+//! TF2 damage hooks with owned, editable damage arguments: players', and
+//! any other entity's.
 //!
 //! Install for each distinct player class (for example on player activation;
-//! bots can have a different vtable). Hooks cover that class, including
-//! subsequently connected players of the same class, until
-//! removed or the plugin unloads. As with other Metamod hooks, they stop
-//! calling handlers while the plugin is paused.
+//! bots can have a different vtable), or entity class. Hooks cover that
+//! class, including subsequently connected players or created entities of
+//! the same class, until removed or the plugin unloads. As with other
+//! Metamod hooks, they stop calling handlers while the plugin is paused.
 
 #[cfg(test)]
 #[path = "tests/damage_hooks.rs"]
@@ -56,6 +57,8 @@ pub enum DamageAction {
 pub enum DamageHookError {
 	#[error("damage hooks require a TF2 server and a CTFPlayer entity")]
 	NotTfPlayer,
+	#[error("entity damage hooks require a TF2 server")]
+	NotTf2,
 	#[error(transparent)]
 	Hook(#[from] HookError),
 }
@@ -89,7 +92,7 @@ impl Handler<TakeDamage> for DamageRoute {
 		// SAFETY: The hook dispatcher runs on the main thread during one live
 		// engine invocation. Binding was supplied during plugin integration.
 		let server = unsafe { route.binding.server(&scope) };
-		// SAFETY: The class hook supplies a live player, a const damage
+		// SAFETY: The class hook supplies a live entity, a const damage
 		// reference and the matching original virtual method.
 		unsafe {
 			dispatch(
@@ -143,6 +146,44 @@ struct RoutedDamage {
 }
 
 impl MetamodApi<'_> {
+	/// Hooks incoming damage on this TF2 entity's class, before the class's
+	/// `OnTakeDamage` handles it, as [`DamageStage::Incoming`]. For an entity
+	/// other than a player, that is the damage that pushes a `prop_ragdoll` or
+	/// breaks a prop; the game skips it for entities that take no damage
+	/// (`DAMAGE_NO`), and radius damage also for those out of its sight.
+	///
+	/// `entity` must come from this server, and `binding` must describe the
+	/// same running server. Returns a removable hook ID. Install on each
+	/// distinct class to watch. A player's class is the same hook as
+	/// [`Self::hook_player_damage`]'s incoming stage: repeating a class
+	/// returns `HookError::AlreadyInstalled`; removing its ID allows
+	/// replacement.
+	///
+	/// Installation is as for [`Self::hook_player_damage`], and so is what
+	/// [`DamageAction::Apply`] does.
+	pub fn hook_entity_damage(
+		self,
+		entity: Entity<'_>,
+		binding: ServerBinding,
+		callback: DamageFn,
+	) -> Result<HookId, DamageHookError> {
+		if binding.game() != Game::TeamFortress2 {
+			return Err(DamageHookError::NotTf2);
+		}
+
+		// SAFETY: Every TF2 entity's primary vtable has `OnTakeDamage` at the
+		// slot, which belongs to `CBaseEntity`, and the entity is live. Its vtable
+		// belongs to the server DLL, which outlives this plugin.
+		unsafe {
+			self.install_damage(
+				NonNull::new(entity.as_ptr()).unwrap(),
+				binding,
+				DamageStage::Incoming,
+				callback,
+			)
+		}
+	}
+
 	/// Hooks incoming or already-scaled damage on this TF2 player's class.
 	///
 	/// `player` must come from this server, and `binding` must describe the
@@ -175,9 +216,37 @@ impl MetamodApi<'_> {
 		{
 			return Err(DamageHookError::NotTfPlayer);
 		}
+
+		// SAFETY: CTFPlayer's primary vtable has these TF2 slots, and the player
+		// is live. Its vtable belongs to the server DLL, which outlives this
+		// plugin.
+		unsafe {
+			self.install_damage(
+				NonNull::new(player.as_ptr()).unwrap(),
+				binding,
+				stage,
+				callback,
+			)
+		}
+	}
+
+	/// Hooks the stage's method on the class of `object`.
+	///
+	/// # Safety
+	///
+	/// `object` must be live, and its primary vtable must hold a function of
+	/// the signature [`TakeDamage`] at the stage's slot, and stay loaded until
+	/// Metamod unloads the plugin.
+	unsafe fn install_damage(
+		self,
+		object: NonNull<sys::CBaseEntity>,
+		binding: ServerBinding,
+		stage: DamageStage,
+		callback: DamageFn,
+	) -> Result<HookId, DamageHookError> {
 		// SAFETY: Every live CBaseEntity starts with its primary vtable pointer,
 		// of which only the address is used.
-		let vtable = unsafe { vtable_pointer::<c_void>(player.as_ptr()) }.addr();
+		let vtable = unsafe { vtable_pointer::<c_void>(object.as_ptr()) }.addr();
 		if ROUTES.iter().any(|route| {
 			route.state.get().is_some_and(|state| {
 				state.vtable == vtable && state.stage == stage && self.has_hook(state.hook)
@@ -194,10 +263,9 @@ impl MetamodApi<'_> {
 					.is_none_or(|state| !self.has_hook(state.hook))
 			})
 			.ok_or(HookError::TooManyFunctions)?;
-		let target = HookTarget::class_of(NonNull::new(player.as_ptr()).unwrap());
-		// SAFETY: CTFPlayer's primary vtable has these TF2 slots and the
-		// signature int (CTakeDamageInfo const &), on both supported ABIs.
-		// Its vtable belongs to the server DLL, which outlives this plugin.
+		let target = HookTarget::class_of(object);
+		// SAFETY: As the caller promises, the vtable has the signature
+		// int (CTakeDamageInfo const &) at the slot, on both supported ABIs.
 		let original = unsafe { self.original_function(stage.function(), target) }?;
 		// SAFETY: The same vtable and signature as checked for original above.
 		let hook = unsafe { self.add_hook(stage.function(), target, HookTiming::Pre, route) }?;
@@ -232,7 +300,7 @@ unsafe fn dispatch(
 		DamageAction::Block => HookAction::Supersede(0),
 
 		DamageAction::Apply => {
-			// SAFETY: Original matches the target method's ABI. Player lifetime
+			// SAFETY: Original matches the target method's ABI. Victim lifetime
 			// is callback-scoped, and the copy lives through the synchronous
 			// call. The Server contract guarantees only deferred removal.
 			let result = unsafe { original(victim.as_ptr(), event.info.as_ptr()) };

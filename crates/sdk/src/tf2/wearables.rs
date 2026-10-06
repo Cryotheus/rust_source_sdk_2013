@@ -734,6 +734,46 @@ impl<'s> Wearable<'s> {
 		Ok(ItemDefinitionIndex::new(index))
 	}
 
+	/// Creates a wearable from its economy definition through native item
+	/// generation, as [`PlayerWearables::give`] does, at `origin`, but equips
+	/// it on no player: it has no owner, no parent and no player's class, so it
+	/// takes the definition's base model, if any, as an item does before it is
+	/// equipped.
+	///
+	/// Such a wearable shows nothing of its own on a client, which draws an
+	/// economy item only on its owner. Its attributes still reach clients
+	/// wherever it is transmitted, near its origin or its parent's, and with it
+	/// what the game reads from an entity's owner when the entity is no economy
+	/// item itself, such as the `ItemTintColor` material proxy's paint.
+	///
+	/// Fails with [`WearableError::CreationFailedNative`] if native generation
+	/// cannot create the definition, such as one the running schema lacks, and
+	/// with [`WearableError::NotWearable`] if it creates no TF2 wearable, such
+	/// as a weapon, which is deleted.
+	///
+	/// # Safety
+	///
+	/// The definition's constructor, spawn and activation, and everything they
+	/// reach, must uphold [`Server::new`]'s no-immediate-deletion contract.
+	#[doc(alias("SpawnItem"))]
+	pub unsafe fn generate(
+		server: Server<'s>,
+		definition: ItemDefinitionIndex,
+		origin: Vector,
+	) -> Result<Self, WearableError> {
+		let tools = server.server_tools()?;
+
+		// SAFETY: The caller vouches for the native creation path. The generator
+		// initializes the item view before `Spawn` and `Activate`, and returns a
+		// newly created entity, which is not spawned again.
+		let entity =
+			unsafe { Entity::from_raw(weapons::generate_item(server, definition, origin, None)?) };
+
+		Self::new(server, entity).inspect_err(|_| {
+			let _ = tools.remove(entity);
+		})
+	}
+
 	/// The wearable's entity.
 	pub const fn entity(self) -> Entity<'s> {
 		self.entity

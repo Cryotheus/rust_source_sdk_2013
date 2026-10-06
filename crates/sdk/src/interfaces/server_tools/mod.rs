@@ -8,6 +8,7 @@ use crate::NotThreadSafe;
 use crate::entities::health::HealthInput;
 use crate::entities::{Entity, EntityHandle, HammerId, ProtectedEntity, TeleportError};
 use crate::inputs::{self, InputError, InputValue};
+use crate::interfaces::TempEntities;
 use crate::math::{QAngle, Vector};
 use crate::server::{Game, Interface, Module, Server};
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr, cstring_from_buffer};
@@ -570,6 +571,18 @@ impl<'s> ServerTools<'s> {
 		unsafe {
 			vcall!(self.as_ptr() => IServerTools_SetKeyValue(entity.as_ptr(), key.as_ptr(), value.as_ptr()))
 		}
+	}
+
+	/// The game's temporary entities, which send effects to clients once, or
+	/// `None` if the game has none.
+	#[doc(alias("GetTempEntsSystem"))]
+	pub fn temp_entities(self) -> Option<TempEntities<'s>> {
+		// SAFETY: `Server::new` guarantees the interface is live.
+		let raw = unsafe { vcall!(self.as_ptr() => IServerTools_GetTempEntsSystem()) };
+
+		// SAFETY: The game returns null or its `te`, a static of the game DLL,
+		// which stays loaded for `'s`, and the caller is on the main thread.
+		NonNull::new(raw).map(|raw| unsafe { TempEntities::from_raw(raw) })
 	}
 
 	/// Moves an entity through Source's `Teleport` method, which also updates

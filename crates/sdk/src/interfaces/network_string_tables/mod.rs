@@ -35,6 +35,13 @@ pub const DOWNLOADABLES: &CStr = c"downloadables";
 /// server: check the room left before precaching models while a level runs.
 pub const MODEL_PRECACHE: &CStr = c"modelprecache";
 
+/// The name of the table listing the precached particle systems, whose
+/// indices clients receive particle effects by.
+///
+/// The game's `PrecacheParticleSystem` adds to it; TF2 precaches the systems
+/// its players and weapons use with every level.
+pub const PARTICLE_EFFECT_NAMES: &CStr = c"ParticleEffectNames";
+
 /// The name of the table listing the precached sounds, which clients load
 /// before playing them.
 pub const SOUND_PRECACHE: &CStr = c"soundprecache";
@@ -264,6 +271,20 @@ impl<'s> NetworkStringTables<'s> {
 	#[doc(alias("GetNumTables"))]
 	pub fn len(self) -> usize {
 		usize::try_from(self.count()).unwrap_or(0)
+	}
+
+	/// The index of a precached particle system, such as TF2's
+	/// `drg_fiery_death`, in the [`PARTICLE_EFFECT_NAMES`] table, which
+	/// [`TempEntities::dispatch_particle_effect`] plays it by, or `None` if the
+	/// level did not precache it.
+	///
+	/// Unlike the game's `GetParticleSystemIndex`, a missing system is not
+	/// reported as index 0.
+	///
+	/// [`TempEntities::dispatch_particle_effect`]: crate::interfaces::TempEntities::dispatch_particle_effect
+	#[doc(alias("GetParticleSystemIndex"))]
+	pub fn particle_system_index(self, name: &CStr) -> Option<usize> {
+		self.find(PARTICLE_EFFECT_NAMES)?.find(name)
 	}
 }
 
