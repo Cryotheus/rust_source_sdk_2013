@@ -28,6 +28,11 @@ use std::mem::{MaybeUninit, transmute};
 pub type SetOwnerEntityFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, owner: *mut sys::CBaseEntity);
 
+/// `CBaseEntity::Spawn`, which the game calls once an entity is created and
+/// given its keys, and, for a player, each time they spawn.
+#[doc(alias("Spawn"))]
+pub type SpawnFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
+
 /// `CBaseEntity::Teleport`, which moves an entity and sets each of its origin,
 /// angles, and velocity that is not null.
 #[doc(alias("Teleport"))]
@@ -57,10 +62,13 @@ const _: () = {
 	assert!(ACCEPT_INPUT_SLOT == vtable_slot!(Vtable, CBaseEntity_AcceptInput));
 	assert!(GET_DATA_DESC_MAP_SLOT == vtable_slot!(Vtable, CBaseEntity_GetDataDescMap));
 	assert!(SET_OWNER_ENTITY_SLOT == vtable_slot!(Vtable, CBaseEntity_SetOwnerEntity));
+	assert!(SPAWN_SLOT == vtable_slot!(Vtable, CBaseEntity_Spawn));
 
 	// No method whose declaration depends on the game's defines precedes
-	// `SetOwnerEntity`, as the assertions below on `IsNextBot` describe.
+	// `SetOwnerEntity` or `Spawn`, as the assertions below on `IsNextBot`
+	// describe.
 	assert!(SET_OWNER_ENTITY_SLOT < vtable_slot!(Vtable, CBaseEntity_IsNextBot));
+	assert!(SPAWN_SLOT < vtable_slot!(Vtable, CBaseEntity_IsNextBot));
 };
 
 // Of the virtual methods `CBaseEntity` declares before `Teleport`, only
@@ -93,10 +101,12 @@ const _: () = {
 	assert!(SDK2013_TELEPORT_SLOT == SDK2013_NEXT_BOT_TELEPORT_SLOT - 1);
 };
 
-// The generated `SetOwnerEntity` and `Teleport` have the hand-written
-// signatures.
+// The generated `SetOwnerEntity`, `Spawn` and `Teleport` have the
+// hand-written signatures.
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> SetOwnerEntityFn =
 	|vtable| vtable.CBaseEntity_SetOwnerEntity;
+
+const _: fn(&sys::CBaseEntity__bindgen_vtable) -> SpawnFn = |vtable| vtable.CBaseEntity_Spawn;
 
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TeleportFn = |vtable| vtable.CBaseEntity_Teleport;
 
@@ -374,6 +384,17 @@ pub const SDK2013_TELEPORT_SLOT: usize = cfg_select! {
 pub const SET_OWNER_ENTITY_SLOT: usize = cfg_select! {
 	target_os = "windows" => 18,
 	target_os = "linux" => 19,
+};
+
+/// `CBaseEntity::Spawn` in the primary vtable. No virtual method a game
+/// declares under its own defines precedes it, so the slot is the same for
+/// every game. Derived from `game/server/baseentity.h` with the MSVC ABI model
+/// on Windows and the Itanium ABI model on Linux, and verified against
+/// SourceMod's `sdkhooks.games/engine.ep2v.txt` gamedata.
+#[doc(alias("Spawn"))]
+pub const SPAWN_SLOT: usize = cfg_select! {
+	target_os = "windows" => 24,
+	target_os = "linux" => 25,
 };
 
 /// `CBaseEntity::Teleport` in TF2's game DLL, built with `TF_DLL` and

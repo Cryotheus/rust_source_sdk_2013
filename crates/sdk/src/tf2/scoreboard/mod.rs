@@ -84,8 +84,13 @@
 //!   fires the event right after resetting every player's scores for
 //!   `mp_restartgame`, a tournament restart, or the end of the wait for
 //!   players, before any think (`teamplayroundbased_gamerules.cpp:3235-3282`).
-//! - From a [`GameEventId::PlayerActivate`] listener. The engine creates,
-//!   spawns, and activates a player in one call, before any think. The game
+//!   A hook after each player's `CTFPlayer::ResetScores`, at
+//!   [`RESET_SCORES_SLOT`](sdk_raw::tf2::scoreboard::RESET_SCORES_SLOT), covers
+//!   the same resets one player at a time, and also Mann vs. Machine's.
+//! - From a [`GameEventId::PlayerActivate`] listener, or a hook after the
+//!   game's `IServerGameClients::ClientActive`, which spawns the player
+//!   (`tf_client.cpp:101-108`). The engine creates, spawns, and activates a
+//!   player in one call, before any think. The game
 //!   never clears a slot's element of `m_iTotalScore` when its player leaves,
 //!   so a newcomer's first think compares against whoever last had the slot.
 //!   A newcomer wears no items yet then, so vanilla's report of that
@@ -112,7 +117,7 @@
 //!   `m_iTotalScore` at 0, and so reports each player's whole Score at its
 //!   first think.
 //! - Mann vs. Machine's population manager resets players' scores without an
-//!   event.
+//!   event, though through each player's `ResetScores`, which a hook sees.
 //! - Another plugin's `player_score_changed` listener that runs after the
 //!   rebasing one and changes statistics leaves its change to be reported.
 //!
