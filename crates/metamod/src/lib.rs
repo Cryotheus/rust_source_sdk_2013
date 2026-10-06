@@ -5,6 +5,10 @@ mod context;
 pub mod hook;
 mod plugin;
 
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod airblast_hooks;
+
 #[cfg(feature = "sdk")]
 mod client_hooks;
 
