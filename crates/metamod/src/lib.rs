@@ -34,6 +34,10 @@ pub mod observer_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod placement_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod respawn_hooks;
 
 #[cfg(feature = "tf2")]
@@ -50,6 +54,10 @@ pub mod sound_hooks;
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod touch_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod team_hooks;
 
 #[cfg(feature = "tf2")]
 mod vote_hooks;

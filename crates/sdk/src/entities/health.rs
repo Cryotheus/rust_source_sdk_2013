@@ -471,7 +471,7 @@ impl<'s> Entity<'s> {
 	/// clients if the entity's class networks it, as
 	/// `CBaseEntity::NetworkStateChanged` does. Server-only entities have
 	/// nothing to record.
-	fn network_state_changed(self, engine: ValveEngine<'_>, offset: usize) {
+	pub(super) fn network_state_changed(self, engine: ValveEngine<'_>, offset: usize) {
 		let Some(edict) = self.edict() else {
 			return;
 		};

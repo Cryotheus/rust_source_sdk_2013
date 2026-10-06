@@ -4,9 +4,11 @@
 //! server-only ones. Properties use the native entity interfaces instead of
 //! key values, and networked variables are reached through
 //! [`NetProp`](crate::datatables::NetProp). Health, life state and damage
-//! modes are in [`health`], and think contexts in [`think`].
+//! modes are in [`health`], solid flags in [`solid`], and think contexts in
+//! [`think`].
 
 pub mod health;
+pub mod solid;
 pub mod think;
 
 #[cfg(test)]
