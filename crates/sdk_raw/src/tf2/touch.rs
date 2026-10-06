@@ -57,7 +57,9 @@ impl TouchVtables {
 	/// run-time type information. Returns `None` if there is no such table or
 	/// more than one.
 	///
-	/// The table is only the class's own: classes deriving from it have
+	/// The search does not check that the class derives from `CBaseEntity`,
+	/// so that the slot holds `Touch`: any class with that many virtual methods
+	/// passes. The table is only the class's own: classes deriving from it have
 	/// tables of their own. The address is metadata from the snapshot: it does
 	/// not keep the module loaded, and the table is the class's only while the
 	/// module that [`Self::load`] snapshot stays loaded.

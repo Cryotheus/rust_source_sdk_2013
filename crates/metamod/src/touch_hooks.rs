@@ -180,16 +180,24 @@ impl MetamodApi<'_> {
 	/// accepted, not that the next touch will be intercepted at both stages.
 	/// KHook polls every 5 ms and can retry while a detour is busy, so touches
 	/// shortly after installation can reach only one stage.
-	pub fn hook_touches(
+	///
+	/// # Safety
+	///
+	/// `target`'s class must derive from `CBaseEntity` through its primary
+	/// bases, as the game's entity classes do, so that its vtable holds `Touch`
+	/// at [`TOUCH_SLOT`] and its instances are entities. The search only checks
+	/// that the slot holds code, which any class with enough virtual methods
+	/// has.
+	pub unsafe fn hook_touches(
 		self,
 		target: TouchTarget<'_>,
 		binding: ServerBinding,
 		callback: TouchFn,
 	) -> Result<TouchHooks, HookError> {
-		// SAFETY: The SDK matched the class's primary RTTI vtable and verified
-		// an executable `Touch` slot, whose ABI comes from the generated
-		// `CBaseEntity` declaration. The game module stays loaded until Metamod
-		// unloads this plugin, and the target holds no entity.
+		// SAFETY: The target is a primary vtable from TF2's game module, whose
+		// class the caller promises is an entity class, so the slot holds its
+		// `Touch`. The game module stays loaded until Metamod unloads this
+		// plugin, and the target holds no entity.
 		unsafe { self.install_touches(target.as_ptr(), binding, callback) }
 	}
 

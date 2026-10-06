@@ -19,9 +19,12 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-/// The primary vtable of an entity class in this server's game module,
-/// through which the game calls `CBaseEntity::Touch` on the class's entities,
-/// but not on those of the classes deriving from it.
+/// The primary vtable of a C++ class in this server's game module. For an
+/// entity class, the game calls `CBaseEntity::Touch` through it on the class's
+/// entities, but not on those of the classes deriving from it.
+///
+/// The search finds any polymorphic class by name: hooking it as an entity
+/// class is only sound for one deriving from `CBaseEntity`.
 #[derive(Debug, Clone, Copy)]
 pub struct TouchTarget<'s> {
 	vtable: NonNull<*mut c_void>,
@@ -87,9 +90,10 @@ impl<'s> TouchTargets<'s> {
 		})
 	}
 
-	/// The vtable of the global C++ entity class named `class`, such as
-	/// `CTFAmmoPack` for `tf_ammo_pack`, from its run-time type information.
-	/// Returns `None` if the module has no such class, or more than one.
+	/// The vtable of the global C++ class named `class`, such as `CTFAmmoPack`
+	/// for `tf_ammo_pack`, from its run-time type information. Returns `None` if
+	/// the module has no such class, or more than one. Whether the class is an
+	/// entity class is the caller's to know.
 	pub fn find(&self, class: &str) -> Option<TouchTarget<'s>> {
 		self.vtables.find(class).map(|vtable| TouchTarget {
 			vtable,
