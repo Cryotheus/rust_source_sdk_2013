@@ -1,0 +1,433 @@
+//! TF2's game rules (`CTFGameRules`), which run its rounds: the game rules
+//! object and its networked variables, such as the round's state, and the
+//! vtable of its class, to hook.
+//!
+//! The game creates one game rules object as each level loads, and deletes it
+//! as the level shuts down, so get [`GameRules`] again in each callback.
+//! Clients receive its variables through the `tf_gamerules` entity, of the
+//! server class `CTFGameRulesProxy`, whose send table nests the game rules'
+//! own tables, `DT_TeamplayRoundBasedRules` and `DT_TFGameRules`, behind
+//! proxies that give the game rules object instead of the entity. A
+//! [`NetProp`] of the entity's class therefore finds those variables
+//! [relocated](NetPropError::Relocated). [`GameRules`] calls the proxies as
+//! the engine does when it sends the entity, and reads the variables from the
+//! object they give.
+
+#[cfg(test)]
+#[path = "../tests/tf2/game_rules.rs"]
+mod tests;
+
+use crate::NotThreadSafe;
+use crate::datatables::{
+	NetProp, NetPropError, NetVar, PropKind, SendProp, SendTable, ServerClass, StandardSendProxies,
+};
+
+use crate::entities::Entity;
+use crate::{Game, InterfaceError, Server};
+use sdk_raw::datatables::call_table_proxy;
+
+use sdk_raw::tf2::game_rules::{
+	GR_STATE_BETWEEN_RNDS, GR_STATE_BONUS, GR_STATE_GAME_OVER, GR_STATE_INIT, GR_STATE_PREGAME,
+	GR_STATE_PREROUND, GR_STATE_RESTART, GR_STATE_RND_RUNNING, GR_STATE_STALEMATE,
+	GR_STATE_STARTGAME, GR_STATE_TEAM_WIN, find_game_rules_vtable,
+};
+
+use sdk_raw::util;
+use std::ffi::{CStr, c_int, c_void};
+use std::marker::PhantomData;
+use std::ptr::NonNull;
+
+/// The server class of the entity that networks the game rules.
+const PROXY_CLASS: &CStr = c"CTFGameRulesProxy";
+
+/// The class name of the entity that networks the game rules.
+const PROXY_ENTITY: &CStr = c"tf_gamerules";
+
+/// The send table of [`PROXY_CLASS`].
+const PROXY_TABLE: &CStr = c"DT_TFGameRulesProxy";
+
+/// The property of [`PROXY_TABLE`] nesting `CTFGameRules`' table, and that
+/// table.
+const RULES_DATA: (&CStr, &CStr) = (c"tf_gamerules_data", c"DT_TFGameRules");
+
+/// The property of [`PROXY_TABLE`]'s base table nesting
+/// `CTeamplayRoundBasedRules`' table, and that table.
+const ROUND_RULES_DATA: (&CStr, &CStr) = (
+	c"teamplayroundbased_gamerules_data",
+	c"DT_TeamplayRoundBasedRules",
+);
+
+/// TF2's game rules object, as the proxies of its networked tables give it.
+///
+/// It stays valid for the callback scope `'s`, since the game only deletes it
+/// as a level shuts down. Do not get it from callbacks the game runs while it
+/// creates or deletes the game rules, such as entity callbacks during a
+/// level's shutdown.
+#[doc(alias("CTFGameRules", "TFGameRules"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameRules<'s> {
+	/// The game rules as `CTFGameRules`, which [`Self::rules_table`]
+	/// describes.
+	rules: NonNull<c_void>,
+
+	/// The game rules as `CTeamplayRoundBasedRules`, which
+	/// [`Self::round_rules_table`] describes.
+	round_rules: NonNull<c_void>,
+
+	rules_table: SendTable<'s>,
+	round_rules_table: SendTable<'s>,
+	proxies: StandardSendProxies<'s>,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl<'s> GameRules<'s> {
+	/// Finds the game rules through the `tf_gamerules` entity.
+	///
+	/// Fails if the server does not run TF2, if the game rules' send tables
+	/// are not nested as TF2 nests them, if no `tf_gamerules` entity exists,
+	/// as before a level's entities are created, or if its proxies give no
+	/// game rules.
+	pub fn get(server: Server<'s>) -> Result<Self, GameRulesError> {
+		if server.game() != Game::TeamFortress2 {
+			return Err(GameRulesError::WrongGame);
+		}
+
+		let dll = server.server_game_dll()?;
+		let proxies = dll
+			.standard_send_proxies()
+			.ok_or(NetPropError::NoStandardProxies)?;
+
+		let class = dll
+			.server_class(PROXY_CLASS)
+			.ok_or(GameRulesError::UnexpectedTables)?;
+
+		let table = class
+			.table()
+			.filter(|table| table.name() == PROXY_TABLE)
+			.ok_or(GameRulesError::UnexpectedTables)?;
+
+		// The base class's table, `DT_TeamplayRoundBasedRulesProxy`, at the
+		// start of the entity.
+		let base = nested(table, c"baseclass")
+			.filter(|&base| base.offset() == 0 && proxies.is_direct(base))
+			.and_then(SendProp::data_table)
+			.ok_or(GameRulesError::UnexpectedTables)?;
+
+		let (rules_prop, rules_table) = relocating(table, RULES_DATA, proxies)?;
+		let (round_rules_prop, round_rules_table) = relocating(base, ROUND_RULES_DATA, proxies)?;
+		let entity = proxy_entity(server, class)?;
+		let edict = entity.edict().ok_or(GameRulesError::NoProxyEntity)?;
+		let object = entity.as_ptr().cast::<c_void>().cast_const();
+
+		let call = |prop: SendProp<'_>| {
+			// SAFETY: The property nests one of the game rules' tables at offset 0
+			// of the live proxy entity, whose class's table holds it directly or
+			// through its base class's table at offset 0, so the entity is both
+			// the structure holding the property and the nested structure, and its
+			// edict index is its object ID. This runs on the main thread
+			// (`Server::new`).
+			let rules = unsafe { call_table_proxy(prop.as_ptr(), object, object, edict.index()) };
+
+			rules
+				.and_then(NonNull::new)
+				.ok_or(GameRulesError::NoGameRules)
+		};
+
+		Ok(Self {
+			rules: call(rules_prop)?,
+			round_rules: call(round_rules_prop)?,
+			rules_table,
+			round_rules_table,
+			proxies,
+			_not_thread_safe: PhantomData,
+		})
+	}
+
+	/// The game rules object, a `CTFGameRules`, which starts with its primary
+	/// vtable.
+	pub const fn as_ptr(self) -> *mut c_void {
+		self.rules.as_ptr()
+	}
+
+	/// Whether the round is in its setup time, before attackers may leave
+	/// their spawn.
+	#[doc(alias("m_bInSetup"))]
+	pub fn is_in_setup(self) -> Result<bool, GameRulesError> {
+		self.read(c"m_bInSetup")
+	}
+
+	/// Whether the game is waiting for players before its first round, as
+	/// `mp_waitingforplayers_time` makes it.
+	#[doc(alias("m_bInWaitingForPlayers"))]
+	pub fn is_waiting_for_players(self) -> Result<bool, GameRulesError> {
+		self.read(c"m_bInWaitingForPlayers")
+	}
+
+	/// Reads a networked variable of the game rules by name, as stored, such
+	/// as `m_nRoundsPlayed`, from `DT_TeamplayRoundBasedRules`, or else from
+	/// `DT_TFGameRules`, searching each table and the tables nested within it
+	/// depth first.
+	///
+	/// Fails if neither table has the variable, if it cannot be addressed, or
+	/// if it is not a single value stored
+	/// [compatibly](crate::datatables::Storage::is_compatible) with `T`.
+	pub fn read<T: NetVar>(self, name: &CStr) -> Result<T, GameRulesError> {
+		let (prop, object) = match NetProp::resolve(self.round_rules_table, name, self.proxies) {
+			Err(NetPropError::NotFound { .. }) => (
+				NetProp::resolve(self.rules_table, name, self.proxies)?,
+				self.rules,
+			),
+
+			found => (found?, self.round_rules),
+		};
+
+		// SAFETY: The object is the one the proxy of the table's property gave,
+		// so the table describes it, and the game only deletes it as the level
+		// shuts down, after `'s`. The game initializes the variables it
+		// networks, which the engine reads to send them.
+		Ok(unsafe { prop.get_at(object) }?)
+	}
+
+	/// The state of the round (`m_iRoundState`).
+	///
+	/// Fails with [`GameRulesError::UnknownRoundState`] for a value
+	/// [`RoundState`] does not know.
+	#[doc(alias("m_iRoundState", "State_Get"))]
+	pub fn round_state(self) -> Result<RoundState, GameRulesError> {
+		let raw = self.read::<c_int>(c"m_iRoundState")?;
+
+		RoundState::from_raw(raw).ok_or(GameRulesError::UnknownRoundState(raw))
+	}
+}
+
+/// Why TF2's game rules could not be found or read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum GameRulesError {
+	/// The server does not run TF2.
+	#[error("game rules access requires Team Fortress 2")]
+	WrongGame,
+
+	/// The game does not export an interface the game rules are found
+	/// through.
+	#[error(transparent)]
+	Interface(#[from] InterfaceError),
+
+	/// The game's networked classes do not nest the game rules' send tables as
+	/// TF2's do.
+	#[error("the game rules' send tables are not nested as TF2 nests them")]
+	UnexpectedTables,
+
+	/// No `tf_gamerules` entity exists, as before a level's entities are
+	/// created.
+	#[error("no `tf_gamerules` entity exists")]
+	NoProxyEntity,
+
+	/// The `tf_gamerules` entity's proxies gave no game rules.
+	#[error("the game has no game rules object")]
+	NoGameRules,
+
+	/// A networked variable could not be found or read.
+	#[error(transparent)]
+	NetProp(#[from] NetPropError),
+
+	/// The round's state is a value [`RoundState`] does not know.
+	#[error("the game rules hold an unknown round state, {0}")]
+	UnknownRoundState(c_int),
+}
+
+/// The vtable of TF2's game rules class, `CTFGameRules`, in the game server
+/// module, which [`game_rules_vtable`] finds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GameRulesVtable<'s> {
+	vtable: NonNull<*mut c_void>,
+	_scope: PhantomData<&'s Server<'s>>,
+}
+
+impl GameRulesVtable<'_> {
+	/// The vtable's address in the game module, which stays loaded until the
+	/// server shuts down.
+	pub const fn as_ptr(self) -> NonNull<*mut c_void> {
+		self.vtable
+	}
+}
+
+/// Why the vtable of TF2's game rules class could not be found.
+#[derive(Debug, thiserror::Error)]
+pub enum GameRulesVtableError {
+	/// The server does not run TF2.
+	#[error("the game rules vtable is only known for Team Fortress 2")]
+	WrongGame,
+
+	/// The game module could not be read.
+	#[error("the game module could not be inspected")]
+	Image(#[from] std::io::Error),
+
+	/// The game module is not an executable image the vtable search supports.
+	#[error("the game module has an unsupported executable image")]
+	InvalidImage,
+
+	/// The game module's run-time type information has no unique primary
+	/// vtable of `CTFGameRules` with a function at `CleanUpMap`'s slot, or, on
+	/// Linux, the module's symbols name another function there.
+	#[error("the game module has no unique vtable of `CTFGameRules`")]
+	NotFound,
+}
+
+impl From<util::Error> for GameRulesVtableError {
+	fn from(error: util::Error) -> Self {
+		match error {
+			util::Error::InvalidImage => Self::InvalidImage,
+			util::Error::Io(error) => Self::Image(error),
+		}
+	}
+}
+
+/// The state of TF2's round, as the game rules track it
+/// (`gamerules_roundstate_t`).
+#[doc(alias("gamerules_roundstate_t"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum RoundState {
+	/// The game rules were just created.
+	#[doc(alias("GR_STATE_INIT"))]
+	Init = GR_STATE_INIT,
+
+	/// No player is ready yet, so the game has not started.
+	#[doc(alias("GR_STATE_PREGAME"))]
+	Pregame = GR_STATE_PREGAME,
+
+	/// Players are ready, and the first round is set up a tick later.
+	#[doc(alias("GR_STATE_STARTGAME"))]
+	StartGame = GR_STATE_STARTGAME,
+
+	/// A round was set up, and players wait to move.
+	#[doc(alias("GR_STATE_PREROUND"))]
+	Preround = GR_STATE_PREROUND,
+
+	/// A round is being played.
+	#[doc(alias("GR_STATE_RND_RUNNING"))]
+	Running = GR_STATE_RND_RUNNING,
+
+	/// A team won the round.
+	#[doc(alias("GR_STATE_TEAM_WIN"))]
+	TeamWin = GR_STATE_TEAM_WIN,
+
+	/// The round is restarting.
+	#[doc(alias("GR_STATE_RESTART"))]
+	Restart = GR_STATE_RESTART,
+
+	/// Sudden death, or an arena round.
+	#[doc(alias("GR_STATE_STALEMATE"))]
+	Stalemate = GR_STATE_STALEMATE,
+
+	/// The game ended, as the map is about to change.
+	#[doc(alias("GR_STATE_GAME_OVER"))]
+	GameOver = GR_STATE_GAME_OVER,
+
+	/// A bonus round.
+	#[doc(alias("GR_STATE_BONUS"))]
+	Bonus = GR_STATE_BONUS,
+
+	/// Players ready up, between Mann vs. Machine's waves or before a
+	/// matchmade game.
+	#[doc(alias("GR_STATE_BETWEEN_RNDS"))]
+	BetweenRounds = GR_STATE_BETWEEN_RNDS,
+}
+
+impl RoundState {
+	/// Every state, in the game's order.
+	pub const ALL: [Self; 11] = [
+		Self::Init,
+		Self::Pregame,
+		Self::StartGame,
+		Self::Preround,
+		Self::Running,
+		Self::TeamWin,
+		Self::Restart,
+		Self::Stalemate,
+		Self::GameOver,
+		Self::Bonus,
+		Self::BetweenRounds,
+	];
+
+	/// The state the game stores as `raw`, or `None` for any other value.
+	pub const fn from_raw(raw: c_int) -> Option<Self> {
+		match raw {
+			GR_STATE_INIT => Some(Self::Init),
+			GR_STATE_PREGAME => Some(Self::Pregame),
+			GR_STATE_STARTGAME => Some(Self::StartGame),
+			GR_STATE_PREROUND => Some(Self::Preround),
+			GR_STATE_RND_RUNNING => Some(Self::Running),
+			GR_STATE_TEAM_WIN => Some(Self::TeamWin),
+			GR_STATE_RESTART => Some(Self::Restart),
+			GR_STATE_STALEMATE => Some(Self::Stalemate),
+			GR_STATE_GAME_OVER => Some(Self::GameOver),
+			GR_STATE_BONUS => Some(Self::Bonus),
+			GR_STATE_BETWEEN_RNDS => Some(Self::BetweenRounds),
+			_ => None,
+		}
+	}
+
+	/// The value the game stores for the state, as `m_iRoundState` holds it.
+	pub const fn to_raw(self) -> c_int {
+		self as c_int
+	}
+}
+
+/// Finds the vtable of TF2's game rules class, `CTFGameRules`, through the
+/// game server module's run-time type information, which needs no game rules
+/// object, so no level needs to be loaded.
+///
+/// Snapshots the whole module, so call it once, such as while loading.
+pub fn game_rules_vtable(server: Server<'_>) -> Result<GameRulesVtable<'_>, GameRulesVtableError> {
+	if server.game() != Game::TeamFortress2 {
+		return Err(GameRulesVtableError::WrongGame);
+	}
+
+	// SAFETY: The game server factory is the game module's `CreateInterface`,
+	// and the server's callback scope keeps the module loaded while it is
+	// inspected (`Server::new` condition 1).
+	let vtable = unsafe { find_game_rules_vtable(server.game_server_factory().as_raw()) }?
+		.ok_or(GameRulesVtableError::NotFound)?;
+
+	Ok(GameRulesVtable {
+		vtable,
+		_scope: PhantomData,
+	})
+}
+
+/// The property of `table` itself named `name` that nests a table.
+fn nested<'s>(table: SendTable<'s>, name: &CStr) -> Option<SendProp<'s>> {
+	table
+		.props()
+		.find(|prop| prop.kind() == PropKind::DataTable && prop.name() == name)
+}
+
+/// The live `tf_gamerules` entity of `class`, skipping one a map's own is
+/// replacing.
+fn proxy_entity<'s>(
+	server: Server<'s>,
+	class: ServerClass<'s>,
+) -> Result<Entity<'s>, GameRulesError> {
+	let tools = server.server_tools()?;
+
+	std::iter::successors(tools.find_by_class_name(None, PROXY_ENTITY), |&entity| {
+		tools.find_by_class_name(Some(entity), PROXY_ENTITY)
+	})
+	.find(|entity| entity.server_class() == Some(class) && !entity.is_marked_for_deletion())
+	.ok_or(GameRulesError::NoProxyEntity)
+}
+
+/// The property of `table` named `data.0` nesting the table named `data.1`
+/// at offset 0 through a proxy that relocates it, and that table.
+fn relocating<'s>(
+	table: SendTable<'s>,
+	(prop, nested_table): (&CStr, &CStr),
+	proxies: StandardSendProxies<'s>,
+) -> Result<(SendProp<'s>, SendTable<'s>), GameRulesError> {
+	nested(table, prop)
+		.filter(|&prop| prop.offset() == 0 && !proxies.is_direct(prop))
+		.and_then(|prop| Some((prop, prop.data_table()?)))
+		.filter(|(_, table)| table.name() == nested_table)
+		.ok_or(GameRulesError::UnexpectedTables)
+}

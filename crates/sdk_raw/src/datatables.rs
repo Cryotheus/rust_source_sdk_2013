@@ -200,6 +200,46 @@ pub unsafe fn call_var_proxy(
 	Some(value)
 }
 
+/// Calls the property's data table proxy (`m_DataTableProxyFn`) as the
+/// engine does when it encodes the nested table, and returns the structure it
+/// gave, which is null when the table is not sent, or `None` if the property
+/// has no proxy.
+///
+/// The proxy is passed the property, `struct_base`, `data`, recipients that
+/// start with every client set, as the engine's do, and `object_id`. The
+/// recipients it leaves are discarded.
+///
+/// # Safety
+///
+/// - `prop` must point to a live `DPT_DataTable` `SendProp` of the loaded game
+///   DLL, and the call must be made on the server's main thread.
+/// - The arguments must be those the engine passes the proxy: `struct_base`
+///   must point to the structure the property's table describes, and `data`
+///   to the nested structure within it, both within a live object of a class
+///   the property belongs to, and `object_id` must be the object's edict
+///   index.
+#[doc(alias("SendTableProxyFn"))]
+pub unsafe fn call_table_proxy(
+	prop: *const sys::SendProp,
+	struct_base: *const c_void,
+	data: *const c_void,
+	object_id: c_int,
+) -> Option<*mut c_void> {
+	// SAFETY: The property is live, and its field is read without forming a
+	// reference.
+	let proxy = unsafe { (&raw const (*prop).m_DataTableProxyFn).read() }?;
+
+	// A bit vector of 255 clients in eight 32-bit words, all set, as
+	// `CSendProxyRecipients::SetAllRecipients` leaves it.
+	let mut recipients = sys::CSendProxyRecipients {
+		m_Bits: sys::__BindgenOpaqueArray([u32::MAX; 8]),
+	};
+
+	// SAFETY: The proxy is the game's own, called with the arguments the
+	// engine passes, as the caller promises, and the recipients are a local.
+	Some(unsafe { proxy(prop, struct_base, data, &raw mut recipients, object_id) })
+}
+
 /// Whether the property's data table proxy (`m_DataTableProxyFn`) passes the
 /// structure it is given through unchanged, so that the offsets of the
 /// nested table's properties are relative to the containing structure.
