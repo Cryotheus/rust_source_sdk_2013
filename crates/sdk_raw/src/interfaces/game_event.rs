@@ -4,7 +4,8 @@
 //! which the game event manager calls with the events it fires, and
 //! [`for_event_data`] walks an event's data with an `IGameEventVisitor2`
 //! implemented in Rust. [`VERSION`] is the version string of the game event
-//! manager, `IGameEventManager2`.
+//! manager, `IGameEventManager2`, and [`FireEventFn`] is the signature of its
+//! `FireEvent`, which hooks patch at [`FIRE_EVENT_SLOT`].
 
 use crate::abi::{CppDestructors, VTABLE_SLOT_SIZE, WChar};
 use crate::util::cstr::{borrow_cstr, borrow_wide_cstr};
@@ -13,6 +14,17 @@ use std::ffi::{CStr, c_char, c_float, c_int, c_void};
 use std::fmt::{Debug, Formatter};
 use std::mem::offset_of;
 use std::ptr::NonNull;
+
+/// `bool IGameEventManager2::FireEvent(IGameEvent *event, bool bDontBroadcast)`.
+///
+/// The manager takes ownership of the event, and frees it whether or not it
+/// fires it. It returns false for a null event, and for one it did not fire.
+#[doc(alias("FireEvent"))]
+pub type FireEventFn = unsafe extern "C" fn(
+	this: *mut sys::IGameEventManager2,
+	event: *mut sys::IGameEvent,
+	dont_broadcast: bool,
+) -> bool;
 
 /// `void IGameEventListener2::FireGameEvent(IGameEvent *event)`.
 type FireGameEventFn =
@@ -75,11 +87,21 @@ const _: () = {
 			IGameEventManager2_RemoveListener
 		) == destructor + 4
 	);
+	assert!(FIRE_EVENT_SLOT == destructor + 6);
 };
 
-// The generated binding has this signature.
+// The generated bindings have these signatures.
 const _: fn(&sys::IGameEventListener2__bindgen_vtable) -> FireGameEventFn =
 	|vtable| vtable.IGameEventListener2_FireGameEvent;
+
+const _: fn(&sys::IGameEventManager2__bindgen_vtable) -> FireEventFn =
+	|vtable| vtable.IGameEventManager2_FireEvent;
+
+/// The slot of [`FireEventFn`] in `IGameEventManager2`'s vtable.
+pub const FIRE_EVENT_SLOT: usize = vtable_slot!(
+	sys::IGameEventManager2__bindgen_vtable,
+	IGameEventManager2_FireEvent
+);
 
 /// The most bytes the engine serializes of one event.
 ///

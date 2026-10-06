@@ -18,6 +18,10 @@ pub mod death_hooks;
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod event_hooks;
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod gc_hooks;
 
 #[cfg(feature = "tf2")]
@@ -30,6 +34,10 @@ pub mod round_hooks;
 
 #[cfg(feature = "sdk")]
 mod server_hooks;
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod sound_hooks;
 
 #[cfg(feature = "tf2")]
 mod vote_hooks;
