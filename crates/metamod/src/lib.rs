@@ -25,6 +25,10 @@ pub mod death_hooks;
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod delivery_hooks;
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod entity_factory_hooks;
 
 #[cfg(feature = "sdk")]
