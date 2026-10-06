@@ -1,6 +1,7 @@
 //! `IVEngineServer`, the engine's services for the game server.
 
 use crate::edicts::Edict;
+use crate::math::Vector;
 use crate::net::NetChannel;
 use crate::players::UserId;
 use sdk_raw::edicts::MAX_EDICTS;
@@ -9,6 +10,7 @@ use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_char, c_int};
+use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
 interface! {
@@ -41,6 +43,43 @@ impl<'s> ValveEngine<'s> {
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_ChangeLevel(map.as_ptr(), landmark)) };
 	}
 
+	/// Whether any part of a box in world space lies in one of the clusters of
+	/// `pvs`.
+	#[doc(alias("CheckBoxInPVS"))]
+	pub fn check_box_in_pvs(self, mins: Vector, maxs: Vector, pvs: &Pvs<'_>) -> bool {
+		// The engine would read past the end of an empty set, which holds no
+		// cluster anyway.
+		if pvs.bits.is_empty() {
+			return false;
+		}
+
+		let mins = sys::Vector::from(mins);
+		let maxs = sys::Vector::from(maxs);
+
+		// SAFETY: As for `change_level`, and the corners are locals. The set holds
+		// a bit for each of the level's clusters, and its length is passed.
+		unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_CheckBoxInPVS(&mins, &maxs, pvs.bits.as_ptr(), pvs.len_c_int()))
+		}
+	}
+
+	/// Whether a point lies in one of the clusters of `pvs`. A point outside the
+	/// world, or inside its solid parts, lies in none.
+	#[doc(alias("CheckOriginInPVS"))]
+	pub fn check_origin_in_pvs(self, origin: Vector, pvs: &Pvs<'_>) -> bool {
+		// As for `check_box_in_pvs`.
+		if pvs.bits.is_empty() {
+			return false;
+		}
+
+		let origin = sys::Vector::from(origin);
+
+		// SAFETY: As for `check_box_in_pvs`.
+		unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_CheckOriginInPVS(&origin, pvs.bits.as_ptr(), pvs.len_c_int()))
+		}
+	}
+
 	/// The value a client reported for one of its user settings, the console
 	/// variables marked `FCVAR_USERINFO`, such as `name` or `cl_interp`.
 	///
@@ -65,6 +104,19 @@ impl<'s> ValveEngine<'s> {
 		unsafe {
 			vcall!(self.as_ptr() => IVEngineServer_ClientPrintf(client.as_ptr(), message.as_ptr()))
 		};
+	}
+
+	/// The visibility cluster of the level's map a point lies in, or `None` for a
+	/// point outside the world or inside its solid parts.
+	#[doc(alias("GetClusterForOrigin"))]
+	pub fn cluster_for_origin(self, origin: Vector) -> Option<Cluster> {
+		let origin = sys::Vector::from(origin);
+
+		// SAFETY: As for `change_level`, and the position is a local.
+		let cluster =
+			unsafe { vcall!(self.as_ptr() => IVEngineServer_GetClusterForOrigin(&origin)) };
+
+		(cluster >= 0).then_some(Cluster(cluster))
 	}
 
 	/// Offsets the crosshair of the client owning an edict, in degrees.
@@ -204,6 +256,43 @@ impl<'s> ValveEngine<'s> {
 		}
 	}
 
+	/// The potentially visible set of a cluster: every cluster that can be seen
+	/// from somewhere inside it, itself included.
+	#[doc(alias("GetPVSForCluster"))]
+	pub fn pvs_for_cluster(self, cluster: Cluster) -> Pvs<'s> {
+		self.pvs_for_cluster_index(cluster.0)
+	}
+
+	/// The potentially visible set of a cluster, or an empty set for `-1`, as
+	/// the engine fills it.
+	fn pvs_for_cluster_index(self, cluster: c_int) -> Pvs<'s> {
+		let mut bits = vec![0u8; PVS_CAPACITY].into_boxed_slice();
+
+		// SAFETY: As for `change_level`. The buffer holds a bit for each cluster
+		// a map can have, as the game's own callers pass, and its length is
+		// passed.
+		let length = unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_GetPVSForCluster(cluster, PVS_CAPACITY as c_int, bits.as_mut_ptr()))
+		};
+
+		let length = usize::try_from(length).unwrap_or(0).min(PVS_CAPACITY);
+
+		Pvs {
+			bits: bits[..length].into(),
+			_level: PhantomData,
+		}
+	}
+
+	/// The potentially visible set of the cluster a point lies in, as the engine
+	/// networks entities to a client whose view is at the point. Empty for a
+	/// point outside the world or inside its solid parts.
+	pub fn pvs_for_origin(self, origin: Vector) -> Pvs<'s> {
+		self.pvs_for_cluster_index(
+			self.cluster_for_origin(origin)
+				.map_or(-1, |cluster| cluster.0),
+		)
+	}
+
 	/// Queues a command as though it were entered at the server console.
 	///
 	/// Commands are normally processed on the next frame. Include a command
@@ -275,5 +364,77 @@ impl<'s> ValveEngine<'s> {
 		};
 
 		f()
+	}
+}
+
+/// Bytes that hold a bit for each cluster a map can have, `MAX_MAP_CLUSTERS`
+/// in `public/bspfile.h`, as the game's own callers of `GetPVSForCluster`
+/// size their buffers.
+const PVS_CAPACITY: usize = 65536 / 8;
+
+/// A visibility cluster of the level's map: leaves of its BSP tree that the
+/// map's compiler computed visibility for together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Cluster(c_int);
+
+impl Cluster {
+	/// The cluster's index, which is also its bit in a [`Pvs`].
+	pub const fn index(self) -> usize {
+		self.0 as usize
+	}
+}
+
+/// A potentially visible set: a bit for each visibility cluster of the level's
+/// map, set for the clusters that can be seen from where the set was taken.
+///
+/// The engine networks an entity to a client only while the entity is in the
+/// set of the client's view, or is always sent. A set describes the map of
+/// the level it was taken in, so it cannot outlive the call from the engine.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Pvs<'s> {
+	bits: Box<[u8]>,
+	_level: PhantomData<ValveEngine<'s>>,
+}
+
+impl Pvs<'_> {
+	/// The set's bits, eight clusters to a byte, starting from the lowest bit.
+	pub fn as_bytes(&self) -> &[u8] {
+		&self.bits
+	}
+
+	/// Whether the set holds a cluster.
+	pub fn contains(&self, cluster: Cluster) -> bool {
+		let index = cluster.index();
+
+		self.bits
+			.get(index / 8)
+			.is_some_and(|byte| byte & (1 << (index % 8)) != 0)
+	}
+
+	/// Whether the set holds no cluster, as for a view outside the world.
+	pub fn is_empty(&self) -> bool {
+		self.bits.iter().all(|&byte| byte == 0)
+	}
+
+	/// The set's length for the engine, which a map's cluster count keeps far
+	/// below `c_int::MAX`.
+	fn len_c_int(&self) -> c_int {
+		self.bits.len() as c_int
+	}
+
+	/// Adds every cluster of `other` to this set, as the engine merges the sets
+	/// of a client's views.
+	pub fn union_with(&mut self, other: &Pvs<'_>) {
+		// An empty set can be shorter than one taken from a cluster.
+		if other.bits.len() > self.bits.len() {
+			let mut bits = vec![0u8; other.bits.len()].into_boxed_slice();
+
+			bits[..self.bits.len()].copy_from_slice(&self.bits);
+			self.bits = bits;
+		}
+
+		for (byte, other) in self.bits.iter_mut().zip(&other.bits) {
+			*byte |= other;
+		}
 	}
 }
