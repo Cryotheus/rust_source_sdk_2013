@@ -23,6 +23,10 @@ pub mod damage_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod death_hooks;
 
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod duel_hooks;
+
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod entity_factory_hooks;
