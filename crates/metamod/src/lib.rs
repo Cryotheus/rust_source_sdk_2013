@@ -8,6 +8,10 @@ mod plugin;
 #[cfg(feature = "sdk")]
 mod commands;
 
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod connect_hooks;
+
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod damage_hooks;

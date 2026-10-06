@@ -4,10 +4,9 @@
 #[path = "tests/edicts.rs"]
 mod tests;
 
-use crate::NotThreadSafe;
-use crate::Server;
 use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
+use crate::{NotThreadSafe, Server};
 use sdk_raw::edicts::FL_EDICT_FREE;
 use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
@@ -38,20 +37,18 @@ pub struct Edict<'s> {
 }
 
 impl<'s> Edict<'s> {
-	/// Wraps a pointer to a slot of the edict table the engine or game passed to
-	/// a callback, such as the client of a hooked `IServerGameClients` method,
-	/// for the callback's scope.
+	/// Wraps a pointer to a slot of the edict table that the engine or game
+	/// passed to a callback, such as a client's in a hooked
+	/// `IServerGameClients` method, for the callback's scope.
 	///
 	/// # Safety
 	///
-	/// `raw` must identify an element of the edict table of the server `_server`
-	/// belongs to, and the call must obey [`Server::new`]'s main-thread and
-	/// reentrancy contract.
-	///
-	/// [`Server::new`]: crate::Server::new
-	pub unsafe fn from_live(_server: Server<'s>, raw: NonNull<sys::edict_t>) -> Self {
-		// SAFETY: The engine's edict table outlives the callback's scope.
-		unsafe { Self::from_raw(raw) }
+	/// `pointer` must identify an element of the edict table of the server
+	/// `_server` belongs to, which stays allocated for `'s`, and the call must
+	/// obey [`Server::new`]'s main-thread and reentrancy contract.
+	pub unsafe fn from_live(_server: Server<'s>, pointer: NonNull<sys::edict_t>) -> Self {
+		// SAFETY: The caller vouches for the slot's lifetime during `'s`.
+		unsafe { Self::from_raw(pointer) }
 	}
 
 	/// Wraps a pointer to a slot of the edict table.
