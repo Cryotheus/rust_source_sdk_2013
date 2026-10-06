@@ -13,6 +13,8 @@ pub mod cheats;
 pub mod incoming;
 pub mod messages;
 
+pub mod steam_voice;
+
 #[cfg(test)]
 #[path = "../tests/net.rs"]
 mod tests;

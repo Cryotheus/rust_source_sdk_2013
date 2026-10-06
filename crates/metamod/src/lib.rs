@@ -22,6 +22,10 @@ pub mod event_hooks;
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod fake_client_hooks;
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod gc_hooks;
 
 #[cfg(feature = "sdk")]
