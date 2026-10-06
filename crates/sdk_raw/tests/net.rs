@@ -18,6 +18,10 @@ use std::ptr::{NonNull, null_mut};
 /// shares it, since the first message read fixes the size for the process.
 const BASE: usize = SMALLEST_MESSAGE_BASE;
 
+/// The handler mock messages are passed to, which none of them names, so that
+/// only their own pointers can confirm the size of `CNetMessage`.
+const HANDLER: NonNull<sys::IClientMessageHandler> = NonNull::dangling();
+
 /// Copies `value` into a zeroed buffer.
 fn buffer<const N: usize>(value: &CStr) -> [c_char; N] {
 	buffer_from_cstr(value).unwrap()
@@ -29,7 +33,7 @@ fn confirm_base() {
 	let message = string_cmd(c"status");
 
 	// SAFETY: The mock is live and unchanged.
-	let read = unsafe { read_message(MessageClass::StringCmd, message) };
+	let read = unsafe { read_message(MessageClass::StringCmd, HANDLER, message) };
 
 	assert!(matches!(read, Some(ClientMessage::StringCmd(_))));
 }
@@ -71,7 +75,7 @@ fn convar_vectors_must_be_consistent() {
 		}
 
 		// SAFETY: The mock is live and unchanged.
-		unsafe { read_message(MessageClass::SetConVar, message) }
+		unsafe { read_message(MessageClass::SetConVar, HANDLER, message) }
 	};
 
 	let Some(ClientMessage::SetConVar(convars)) = set(2, 2, elements) else {
@@ -93,12 +97,12 @@ fn messages_of_another_base_are_refused() {
 	let message = mock_message(BASE + 8 + size_of::<TickFields>());
 
 	// SAFETY: The mock is live and unchanged.
-	assert!(unsafe { read_message(MessageClass::Tick, message) }.is_none());
+	assert!(unsafe { read_message(MessageClass::Tick, HANDLER, message) }.is_none());
 
 	let message = mock_message(BASE - 8 + size_of::<TickFields>());
 
 	// SAFETY: The mock is live and unchanged.
-	assert!(unsafe { read_message(MessageClass::Tick, message) }.is_none());
+	assert!(unsafe { read_message(MessageClass::Tick, HANDLER, message) }.is_none());
 }
 
 #[test]
@@ -143,7 +147,7 @@ fn moves_copy_their_payload() {
 	// SAFETY: The mock is live and unchanged, and its reader describes
 	// `packet`.
 	let Some(ClientMessage::Move { fields: read, data }) =
-		(unsafe { read_message(MessageClass::Move, message) })
+		(unsafe { read_message(MessageClass::Move, HANDLER, message) })
 	else {
 		panic!("the move is read");
 	};
@@ -156,7 +160,7 @@ fn moves_copy_their_payload() {
 
 	// SAFETY: The mock is live and unchanged, and its reader describes
 	// `packet`.
-	assert!(unsafe { read_message(MessageClass::Move, message) }.is_none());
+	assert!(unsafe { read_message(MessageClass::Move, HANDLER, message) }.is_none());
 }
 
 #[test]
@@ -193,7 +197,7 @@ fn string_commands_confirm_the_base() {
 
 	// SAFETY: The mock is live and unchanged.
 	let Some(ClientMessage::StringCmd(fields)) =
-		(unsafe { read_message(MessageClass::StringCmd, message) })
+		(unsafe { read_message(MessageClass::StringCmd, HANDLER, message) })
 	else {
 		panic!("the command is read");
 	};
@@ -205,5 +209,5 @@ fn string_commands_confirm_the_base() {
 	let message = mock_message(BASE + size_of::<StringCmdFields>());
 
 	// SAFETY: The mock is live and unchanged.
-	assert!(unsafe { read_message(MessageClass::StringCmd, message) }.is_some());
+	assert!(unsafe { read_message(MessageClass::StringCmd, HANDLER, message) }.is_some());
 }

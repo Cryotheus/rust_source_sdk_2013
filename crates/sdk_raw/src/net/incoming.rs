@@ -168,7 +168,8 @@ pub const SMALLEST_MESSAGE_BASE: usize = 24;
 static HANDLER_OFFSET: AtomicUsize = AtomicUsize::new(0);
 
 /// The size of `CNetMessage`, which the TF2 engine's message classes extend.
-/// It is learned from the first message whose own pointers confirm it.
+/// It is learned from the first message whose fields confirm where they
+/// start.
 static MESSAGE_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// The fields `CLC_BaselineAck` declares.
@@ -848,22 +849,39 @@ pub unsafe fn handler_of_client(
 	Ok(handler)
 }
 
+/// Whether a message's first field, the handler it is processed by
+/// (`m_pMessageHandler`), is `handler`, the one the engine passed it to.
+/// Every message class declares that field first, and the engine sets it to
+/// the client that registered the message.
+///
+/// # Safety
+///
+/// `fields` must point to a pointer's size of readable bytes.
+unsafe fn names_handler(fields: *const u8, handler: NonNull<sys::IClientMessageHandler>) -> bool {
+	// SAFETY: As the caller promises.
+	let first = unsafe { fields.cast::<*const ()>().read_unaligned() };
+
+	first == handler.as_ptr().cast_const().cast()
+}
+
 /// Copies the fields of a message a client sent, after checking that the
 /// engine's message is laid out as this module expects. Returns `None` if it
 /// is not, or the fields are inconsistent.
 ///
 /// The fields follow the engine's `CNetMessage`, whose size is learned once
-/// per process, from the first message whose own pointers into its buffers
-/// confirm where its fields start: a `NET_StringCmd` or a
-/// `CLC_RespondCvarValue`. Until then, no other message is read.
+/// per process, from the first message whose fields confirm where they start:
+/// one whose first field is `handler`, the client's handler the engine passed
+/// it to, or a `NET_StringCmd` or `CLC_RespondCvarValue` whose pointers into
+/// its own buffers do. Until then, no message is read.
 ///
 /// # Safety
 ///
 /// `message` must point to a live message of `class` that the engine passed
-/// to the `IClientMessageHandler` method for `class`, and that nothing
-/// changes during the call, in a module that stays loaded for the call.
+/// to `handler`'s method for `class`, and that nothing changes during the
+/// call, in a module that stays loaded for the call.
 pub unsafe fn read_message(
 	class: MessageClass,
+	handler: NonNull<sys::IClientMessageHandler>,
 	message: NonNull<sys::INetMessage>,
 ) -> Option<ClientMessage> {
 	let this = message.as_ptr().cast_const();
@@ -884,8 +902,8 @@ pub unsafe fn read_message(
 	let fields = unsafe { this.byte_add(base) }.cast::<u8>();
 
 	match MESSAGE_BASE.load(Ordering::Relaxed) {
-		// SAFETY: As above.
-		0 if unsafe { confirms_fields(class, fields) } => {
+		// SAFETY: As above. Every class's fields are at least a pointer.
+		0 if unsafe { names_handler(fields, handler) || confirms_fields(class, fields) } => {
 			MESSAGE_BASE.store(base, Ordering::Relaxed);
 		}
 

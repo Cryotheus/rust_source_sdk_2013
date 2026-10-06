@@ -473,6 +473,10 @@ pub struct IncomingMessage<'s> {
 	kind: IncomingKind,
 	raw: NonNull<sys::INetMessage>,
 	client: GameClient<'s>,
+
+	/// The client's handler the engine passed the message to.
+	handler: NonNull<sys::IClientMessageHandler>,
+
 	_scope: PhantomData<&'s ()>,
 	_not_thread_safe: NotThreadSafe,
 }
@@ -495,11 +499,11 @@ impl<'s> IncomingMessage<'s> {
 	/// The message's fields, or `None` if the engine's layout is not the one
 	/// expected, or the fields are inconsistent.
 	pub fn decode(self) -> Option<Incoming> {
-		// SAFETY: The engine passed the message to the handler method for its
-		// kind, and keeps it alive and unchanged while it is processed, which
-		// the scope `'s` lies within, during a callback from the engine's
+		// SAFETY: The engine passed the message to the client's handler method
+		// for its kind, and keeps it alive and unchanged while it is processed,
+		// which the scope `'s` lies within, during a callback from the engine's
 		// module.
-		let message = unsafe { raw::read_message(self.kind.raw(), self.raw) }?;
+		let message = unsafe { raw::read_message(self.kind.raw(), self.handler, self.raw) }?;
 
 		Some(Incoming::from_raw(message))
 	}
@@ -582,7 +586,8 @@ pub fn hook_target(server: Server<'_>) -> Result<HookTarget, HookTargetError> {
 	})
 }
 
-/// A message of `kind` from `client`, as [`route_incoming`] passes one.
+/// A message of `kind` from `client`, as [`route_incoming`] passes one, to a
+/// handler that no mock message names.
 ///
 /// A test seam: the message's fields are private, so the shared test
 /// support cannot build one.
@@ -601,6 +606,7 @@ pub(crate) const unsafe fn mock_incoming_message<'s>(
 		kind,
 		raw,
 		client,
+		handler: NonNull::dangling(),
 		_scope: PhantomData,
 		_not_thread_safe: PhantomData,
 	}
@@ -644,6 +650,7 @@ pub unsafe fn route_incoming(
 		kind,
 		raw: message,
 		client,
+		handler: this,
 		_scope: PhantomData,
 		_not_thread_safe: PhantomData,
 	};

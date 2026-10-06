@@ -39,8 +39,8 @@ pub const MAX_PRINT_LEN: usize = 2047;
 /// The longest console variable name a query may name, less its terminator.
 pub const MAX_QUERY_NAME_LEN: usize = 255;
 
-/// The most voice a [`VoiceData`] carries, as its length in bits fits in
-/// [`VOICE_LENGTH_BITS`].
+/// The most voice a [`VoiceData`] carries, as its length in bits fits in 16
+/// bits.
 pub const MAX_VOICE_DATA_BYTES: usize = ((1 << VOICE_LENGTH_BITS) - 1) / 8;
 
 /// Bits in a model index (`SP_MODEL_INDEX_BITS`).
