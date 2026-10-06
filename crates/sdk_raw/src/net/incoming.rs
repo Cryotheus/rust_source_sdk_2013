@@ -121,14 +121,14 @@ const _: () = {
 
 /// Where a `CGameClient`'s `IClient` base lies: after its
 /// `IGameEventListener2` base, which is only a vtable pointer.
-const CLIENT_OFFSET: usize = size_of::<sys::IGameEventListener2>();
+pub(super) const CLIENT_OFFSET: usize = size_of::<sys::IGameEventListener2>();
 
 /// How far a client's `IClientMessageHandler` base lies past its `IClient`
 /// base, which is only a vtable pointer.
 const CLIENT_TO_HANDLER: usize = size_of::<sys::IClient>();
 
 /// The class whose objects are the engine's clients.
-const GAME_CLIENT: &str = "CGameClient";
+pub(super) const GAME_CLIENT: &str = "CGameClient";
 
 /// The largest size of `CNetMessage` [`read_message`] accepts. A larger one
 /// is taken as a layout this module does not know.
@@ -218,7 +218,10 @@ pub struct ClientInfoFields {
 	pub custom_files: [sys::CRC32_t; MAX_CUSTOM_FILES],
 }
 
-/// The engine's clients are not laid out as [`handler_of_client`] expects.
+/// The engine's clients are not laid out as [`handler_of_client`] or
+/// [`listener_of_client`] expects.
+///
+/// [`listener_of_client`]: super::events::listener_of_client
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("the engine's clients are not laid out as expected")]
 pub struct ClientLayoutError;
