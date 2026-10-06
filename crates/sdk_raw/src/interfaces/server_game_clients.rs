@@ -14,6 +14,17 @@ pub type ClientCommandFn = unsafe extern "C" fn(
 	args: *const sys::CCommand,
 );
 
+/// `void IServerGameClients::ClientCommandKeyValues(edict_t *, KeyValues *)`,
+/// which the engine calls to run a command a client sent as key values, such
+/// as TF2's `AchievementEarned`, named by the key values' root. The engine
+/// owns the key values, and frees them after the call.
+#[doc(alias("ClientCommandKeyValues"))]
+pub type ClientCommandKeyValuesFn = unsafe extern "C" fn(
+	this: *mut sys::IServerGameClients,
+	edict: *mut sys::edict_t,
+	key_values: *mut sys::KeyValues,
+);
+
 const _: () = assert!(
 	vtable_slot!(
 		sys::IServerGameClients__bindgen_vtable,
@@ -21,9 +32,26 @@ const _: () = assert!(
 	) == CLIENT_COMMAND_SLOT
 );
 
+const _: () = assert!(
+	vtable_slot!(
+		sys::IServerGameClients__bindgen_vtable,
+		IServerGameClients_ClientCommandKeyValues
+	) == CLIENT_COMMAND_KEY_VALUES_SLOT
+);
+
 // The generated binding has this signature.
 const _: fn(&sys::IServerGameClients__bindgen_vtable) -> ClientCommandFn =
 	|vtable| vtable.IServerGameClients_ClientCommand;
+
+// The generated binding has this signature.
+const _: fn(&sys::IServerGameClients__bindgen_vtable) -> ClientCommandKeyValuesFn =
+	|vtable| vtable.IServerGameClients_ClientCommandKeyValues;
+
+/// The vtable slot of `IServerGameClients::ClientCommandKeyValues`.
+///
+/// The interface declares no virtual destructor, so the slot is the same under
+/// the MSVC and Itanium ABIs.
+pub const CLIENT_COMMAND_KEY_VALUES_SLOT: usize = 16;
 
 /// The vtable slot of `IServerGameClients::ClientCommand`.
 ///
