@@ -15,6 +15,7 @@ pub mod attributes;
 pub mod bosses;
 pub mod bots;
 pub mod buildings;
+pub mod chat;
 pub mod class;
 pub mod class_targets;
 pub mod collision;
