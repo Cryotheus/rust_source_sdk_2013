@@ -20,7 +20,11 @@
 //! (18), the Football Helmet and the Pet Balloonicorn. Should their strings
 //! read wrong, or the schema lack one of them, only
 //! [`ItemDefinition::name`], [`ItemDefinition::item_class`] and
-//! [`ItemSchema::definition_by_name`] fail.
+//! [`ItemSchema::definition_by_name`] fail. The definitions' classes,
+//! loadout positions, quality, levels and holiday restriction are checked
+//! apart in the same way, on the Rocket Launcher, the Football Helmet, the
+//! Mildly Disturbing Halloween Mask (115) and the Pet Balloonicorn, and only
+//! the methods reading them fail with them.
 //!
 //! [`ItemSchema::definitions`] walks the schema's sorted map of its
 //! definitions, whose tree the bindings leave opaque, and checks it on each
@@ -37,12 +41,14 @@
 #[path = "../tests/tf2/item_schema.rs"]
 mod tests;
 
+use crate::tf2::PlayerClass;
 use crate::tf2::weapons::{ItemDefinitionIndex, ItemGenerationError};
 use crate::{Game, NotThreadSafe, Server};
 use sdk_raw::tf2::item_generation::ItemGeneration;
 use sdk_raw::tf2::item_schema;
 use std::ffi::{CStr, c_char, c_int};
 use std::marker::PhantomData;
+use std::ops::RangeInclusive;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
@@ -54,6 +60,226 @@ const CHECKED: [(u16, VisionFilter); 3] = [
 	(30143, VisionFilter::ROME),
 	(49, VisionFilter::empty()),
 ];
+
+/// The definitions whose classes, loadout positions, quality, levels and
+/// holiday restriction the shipped schema fixes, to check their layout with.
+const CHECKED_DETAILS: [Details; 4] = [
+	// The Rocket Launcher.
+	Details {
+		index: 18,
+		class: Some(PlayerClass::Soldier),
+		position: LoadoutPosition::Primary,
+		quality: ItemQuality::Normal,
+		levels: Some((1, 1)),
+		holiday: None,
+	},
+	// The Football Helmet, whose `head` slot the game reads as `misc`.
+	Details {
+		index: 49,
+		class: Some(PlayerClass::Heavy),
+		position: LoadoutPosition::Misc,
+		quality: ItemQuality::Unique,
+		levels: None,
+		holiday: None,
+	},
+	// The Mildly Disturbing Halloween Mask.
+	Details {
+		index: 115,
+		class: None,
+		position: LoadoutPosition::Misc,
+		quality: ItemQuality::Unique,
+		levels: Some((10, 10)),
+		holiday: Some(c"halloween_or_fullmoon"),
+	},
+	// The Pet Balloonicorn.
+	Details {
+		index: 738,
+		class: None,
+		position: LoadoutPosition::Misc,
+		quality: ItemQuality::Unique,
+		levels: Some((20, 20)),
+		holiday: None,
+	},
+];
+
+/// Whether the layout of the definitions' details passed its checks, once it
+/// did or failed them.
+static DETAILS: OnceLock<bool> = OnceLock::new();
+
+/// What the shipped schema says of a [checked definition](CHECKED_DETAILS).
+struct Details {
+	/// The definition's index.
+	index: u16,
+
+	/// The one class that uses it, or `None` for all nine.
+	class: Option<PlayerClass>,
+
+	/// Its loadout position, for every class that uses it.
+	position: LoadoutPosition,
+
+	/// Its quality.
+	quality: ItemQuality,
+
+	/// Its lowest and highest levels, unless the schema's defaults.
+	levels: Option<(u8, u8)>,
+
+	/// Its holiday restriction.
+	holiday: Option<&'static CStr>,
+}
+
+/// The fields of a definition its details are read from, as they are read,
+/// before their layout is known to be checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawDetails {
+	/// `m_vbClassUsability`, a bit per class number.
+	classes: u32,
+
+	/// `m_iDefaultLoadoutSlot`.
+	default_position: c_int,
+
+	/// `m_unMaxItemLevel`.
+	max_level: u8,
+
+	/// `m_unMinItemLevel`.
+	min_level: u8,
+
+	/// `m_iLoadoutSlots`, by class number.
+	positions: [c_int; 11],
+
+	/// `m_nItemQuality`.
+	quality: u8,
+}
+
+/// A position in a player's loadout (`loadout_positions_t`), which an item is
+/// equipped in, such as a weapon slot or a cosmetic one.
+///
+/// Its numbers are those of TF2's loadouts, not of [weapon
+/// slots](crate::tf2::weapons::WeaponSlot): the Engineer's construction PDA
+/// is in [`Self::Pda`] (5), but in weapon slot 3.
+#[doc(alias("loadout_positions_t", "LOADOUT_POSITION"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum LoadoutPosition {
+	/// `LOADOUT_POSITION_PRIMARY`: 0.
+	#[doc(alias("LOADOUT_POSITION_PRIMARY"))]
+	Primary,
+
+	/// `LOADOUT_POSITION_SECONDARY`: 1.
+	#[doc(alias("LOADOUT_POSITION_SECONDARY"))]
+	Secondary,
+
+	/// `LOADOUT_POSITION_MELEE`: 2.
+	#[doc(alias("LOADOUT_POSITION_MELEE"))]
+	Melee,
+
+	/// `LOADOUT_POSITION_UTILITY`: 3, the PASS Time gun's.
+	#[doc(alias("LOADOUT_POSITION_UTILITY"))]
+	Utility,
+
+	/// `LOADOUT_POSITION_BUILDING`: 4, the Engineer's builder and the Spy's
+	/// sappers.
+	#[doc(alias("LOADOUT_POSITION_BUILDING"))]
+	Building,
+
+	/// `LOADOUT_POSITION_PDA`: 5, such as the Engineer's construction PDA or
+	/// the Spy's disguise kit.
+	#[doc(alias("LOADOUT_POSITION_PDA"))]
+	Pda,
+
+	/// `LOADOUT_POSITION_PDA2`: 6, such as the Engineer's destruction PDA or
+	/// the Spy's watch.
+	#[doc(alias("LOADOUT_POSITION_PDA2"))]
+	Pda2,
+
+	/// `LOADOUT_POSITION_HEAD`: 7, which the game no longer gives items: it
+	/// reads an item's `head` slot as [`Self::Misc`].
+	#[doc(alias("LOADOUT_POSITION_HEAD"))]
+	Head,
+
+	/// `LOADOUT_POSITION_MISC`: 8, the cosmetics.
+	#[doc(alias("LOADOUT_POSITION_MISC"))]
+	Misc,
+
+	/// `LOADOUT_POSITION_ACTION`: 9, such as spellbooks and noise makers.
+	#[doc(alias("LOADOUT_POSITION_ACTION"))]
+	Action,
+
+	/// `LOADOUT_POSITION_MISC2`: 10.
+	#[doc(alias("LOADOUT_POSITION_MISC2"))]
+	Misc2,
+
+	/// `LOADOUT_POSITION_TAUNT`: 11, the first taunt.
+	#[doc(alias("LOADOUT_POSITION_TAUNT"))]
+	Taunt,
+
+	/// `LOADOUT_POSITION_TAUNT2`: 12.
+	#[doc(alias("LOADOUT_POSITION_TAUNT2"))]
+	Taunt2,
+
+	/// `LOADOUT_POSITION_TAUNT3`: 13.
+	#[doc(alias("LOADOUT_POSITION_TAUNT3"))]
+	Taunt3,
+
+	/// `LOADOUT_POSITION_TAUNT4`: 14.
+	#[doc(alias("LOADOUT_POSITION_TAUNT4"))]
+	Taunt4,
+
+	/// `LOADOUT_POSITION_TAUNT5`: 15.
+	#[doc(alias("LOADOUT_POSITION_TAUNT5"))]
+	Taunt5,
+
+	/// `LOADOUT_POSITION_TAUNT6`: 16.
+	#[doc(alias("LOADOUT_POSITION_TAUNT6"))]
+	Taunt6,
+
+	/// `LOADOUT_POSITION_TAUNT7`: 17.
+	#[doc(alias("LOADOUT_POSITION_TAUNT7"))]
+	Taunt7,
+
+	/// `LOADOUT_POSITION_TAUNT8`: 18, the last taunt.
+	#[doc(alias("LOADOUT_POSITION_TAUNT8"))]
+	Taunt8,
+}
+
+impl LoadoutPosition {
+	/// Every position, in the game's order.
+	pub const ALL: [Self; 19] = [
+		Self::Primary,
+		Self::Secondary,
+		Self::Melee,
+		Self::Utility,
+		Self::Building,
+		Self::Pda,
+		Self::Pda2,
+		Self::Head,
+		Self::Misc,
+		Self::Action,
+		Self::Misc2,
+		Self::Taunt,
+		Self::Taunt2,
+		Self::Taunt3,
+		Self::Taunt4,
+		Self::Taunt5,
+		Self::Taunt6,
+		Self::Taunt7,
+		Self::Taunt8,
+	];
+
+	/// The position with this `loadout_positions_t` number, or `None` for any
+	/// other number, including `LOADOUT_POSITION_INVALID` (-1).
+	pub const fn from_raw(raw: c_int) -> Option<Self> {
+		if raw >= 0 && raw < Self::ALL.len() as c_int {
+			Some(Self::ALL[raw as usize])
+		} else {
+			None
+		}
+	}
+
+	/// The position's `loadout_positions_t` number.
+	pub const fn to_raw(self) -> c_int {
+		self as c_int
+	}
+}
 
 /// The definitions whose name and item class the shipped schema fixes, to
 /// check the strings' layout with.
@@ -318,6 +544,124 @@ impl<'s> ItemDefinition<'s> {
 			(!string.is_null()).then(|| CStr::from_ptr(string))
 		}
 	}
+
+	/// The loadout position the definition's items are equipped in
+	/// (`m_iDefaultLoadoutSlot`, the `item_slot` of `items_game.txt`), unless a
+	/// class equips them elsewhere, or `None` for a definition without one, such
+	/// as a tool.
+	///
+	/// Fails with [`ItemSchemaError::UnsupportedLayout`] unless the definitions'
+	/// details passed their check, as the
+	/// [module documentation](crate::tf2::item_schema#layout) describes.
+	#[doc(alias("m_iDefaultLoadoutSlot", "GetDefaultLoadoutSlot", "item_slot"))]
+	pub fn default_loadout_position(self) -> Result<Option<LoadoutPosition>, ItemSchemaError> {
+		Ok(LoadoutPosition::from_raw(
+			self.checked_details()?.default_position,
+		))
+	}
+
+	/// The holiday the definition's items are restricted to
+	/// (`m_pszHolidayRestriction`), as the schema names it, such as
+	/// `halloween_or_fullmoon`, or `None` for items of any day. The game refuses
+	/// to equip a restricted item outside its holiday.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_pszHolidayRestriction", "GetHolidayRestriction"))]
+	pub fn holiday_restriction(self) -> Result<Option<&'s CStr>, ItemSchemaError> {
+		self.checked_details()?;
+
+		// SAFETY: The schema keeps its definition, and the string, through the
+		// callback, and the layout of its details was checked.
+		Ok(unsafe { self.read_string(|raw| &raw const (*raw).m_pszHolidayRestriction) })
+	}
+
+	/// Whether `class` can use the definition's items (`m_vbClassUsability`, the
+	/// `used_by_classes` of `items_game.txt`).
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_vbClassUsability", "CanBeUsedByClass", "used_by_classes"))]
+	pub fn is_used_by(self, class: PlayerClass) -> Result<bool, ItemSchemaError> {
+		Ok(self.checked_details()?.classes & 1 << class.to_raw() != 0)
+	}
+
+	/// The levels the definition's items can have (`m_unMinItemLevel` and
+	/// `m_unMaxItemLevel`), among which the game rolls one when asked for the
+	/// definition's own level. The items the SDK gives are at the level they
+	/// are given.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_unMinItemLevel", "m_unMaxItemLevel", "GetMinLevel", "GetMaxLevel"))]
+	pub fn levels(self) -> Result<RangeInclusive<u8>, ItemSchemaError> {
+		let details = self.checked_details()?;
+
+		Ok(details.min_level..=details.max_level)
+	}
+
+	/// The loadout position `class` equips the definition's items in
+	/// (`m_iLoadoutSlots`), such as the Engineer's shotgun in
+	/// [`LoadoutPosition::Primary`] where other classes have it in
+	/// [`LoadoutPosition::Secondary`], or `None` if `class` does not use them.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_iLoadoutSlots", "GetLoadoutSlot"))]
+	pub fn loadout_position(
+		self,
+		class: PlayerClass,
+	) -> Result<Option<LoadoutPosition>, ItemSchemaError> {
+		let positions = self.checked_details()?.positions;
+
+		Ok(positions
+			.get(class.to_raw() as usize)
+			.and_then(|&position| LoadoutPosition::from_raw(position)))
+	}
+
+	/// The quality the schema gives the definition's items (`m_nItemQuality`,
+	/// the `item_quality` of `items_game.txt`), such as [`ItemQuality::Normal`]
+	/// for the stock weapons, or `None` for a quality [`ItemQuality`] leaves out.
+	/// The items the SDK gives have the quality they are given.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_nItemQuality", "GetQuality", "item_quality"))]
+	pub fn quality(self) -> Result<Option<ItemQuality>, ItemSchemaError> {
+		Ok(ItemQuality::from_raw(c_int::from(
+			self.checked_details()?.quality,
+		)))
+	}
+
+	/// The fields the definition's details are read from, once their layout
+	/// passed its checks.
+	fn checked_details(self) -> Result<RawDetails, ItemSchemaError> {
+		match DETAILS.get() {
+			// SAFETY: The schema keeps its definition through the callback, and the
+			// layout of its details was checked.
+			Some(true) => Ok(unsafe { self.read_details() }),
+			_ => Err(ItemSchemaError::UnsupportedLayout),
+		}
+	}
+
+	/// Reads the fields the definition's details are read from.
+	///
+	/// # Safety
+	///
+	/// The schema keeps the definition, a `CTFItemDefinition` as all of TF2's
+	/// are, through the callback.
+	unsafe fn read_details(self) -> RawDetails {
+		let base = self.raw.as_ptr();
+		let tf = base.cast::<sys::CTFItemDefinition>();
+
+		// SAFETY: The caller vouches for the definition. The fields are plain data
+		// within it.
+		unsafe {
+			RawDetails {
+				classes: (&raw const (*tf).m_vbClassUsability).read(),
+				default_position: (&raw const (*tf).m_iDefaultLoadoutSlot).read(),
+				max_level: (&raw const (*base).m_unMaxItemLevel).read(),
+				min_level: (&raw const (*base).m_unMinItemLevel).read(),
+				positions: (&raw const (*tf).m_iLoadoutSlots).read(),
+				quality: (&raw const (*base).m_nItemQuality).read(),
+			}
+		}
+	}
 }
 
 /// TF2's item schema, scoped to one engine callback.
@@ -379,6 +723,13 @@ impl<'s> ItemSchema<'s> {
 			&& let Ok(Some(checked)) = schema.check_strings()
 		{
 			STRINGS.set(checked).ok();
+		}
+
+		// As are the details.
+		if DETAILS.get().is_none()
+			&& let Ok(Some(checked)) = schema.check_details()
+		{
+			DETAILS.set(checked).ok();
 		}
 
 		Ok(schema)
@@ -459,6 +810,54 @@ impl<'s> ItemSchema<'s> {
 			};
 
 			if strings != (Some(name), Some(class)) {
+				return Ok(Some(false));
+			}
+		}
+
+		Ok(Some(true))
+	}
+
+	/// Whether the [checked definitions' details](CHECKED_DETAILS) read as the
+	/// shipped schema has them, or `None` if the schema lacks one of them.
+	fn check_details(self) -> Result<Option<bool>, ItemSchemaError> {
+		for details in CHECKED_DETAILS {
+			let Some(definition) = self.find(details.index)? else {
+				return Ok(None);
+			};
+
+			// SAFETY: The definition is the schema's, live through the callback, and
+			// a `CTFItemDefinition`, as all of TF2's are.
+			let raw = unsafe { definition.read_details() };
+
+			let levels = details
+				.levels
+				.is_none_or(|levels| levels == (raw.min_level, raw.max_level));
+
+			let mut classes = 0;
+			let mut positions = [-1; 11];
+
+			for class in PlayerClass::ALL {
+				if details.class.is_none_or(|only| only == class) {
+					classes |= 1 << class.to_raw();
+					positions[class.to_raw() as usize] = details.position.to_raw();
+				}
+			}
+
+			let checked = levels
+				&& raw.classes == classes
+				&& raw.positions == positions
+				&& raw.default_position == details.position.to_raw()
+				&& raw.quality == details.quality.to_raw() as u8;
+
+			// The holiday restriction is a pointer, so it is read only once the rest
+			// placed it.
+			//
+			// SAFETY: As above, and the definition keeps the string.
+			if !checked
+				|| unsafe {
+					definition.read_string(|raw| &raw const (*raw).m_pszHolidayRestriction)
+				} != details.holiday
+			{
 				return Ok(Some(false));
 			}
 		}
