@@ -31,6 +31,7 @@ pub mod overlays;
 
 pub mod player;
 
+pub mod projectiles;
 pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
