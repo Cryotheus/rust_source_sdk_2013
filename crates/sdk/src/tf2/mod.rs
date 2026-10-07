@@ -13,6 +13,7 @@ pub mod attributes;
 pub mod bots;
 pub mod buildings;
 mod class;
+pub mod class_targets;
 pub mod collision;
 pub mod conditions;
 pub mod damage;
