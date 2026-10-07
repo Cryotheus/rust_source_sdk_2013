@@ -1,5 +1,9 @@
-//! Identifiers for the clients connected to the server.
+//! Identifiers for the clients connected to the server, and the players in
+//! the game.
 
+mod in_game;
+
+pub use in_game::{KickError, Player};
 use std::error::Error;
 use std::ffi::c_int;
 use std::fmt::{Display, Formatter, Result as FmtResult};

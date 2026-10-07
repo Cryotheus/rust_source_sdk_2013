@@ -13,10 +13,64 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CHandle_open0_CBaseCombatWeapon_close0",
+        "Size of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [
-        "Align of template specialization: CHandle_open0_CBaseCombatWeapon_close0",
+        "Align of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseCombatCharacter_close0",
     ][::std::mem::align_of::<CHandle>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -35,6 +89,177 @@ const _: () = {
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [
         "Align of template specialization: CHandle_open0_CBaseCombatWeapon_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseCombatWeapon_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseCombatWeapon_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBaseEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBaseEntity_close0",
     ][::std::mem::align_of::<CHandle>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -211,10 +436,37 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CHandle_open0_CBasePlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBasePlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CHandle_open0_CBaseViewModel_close0",
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [
         "Align of template specialization: CHandle_open0_CBaseViewModel_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CBoneFollower_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CBoneFollower_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CCompetitiveLogic_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CCompetitiveLogic_close0",
     ][::std::mem::align_of::<CHandle>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -229,6 +481,51 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CHandle_open0_CEntitySoldierStatue_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CEntitySoldierStatue_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CFuncNavPrerequisite_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CHandle_open0_CIntroViewpoint_close0",
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [
@@ -238,10 +535,46 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+        "Size of template specialization: CHandle_open0_CTFBotRoster_close0",
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [
-        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+        "Align of template specialization: CHandle_open0_CTFBotRoster_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFBotRoster_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFBotRoster_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFGameRulesProxy_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFGameRulesProxy_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFHolidayEntity_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFHolidayEntity_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFMedigunShield_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFMedigunShield_close0",
     ][::std::mem::align_of::<CHandle>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -332,6 +665,96 @@ const _: () = {
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [
         "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFPlayer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTFReviveMarker_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTFReviveMarker_close0",
     ][::std::mem::align_of::<CHandle>() - 4usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -449,5 +872,77 @@ const _: () = {
     ][::std::mem::size_of::<CHandle>() - 4usize];
     [
         "Align of template specialization: CHandle_open0_CTeamControlPointRound_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTeamRoundTimer_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTeamRoundTimer_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTeamTrainWatcher_close0",
+    ][::std::mem::align_of::<CHandle>() - 4usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CHandle_open0_CTrainingModeLogic_close0",
+    ][::std::mem::size_of::<CHandle>() - 4usize];
+    [
+        "Align of template specialization: CHandle_open0_CTrainingModeLogic_close0",
     ][::std::mem::align_of::<CHandle>() - 4usize];
 };

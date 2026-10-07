@@ -1,5 +1,6 @@
-//! Tests of `crate::airblast_hooks`: pre hooks of `DeflectPlayer` on mock
-//! weapon classes, through the mock SourceHook and KHook.
+//! Tests of `crate::airblast_hooks`: pre hooks of `DeflectPlayer` and
+//! `DeflectEntity` on mock weapon classes, through the mock SourceHook and
+//! KHook.
 
 use super::*;
 use crate::test_support::harness::{Harness, expect, on_both};
@@ -14,18 +15,18 @@ thread_local! {
 	/// What the callback decides.
 	static ACTION: Cell<AirblastAction> = const { Cell::new(AirblastAction::Allow) };
 
-	/// What the callback was last given: the weapon's kind, and the addresses
-	/// of the weapon, the player the airblast reached, and its owner.
+	/// What a callback was last given: the weapon's kind, and the addresses of
+	/// the weapon, the player or entity the airblast reached, and its owner.
 	static SEEN: Cell<Option<(AirblastWeapon, usize, usize, usize)>> = const { Cell::new(None) };
 }
 
-/// Where each push's owner aims.
+/// Where each push's or deflection's owner aims.
 const FORWARD: usize = 0xf0e;
 
-/// The owner of each weapon pushing.
+/// The owner of each weapon pushing or deflecting.
 const OWNER: usize = 0x0e4;
 
-/// The player each push reaches.
+/// The player each push reaches, and the entity each deflection reaches.
 const TARGET: usize = 0x7a6;
 
 /// A weapon of a C++ class, as hooks know it.
@@ -36,17 +37,19 @@ struct Weapon {
 
 impl Weapon {
 	/// The vtable of a new class, which holds `deflect_projectiles` at
-	/// [`DEFLECT_PROJECTILES_SLOT`] and `deflect_player` at
-	/// [`DEFLECT_PLAYER_SLOT`].
+	/// [`DEFLECT_PROJECTILES_SLOT`], `deflect_player` at
+	/// [`DEFLECT_PLAYER_SLOT`] and `deflect_entity` at [`DEFLECT_ENTITY_SLOT`].
 	fn new_class(
 		deflect_projectiles: DeflectProjectiles,
 		deflect_player: DeflectPlayer,
+		deflect_entity: DeflectEntity,
 	) -> NonNull<*mut c_void> {
 		let mut slots =
-			vec![unexpected as DeflectProjectiles as *mut c_void; DEFLECT_PLAYER_SLOT + 1];
+			vec![unexpected as DeflectProjectiles as *mut c_void; DEFLECT_ENTITY_SLOT + 1];
 
 		slots[DEFLECT_PROJECTILES_SLOT] = deflect_projectiles as *mut c_void;
 		slots[DEFLECT_PLAYER_SLOT] = deflect_player as *mut c_void;
+		slots[DEFLECT_ENTITY_SLOT] = deflect_entity as *mut c_void;
 
 		NonNull::new(Vec::leak(slots).as_mut_ptr()).unwrap()
 	}
@@ -63,10 +66,52 @@ impl Weapon {
 	}
 }
 
+/// Runs `weapon`'s hooked `DeflectEntity` on [`TARGET`] for [`OWNER`], and
+/// returns its result and what ran.
+fn deflect(harness: &Harness, weapon: &mut Weapon) -> (bool, Vec<&'static str>) {
+	CALLS.take();
+
+	let args = (
+		ptr::without_provenance_mut(TARGET),
+		ptr::without_provenance_mut(OWNER),
+		ptr::without_provenance_mut(FORWARD),
+	);
+	let deflected = harness.call::<DeflectEntity>(weapon.ptr(), DEFLECT_ENTITY_SLOT, args);
+
+	(deflected, CALLS.take())
+}
+
+/// The flame throwers' `DeflectEntity`, which notes that it ran, and
+/// deflects.
+unsafe extern "C" fn deflect_entity(
+	_this: *mut sys::CBaseEntity,
+	target: *mut sys::CBaseEntity,
+	owner: *mut sys::CBaseEntity,
+	forward: *mut sys::Vector,
+) -> bool {
+	expect(
+		target.addr() == TARGET && owner.addr() == OWNER && forward.addr() == FORWARD,
+		"the weapon was given other entities",
+	);
+	CALLS.with_borrow_mut(|calls| calls.push("deflect"));
+	true
+}
+
 /// `CTFWeaponBase::DeflectProjectiles`, which no test runs.
 unsafe extern "C" fn deflect_projectiles(_this: *mut sys::CBaseEntity) -> bool {
 	expect(false, "an airblast ran");
 	false
+}
+
+/// `CTFWeaponBase::DeflectEntity`, which notes that it ran.
+unsafe extern "C" fn ignore_entity(
+	_this: *mut sys::CBaseEntity,
+	_target: *mut sys::CBaseEntity,
+	_owner: *mut sys::CBaseEntity,
+	_forward: *mut sys::Vector,
+) -> bool {
+	CALLS.with_borrow_mut(|calls| calls.push("ignore"));
+	true
 }
 
 /// `CTFWeaponBase::DeflectPlayer`, which notes that it ran.
@@ -80,17 +125,42 @@ unsafe extern "C" fn ignore_player(
 	true
 }
 
-/// Installs the hooks on `vtables` and `reference`, with [`on_airblast`].
+/// Installs the hooks of `DeflectPlayer` on `vtables` and `reference`, with
+/// [`on_airblast`].
 fn install(
 	harness: &Harness,
 	(vtables, reference): ([NonNull<*mut c_void>; 2], NonNull<*mut c_void>),
 ) -> Result<AirblastHooks, AirblastHookError> {
-	// SAFETY: The mock classes have `DeflectProjectiles` and `DeflectPlayer`
-	// at their slots, and are leaked.
+	// SAFETY: The mock classes have `DeflectProjectiles`, `DeflectPlayer` and
+	// `DeflectEntity` at their slots, and are leaked.
 	unsafe {
-		harness
-			.api()
-			.install_airblasts(vtables, reference, tf2_binding(no_interfaces), on_airblast)
+		harness.api().install_airblast_routes(
+			DEFLECT_PLAYER,
+			&ROUTES,
+			vtables,
+			reference,
+			tf2_binding(no_interfaces),
+			on_airblast,
+		)
+	}
+}
+
+/// Installs the hooks of `DeflectEntity` on `vtables` and `reference`, with
+/// [`on_deflection`].
+fn install_deflections(
+	harness: &Harness,
+	(vtables, reference): ([NonNull<*mut c_void>; 2], NonNull<*mut c_void>),
+) -> Result<AirblastHooks, AirblastHookError> {
+	// SAFETY: As for `install`.
+	unsafe {
+		harness.api().install_airblast_routes(
+			DEFLECT_ENTITY,
+			&DEFLECTION_ROUTES,
+			vtables,
+			reference,
+			tf2_binding(no_interfaces),
+			on_deflection,
+		)
 	}
 }
 
@@ -99,10 +169,10 @@ fn install(
 fn new_classes() -> ([NonNull<*mut c_void>; 2], NonNull<*mut c_void>) {
 	(
 		[
-			Weapon::new_class(deflect_projectiles, push_player),
-			Weapon::new_class(deflect_projectiles, push_player),
+			Weapon::new_class(deflect_projectiles, push_player, deflect_entity),
+			Weapon::new_class(deflect_projectiles, push_player, deflect_entity),
 		],
-		Weapon::new_class(deflect_projectiles, ignore_player),
+		Weapon::new_class(deflect_projectiles, ignore_player, ignore_entity),
 	)
 }
 
@@ -119,6 +189,32 @@ fn on_airblast(_server: Server<'_>, push: AirblastPush<'_>) -> AirblastAction {
 	)));
 
 	ACTION.get()
+}
+
+/// The deflection callback, which notes that it ran and what it was given,
+/// and decides as [`ACTION`] says.
+fn on_deflection(_server: Server<'_>, deflection: AirblastDeflection<'_>) -> AirblastAction {
+	CALLS.with_borrow_mut(|calls| calls.push("callback"));
+
+	SEEN.set(Some((
+		deflection.kind,
+		deflection.weapon.as_ptr().addr(),
+		deflection.target.as_ptr().addr(),
+		deflection.owner.as_ptr().addr(),
+	)));
+
+	ACTION.get()
+}
+
+/// Another weapon class's `DeflectEntity`.
+unsafe extern "C" fn other_deflection(
+	_this: *mut sys::CBaseEntity,
+	_target: *mut sys::CBaseEntity,
+	_owner: *mut sys::CBaseEntity,
+	_forward: *mut sys::Vector,
+) -> bool {
+	CALLS.with_borrow_mut(|calls| calls.push("other"));
+	true
 }
 
 /// Another weapon class's `DeflectPlayer`.
@@ -211,6 +307,92 @@ fn pushes_an_earlier_hook_skipped_run_no_callback() {
 		ACTION.set(AirblastAction::Refuse);
 		let _hooks = install(harness, classes).unwrap();
 		assert_eq!(push(harness, &mut weapon), (true, vec![]));
+	});
+}
+
+#[test]
+fn pushes_and_deflections_are_hooked_apart() {
+	on_both(|harness| {
+		let api = harness.api();
+		let classes = new_classes();
+		let mut weapon = Weapon::of_class(classes.0[0]);
+		let pushes = install(harness, classes).unwrap();
+		let deflections = install_deflections(harness, classes).unwrap();
+
+		assert!(matches!(
+			install_deflections(harness, classes),
+			Err(AirblastHookError::Hook(HookError::AlreadyInstalled))
+		));
+
+		// Removing the pushes' hooks leaves the deflections hooked, and the other
+		// way around.
+		ACTION.set(AirblastAction::Refuse);
+		pushes.remove(api);
+		assert_eq!(push(harness, &mut weapon), (true, vec!["push"]));
+		assert_eq!(deflect(harness, &mut weapon), (false, vec!["callback"]));
+
+		let _pushes = install(harness, classes).unwrap();
+
+		deflections.remove(api);
+		assert_eq!(push(harness, &mut weapon), (false, vec!["callback"]));
+		assert_eq!(deflect(harness, &mut weapon), (true, vec!["deflect"]));
+
+		install_deflections(harness, classes).unwrap().remove(api);
+	});
+}
+
+#[test]
+fn refused_deflections_skip_the_weapons_function() {
+	on_both(|harness| {
+		let classes = new_classes();
+		let mut flame_thrower = Weapon::of_class(classes.0[0]);
+		let mut dragons_fury = Weapon::of_class(classes.0[1]);
+		let mut rocket_launcher = Weapon::of_class(classes.1);
+		let _hooks = install_deflections(harness, classes).unwrap();
+
+		ACTION.set(AirblastAction::Allow);
+		assert_eq!(
+			deflect(harness, &mut flame_thrower),
+			(true, vec!["callback", "deflect"])
+		);
+		assert_eq!(
+			SEEN.take(),
+			Some((
+				AirblastWeapon::FlameThrower,
+				flame_thrower.ptr().addr(),
+				TARGET,
+				OWNER
+			))
+		);
+
+		// The weapon's function does not run, and the entity counts as not
+		// deflected. Pushes are not hooked.
+		ACTION.set(AirblastAction::Refuse);
+		assert_eq!(
+			deflect(harness, &mut flame_thrower),
+			(false, vec!["callback"])
+		);
+		assert_eq!(push(harness, &mut flame_thrower), (true, vec!["push"]));
+		assert_eq!(
+			deflect(harness, &mut dragons_fury),
+			(false, vec!["callback"])
+		);
+		assert_eq!(
+			SEEN.take(),
+			Some((
+				AirblastWeapon::DragonsFury,
+				dragons_fury.ptr().addr(),
+				TARGET,
+				OWNER
+			))
+		);
+
+		// Weapons without airblast are not hooked.
+		assert_eq!(
+			deflect(harness, &mut rocket_launcher),
+			(true, vec!["ignore"])
+		);
+		assert_eq!(SEEN.take(), None);
 	});
 }
 
@@ -346,6 +528,18 @@ fn the_weapons_are_searched_for_unless_already_hooked() {
 				"CTFFlameThrower"
 			)))
 		));
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe { api.hook_deflections(other_server, other, on_deflection) },
+			Err(AirblastHookError::Target(AirblastVtableError::WrongGame))
+		));
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe { api.hook_deflections(server, binding, on_deflection) },
+			Err(AirblastHookError::Target(AirblastVtableError::NotFound(
+				"CTFFlameThrower"
+			)))
+		));
 
 		let _hooks = install(harness, new_classes()).unwrap();
 
@@ -353,6 +547,14 @@ fn the_weapons_are_searched_for_unless_already_hooked() {
 		assert!(matches!(
 			// SAFETY: As above.
 			unsafe { api.hook_airblasts(server, binding, on_airblast) },
+			Err(AirblastHookError::Hook(HookError::AlreadyInstalled))
+		));
+
+		let _deflections = install_deflections(harness, new_classes()).unwrap();
+
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe { api.hook_deflections(server, binding, on_deflection) },
 			Err(AirblastHookError::Hook(HookError::AlreadyInstalled))
 		));
 	});
@@ -368,9 +570,9 @@ unsafe extern "C" fn unexpected(_this: *mut sys::CBaseEntity) -> bool {
 fn vtables_not_laid_out_as_the_weapons_are_not_hooked() {
 	on_both(|harness| {
 		let ([flame_thrower, dragons_fury], reference) = new_classes();
-		let own_push = Weapon::new_class(deflect_projectiles, other_push);
-		let no_push = Weapon::new_class(deflect_projectiles, ignore_player);
-		let own_airblast = Weapon::new_class(unexpected, push_player);
+		let own_push = Weapon::new_class(deflect_projectiles, other_push, deflect_entity);
+		let no_push = Weapon::new_class(deflect_projectiles, ignore_player, deflect_entity);
+		let own_airblast = Weapon::new_class(unexpected, push_player, deflect_entity);
 
 		// Both weapons keep the reference's `DeflectProjectiles`, and share a
 		// `DeflectPlayer` of their own.
@@ -390,6 +592,46 @@ fn vtables_not_laid_out_as_the_weapons_are_not_hooked() {
 		assert_eq!(
 			push(harness, &mut Weapon::of_class(flame_thrower)),
 			(true, vec!["push"])
+		);
+	});
+}
+
+#[test]
+fn vtables_not_laid_out_for_deflections_are_not_hooked_for_them() {
+	on_both(|harness| {
+		let ([flame_thrower, dragons_fury], reference) = new_classes();
+		let own_deflection = Weapon::new_class(deflect_projectiles, push_player, other_deflection);
+		let no_deflection = Weapon::new_class(deflect_projectiles, push_player, ignore_entity);
+		let shared_reference =
+			Weapon::new_class(deflect_projectiles, ignore_player, deflect_entity);
+		// Classes whose `DeflectEntity` is their `DeflectPlayer`, as if the slots
+		// were one.
+		let pushes_twice = Weapon::new_class(deflect_projectiles, push_player, push_player);
+		let ignores_twice = Weapon::new_class(deflect_projectiles, ignore_player, ignore_player);
+
+		// Both weapons share a `DeflectEntity` of their own, which is not their
+		// `DeflectPlayer`.
+		for classes in [
+			([flame_thrower, own_deflection], reference),
+			([no_deflection, dragons_fury], reference),
+			([flame_thrower, dragons_fury], shared_reference),
+			([pushes_twice, pushes_twice], ignores_twice),
+		] {
+			assert!(matches!(
+				install_deflections(harness, classes),
+				Err(AirblastHookError::UnexpectedLayout)
+			));
+		}
+
+		// The pushes do not depend on `DeflectEntity`.
+		install(harness, ([pushes_twice, pushes_twice], ignores_twice))
+			.unwrap()
+			.remove(harness.api());
+
+		ACTION.set(AirblastAction::Refuse);
+		assert_eq!(
+			deflect(harness, &mut Weapon::of_class(flame_thrower)),
+			(true, vec!["deflect"])
 		);
 	});
 }

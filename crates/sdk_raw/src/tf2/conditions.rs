@@ -50,6 +50,34 @@ pub unsafe fn add_cond_ex(
 	.map(drop)
 }
 
+/// The seconds left of `player`'s `condition`, through
+/// `CTFPlayer::GetCondDuration`: [`PERMANENT_CONDITION`] for one that does not
+/// expire, and 0 for one the player does not have.
+///
+/// # Safety
+///
+/// As for [`add_cond_ex`].
+#[doc(alias("GetCondDuration"))]
+pub unsafe fn get_cond_duration(
+	player: NonNull<sys::CBaseEntity>,
+	condition: sys::ETFCond,
+) -> Result<f32, BindingError> {
+	// SAFETY: As the caller promises; the read-only query takes the condition.
+	let result = unsafe {
+		binding::call(
+			player,
+			CLASS,
+			c"GetCondDuration",
+			&mut [binding::int(condition)],
+			binding::FLOAT,
+		)
+	}?;
+
+	// SAFETY: `call` checked that the method's adapter returned a
+	// `FIELD_FLOAT` variant, which it assigns through the float member.
+	Ok(unsafe { result.__bindgen_anon_1.m_float })
+}
+
 /// Whether `player` has `condition`, from both its object-backed conditions
 /// and all of its condition bits, through `CTFPlayer::InCond`.
 ///
@@ -109,6 +137,37 @@ pub unsafe fn remove_cond_ex(
 			CLASS,
 			c"RemoveCondEx",
 			&mut [binding::int(condition), binding::boolean(ignore_duration)],
+			binding::VOID,
+		)
+	}
+	.map(drop)
+}
+
+/// Sets the seconds left of `player`'s `condition`, through
+/// `CTFPlayer::SetCondDuration`, or makes it permanent with
+/// [`PERMANENT_CONDITION`]. The game counts the time down from there, and
+/// removes the condition once it reaches zero.
+///
+/// The time is set even for a condition the player does not have, where it
+/// stays until the condition is next added: that addition keeps the longer of
+/// the two, or stays permanent (`CTFPlayerShared::AddCond`).
+///
+/// # Safety
+///
+/// As for [`add_cond_ex`].
+#[doc(alias("SetCondDuration"))]
+pub unsafe fn set_cond_duration(
+	player: NonNull<sys::CBaseEntity>,
+	condition: sys::ETFCond,
+	duration: f32,
+) -> Result<(), BindingError> {
+	// SAFETY: As the caller promises; the method takes these two values.
+	unsafe {
+		binding::call(
+			player,
+			CLASS,
+			c"SetCondDuration",
+			&mut [binding::int(condition), binding::float(duration)],
 			binding::VOID,
 		)
 	}

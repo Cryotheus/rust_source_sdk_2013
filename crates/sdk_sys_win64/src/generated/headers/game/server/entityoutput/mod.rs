@@ -15,6 +15,7 @@
 use super::super::super::super::__bindgen_prelude::*;
 
 pub type COutputFloat = __BindgenOpaqueArray8<[u8; 32usize]>;
+pub type COutputInt = __BindgenOpaqueArray8<[u8; 32usize]>;
 
 #[repr(C)]
 pub struct CBaseEntityOutput {

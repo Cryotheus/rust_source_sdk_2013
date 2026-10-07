@@ -43,7 +43,7 @@ use std::ffi::{CStr, c_int};
 /// The networked components of a player's view offset, which roaming zeroes as
 /// the game does (`CTFPlayer::SetObserverMode`). In first person, the game
 /// copies the target's (`CBasePlayer::CheckObserverSettings`).
-const VIEW_OFFSET: [&CStr; 3] = [
+pub(crate) const VIEW_OFFSET: [&CStr; 3] = [
 	c"m_vecViewOffset[0]",
 	c"m_vecViewOffset[1]",
 	c"m_vecViewOffset[2]",

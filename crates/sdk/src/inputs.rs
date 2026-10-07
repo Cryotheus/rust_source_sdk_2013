@@ -17,7 +17,7 @@ use crate::entities::{Entity, EntityHandle};
 use crate::math::{Color32, Vector};
 use sdk_raw::entities::datamap::FTYPEDESC_INPUT;
 use sdk_raw::inputs::{MAX_CONTROL_POINTS, MAX_PREVIOUS_POINTS, NUM_ROBOT_TYPES, Variant};
-use sdk_raw::players::{MAX_TEAMS, TF_TEAM_COUNT};
+use sdk_raw::players::{FIRST_GAME_TEAM, MAX_TEAMS, TEAM_UNASSIGNED, TF_TEAM_COUNT};
 use sdk_raw::tier0::MAX_PATH;
 use sdk_raw::util::cstr::copy_cstr;
 use std::ffi::{CStr, c_int};
@@ -106,9 +106,18 @@ const ROBOT_TYPE_KEY: &[u8] = b"type";
 /// their maximum health to its value, as well as their health.
 const SET_HEALTH_INPUT: &[u8] = b"SetHealth";
 
+/// The input of `CTeamControlPoint` that passes its integer to the point's
+/// `InternalSetOwner` (`CTeamControlPoint::InputSetOwner`).
+const SET_OWNER_INPUT: &[u8] = b"SetOwner";
+
 /// The input that passes its integer to the target's `ChangeTeam`
 /// (`CBaseEntity::InputSetTeam`).
 const SET_TEAM_INPUT: &[u8] = b"SetTeam";
+
+/// The input of `CTeamControlPointMaster` that passes its integer to the
+/// `ForceOwner` of each point of the current round
+/// (`CTeamControlPointMaster::InputSetWinnerAndForceCaps`).
+const SET_WINNER_AND_FORCE_CAPS_INPUT: &[u8] = b"SetWinnerAndForceCaps";
 
 /// The key value of `m_iTeamNum` (`CBaseEntity`'s data description).
 const TEAM_NUMBER_KEY: &[u8] = b"teamnumber";
@@ -150,6 +159,11 @@ pub(crate) struct CheckedInput<'s> {
 	/// Whether the input is [`SET_HEALTH_INPUT`] sent to a TF2 building,
 	/// which stores its value as the building's maximum health.
 	sets_max_health: bool,
+
+	/// Whether the input is [`SET_OWNER_INPUT`] sent to a control point, or
+	/// [`SET_WINNER_AND_FORCE_CAPS_INPUT`] sent to a control point master,
+	/// which give control points their value as their owning team.
+	sets_point_owner: bool,
 
 	/// Whether the input is [`SET_TEAM_INPUT`] taking an integer, which
 	/// `CBaseEntity::InputSetTeam` passes to the target's `ChangeTeam`.
@@ -253,6 +267,12 @@ pub enum InputError {
 	/// unchecked, so it must lie within 0 to 3, the teams of TF2 and of
 	/// Source SDK 2013's templates. A team entity's number must not change at
 	/// all, since clients look teams up by it.
+	///
+	/// Also, a control point's `SetOwner`, or a control point master's
+	/// `SetWinnerAndForceCaps`, would give points an owner other than
+	/// unassigned (0), RED (2) or BLU (3): the point indexes its per-team data
+	/// with the owner unchecked, and stops the server with a fatal error for
+	/// spectators, whose model it never precaches.
 	#[error("the input would put the entity in a team the game cannot handle")]
 	InvalidTeam,
 
@@ -583,6 +603,10 @@ pub(crate) fn check_guards(
 		check_added_key_value(target, value)?;
 	}
 
+	if input.sets_point_owner && !converted_int(value).is_some_and(is_valid_point_owner) {
+		return Err(InputError::InvalidTeam);
+	}
+
 	if input.sets_team {
 		check_team_change(target, value)?;
 	}
@@ -619,6 +643,8 @@ pub(crate) fn check_input<'s>(
 
 	let mut found = None;
 	let mut is_building = false;
+	let mut is_control_point = false;
+	let mut is_control_point_master = false;
 	let mut is_protected = false;
 	let mut is_npc_maker = false;
 
@@ -628,6 +654,8 @@ pub(crate) fn check_input<'s>(
 		let class = map.class_name().map_or(&[][..], CStr::to_bytes);
 
 		is_building |= class == b"CBaseObject";
+		is_control_point |= class == b"CTeamControlPoint";
+		is_control_point_master |= class == b"CTeamControlPointMaster";
 		is_protected |= class == b"CBasePlayer" || class == b"CEnvSoundscape";
 		is_npc_maker |= class == b"CBaseNPCMaker";
 
@@ -661,6 +689,9 @@ pub(crate) fn check_input<'s>(
 		looks_up_unchecked: is_any(&UNCHECKED_LOOKUP_INPUTS),
 		adds_output: is_any(&[ADD_OUTPUT_INPUT]),
 		sets_max_health: is_building && is_any(&[SET_HEALTH_INPUT]),
+		sets_point_owner: declared == InputType::Int
+			&& ((is_control_point && is_any(&[SET_OWNER_INPUT]))
+				|| (is_control_point_master && is_any(&[SET_WINNER_AND_FORCE_CAPS_INPUT]))),
 		sets_team: declared == InputType::Int && is_any(&[SET_TEAM_INPUT]),
 		target_is_protected: is_protected,
 	})
@@ -732,8 +763,9 @@ fn check_key(target: TargetClasses, key: &[u8], value: &[u8]) -> Result<(), Inpu
 		return checked(below(value, MAX_CONTROL_POINTS));
 	}
 
+	// The point takes its default owner at each spawn, as `SetOwner` gives it.
 	if target.control_point && is(POINT_DEFAULT_OWNER_KEY) {
-		return checked(below(value, TF_TEAM_COUNT));
+		return checked(value.is_some_and(is_valid_point_owner));
 	}
 
 	if target.robot_spawn && is(ROBOT_TYPE_KEY) {
@@ -792,6 +824,19 @@ fn converted_int(value: InputValue<'_>) -> Option<c_int> {
 /// positive, and for a TF2 building, rounds below 2^31 as a float.
 fn is_valid_max_health(max: c_int, building: bool) -> bool {
 	max > 0 && (!building || (max as f32) < BUILDING_HEALTH_LIMIT)
+}
+
+/// Whether a `team_control_point` can be owned by `team`: unassigned, or one
+/// of TF2's two playing teams.
+///
+/// `CTeamControlPoint::InternalSetOwner` indexes the point's per-team data
+/// with the team unchecked, and sets the model of the team's entry, which
+/// `UTIL_SetModel` stops the server with a fatal error for if it was not
+/// precached. The point precaches no model for spectators
+/// (`CTeamControlPoint::Precache`), so they crash it as surely as a team past
+/// its data.
+fn is_valid_point_owner(team: c_int) -> bool {
+	team == TEAM_UNASSIGNED || (FIRST_GAME_TEAM..TF_TEAM_COUNT).contains(&team)
 }
 
 /// Whether `CTeamControlPoint::KeyValue` indexes its data within bounds for

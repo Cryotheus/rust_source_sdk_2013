@@ -28,6 +28,9 @@ pub mod tf2;
 #[cfg(test)]
 pub(crate) mod sdk_core;
 
+#[cfg(test)]
+pub(crate) mod server_tools;
+
 /// Leaks a value, so pointers into it stay valid however the test moves what
 /// it keeps.
 ///

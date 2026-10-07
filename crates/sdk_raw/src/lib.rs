@@ -52,9 +52,12 @@ pub mod interfaces;
 pub mod key_values;
 pub mod net;
 pub mod players;
+pub mod send_proxies;
 pub mod soundscapes;
 pub mod steam;
 pub mod tier0;
+pub mod transmit;
+pub mod user_cmd;
 pub mod user_messages;
 pub mod util;
 

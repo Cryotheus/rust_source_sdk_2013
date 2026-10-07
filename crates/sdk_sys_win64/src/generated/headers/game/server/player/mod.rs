@@ -1358,8 +1358,30 @@ pub struct CBasePlayer_NetworkVar_m_AttributeList {
 }
 
 #[repr(C)]
+pub struct CBasePlayer_NetworkVar_m_AttributeList__bindgen_vtable {
+	pub CBasePlayer_NetworkVar_m_AttributeList_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CBasePlayer_NetworkVar_m_AttributeList,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CBasePlayer_NetworkVar_m_AttributeList_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CBasePlayer_NetworkVar_m_AttributeList),
+	pub CBasePlayer_NetworkVar_m_AttributeList_GetDataDescMap:
+		unsafe extern "C" fn(arg1: *mut CBasePlayer_NetworkVar_m_AttributeList) -> *mut datamap_t,
+}
+
+#[repr(C)]
 pub struct CBasePlayer_NetworkVar_m_Local {
 	pub _base: CPlayerLocalData,
+}
+
+#[repr(C)]
+pub struct CBasePlayer_NetworkVar_m_Local__bindgen_vtable {
+	pub CBasePlayer_NetworkVar_m_Local_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CBasePlayer_NetworkVar_m_Local,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CBasePlayer_NetworkVar_m_Local_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CBasePlayer_NetworkVar_m_Local),
 }
 
 #[repr(C)]
@@ -1509,6 +1531,21 @@ pub struct CBasePlayer_NetworkVar_m_vecConstraintCenter {
 #[derive(Debug)]
 pub struct CBasePlayer_NetworkVar_pl {
 	pub _base: CPlayerState,
+}
+
+#[repr(C)]
+pub struct CBasePlayer_NetworkVar_pl__bindgen_vtable {
+	pub CBasePlayer_NetworkVar_pl_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CBasePlayer_NetworkVar_pl,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CBasePlayer_NetworkVar_pl_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CBasePlayer_NetworkVar_pl),
+	pub CBasePlayer_NetworkVar_pl_destructor: unsafe extern "C" fn(
+		arg1: *mut CBasePlayer_NetworkVar_pl,
+		arg2: ::std::os::raw::c_uint,
+	)
+		-> *mut ::std::os::raw::c_void,
 }
 
 #[repr(C)]
