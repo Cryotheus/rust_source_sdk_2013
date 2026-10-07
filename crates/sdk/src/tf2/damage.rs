@@ -13,6 +13,76 @@ use std::fmt;
 use std::mem::{MaybeUninit, offset_of};
 use std::ptr::NonNull;
 
+/// The custom damage kind, an `ETFDmgCustom` value, of a backstab. Clients
+/// play the `primary_death_backstab` death animation on the ragdoll of a
+/// player it kills on the ground a quarter of the time, and always for a
+/// weapon that turns ragdolls to ice, such as the Spy-cicle
+/// (`c_tf_player.cpp:810-839`, `tf_player_shared.cpp:13452-13454`).
+#[doc(alias("TF_DMG_CUSTOM_BACKSTAB"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_BACKSTAB: i32 = sys::ETFDmgCustom_TF_DMG_CUSTOM_BACKSTAB as i32;
+
+/// The custom damage kind, an `ETFDmgCustom` value, of a decapitating
+/// sword's kill, such as the Eyelander's. Clients draw the ragdoll of a
+/// player it kills without a head, throw the head off as a gib, and spray
+/// blood from the neck (`c_tf_player.cpp:1240-1256`, `8836-8840`), unless
+/// `cl_ragdoll_fade_time` is 5 seconds or less, and play the
+/// `primary_death_headshot` death animation as for [`CUSTOM_DAMAGE_HEADSHOT`].
+#[doc(alias("TF_DMG_CUSTOM_DECAPITATION"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_DECAPITATION: i32 = sys::ETFDmgCustom_TF_DMG_CUSTOM_DECAPITATION as i32;
+
+/// The custom damage kind, an `ETFDmgCustom` value, of the Halloween bosses'
+/// decapitating swings, such as the Horseless Headless Horsemann's. Clients
+/// decapitate the ragdoll of a player it kills as for
+/// [`CUSTOM_DAMAGE_DECAPITATION`], without a death animation.
+#[doc(alias("TF_DMG_CUSTOM_DECAPITATION_BOSS"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_DECAPITATION_BOSS: i32 =
+	sys::ETFDmgCustom_TF_DMG_CUSTOM_DECAPITATION_BOSS as i32;
+
+/// The custom damage kind, an `ETFDmgCustom` value, of a headshot. Clients
+/// play the `primary_death_headshot` death animation on the ragdoll of a
+/// player it kills on the ground a quarter of the time
+/// (`c_tf_player.cpp:810-839`, `tf_player_shared.cpp:13444-13451`).
+#[doc(alias("TF_DMG_CUSTOM_HEADSHOT"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_HEADSHOT: i32 = sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32;
+
+/// The custom damage kind, an `ETFDmgCustom` value, of a critical headshot
+/// by a weapon with the `decapitate_type` attribute. Clients decapitate the
+/// ragdoll of a player it kills as for [`CUSTOM_DAMAGE_DECAPITATION`].
+#[doc(alias("TF_DMG_CUSTOM_HEADSHOT_DECAPITATION"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_HEADSHOT_DECAPITATION: i32 =
+	sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT_DECAPITATION as i32;
+
+/// The custom damage kind, an `ETFDmgCustom` value, of Merasmus' staff.
+/// Clients decapitate the ragdoll of a player it kills as for
+/// [`CUSTOM_DAMAGE_DECAPITATION`], without a death animation.
+#[doc(alias("TF_DMG_CUSTOM_MERASMUS_DECAPITATION"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_MERASMUS_DECAPITATION: i32 =
+	sys::ETFDmgCustom_TF_DMG_CUSTOM_MERASMUS_DECAPITATION as i32;
+
 /// The custom damage kind, an `ETFDmgCustom` value, of plasma, as in an
 /// uncharged Cow Mangler 5000 shot, the Righteous Bison's and Pomson 6000's,
 /// and the Monoculus' emergence. The game also gives it to the ragdoll of a
@@ -39,6 +109,20 @@ pub const CUSTOM_DAMAGE_PLASMA: i32 = sys::ETFDmgCustom_TF_DMG_CUSTOM_PLASMA as 
 	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
 )]
 pub const CUSTOM_DAMAGE_PLASMA_CHARGED: i32 = sys::ETFDmgCustom_TF_DMG_CUSTOM_PLASMA_CHARGED as i32;
+
+/// The custom damage kind, an `ETFDmgCustom` value, of the Demoman's
+/// Barbarian Swing taunt, with the Eyelander and other swords. Clients
+/// decapitate the ragdoll of a player it kills as for
+/// [`CUSTOM_DAMAGE_DECAPITATION`], and always play the
+/// `primary_death_headshot` death animation on it if the player died on the
+/// ground (`c_tf_player.cpp:822-839`).
+#[doc(alias("TF_DMG_CUSTOM_TAUNTATK_BARBARIAN_SWING"))]
+#[allow(
+	clippy::unnecessary_cast,
+	reason = "`ETFDmgCustom` is `c_int` on Windows but `c_uint` on Linux"
+)]
+pub const CUSTOM_DAMAGE_TAUNT_BARBARIAN_SWING: i32 =
+	sys::ETFDmgCustom_TF_DMG_CUSTOM_TAUNTATK_BARBARIAN_SWING as i32;
 
 /// Defines a documented getter and setter for one scalar `CTakeDamageInfo`
 /// field. The setter panics unless the optional validity predicate accepts
