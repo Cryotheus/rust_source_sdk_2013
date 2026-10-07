@@ -142,3 +142,34 @@ pub unsafe fn remove_cond_ex(
 	}
 	.map(drop)
 }
+
+/// Sets the seconds left of `player`'s `condition`, through
+/// `CTFPlayer::SetCondDuration`, or makes it permanent with
+/// [`PERMANENT_CONDITION`]. The game counts the time down from there, and
+/// removes the condition once it reaches zero.
+///
+/// The time is set even for a condition the player does not have, where it
+/// stays until the condition is next added: that addition keeps the longer of
+/// the two, or stays permanent (`CTFPlayerShared::AddCond`).
+///
+/// # Safety
+///
+/// As for [`add_cond_ex`].
+#[doc(alias("SetCondDuration"))]
+pub unsafe fn set_cond_duration(
+	player: NonNull<sys::CBaseEntity>,
+	condition: sys::ETFCond,
+	duration: f32,
+) -> Result<(), BindingError> {
+	// SAFETY: As the caller promises; the method takes these two values.
+	unsafe {
+		binding::call(
+			player,
+			CLASS,
+			c"SetCondDuration",
+			&mut [binding::int(condition), binding::float(duration)],
+			binding::VOID,
+		)
+	}
+	.map(drop)
+}

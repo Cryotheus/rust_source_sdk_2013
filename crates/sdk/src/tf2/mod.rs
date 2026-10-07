@@ -22,6 +22,7 @@ pub mod item_schema;
 pub mod objects;
 pub mod observer;
 pub mod overlays;
+mod player_methods;
 pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
