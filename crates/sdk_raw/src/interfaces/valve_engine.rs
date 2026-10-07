@@ -71,6 +71,8 @@ const _: fn(&sys::IVEngineServer__bindgen_vtable) -> MessageEndFn =
 	|vtable| vtable.IVEngineServer_MessageEnd;
 const _: fn(&sys::IVEngineServer__bindgen_vtable) -> ClientPrintfFn =
 	|vtable| vtable.IVEngineServer_ClientPrintf;
+const _: fn(&sys::IVEngineServer__bindgen_vtable) -> ServerCommandFn =
+	|vtable| vtable.IVEngineServer_ServerCommand;
 
 /// The slot of `IVEngineServer::CreateFakeClient`, from the generated binding.
 #[doc(alias("CreateFakeClient"))]
@@ -116,6 +118,13 @@ pub const USER_MESSAGE_BEGIN_SLOT: usize = vtable_slot!(
 	IVEngineServer_UserMessageBegin
 );
 
+/// The slot of `IVEngineServer::ServerCommand`, from the generated binding.
+#[doc(alias("ServerCommand"))]
+pub const SERVER_COMMAND_SLOT: usize = vtable_slot!(
+	sys::IVEngineServer__bindgen_vtable,
+	IVEngineServer_ServerCommand
+);
+
 /// `IVEngineServer::ClientPrintf`: prints `message` to the console of the
 /// client owning `client`, as is rather than as a format.
 #[doc(alias("ClientPrintf"))]
@@ -155,6 +164,14 @@ pub type UserMessageBeginFn = unsafe extern "C" fn(
 	filter: *mut sys::IRecipientFilter,
 	message_type: c_int,
 ) -> *mut sys::bf_write;
+
+/// `IVEngineServer::ServerCommand`: appends `command`, which must end in a line
+/// break, to the server's command buffer, which the main thread runs on its
+/// next frame or [`ServerExecute`](sys::IVEngineServer__bindgen_vtable). The
+/// engine locks the buffer while it appends.
+#[doc(alias("ServerCommand"))]
+pub type ServerCommandFn =
+	unsafe extern "C" fn(this: *mut sys::IVEngineServer, command: *const c_char);
 
 /// `IVEngineServer::CreateFakeClient`: connects a fake client named `name`,
 /// returning its edict, or null if the server has no free slot.
