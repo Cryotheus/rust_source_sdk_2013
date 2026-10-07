@@ -1,6 +1,7 @@
 //! TF2's item schema: what an item definition says of the items made from
 //! it, read through the game's own lookup, `CEconItemSchema::GetItemDefinition`,
-//! which [`ItemGeneration`] finds.
+//! which [`ItemGeneration`] finds, and the qualities and levels items are made
+//! with.
 //!
 //! # Layout
 //!
@@ -18,6 +19,10 @@
 //! the Game Coordinator can send a newer one, which TF2 applies at the next
 //! level change. Should it lack a checked definition, or change its values,
 //! [`ItemSchema::new`] fails too.
+
+#[cfg(test)]
+#[path = "../tests/tf2/item_schema.rs"]
+mod tests;
 
 use crate::tf2::weapons::{ItemDefinitionIndex, ItemGenerationError};
 use crate::{Game, NotThreadSafe, Server};
@@ -47,6 +52,163 @@ pub struct ItemDefinition<'s> {
 	raw: NonNull<sys::CEconItemDefinition>,
 	_scope: PhantomData<&'s ()>,
 	_not_thread_safe: NotThreadSafe,
+}
+
+/// An item's level (`m_iEntityLevel`), which clients show in its description,
+/// such as "Level 10 Rocket Launcher".
+///
+/// Clients receive the level as a signed 8-bit number, so it runs from 0 to
+/// [`Self::MAX`].
+#[doc(alias("m_iEntityLevel"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ItemLevel(u8);
+
+impl ItemLevel {
+	/// Level 1, which the game gives the items it creates for players.
+	pub const DEFAULT: Self = Self(1);
+
+	/// The highest level clients receive unchanged: 127.
+	pub const MAX: Self = Self(i8::MAX as u8);
+
+	/// The level, or `None` above [`Self::MAX`].
+	pub const fn new(level: u8) -> Option<Self> {
+		if level <= Self::MAX.0 {
+			Some(Self(level))
+		} else {
+			None
+		}
+	}
+
+	/// The level as a number.
+	pub const fn get(self) -> u8 {
+		self.0
+	}
+}
+
+impl Default for ItemLevel {
+	fn default() -> Self {
+		Self::DEFAULT
+	}
+}
+
+/// An item's quality (`EEconItemQuality`), which clients color its name by,
+/// and show in it, such as a Strange or Vintage weapon.
+///
+/// A quality changes only how clients show the item: a Strange item counts
+/// nothing without a kill-counting attribute (`kill eater`), and an Unusual
+/// one has no effect without an effect attribute.
+///
+/// Clients receive the quality as a signed 5-bit number, so only the
+/// qualities up to [`Self::DecoratedWeapon`] reach them unchanged. The
+/// schema's unused qualities and its rarity grades are left out.
+#[doc(alias("EEconItemQuality", "entityquality_t", "m_iEntityQuality"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ItemQuality {
+	/// Normal (`AE_NORMAL`): the stock items.
+	#[doc(alias("AE_NORMAL"))]
+	Normal,
+
+	/// Genuine (`AE_RARITY1`), such as items from promotions.
+	#[doc(alias("AE_RARITY1"))]
+	Genuine,
+
+	/// Vintage (`AE_VINTAGE`), the items found before the Mann-Conomy update.
+	#[doc(alias("AE_VINTAGE"))]
+	Vintage,
+
+	/// Unusual (`AE_UNUSUAL`).
+	#[doc(alias("AE_UNUSUAL"))]
+	Unusual,
+
+	/// Unique (`AE_UNIQUE`), which the game gives the items it creates for
+	/// players.
+	#[doc(alias("AE_UNIQUE"))]
+	Unique,
+
+	/// Community (`AE_COMMUNITY`).
+	#[doc(alias("AE_COMMUNITY"))]
+	Community,
+
+	/// Valve (`AE_DEVELOPER`).
+	#[doc(alias("AE_DEVELOPER"))]
+	Valve,
+
+	/// Self-Made (`AE_SELFMADE`).
+	#[doc(alias("AE_SELFMADE"))]
+	SelfMade,
+
+	/// Strange (`AE_STRANGE`).
+	#[doc(alias("AE_STRANGE"))]
+	Strange,
+
+	/// Haunted (`AE_HAUNTED`).
+	#[doc(alias("AE_HAUNTED"))]
+	Haunted,
+
+	/// Collector's (`AE_COLLECTORS`).
+	#[doc(alias("AE_COLLECTORS"))]
+	Collectors,
+
+	/// Decorated Weapon (`AE_PAINTKITWEAPON`).
+	#[doc(alias("AE_PAINTKITWEAPON"))]
+	DecoratedWeapon,
+}
+
+impl ItemQuality {
+	/// Every quality, in the game's order.
+	pub const ALL: [Self; 12] = [
+		Self::Normal,
+		Self::Genuine,
+		Self::Vintage,
+		Self::Unusual,
+		Self::Unique,
+		Self::Community,
+		Self::Valve,
+		Self::SelfMade,
+		Self::Strange,
+		Self::Haunted,
+		Self::Collectors,
+		Self::DecoratedWeapon,
+	];
+
+	/// The quality with this `EEconItemQuality` number, or `None` for one
+	/// left out.
+	pub const fn from_raw(raw: sys::entityquality_t) -> Option<Self> {
+		Some(match raw {
+			sys::EEconItemQuality_AE_NORMAL => Self::Normal,
+			sys::EEconItemQuality_AE_RARITY1 => Self::Genuine,
+			sys::EEconItemQuality_AE_VINTAGE => Self::Vintage,
+			sys::EEconItemQuality_AE_UNUSUAL => Self::Unusual,
+			sys::EEconItemQuality_AE_UNIQUE => Self::Unique,
+			sys::EEconItemQuality_AE_COMMUNITY => Self::Community,
+			sys::EEconItemQuality_AE_DEVELOPER => Self::Valve,
+			sys::EEconItemQuality_AE_SELFMADE => Self::SelfMade,
+			sys::EEconItemQuality_AE_STRANGE => Self::Strange,
+			sys::EEconItemQuality_AE_HAUNTED => Self::Haunted,
+			sys::EEconItemQuality_AE_COLLECTORS => Self::Collectors,
+			sys::EEconItemQuality_AE_PAINTKITWEAPON => Self::DecoratedWeapon,
+			_ => return None,
+		})
+	}
+
+	/// The quality's `EEconItemQuality` number.
+	pub const fn to_raw(self) -> sys::entityquality_t {
+		match self {
+			Self::Normal => sys::EEconItemQuality_AE_NORMAL,
+			Self::Genuine => sys::EEconItemQuality_AE_RARITY1,
+			Self::Vintage => sys::EEconItemQuality_AE_VINTAGE,
+			Self::Unusual => sys::EEconItemQuality_AE_UNUSUAL,
+			Self::Unique => sys::EEconItemQuality_AE_UNIQUE,
+			Self::Community => sys::EEconItemQuality_AE_COMMUNITY,
+			Self::Valve => sys::EEconItemQuality_AE_DEVELOPER,
+			Self::SelfMade => sys::EEconItemQuality_AE_SELFMADE,
+			Self::Strange => sys::EEconItemQuality_AE_STRANGE,
+			Self::Haunted => sys::EEconItemQuality_AE_HAUNTED,
+			Self::Collectors => sys::EEconItemQuality_AE_COLLECTORS,
+			Self::DecoratedWeapon => sys::EEconItemQuality_AE_PAINTKITWEAPON,
+		}
+	}
 }
 
 impl ItemDefinition<'_> {

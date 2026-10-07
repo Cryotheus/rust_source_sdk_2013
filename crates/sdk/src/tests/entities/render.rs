@@ -5,13 +5,16 @@
 use super::*;
 
 use crate::test_support::entities::{
-	MockEntity, set_datamap, set_networking, state_maps, transmit_state_updates,
+	MockEntity, models_set, set_datamap, set_networking, state_maps, transmit_state_updates,
 };
 
+use crate::test_support::leak;
 use crate::test_support::sdk_core::change_tracking_engine;
 use sdk_raw::test_support::edicts::mock_edict;
 use sdk_raw::test_support::entities::field;
-use std::ptr::null_mut;
+use sdk_raw::test_support::{mock_vtable, unexpected_call};
+use std::ffi::c_char;
+use std::ptr::{NonNull, null_mut};
 
 /// Where the test's `CBaseAnimating` map declares `m_nSkin`, `m_nBody` and
 /// `m_flFadeScale`, one after another.
@@ -86,6 +89,53 @@ fn effects_update_the_transmit_state_as_the_game_sets_them() {
 	);
 
 	set_networking(null_mut(), null_mut());
+}
+
+/// `IVModelInfo::GetModelIndex`, which knows `models/box.mdl` as precached,
+/// at 3, and `models/dynamic.mdl` as a dynamic model.
+unsafe extern "C" fn model_index(_: *const sys::IVModelInfo, name: *const c_char) -> c_int {
+	// SAFETY: The wrapper passes a NUL-terminated name.
+	match unsafe { CStr::from_ptr(name) }.to_bytes() {
+		b"models/box.mdl" => 3,
+		b"models/dynamic.mdl" => -3,
+		_ => -1,
+	}
+}
+
+#[test]
+fn models_are_only_set_once_precached() {
+	let mut mock = MockEntity::new(5);
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes a slot of the vtable
+	// being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::IVModelInfo__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IVModelInfo_GetModelIndex).write(model_index);
+		})
+	};
+	let raw = leak(sys::IVModelInfo {
+		vtable_: Box::leak(vtable),
+	});
+
+	// SAFETY: The model info and its vtable are leaked, and the vtable answers
+	// what setting a model calls.
+	let models = unsafe { ModelInfo::from_raw(NonNull::new(raw).unwrap()) };
+
+	for model in [c"models/missing.mdl", c"models/dynamic.mdl"] {
+		assert_eq!(
+			mock.entity().set_model(models, model),
+			Err(SetModelError::NotPrecached {
+				model: model.to_owned()
+			})
+		);
+	}
+
+	mock.entity().set_model(models, c"models/box.mdl").unwrap();
+	assert_eq!(
+		models_set(),
+		[(mock.as_ptr(), c"models/box.mdl".to_owned())]
+	);
 }
 
 #[test]

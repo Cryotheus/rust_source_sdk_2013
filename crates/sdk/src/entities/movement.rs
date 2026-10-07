@@ -1,5 +1,7 @@
 //! How an entity moves: its flags (`m_fFlags`), move type, velocity, gravity
 //! and friction, and the entity it moves with.
+//!
+//! [`ServerTools::set_move_type`] changes how the game moves an entity.
 
 #[cfg(test)]
 #[path = "../tests/entities/movement.rs"]
@@ -7,7 +9,7 @@ mod tests;
 
 use crate::entities::fields::{BaseField, FieldError};
 use crate::entities::{Entity, EntityHandle};
-use crate::interfaces::ValveEngine;
+use crate::interfaces::{ServerTools, ValveEngine};
 use crate::math::Vector;
 
 use sdk_raw::entities::flags::{
@@ -18,6 +20,7 @@ use sdk_raw::entities::flags::{
 	FL_TRANSRAGDOLL, FL_UNBLOCKABLE_BY_PLAYER, FL_WATERJUMP, FL_WORLDBRUSH,
 };
 
+use sdk_raw::vcall;
 use std::ffi::c_int;
 
 /// `EFL_DIRTY_ABSVELOCITY` from `game/shared/shareddefs.h`: the entity's
@@ -44,6 +47,10 @@ static GRAVITY: BaseField<f32> = BaseField::new(c"m_flGravity", sys::_fieldtypes
 /// `m_vecVelocity`, the `velocity` key value.
 static LOCAL_VELOCITY: BaseField<Vector> =
 	BaseField::new(c"m_vecVelocity", sys::_fieldtypes_FIELD_VECTOR);
+
+/// `m_MoveCollide`.
+static MOVE_COLLIDE: BaseField<u8> =
+	BaseField::new(c"m_MoveCollide", sys::_fieldtypes_FIELD_CHARACTER);
 
 /// `m_hMoveParent`.
 static MOVE_PARENT: BaseField<EntityHandle> =
@@ -342,6 +349,13 @@ impl<'s> Entity<'s> {
 		LOCAL_VELOCITY.read(self)
 	}
 
+	/// How the entity reacts when it flies into something (`m_MoveCollide`), or
+	/// `None` for a reaction the SDK does not know.
+	#[doc(alias("GetMoveCollide", "m_MoveCollide"))]
+	pub fn move_collide(self) -> Result<Option<MoveCollide>, FieldError> {
+		MOVE_COLLIDE.read(self).map(MoveCollide::from_raw)
+	}
+
 	/// The entity the entity moves with (`m_hMoveParent`), such as the player
 	/// wearing an item, or `None` if it moves on its own.
 	#[doc(alias("GetMoveParent", "moveparent", "m_hMoveParent"))]
@@ -370,5 +384,87 @@ impl<'s> Entity<'s> {
 	#[doc(alias("SetGravity", "m_flGravity"))]
 	pub fn set_gravity(self, engine: ValveEngine<'_>, gravity: f32) -> Result<(), FieldError> {
 		GRAVITY.write(engine, self, gravity)
+	}
+}
+
+/// How an entity that flies reacts when it hits something
+/// (`MoveCollide_t`).
+#[doc(alias("MoveCollide_t", "m_MoveCollide"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MoveCollide {
+	/// `MOVECOLLIDE_DEFAULT`: stops, or slides, as its move type does.
+	#[doc(alias("MOVECOLLIDE_DEFAULT"))]
+	#[default]
+	Default,
+
+	/// `MOVECOLLIDE_FLY_BOUNCE`: bounces off, as elastic as the surface, with
+	/// friction.
+	#[doc(alias("MOVECOLLIDE_FLY_BOUNCE"))]
+	FlyBounce,
+
+	/// `MOVECOLLIDE_FLY_CUSTOM`: lets the entity's `Touch` change its velocity.
+	#[doc(alias("MOVECOLLIDE_FLY_CUSTOM"))]
+	FlyCustom,
+
+	/// `MOVECOLLIDE_FLY_SLIDE`: slides along the surface, with friction.
+	#[doc(alias("MOVECOLLIDE_FLY_SLIDE"))]
+	FlySlide,
+}
+
+impl MoveCollide {
+	/// The reaction a `MoveCollide_t` value stands for, or `None` for a value
+	/// past `MOVECOLLIDE_FLY_SLIDE`.
+	pub const fn from_raw(value: u8) -> Option<Self> {
+		Some(match value as sys::MoveCollide_t {
+			sys::MoveCollide_t_MOVECOLLIDE_DEFAULT => Self::Default,
+			sys::MoveCollide_t_MOVECOLLIDE_FLY_BOUNCE => Self::FlyBounce,
+			sys::MoveCollide_t_MOVECOLLIDE_FLY_CUSTOM => Self::FlyCustom,
+			sys::MoveCollide_t_MOVECOLLIDE_FLY_SLIDE => Self::FlySlide,
+			_ => return None,
+		})
+	}
+
+	/// The reaction's `MoveCollide_t` value.
+	pub const fn to_raw(self) -> u8 {
+		(match self {
+			Self::Default => sys::MoveCollide_t_MOVECOLLIDE_DEFAULT,
+			Self::FlyBounce => sys::MoveCollide_t_MOVECOLLIDE_FLY_BOUNCE,
+			Self::FlyCustom => sys::MoveCollide_t_MOVECOLLIDE_FLY_CUSTOM,
+			Self::FlySlide => sys::MoveCollide_t_MOVECOLLIDE_FLY_SLIDE,
+		}) as u8
+	}
+}
+
+impl<'s> ServerTools<'s> {
+	/// Sets how the game moves `entity`, keeping how it reacts when it hits
+	/// something, through `CBaseEntity::SetMoveType`, which also updates its
+	/// collision rules and how often it is simulated.
+	#[doc(alias("SetMoveType", "SetEntityMoveType"))]
+	pub fn set_move_type(self, entity: Entity<'_>, move_type: MoveType) {
+		// SAFETY: `Server::new` guarantees the interface is live, and the entity
+		// is live. The game only sets the entity's members and its collision
+		// rules.
+		unsafe {
+			vcall!(self.as_ptr() => IServerTools_SetMoveType(entity.as_ptr(), c_int::from(move_type.to_raw())))
+		};
+	}
+
+	/// Sets how the game moves `entity` and how it reacts when it hits
+	/// something, as [`Self::set_move_type`] does.
+	#[doc(alias("SetMoveType"))]
+	pub fn set_move_type_and_collide(
+		self,
+		entity: Entity<'_>,
+		move_type: MoveType,
+		collide: MoveCollide,
+	) {
+		// SAFETY: As for `set_move_type`.
+		unsafe {
+			vcall!(self.as_ptr() => IServerTools_SetMoveType1(
+				entity.as_ptr(),
+				c_int::from(move_type.to_raw()),
+				c_int::from(collide.to_raw()),
+			))
+		};
 	}
 }

@@ -12,6 +12,7 @@
 pub mod airblast;
 pub mod ammo;
 pub mod attributes;
+pub mod bosses;
 pub mod bots;
 pub mod buildings;
 pub mod class;
@@ -31,6 +32,7 @@ pub mod objectives;
 pub mod objects;
 pub mod observer;
 pub mod player;
+pub mod projectiles;
 pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
