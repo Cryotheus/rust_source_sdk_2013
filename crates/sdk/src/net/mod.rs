@@ -10,6 +10,7 @@
 //! message can be sent as a [`messages::Raw`].
 
 pub mod cheats;
+pub mod events;
 pub mod incoming;
 pub mod messages;
 

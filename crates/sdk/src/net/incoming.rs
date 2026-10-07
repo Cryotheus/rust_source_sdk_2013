@@ -36,7 +36,8 @@ pub struct HookTarget {
 	pub slots: [c_int; 14],
 }
 
-/// Why clients' messages cannot be hooked.
+/// Why the engine's clients cannot be hooked: their messages, here, or the
+/// game events they are sent, in [`events`](super::events).
 #[derive(Debug, thiserror::Error)]
 pub enum HookTargetError {
 	/// [`Server::valve_engine`] failed.
