@@ -26,11 +26,17 @@ enum Ran {
 	/// The damage callback, with the player's and the attacker's addresses,
 	/// the bits of the damage's amount, and the answer it was given.
 	Damage(usize, usize, u32, bool),
+
+	/// The scramble callback.
+	Scramble,
+
+	/// The switch callback.
+	Switch,
 }
 
 thread_local! {
-	/// What the balance callback decides.
-	static BALANCE: Cell<BalanceAction> = const { Cell::new(BalanceAction::Allow) };
+	/// What the balance, scramble and switch callbacks decide.
+	static TEAMS: Cell<TeamsAction> = const { Cell::new(TeamsAction::Allow) };
 
 	/// What ran during the calls since the last [`rules_call`], in order.
 	static CALLS: RefCell<Vec<Ran>> = const { RefCell::new(Vec::new()) };
@@ -67,12 +73,12 @@ fn ran(ran: Ran) {
 }
 
 /// Every game rules callback, each noting that it ran, and deciding as
-/// [`BALANCE`], [`HOLIDAY`] and [`DAMAGE`] say.
+/// [`TEAMS`], [`HOLIDAY`] and [`DAMAGE`] say.
 fn every_callback() -> RulesCallbacks {
 	RulesCallbacks {
 		balance_teams: Some(|_| {
 			ran(Ran::Balance);
-			BALANCE.get()
+			TEAMS.get()
 		}),
 		holiday: Some(|_, holiday, active| {
 			ran(Ran::Holiday(holiday, active));
@@ -87,12 +93,20 @@ fn every_callback() -> RulesCallbacks {
 			));
 			DAMAGE.get()
 		}),
+		scramble_teams: Some(|_| {
+			ran(Ran::Scramble);
+			TEAMS.get()
+		}),
+		switch_teams: Some(|_| {
+			ran(Ran::Switch);
+			TEAMS.get()
+		}),
 	}
 }
 
 /// The vtable of a new game rules class, which holds the game's methods at
 /// their slots, each noting that it ran: only Halloween is active, players
-/// take all damage, and the teams are kept balanced.
+/// take all damage, and the teams are kept balanced, switched and scrambled.
 fn new_rules_class() -> NonNull<*mut c_void> {
 	unsafe extern "C" fn is_holiday_active(_: *mut c_void, holiday: c_int) -> bool {
 		ran(Ran::Game("holiday"));
@@ -114,7 +128,17 @@ fn new_rules_class() -> NonNull<*mut c_void> {
 		true
 	}
 
-	let methods: [(usize, *mut c_void); 3] = [
+	unsafe extern "C" fn should_scramble_teams(_: *mut c_void) -> bool {
+		ran(Ran::Game("scramble"));
+		true
+	}
+
+	unsafe extern "C" fn should_switch_teams(_: *mut c_void) -> bool {
+		ran(Ran::Game("switch"));
+		true
+	}
+
+	let methods: [(usize, *mut c_void); 5] = [
 		(
 			IS_HOLIDAY_ACTIVE_SLOT,
 			is_holiday_active as IsHolidayActive as _,
@@ -126,6 +150,14 @@ fn new_rules_class() -> NonNull<*mut c_void> {
 		(
 			SHOULD_BALANCE_TEAMS_SLOT,
 			should_balance_teams as ShouldBalanceTeams as _,
+		),
+		(
+			SHOULD_SCRAMBLE_TEAMS_SLOT,
+			should_scramble_teams as ShouldScrambleTeams as _,
+		),
+		(
+			SHOULD_SWITCH_TEAMS_SLOT,
+			should_switch_teams as ShouldSwitchTeams as _,
 		),
 	];
 
@@ -236,7 +268,7 @@ fn holidays_and_damage_are_decided_again_after_the_game() {
 }
 
 #[test]
-fn team_balance_is_refused_where_the_hook_says_so() {
+fn team_balance_switches_and_scrambles_are_refused_where_the_hooks_say_so() {
 	on_both(|harness| {
 		let api = harness.api();
 		let class = new_rules_class();
@@ -247,25 +279,35 @@ fn team_balance_is_refused_where_the_hook_says_so() {
 			unsafe { api.install_rules(class, tf2_binding(no_interfaces), every_callback()) }
 				.unwrap();
 
-		let balance = |harness, rules: &mut GameRules| {
-			rules_call::<ShouldBalanceTeams>(harness, rules, SHOULD_BALANCE_TEAMS_SLOT, ())
+		let teams = |harness, rules: &mut GameRules, slot| {
+			rules_call::<ShouldBalanceTeams>(harness, rules, slot, ())
 		};
+		let decisions = [
+			(SHOULD_BALANCE_TEAMS_SLOT, Ran::Balance, "balance"),
+			(SHOULD_SCRAMBLE_TEAMS_SLOT, Ran::Scramble, "scramble"),
+			(SHOULD_SWITCH_TEAMS_SLOT, Ran::Switch, "switch"),
+		];
 
-		BALANCE.set(BalanceAction::Allow);
-		assert_eq!(
-			balance(harness, &mut rules),
-			(true, vec![Ran::Balance, Ran::Game("balance")])
-		);
+		for (slot, callback, game) in decisions {
+			TEAMS.set(TeamsAction::Allow);
+			assert_eq!(
+				teams(harness, &mut rules, slot),
+				(true, vec![callback, Ran::Game(game)])
+			);
 
-		BALANCE.set(BalanceAction::Refuse);
-		assert_eq!(balance(harness, &mut rules), (false, vec![Ran::Balance]));
+			TEAMS.set(TeamsAction::Refuse);
+			assert_eq!(teams(harness, &mut rules, slot), (false, vec![callback]));
+		}
 
 		// Removed hooks run no callback.
 		hooks.remove(api);
-		assert_eq!(
-			balance(harness, &mut rules),
-			(true, vec![Ran::Game("balance")])
-		);
+
+		for (slot, _, game) in decisions {
+			assert_eq!(
+				teams(harness, &mut rules, slot),
+				(true, vec![Ran::Game(game)])
+			);
+		}
 	});
 }
 
@@ -295,7 +337,7 @@ fn rules_hooks_are_installed_all_at_once() {
 		// SAFETY: As above.
 		let hooks = unsafe { api.install_rules(class, binding, every_callback()) }.unwrap();
 
-		assert_eq!(hooks.hooks.len(), 3);
+		assert_eq!(hooks.hooks.len(), 5);
 
 		// An installed hook is reported without searching the module again.
 		assert!(matches!(
