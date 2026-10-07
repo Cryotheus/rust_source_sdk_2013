@@ -13,7 +13,9 @@
 //! `RemoveHealth` inputs buildings declare.
 //!
 //! [`sdk_raw::tf2::buildings`] holds TF2's numbers for buildings. Where
-//! buildings may be placed is [`objects`](super::objects)'.
+//! buildings may be placed is [`objects`](super::objects)'. [`BuildingClass`]
+//! names the buildings' C++ classes, whose vtables [`building_vtables`] finds
+//! for `metamod_source`'s building hooks.
 //!
 //! # Blueprints
 //!
@@ -215,6 +217,12 @@ bitflags::bitflags! {
 		const _ = !0;
 	}
 }
+
+use crate::tf2::class_targets::{ClassTarget, ClassTargetError, ClassTargets};
+use sdk_raw::util;
+use std::ffi::c_void;
+use std::marker::PhantomData;
+use std::ptr::NonNull;
 
 /// A TF2 building, scoped to one engine callback.
 #[doc(alias("CBaseObject"))]
@@ -599,6 +607,142 @@ impl<'s> Building<'s> {
 	#[doc(alias("m_bWasMapPlaced"))]
 	pub fn was_map_placed(self) -> Result<bool, BuildingError> {
 		self.bool(c"m_bWasMapPlaced")
+	}
+}
+
+/// A C++ class of TF2's buildings. Each has a vtable of its own, which hooks
+/// of the buildings' methods patch: [`building_vtables`] finds them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuildingClass {
+	/// A payload cart's dispenser.
+	#[doc(alias("CObjectCartDispenser", "mapobj_cart_dispenser"))]
+	CartDispenser,
+
+	/// An engineer's dispenser.
+	#[doc(alias("CObjectDispenser", "obj_dispenser"))]
+	Dispenser,
+
+	/// The dispenser Player Destruction's team leaders carry.
+	#[doc(alias("CPlayerDestructionDispenser", "pd_dispenser"))]
+	PlayerDestructionDispenser,
+
+	/// The dispenser of a Robot Destruction robot.
+	#[doc(alias("CRobotDispenser", "rd_robot_dispenser"))]
+	RobotDispenser,
+
+	/// A spy's sapper.
+	#[doc(alias("CObjectSapper", "obj_attachment_sapper"))]
+	Sapper,
+
+	/// A sentry gun, mini-sentries and disposable sentries included.
+	#[doc(alias("CObjectSentrygun", "obj_sentrygun"))]
+	Sentry,
+
+	/// A teleporter entrance or exit.
+	#[doc(alias("CObjectTeleporter", "obj_teleporter"))]
+	Teleporter,
+}
+
+impl BuildingClass {
+	/// Every building class, in the order [`BuildingVtables::all`] gives their
+	/// vtables.
+	pub const ALL: [Self; 7] = [
+		Self::CartDispenser,
+		Self::Dispenser,
+		Self::PlayerDestructionDispenser,
+		Self::RobotDispenser,
+		Self::Sapper,
+		Self::Sentry,
+		Self::Teleporter,
+	];
+
+	/// The kind of building the class's are.
+	pub const fn kind(self) -> BuildingKind {
+		match self {
+			Self::CartDispenser
+			| Self::Dispenser
+			| Self::PlayerDestructionDispenser
+			| Self::RobotDispenser => BuildingKind::Dispenser,
+
+			Self::Sapper => BuildingKind::Sapper,
+			Self::Sentry => BuildingKind::Sentry,
+			Self::Teleporter => BuildingKind::Teleporter,
+		}
+	}
+
+	/// The class's undecorated C++ name, by which its run-time type
+	/// information is found.
+	pub const fn name(self) -> &'static str {
+		match self {
+			Self::CartDispenser => "CObjectCartDispenser",
+			Self::Dispenser => "CObjectDispenser",
+			Self::PlayerDestructionDispenser => "CPlayerDestructionDispenser",
+			Self::RobotDispenser => "CRobotDispenser",
+			Self::Sapper => "CObjectSapper",
+			Self::Sentry => "CObjectSentrygun",
+			Self::Teleporter => "CObjectTeleporter",
+		}
+	}
+}
+
+/// Why the building classes' vtables could not all be found.
+#[derive(Debug, thiserror::Error)]
+pub enum BuildingVtableError {
+	/// The game module could not be read.
+	#[error("the game module could not be inspected")]
+	Image(#[from] std::io::Error),
+
+	/// The game module is not an executable image the vtable search supports.
+	#[error("the game module has an unsupported executable image")]
+	InvalidImage,
+
+	/// The class has no unique primary vtable in the game module.
+	#[error("no unique primary vtable found for TF2's building class `{}`", .0.name())]
+	NotFound(BuildingClass),
+
+	/// The server does not run Team Fortress 2.
+	#[error("building hooks require Team Fortress 2")]
+	WrongGame,
+}
+
+impl From<util::Error> for BuildingVtableError {
+	fn from(error: util::Error) -> Self {
+		match error {
+			util::Error::InvalidImage => Self::InvalidImage,
+			util::Error::Io(error) => Self::Image(error),
+		}
+	}
+}
+
+/// The primary vtables of every building class in this server's game module.
+/// Intended for the Metamod adapter; no building is retained.
+#[derive(Debug, Clone, Copy)]
+pub struct BuildingVtables<'s> {
+	vtables: [NonNull<*mut c_void>; 7],
+	_scope: PhantomData<&'s Server<'s>>,
+}
+
+impl<'s> BuildingVtables<'s> {
+	/// The vtables of the classes of [`BuildingClass::ALL`], in its order.
+	pub const fn all(self) -> [NonNull<*mut c_void>; 7] {
+		self.vtables
+	}
+
+	/// Finds the primary vtable of every building class in `targets`, a
+	/// snapshot of the game module other searches can share, as
+	/// [`building_vtables`] finds them in a snapshot of its own.
+	pub fn find(targets: &ClassTargets<'s>) -> Result<Self, BuildingVtableError> {
+		let objects = targets.objects().map_err(vtable_error)?;
+
+		Ok(Self {
+			vtables: objects.map(ClassTarget::as_ptr),
+			_scope: PhantomData,
+		})
+	}
+
+	/// The vtable of `class`.
+	pub const fn get(self, class: BuildingClass) -> NonNull<*mut c_void> {
+		self.vtables[class as usize]
 	}
 }
 
@@ -1102,5 +1246,38 @@ impl TeleporterState {
 			Self::Recharging => raw::TELEPORTER_STATE_RECHARGING,
 			Self::Upgrading => raw::TELEPORTER_STATE_UPGRADING,
 		}
+	}
+}
+
+/// Finds the primary vtable of every building class in the game server
+/// module, before any hook is installed, from the classes' run-time type
+/// information. Missing or ambiguous information is an error: no class is
+/// left out. Call once, such as while loading: it snapshots the whole module,
+/// and reads it a few times, however many classes there are.
+/// [`BuildingVtables::find`] finds them in a snapshot other searches share.
+///
+/// The search only checks that each vtable holds code at the last slot of
+/// `CBaseObject`'s vtable, which every building class has.
+pub fn building_vtables(server: Server<'_>) -> Result<BuildingVtables<'_>, BuildingVtableError> {
+	let targets = ClassTargets::load(server).map_err(vtable_error)?;
+
+	BuildingVtables::find(&targets)
+}
+
+/// The error of a search for the building classes, which can only miss
+/// [`BuildingClass::ALL`]'s.
+fn vtable_error(error: ClassTargetError) -> BuildingVtableError {
+	match error {
+		ClassTargetError::Image(error) => BuildingVtableError::Image(error),
+		ClassTargetError::InvalidImage => BuildingVtableError::InvalidImage,
+
+		ClassTargetError::NotFound(name) => BuildingVtableError::NotFound(
+			BuildingClass::ALL
+				.into_iter()
+				.find(|class| class.name() == name)
+				.expect("the SDK's object classes are the building classes"),
+		),
+
+		ClassTargetError::WrongGame => BuildingVtableError::WrongGame,
 	}
 }

@@ -93,6 +93,16 @@ pub const GR_STATE_BONUS: c_int = 9;
 /// or before a matchmade game (`UsePlayerReadyStatusMode`).
 pub const GR_STATE_BETWEEN_RNDS: c_int = 10;
 
+/// `TEAM_ROLE_NONE` from `game/shared/tf/tf_shareddefs.h`: a team neither
+/// attacking nor defending.
+pub const TEAM_ROLE_NONE: c_int = 0;
+
+/// `TEAM_ROLE_DEFENDERS`: a team defending the objectives.
+pub const TEAM_ROLE_DEFENDERS: c_int = 1;
+
+/// `TEAM_ROLE_ATTACKERS`: a team attacking the objectives.
+pub const TEAM_ROLE_ATTACKERS: c_int = 2;
+
 /// Finds the unique primary vtable of `CTFGameRules` whose
 /// [`CLEAN_UP_MAP_SLOT`] entry is executable, from the run-time type
 /// information of the module whose `CreateInterface` export is `factory`,

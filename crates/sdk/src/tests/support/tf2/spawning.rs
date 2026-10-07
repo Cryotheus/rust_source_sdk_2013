@@ -145,14 +145,7 @@ unsafe extern "C" fn find_by_class_name(
 /// Replaces the vtable of `mock` with a copy that also answers each slot of
 /// `slots` with its function.
 pub fn patch_slots(mock: &mut MockEntity, slots: &[(usize, *const ())]) {
-	// The length of the vtable `MockEntity::with_layout` builds.
-	let length = sdk_raw::entities::TF2_TELEPORT_SLOT
-		.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
-		.max(sdk_raw::entities::ACCEPT_INPUT_SLOT)
-		.max(sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT)
-		.max(sdk_raw::entities::health::TAKE_HEALTH_SLOT)
-		.max(sdk_raw::entities::health::IS_ALIVE_SLOT)
-		+ 1;
+	let length = MockEntity::vtable_slots();
 
 	let patched_length = slots
 		.iter()
