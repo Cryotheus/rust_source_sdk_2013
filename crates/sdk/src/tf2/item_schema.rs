@@ -15,6 +15,19 @@
 //! none. A layout that fails fails every later call, until the plugin is
 //! reloaded.
 //!
+//! The definitions' names and item classes are checked apart, on the
+//! definitions whose strings the shipped schema fixes: the Rocket Launcher
+//! (18), the Football Helmet and the Pet Balloonicorn. Should their strings
+//! read wrong, or the schema lack one of them, only
+//! [`ItemDefinition::name`], [`ItemDefinition::item_class`] and
+//! [`ItemSchema::definition_by_name`] fail.
+//!
+//! [`ItemSchema::definitions`] walks the schema's sorted map of its
+//! definitions, whose tree the bindings leave opaque, and checks it on each
+//! walk: as [`sdk_raw::tf2::item_schema`] describes, and against the game's
+//! own lookup, which must find the first, middle and last of the definitions
+//! the walk finds.
+//!
 //! The schema the server runs can differ from the one it shipped with, as
 //! the Game Coordinator can send a newer one, which TF2 applies at the next
 //! level change. Should it lack a checked definition, or change its values,
@@ -27,7 +40,8 @@ mod tests;
 use crate::tf2::weapons::{ItemDefinitionIndex, ItemGenerationError};
 use crate::{Game, NotThreadSafe, Server};
 use sdk_raw::tf2::item_generation::ItemGeneration;
-use std::ffi::c_int;
+use sdk_raw::tf2::item_schema;
+use std::ffi::{CStr, c_char, c_int};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
@@ -40,6 +54,18 @@ const CHECKED: [(u16, VisionFilter); 3] = [
 	(30143, VisionFilter::ROME),
 	(49, VisionFilter::empty()),
 ];
+
+/// The definitions whose name and item class the shipped schema fixes, to
+/// check the strings' layout with.
+const CHECKED_STRINGS: [(u16, &CStr, &CStr); 3] = [
+	(18, c"TF_WEAPON_ROCKETLAUNCHER", c"tf_weapon_rocketlauncher"),
+	(49, c"Football Helmet", c"tf_wearable"),
+	(738, c"Pet Balloonicorn", c"tf_wearable"),
+];
+
+/// Whether the layout of the definitions' strings passed its checks, once it
+/// did or failed them.
+static STRINGS: OnceLock<bool> = OnceLock::new();
 
 /// Whether the layout passed its checks, once it did or failed them.
 static LAYOUT: OnceLock<bool> = OnceLock::new();
@@ -211,7 +237,7 @@ impl ItemQuality {
 	}
 }
 
-impl ItemDefinition<'_> {
+impl<'s> ItemDefinition<'s> {
 	/// The definition's index (`m_nDefIndex`).
 	#[doc(alias("m_nDefIndex", "GetDefinitionIndex"))]
 	pub fn index(self) -> u16 {
@@ -230,6 +256,67 @@ impl ItemDefinition<'_> {
 		VisionFilter::from_bits_retain(unsafe {
 			(&raw const (*self.raw.as_ptr()).m_nVisionFilterFlags).read()
 		})
+	}
+
+	/// The entity class the game creates the definition's items as
+	/// (`m_pszItemClassname`, the `item_class` of `items_game.txt`), such as
+	/// `tf_wearable` or `tf_weapon_rocketlauncher`, or `None` for a definition
+	/// without one. A weapon shared by several player classes can have a class
+	/// the game translates for the player's, such as `tf_weapon_shotgun`.
+	///
+	/// Fails with [`ItemSchemaError::UnsupportedLayout`] unless the definitions'
+	/// strings passed their check, as the
+	/// [module documentation](crate::tf2::item_schema#layout) describes.
+	#[doc(alias("m_pszItemClassname", "GetItemClass"))]
+	pub fn item_class(self) -> Result<Option<&'s CStr>, ItemSchemaError> {
+		strings_checked()?;
+
+		// SAFETY: The schema keeps its definition through the callback, and the
+		// layout of its strings was checked.
+		Ok(unsafe { self.read_string(|raw| &raw const (*raw).m_pszItemClassname) })
+	}
+
+	/// The definition's name (`m_pszDefinitionName`, the `name` of
+	/// `items_game.txt`), such as `Pet Balloonicorn` or
+	/// `TF_WEAPON_ROCKETLAUNCHER`, which [`ItemSchema::definition_by_name`] finds
+	/// it by, or `None` for a definition without one.
+	///
+	/// Fails as [`Self::item_class`] does.
+	#[doc(alias("m_pszDefinitionName", "GetDefinitionName"))]
+	pub fn name(self) -> Result<Option<&'s CStr>, ItemSchemaError> {
+		strings_checked()?;
+
+		// SAFETY: As for `item_class`.
+		Ok(unsafe { self.read_string(|raw| &raw const (*raw).m_pszDefinitionName) })
+	}
+
+	/// Wraps one of the schema's definitions.
+	fn new(raw: NonNull<sys::CEconItemDefinition>) -> Self {
+		Self {
+			raw,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// Reads the string `field` places in the definition, or `None` if the
+	/// definition has none there.
+	///
+	/// # Safety
+	///
+	/// `field` places a string pointer within the definition, which the schema
+	/// keeps, with its strings, through the callback.
+	unsafe fn read_string(
+		self,
+		field: impl FnOnce(*const sys::CEconItemDefinition) -> *const *const c_char,
+	) -> Option<&'s CStr> {
+		// SAFETY: The caller vouches for the field and the string it points to,
+		// which lives as long as the schema's definition.
+		unsafe {
+			let string = field(self.raw.as_ptr()).read();
+
+			(!string.is_null()).then(|| CStr::from_ptr(string))
+		}
 	}
 }
 
@@ -268,9 +355,8 @@ impl<'s> ItemSchema<'s> {
 			_not_thread_safe: PhantomData,
 		};
 
-		match LAYOUT.get() {
-			Some(true) => Ok(schema),
-			Some(false) => Err(ItemSchemaError::UnsupportedLayout),
+		let checked = match LAYOUT.get() {
+			Some(&checked) => checked,
 
 			None => {
 				// A schema missing a checked definition says nothing of the layout,
@@ -278,14 +364,24 @@ impl<'s> ItemSchema<'s> {
 				let checked = schema.check_layout()?;
 
 				LAYOUT.set(checked).ok();
-
-				if checked {
-					Ok(schema)
-				} else {
-					Err(ItemSchemaError::UnsupportedLayout)
-				}
+				checked
 			}
+		};
+
+		if !checked {
+			return Err(ItemSchemaError::UnsupportedLayout);
 		}
+
+		// The strings are checked apart, so that a layout placing them otherwise
+		// fails only what reads them. As above, only a definition that reads wrong
+		// is remembered.
+		if STRINGS.get().is_none()
+			&& let Ok(Some(checked)) = schema.check_strings()
+		{
+			STRINGS.set(checked).ok();
+		}
+
+		Ok(schema)
 	}
 
 	/// Whether the [checked definitions](CHECKED) read as the shipped schema
@@ -338,15 +434,102 @@ impl<'s> ItemSchema<'s> {
 		// SAFETY: `Server::new` guarantees the game server module stays loaded
 		// through the callback this schema is scoped to, on the main thread.
 		match unsafe { self.generation.definition(index) } {
-			Ok(raw) => Ok(Some(ItemDefinition {
-				raw,
-				_scope: PhantomData,
-				_not_thread_safe: PhantomData,
-			})),
-
+			Ok(raw) => Ok(Some(ItemDefinition::new(raw))),
 			Err(ItemGenerationError::UnknownDefinition) => Ok(None),
 			Err(error) => Err(error.into()),
 		}
+	}
+
+	/// Whether the [checked definitions' strings](CHECKED_STRINGS) read as the
+	/// shipped schema has them, or `None` if the schema lacks one of them.
+	fn check_strings(self) -> Result<Option<bool>, ItemSchemaError> {
+		for (index, name, class) in CHECKED_STRINGS {
+			let Some(definition) = self.find(index)? else {
+				return Ok(None);
+			};
+
+			// SAFETY: The definition is the schema's, live through the callback, and
+			// its index and vision filter, on either side of the strings, were
+			// checked.
+			let strings = unsafe {
+				(
+					definition.read_string(|raw| &raw const (*raw).m_pszDefinitionName),
+					definition.read_string(|raw| &raw const (*raw).m_pszItemClassname),
+				)
+			};
+
+			if strings != (Some(name), Some(class)) {
+				return Ok(Some(false));
+			}
+		}
+
+		Ok(Some(true))
+	}
+
+	/// The schema's definition with the name, as [`ItemDefinition::name`] gives
+	/// it, compared ignoring ASCII case as the game's own lookup is, or `None` if
+	/// it has none. Should several have the name, the one with the lowest index.
+	///
+	/// It walks every definition, as [`Self::definitions`] does, so a plugin
+	/// looking a name up often keeps the index it finds instead. Fails as
+	/// [`Self::definitions`] and [`ItemDefinition::name`] do.
+	#[doc(alias("GetItemDefinitionByName"))]
+	pub fn definition_by_name(
+		self,
+		name: &CStr,
+	) -> Result<Option<ItemDefinition<'s>>, ItemSchemaError> {
+		for definition in self.definitions()? {
+			let named = definition
+				.name()?
+				.is_some_and(|own| own.to_bytes().eq_ignore_ascii_case(name.to_bytes()));
+
+			if named {
+				return Ok(Some(definition));
+			}
+		}
+
+		Ok(None)
+	}
+
+	/// Every definition of the schema, in order of their index, read from its
+	/// sorted map of them (`m_mapItemsSorted`).
+	///
+	/// The map is checked on each call, as the
+	/// [module documentation](crate::tf2::item_schema#layout) describes: this
+	/// fails with [`ItemSchemaError::UnsupportedLayout`] if it is not laid out as
+	/// the SDK's headers say, and as [`Self::definition`] does otherwise. Each
+	/// call reads the whole map, which holds over ten thousand definitions.
+	#[doc(alias("m_mapItemsSorted", "GetSortedItemDefinitionMap"))]
+	pub fn definitions(self) -> Result<Vec<ItemDefinition<'s>>, ItemSchemaError> {
+		// SAFETY: `Server::new` guarantees the game server module stays loaded
+		// through the callback this schema is scoped to, on the main thread.
+		let (schema, default) = unsafe {
+			(
+				self.generation.schema()?,
+				self.generation.default_definition()?,
+			)
+		};
+
+		// SAFETY: The schema is the game's live one, which only the game changes,
+		// when it applies a newer one at a level change. The default definition is
+		// the one the game's lookup gives.
+		let sorted = unsafe { item_schema::sorted_definitions(schema, default) }
+			.ok_or(ItemSchemaError::UnsupportedLayout)?;
+
+		// The game's own lookup, through another map, must find the first, middle
+		// and last of them too.
+		let samples = [sorted.first(), sorted.get(sorted.len() / 2), sorted.last()];
+
+		for &(index, raw) in samples.into_iter().flatten() {
+			if self.find(index)?.map(|definition| definition.raw) != Some(raw) {
+				return Err(ItemSchemaError::UnsupportedLayout);
+			}
+		}
+
+		Ok(sorted
+			.into_iter()
+			.map(|(_, raw)| ItemDefinition::new(raw))
+			.collect())
 	}
 }
 
@@ -383,5 +566,13 @@ bitflags::bitflags! {
 		/// Romevision, which dresses Mann vs. Machine's robots as Romans.
 		#[doc(alias("TF_VISION_FILTER_ROME"))]
 		const ROME = 1 << 2;
+	}
+}
+
+/// Fails unless the layout of the definitions' strings passed its checks.
+fn strings_checked() -> Result<(), ItemSchemaError> {
+	match STRINGS.get() {
+		Some(true) => Ok(()),
+		_ => Err(ItemSchemaError::UnsupportedLayout),
 	}
 }
