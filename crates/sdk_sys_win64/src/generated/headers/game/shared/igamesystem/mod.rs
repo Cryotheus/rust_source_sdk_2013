@@ -51,6 +51,51 @@ pub struct CAutoGameSystem__bindgen_vtable {
 
 #[repr(C)]
 #[derive(Debug)]
+pub struct CAutoGameSystemPerFrame {
+	pub _base: CBaseGameSystemPerFrame,
+	pub m_pNext: *mut CAutoGameSystemPerFrame,
+	pub m_pszName: *const ::std::os::raw::c_char,
+}
+
+#[repr(C)]
+pub struct CAutoGameSystemPerFrame__bindgen_vtable {
+	pub CAutoGameSystemPerFrame_Name:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame) -> *const ::std::os::raw::c_char,
+	pub CAutoGameSystemPerFrame_Init:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame) -> bool,
+	pub CAutoGameSystemPerFrame_PostInit: unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_Shutdown: unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_LevelInitPreEntity:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_LevelInitPostEntity:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_LevelShutdownPreClearSteamAPIContext:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_LevelShutdownPreEntity:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_LevelShutdownPostEntity:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_OnSave: unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_OnRestore: unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_SafeRemoveIfDesired:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_IsPerFrame:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame) -> bool,
+	pub CAutoGameSystemPerFrame_destructor: unsafe extern "C" fn(
+		arg1: *mut CAutoGameSystemPerFrame,
+		arg2: ::std::os::raw::c_uint,
+	)
+		-> *mut ::std::os::raw::c_void,
+	pub CAutoGameSystemPerFrame_FrameUpdatePreEntityThink:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_FrameUpdatePostEntityThink:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+	pub CAutoGameSystemPerFrame_PreClientUpdate:
+		unsafe extern "C" fn(arg1: *mut CAutoGameSystemPerFrame),
+}
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct CBaseGameSystem {
 	pub vtable_: *const CBaseGameSystem__bindgen_vtable,
 }
@@ -84,6 +129,49 @@ pub struct CBaseGameSystem__bindgen_vtable {
 
 #[repr(C)]
 #[derive(Debug)]
+pub struct CBaseGameSystemPerFrame {
+	pub vtable_: *const CBaseGameSystemPerFrame__bindgen_vtable,
+}
+
+#[repr(C)]
+pub struct CBaseGameSystemPerFrame__bindgen_vtable {
+	pub CBaseGameSystemPerFrame_Name:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame) -> *const ::std::os::raw::c_char,
+	pub CBaseGameSystemPerFrame_Init:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame) -> bool,
+	pub CBaseGameSystemPerFrame_PostInit: unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_Shutdown: unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_LevelInitPreEntity:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_LevelInitPostEntity:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_LevelShutdownPreClearSteamAPIContext:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_LevelShutdownPreEntity:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_LevelShutdownPostEntity:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_OnSave: unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_OnRestore: unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_SafeRemoveIfDesired:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_IsPerFrame:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame) -> bool,
+	pub CBaseGameSystemPerFrame_destructor: unsafe extern "C" fn(
+		arg1: *mut CBaseGameSystemPerFrame,
+		arg2: ::std::os::raw::c_uint,
+	)
+		-> *mut ::std::os::raw::c_void,
+	pub CBaseGameSystemPerFrame_FrameUpdatePreEntityThink:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_FrameUpdatePostEntityThink:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+	pub CBaseGameSystemPerFrame_PreClientUpdate:
+		unsafe extern "C" fn(arg1: *mut CBaseGameSystemPerFrame),
+}
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct IGameSystem {
 	pub vtable_: *const IGameSystem__bindgen_vtable,
 }
@@ -109,6 +197,46 @@ pub struct IGameSystem__bindgen_vtable {
 		arg1: *mut IGameSystem,
 		arg2: ::std::os::raw::c_uint,
 	) -> *mut ::std::os::raw::c_void,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct IGameSystemPerFrame {
+	pub vtable_: *const IGameSystemPerFrame__bindgen_vtable,
+}
+
+#[repr(C)]
+pub struct IGameSystemPerFrame__bindgen_vtable {
+	pub IGameSystemPerFrame_Name:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame) -> *const ::std::os::raw::c_char,
+	pub IGameSystemPerFrame_Init: unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame) -> bool,
+	pub IGameSystemPerFrame_PostInit: unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_Shutdown: unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_LevelInitPreEntity:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_LevelInitPostEntity:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_LevelShutdownPreClearSteamAPIContext:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_LevelShutdownPreEntity:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_LevelShutdownPostEntity:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_OnSave: unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_OnRestore: unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_SafeRemoveIfDesired:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_IsPerFrame:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame) -> bool,
+	pub IGameSystemPerFrame_destructor: unsafe extern "C" fn(
+		arg1: *mut IGameSystemPerFrame,
+		arg2: ::std::os::raw::c_uint,
+	) -> *mut ::std::os::raw::c_void,
+	pub IGameSystemPerFrame_FrameUpdatePreEntityThink:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_FrameUpdatePostEntityThink:
+		unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
+	pub IGameSystemPerFrame_PreClientUpdate: unsafe extern "C" fn(arg1: *mut IGameSystemPerFrame),
 }
 
 include!("layout_assertions.rs");

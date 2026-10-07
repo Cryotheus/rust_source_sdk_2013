@@ -95,6 +95,80 @@ pub struct CAttributeContainer_NetworkVar_m_Item {
 }
 
 #[repr(C)]
+pub struct CAttributeContainer_NetworkVar_m_Item__bindgen_vtable {
+	pub CAttributeContainer_NetworkVar_m_Item_destructor:
+		unsafe extern "C" fn(
+			arg1: *mut CAttributeContainer_NetworkVar_m_Item,
+			arg2: ::std::os::raw::c_uint,
+		) -> *mut ::std::os::raw::c_void,
+	pub CAttributeContainer_NetworkVar_m_Item_IsTradable:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> bool,
+	pub CAttributeContainer_NetworkVar_m_Item_GetUntradabilityFlags:
+		unsafe extern "C" fn(
+			arg1: *const CAttributeContainer_NetworkVar_m_Item,
+		) -> ::std::os::raw::c_int,
+	pub CAttributeContainer_NetworkVar_m_Item_IsCommodity:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> bool,
+	pub CAttributeContainer_NetworkVar_m_Item_IsUsableInCrafting:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> bool,
+	pub CAttributeContainer_NetworkVar_m_Item_IsMarketable:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> bool,
+	pub CAttributeContainer_NetworkVar_m_Item_GetItemDefinition:
+		unsafe extern "C" fn(
+			arg1: *const CAttributeContainer_NetworkVar_m_Item,
+		) -> *const GameItemDefinition_t,
+	pub CAttributeContainer_NetworkVar_m_Item_GetID:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> itemid_t,
+	pub CAttributeContainer_NetworkVar_m_Item_GetAccountID:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> uint32,
+	pub CAttributeContainer_NetworkVar_m_Item_GetQuality:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> int32,
+	pub CAttributeContainer_NetworkVar_m_Item_GetStyle:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> style_index_t,
+	pub CAttributeContainer_NetworkVar_m_Item_GetFlags:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> uint8,
+	pub CAttributeContainer_NetworkVar_m_Item_GetOrigin:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> eEconItemOrigin,
+	pub CAttributeContainer_NetworkVar_m_Item_GetQuantity:
+		unsafe extern "C" fn(
+			arg1: *const CAttributeContainer_NetworkVar_m_Item,
+		) -> ::std::os::raw::c_int,
+	pub CAttributeContainer_NetworkVar_m_Item_GetItemLevel:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> uint32,
+	pub CAttributeContainer_NetworkVar_m_Item_GetInUse:
+		unsafe extern "C" fn(arg1: *const CAttributeContainer_NetworkVar_m_Item) -> bool,
+	pub CAttributeContainer_NetworkVar_m_Item_GetCustomName:
+		unsafe extern "C" fn(
+			arg1: *const CAttributeContainer_NetworkVar_m_Item,
+		) -> *const ::std::os::raw::c_char,
+	pub CAttributeContainer_NetworkVar_m_Item_GetCustomDesc:
+		unsafe extern "C" fn(
+			arg1: *const CAttributeContainer_NetworkVar_m_Item,
+		) -> *const ::std::os::raw::c_char,
+	pub CAttributeContainer_NetworkVar_m_Item_IterateAttributes: unsafe extern "C" fn(
+		arg1: *const CAttributeContainer_NetworkVar_m_Item,
+		arg2: *mut IEconItemAttributeIterator,
+	),
+	pub CAttributeContainer_NetworkVar_m_Item_GetItemDefIndex:
+		unsafe extern "C" fn(
+			arg1: *const CAttributeContainer_NetworkVar_m_Item,
+		) -> item_definition_index_t,
+	pub CAttributeContainer_NetworkVar_m_Item_GetMaterialOverride:
+		unsafe extern "C" fn(
+			arg1: *mut CAttributeContainer_NetworkVar_m_Item,
+			arg2: ::std::os::raw::c_int,
+		) -> *mut IMaterial,
+	pub CAttributeContainer_NetworkVar_m_Item_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CAttributeContainer_NetworkVar_m_Item,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CAttributeContainer_NetworkVar_m_Item_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CAttributeContainer_NetworkVar_m_Item),
+	pub CAttributeContainer_NetworkVar_m_Item_GetDataDescMap:
+		unsafe extern "C" fn(arg1: *mut CAttributeContainer_NetworkVar_m_Item) -> *mut datamap_t,
+}
+
+#[repr(C)]
 pub struct CAttributeContainerPlayer {
 	pub _base: CAttributeManager,
 	pub m_hPlayer: CNetworkHandleBase,

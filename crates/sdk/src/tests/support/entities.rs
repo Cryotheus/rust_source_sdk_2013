@@ -7,7 +7,7 @@ use sdk_raw::test_support::entities::field;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::alloc::{Layout, alloc_zeroed, handle_alloc_error};
 use std::cell::{Cell, RefCell};
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::mem::offset_of;
 use std::ptr::{self, null_mut};
 
@@ -35,6 +35,10 @@ pub const MOCK_MAX_HEALTH_OFFSET: usize = 68;
 
 /// Where mock entities store `m_iName`, as their datamap declares.
 pub const MOCK_NAME_OFFSET: usize = 48;
+
+/// Where mock entities store their [`MockState`], whose members
+/// [`state_fields`] declares.
+pub const MOCK_STATE_OFFSET: usize = 128;
 
 /// Where mock entities store `m_takedamage`, as [`health_fields`] declares.
 pub const MOCK_TAKE_DAMAGE_OFFSET: usize = 73;
@@ -64,21 +68,29 @@ pub struct ReceivedInput {
 
 thread_local! {
 	static ACCEPTS: Cell<bool> = const { Cell::new(true) };
+	static ACTIVATIONS: RefCell<Vec<*mut sys::CBaseEntity>> = const { RefCell::new(Vec::new()) };
+	static ACTIVATION_REMOVES: Cell<bool> = const { Cell::new(false) };
 	static COLLIDEABLE: Cell<*mut sys::ICollideable> = const { Cell::new(null_mut()) };
 	static COLLISION_GROUP: Cell<c_int> = const { Cell::new(sdk_raw::entities::COLLISION_GROUP_NONE) };
 	static DATA_MAP: Cell<*mut sys::datamap_t> = const { Cell::new(null_mut()) };
 	static EDICT: Cell<*mut sys::edict_t> = const { Cell::new(null_mut()) };
 	static INPUTS: RefCell<Vec<ReceivedInput>> = const { RefCell::new(Vec::new()) };
+	static MODELS_SET: RefCell<Vec<(*mut sys::CBaseEntity, CString)>> = const { RefCell::new(Vec::new()) };
 	static NETWORKABLE: Cell<*mut sys::IServerNetworkable> = const { Cell::new(null_mut()) };
 	static ORIGIN: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: 1.0, y: 2.0, z: 3.0 }) };
 	static SERVER_CLASS: Cell<*mut sys::ServerClass> = const { Cell::new(null_mut()) };
 	static TAKE_HEALTH_CALLS: RefCell<Vec<(f32, c_int)>> = const { RefCell::new(Vec::new()) };
 	static TELEPORTS: Cell<usize> = const { Cell::new(0) };
+	static TRANSMIT_STATE_UPDATES: Cell<usize> = const { Cell::new(0) };
 }
 
 /// An entity with a class name, origin, datamap, handle, TF2 `Teleport`,
-/// whose teleports are counted by [`teleports`], and health methods, whose
-/// `TakeHealth` calls [`take_health_calls`] records.
+/// whose teleports are counted by [`teleports`], health methods, whose
+/// `TakeHealth` calls [`take_health_calls`] records, `UpdateTransmitState`,
+/// whose calls [`transmit_state_updates`] counts, `Activate`, whose calls
+/// [`activations`] records, `SetModel`, whose calls [`models_set`] records,
+/// and, with TF2's script bindings, `GetScriptDesc`, which returns the
+/// descriptor `set_script_description` sets.
 ///
 /// For tests only. Its allocations are leaked, and only reached through raw
 /// pointers, like the engine's objects.
@@ -86,10 +98,91 @@ pub struct MockEntity {
 	storage: *mut usize,
 }
 
+/// Members of `CBaseEntity` that mock entities store from
+/// [`MOCK_STATE_OFFSET`] on, as [`state_fields`] declares them, with the
+/// types their datamap declares.
+///
+/// For tests only.
+#[repr(C)]
+pub struct MockState {
+	/// `m_fEffects`.
+	pub effects: c_int,
+
+	/// `m_fFlags`.
+	pub flags: c_int,
+
+	/// `m_flFriction`.
+	pub friction: f32,
+
+	/// `m_flGravity`.
+	pub gravity: f32,
+
+	/// `m_hMoveParent`.
+	pub move_parent: u32,
+
+	/// `m_iTeamNum`.
+	pub team: c_int,
+
+	/// `m_spawnflags`.
+	pub spawn_flags: c_int,
+
+	/// `m_clrRender`.
+	pub render_color: sys::color32,
+
+	/// `m_nModelIndex`.
+	pub model_index: i16,
+
+	/// `m_MoveType`.
+	pub move_type: u8,
+
+	/// `m_nRenderMode`.
+	pub render_mode: u8,
+
+	/// `m_nTransmitStateOwnedCounter`.
+	pub transmit_state_owners: u8,
+
+	/// `m_iParent`.
+	pub parent_name: sys::string_t,
+
+	/// `m_ModelName`.
+	pub model_name: sys::string_t,
+
+	/// `m_vecAbsVelocity`.
+	pub abs_velocity: sys::Vector,
+
+	/// `m_vecVelocity`, 4 bytes past a multiple of 8, as the game's
+	/// `m_vecAbsVelocity` lies.
+	pub velocity: sys::Vector,
+
+	/// `m_MoveCollide`.
+	pub move_collide: u8,
+
+	/// `m_iParentAttachment`.
+	pub parent_attachment: u8,
+
+	/// `m_pPhysicsObject`, which only the wrappers' null checks read.
+	pub physics_object: *mut c_void,
+}
+
 impl MockEntity {
+	/// The number of slots in the vtable of a mock entity.
+	pub fn vtable_slots() -> usize {
+		sdk_raw::entities::TF2_TELEPORT_SLOT
+			.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
+			.max(sdk_raw::entities::ACCEPT_INPUT_SLOT)
+			.max(sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT)
+			.max(sdk_raw::entities::health::TAKE_HEALTH_SLOT)
+			.max(sdk_raw::entities::health::IS_ALIVE_SLOT)
+			.max(sdk_raw::transmit::UPDATE_TRANSMIT_STATE_SLOT)
+			.max(sdk_raw::entities::spawn::ACTIVATE_SLOT)
+			.max(sdk_raw::entities::spawn::SET_MODEL_SLOT)
+			+ 1
+	}
+
 	/// Builds an entity whose handle is `handle`, and resets the datamap,
-	/// origin, collision group, teleport count, `TakeHealth` calls, server class,
-	/// and edict that mock entities on this thread report.
+	/// origin, collision group, teleport count, transmit state update count,
+	/// `TakeHealth`, `Activate` and `SetModel` calls, server class, and edict
+	/// that mock entities on this thread report.
 	pub fn new(handle: u32) -> Self {
 		Self::with_layout(handle, Layout::new::<[usize; 64]>())
 	}
@@ -98,14 +191,7 @@ impl MockEntity {
 	/// `layout`, such as that of a class whose generated members a wrapper
 	/// writes, padded to at least the 64 words a mock entity uses.
 	pub fn with_layout(handle: u32, layout: Layout) -> Self {
-		let slot_count = sdk_raw::entities::TF2_TELEPORT_SLOT
-			.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
-			.max(sdk_raw::entities::ACCEPT_INPUT_SLOT)
-			.max(sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT)
-			.max(sdk_raw::entities::health::TAKE_HEALTH_SLOT)
-			.max(sdk_raw::entities::health::IS_ALIVE_SLOT)
-			+ 1;
-		let mut vtable = vec![unexpected_call as *const (); slot_count];
+		let mut vtable = vec![unexpected_call as *const (); Self::vtable_slots()];
 		let slot = |field: usize| field / size_of::<usize>();
 
 		vtable[slot(offset_of!(
@@ -126,6 +212,16 @@ impl MockEntity {
 		vtable[sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT] = get_max_health as *const ();
 		vtable[sdk_raw::entities::health::TAKE_HEALTH_SLOT] = take_health as *const ();
 		vtable[sdk_raw::entities::health::IS_ALIVE_SLOT] = is_alive as *const ();
+		vtable[sdk_raw::transmit::UPDATE_TRANSMIT_STATE_SLOT] = update_transmit_state as *const ();
+		vtable[sdk_raw::entities::spawn::ACTIVATE_SLOT] = activate as *const ();
+		vtable[sdk_raw::entities::spawn::SET_MODEL_SLOT] = set_model as *const ();
+
+		#[cfg(feature = "tf2")]
+		{
+			use super::tf2::script_binding::{SCRIPT_DESCRIPTION_SLOT, script_description};
+
+			vtable[SCRIPT_DESCRIPTION_SLOT] = script_description as *const ();
+		}
 
 		let layout = Layout::from_size_align(
 			layout.size().max(size_of::<[usize; 64]>()),
@@ -200,7 +296,11 @@ impl MockEntity {
 			z: 3.0,
 		});
 		TELEPORTS.set(0);
+		TRANSMIT_STATE_UPDATES.set(0);
 		TAKE_HEALTH_CALLS.take();
+		ACTIVATIONS.take();
+		ACTIVATION_REMOVES.set(false);
+		MODELS_SET.take();
 		set_networking(null_mut(), null_mut());
 
 		Self { storage }
@@ -318,6 +418,21 @@ impl MockEntity {
 				.write(name)
 		};
 	}
+
+	/// The members of `CBaseEntity` the entity stores from
+	/// [`MOCK_STATE_OFFSET`] on, zeroed when it is built.
+	pub fn state(&mut self) -> &mut MockState {
+		// SAFETY: The storage holds at least 64 words, zeroed when built, past
+		// the state's end, aligned for pointers. Zero is valid for every member,
+		// and the borrow of the mock keeps entity handles from reaching them
+		// while it lives.
+		unsafe {
+			&mut *self
+				.as_ptr()
+				.byte_add(MOCK_STATE_OFFSET)
+				.cast::<MockState>()
+		}
+	}
 }
 
 /// `CBaseEntity::AcceptInput`, which records the input for [`take_inputs`]
@@ -356,6 +471,30 @@ unsafe extern "C" fn accept_input(
 
 	INPUTS.with_borrow_mut(|inputs| inputs.push(received));
 	ACCEPTS.get()
+}
+
+/// `CBaseEntity::Activate`, which records the entity for [`activations`],
+/// and marks it for deletion if [`set_activation_removes`] said to, as
+/// classes that find a key value wrong do.
+unsafe extern "C" fn activate(this: *mut sys::CBaseEntity) {
+	ACTIVATIONS.with_borrow_mut(|activations| activations.push(this));
+
+	if ACTIVATION_REMOVES.get() {
+		// SAFETY: Every mock entity stores `m_iEFlags` at its offset.
+		unsafe {
+			this.byte_add(MOCK_EFLAGS_OFFSET)
+				.cast::<c_int>()
+				.write(sdk_raw::entities::EFL_KILLME)
+		};
+	}
+}
+
+/// The mock entities activated on this thread since the last
+/// [`MockEntity::new`], in order.
+///
+/// For tests only.
+pub fn activations() -> Vec<*mut sys::CBaseEntity> {
+	ACTIVATIONS.with_borrow(Clone::clone)
 }
 
 /// The fields `CBaseEntity`'s map declares that mock entities store:
@@ -507,6 +646,20 @@ pub fn health_fields() -> [sys::typedescription_t; 4] {
 	]
 }
 
+/// An input named `name`, declared with `field_type`, as `DEFINE_INPUT`
+/// declares one.
+///
+/// For tests only.
+pub fn input(name: &'static CStr, field_type: sys::fieldtype_t) -> sys::typedescription_t {
+	// SAFETY: Zero is valid for every field of `typedescription_t`.
+	let mut input: sys::typedescription_t = unsafe { std::mem::zeroed() };
+
+	input.fieldType = field_type;
+	input.externalName = name.as_ptr();
+	input.flags = sdk_raw::entities::datamap::FTYPEDESC_INPUT;
+	input
+}
+
 /// `CBaseEntity::IsAlive`, which tells whether the mock entity's
 /// `m_lifeState` is `LIFE_ALIVE`, as the game's does.
 unsafe extern "C" fn is_alive(this: *mut sys::CBaseEntity) -> bool {
@@ -514,11 +667,27 @@ unsafe extern "C" fn is_alive(this: *mut sys::CBaseEntity) -> bool {
 	unsafe { this.byte_add(MOCK_LIFE_STATE_OFFSET).cast::<u8>().read() == LIFE_ALIVE }
 }
 
+/// The models mock entities were given through `SetModel` on this thread
+/// since the last [`MockEntity::new`], in order, with each entity.
+///
+/// For tests only.
+pub fn models_set() -> Vec<(*mut sys::CBaseEntity, CString)> {
+	MODELS_SET.with_borrow(Clone::clone)
+}
+
 /// Sets what mock entities' `AcceptInput` returns on this thread.
 ///
 /// For tests only.
 pub fn set_accepts(accepts: bool) {
 	ACCEPTS.set(accepts);
+}
+
+/// Sets whether mock entities on this thread mark themselves for deletion as
+/// they activate, until the next [`MockEntity::new`] resets it.
+///
+/// For tests only.
+pub fn set_activation_removes(removes: bool) {
+	ACTIVATION_REMOVES.set(removes);
 }
 
 /// Sets the collision group mock entities report on this thread, such as
@@ -538,12 +707,180 @@ pub fn set_datamap(map: *mut sys::datamap_t) {
 	DATA_MAP.set(map);
 }
 
+/// `CBaseEntity::SetModel`, which records the entity and the model for
+/// [`models_set`].
+unsafe extern "C" fn set_model(this: *mut sys::CBaseEntity, model: *const c_char) {
+	// SAFETY: The wrappers pass a NUL-terminated model name.
+	let model = unsafe { CStr::from_ptr(model) }.to_owned();
+
+	MODELS_SET.with_borrow_mut(|models| models.push((this, model)));
+}
+
 /// Sets the server class and edict that mock entities on this thread report.
 ///
 /// For tests only. Both must stay alive while they are reported.
 pub fn set_networking(class: *mut sys::ServerClass, edict: *mut sys::edict_t) {
 	SERVER_CLASS.set(class);
 	EDICT.set(edict);
+}
+
+/// The members of `CBaseEntity`'s map that mock entities store in their
+/// [`MockState`], at the offsets [`MockEntity::state`] has them.
+///
+/// For tests only. They are kept apart from [`base_entity_fields`], as
+/// [`health_fields`] are.
+pub fn state_fields() -> [sys::typedescription_t; 19] {
+	let member = |name, field_type, offset: usize, size: usize| {
+		let mut member = field(name, field_type, MOCK_STATE_OFFSET + offset);
+
+		member.fieldSizeInBytes = c_int::try_from(size).unwrap();
+		member.fieldSize = 1;
+		member
+	};
+
+	let int = size_of::<c_int>();
+	let string = size_of::<sys::string_t>();
+	let vector = size_of::<sys::Vector>();
+
+	[
+		member(
+			c"m_fEffects",
+			sys::_fieldtypes_FIELD_INTEGER,
+			offset_of!(MockState, effects),
+			int,
+		),
+		member(
+			c"m_fFlags",
+			sys::_fieldtypes_FIELD_INTEGER,
+			offset_of!(MockState, flags),
+			int,
+		),
+		member(
+			c"m_flFriction",
+			sys::_fieldtypes_FIELD_FLOAT,
+			offset_of!(MockState, friction),
+			int,
+		),
+		member(
+			c"m_flGravity",
+			sys::_fieldtypes_FIELD_FLOAT,
+			offset_of!(MockState, gravity),
+			int,
+		),
+		member(
+			c"m_hMoveParent",
+			sys::_fieldtypes_FIELD_EHANDLE,
+			offset_of!(MockState, move_parent),
+			int,
+		),
+		member(
+			c"m_iTeamNum",
+			sys::_fieldtypes_FIELD_INTEGER,
+			offset_of!(MockState, team),
+			int,
+		),
+		member(
+			c"m_spawnflags",
+			sys::_fieldtypes_FIELD_INTEGER,
+			offset_of!(MockState, spawn_flags),
+			int,
+		),
+		member(
+			c"m_clrRender",
+			sys::_fieldtypes_FIELD_COLOR32,
+			offset_of!(MockState, render_color),
+			size_of::<sys::color32>(),
+		),
+		member(
+			c"m_nModelIndex",
+			sys::_fieldtypes_FIELD_SHORT,
+			offset_of!(MockState, model_index),
+			size_of::<i16>(),
+		),
+		member(
+			c"m_MoveType",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			offset_of!(MockState, move_type),
+			1,
+		),
+		member(
+			c"m_nRenderMode",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			offset_of!(MockState, render_mode),
+			1,
+		),
+		member(
+			c"m_nTransmitStateOwnedCounter",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			offset_of!(MockState, transmit_state_owners),
+			1,
+		),
+		member(
+			c"m_iParent",
+			sys::_fieldtypes_FIELD_STRING,
+			offset_of!(MockState, parent_name),
+			string,
+		),
+		member(
+			c"m_ModelName",
+			sys::_fieldtypes_FIELD_MODELNAME,
+			offset_of!(MockState, model_name),
+			string,
+		),
+		member(
+			c"m_vecAbsVelocity",
+			sys::_fieldtypes_FIELD_VECTOR,
+			offset_of!(MockState, abs_velocity),
+			vector,
+		),
+		member(
+			c"m_vecVelocity",
+			sys::_fieldtypes_FIELD_VECTOR,
+			offset_of!(MockState, velocity),
+			vector,
+		),
+		member(
+			c"m_MoveCollide",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			offset_of!(MockState, move_collide),
+			1,
+		),
+		member(
+			c"m_iParentAttachment",
+			sys::_fieldtypes_FIELD_CHARACTER,
+			offset_of!(MockState, parent_attachment),
+			1,
+		),
+		// `DEFINE_PHYSPTR` leaves the size out.
+		member(
+			c"m_pPhysicsObject",
+			sys::_fieldtypes_FIELD_CUSTOM,
+			offset_of!(MockState, physics_object),
+			0,
+		),
+	]
+}
+
+/// A datamap chain through `classes`, from the first to the last, each
+/// declaring its fields, and from there to a `CBaseEntity` map declaring
+/// [`base_entity_fields`] and [`state_fields`].
+///
+/// For tests only.
+pub fn state_maps(
+	classes: Vec<(&'static CStr, Vec<sys::typedescription_t>)>,
+) -> *mut sys::datamap_t {
+	let mut fields = Vec::from(base_entity_fields());
+
+	fields.extend(state_fields());
+
+	let base = sdk_raw::test_support::entities::data_map(c"CBaseEntity", fields, null_mut());
+
+	classes
+		.into_iter()
+		.rev()
+		.fold(base, |base, (class, fields)| {
+			sdk_raw::test_support::entities::data_map(class, fields, base)
+		})
 }
 
 /// `CBaseEntity::TakeHealth`, which records its arguments for
@@ -604,4 +941,19 @@ unsafe extern "C" fn teleport_entity(
 /// For tests only.
 pub fn teleports() -> usize {
 	TELEPORTS.get()
+}
+
+/// How many times mock entities on this thread updated their transmit state
+/// (`UpdateTransmitState`) since the last [`MockEntity::new`].
+///
+/// For tests only.
+pub fn transmit_state_updates() -> usize {
+	TRANSMIT_STATE_UPDATES.get()
+}
+
+/// `CBaseEntity::UpdateTransmitState`, which counts the update for
+/// [`transmit_state_updates`], and returns no flags.
+unsafe extern "C" fn update_transmit_state(_: *mut sys::CBaseEntity) -> c_int {
+	TRANSMIT_STATE_UPDATES.set(TRANSMIT_STATE_UPDATES.get() + 1);
+	0
 }

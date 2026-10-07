@@ -2,10 +2,15 @@
 // Regenerate with the `source_sdk_2013_bindgen/generate_bindings` Cargo feature.
 
 pub mod baseobject_shared;
+pub mod entity_capture_flag;
 pub mod ihasbuildpoints;
 pub mod ihasgenericmeter;
 pub mod tf_classdata;
 pub mod tf_condition;
+pub mod tf_flame;
+pub mod tf_gamerules;
+pub mod tf_gamestats_shared;
+pub mod tf_item;
 pub mod tf_item_constants;
 pub mod tf_item_inventory;
 pub mod tf_item_schema;
@@ -14,6 +19,17 @@ pub mod tf_item_wearable;
 pub mod tf_player_shared;
 pub mod tf_playeranimstate;
 pub mod tf_playerclass_shared;
+pub mod tf_point_manager;
 pub mod tf_shareddefs;
+pub mod tf_weapon_flamethrower;
+pub mod tf_weapon_grenade_pipebomb;
+pub mod tf_weapon_knife;
+pub mod tf_weapon_medigun;
+pub mod tf_weapon_minigun;
 pub mod tf_weapon_parse;
+pub mod tf_weapon_sniperrifle;
 pub mod tf_weaponbase;
+pub mod tf_weaponbase_grenadeproj;
+pub mod tf_weaponbase_gun;
+pub mod tf_weaponbase_melee;
+pub mod tf_weaponbase_rocket;

@@ -19,6 +19,7 @@ pub type attrib_colors_t = ::std::os::raw::c_int;
 pub type attrib_definition_index_t = uint16;
 pub type attrib_value_t = uint32;
 pub type eEconItemOrigin = ::std::os::raw::c_int;
+pub type eEconPeriodicScoreEvents = ::std::os::raw::c_int;
 pub type econ_tag_handle_t = ::std::os::raw::c_int;
 pub type entityquality_t = int32;
 pub type equip_region_mask_t = uint32;
@@ -110,6 +111,14 @@ pub const eEconItemOrigin_kEconItemOrigin_TradeUp: eEconItemOrigin = 25;
 pub const eEconItemOrigin_kEconItemOrigin_Traded: eEconItemOrigin = 3;
 pub const eEconItemOrigin_kEconItemOrigin_UntradableFreeContractReward: eEconItemOrigin = 29;
 pub const eEconItemOrigin_kEconItemOrigin_ViralCompetitiveBetaPassSpread: eEconItemOrigin = 26;
+pub const eEconPeriodicScoreEvents_kPeriodicScoreEvent_DuelsWon: eEconPeriodicScoreEvents = 1;
+
+pub const eEconPeriodicScoreEvents_kPeriodicScoreEvent_GiftsDistributed: eEconPeriodicScoreEvents =
+	0;
+
+pub const eEconPeriodicScoreEvents_kPeriodicScoreEvent_MapStampsPurchased:
+	eEconPeriodicScoreEvents = 2;
+
 pub const kill_eater_event_t_kKillEaterEvent_AirborneEnemyKill: kill_eater_event_t = 22;
 pub const kill_eater_event_t_kKillEaterEvent_AllyHealingDone: kill_eater_event_t = 84;
 pub const kill_eater_event_t_kKillEaterEvent_BackstabAbsorbed: kill_eater_event_t = 5;
