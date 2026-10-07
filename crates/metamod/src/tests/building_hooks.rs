@@ -4,6 +4,7 @@
 use super::*;
 use crate::test_support::harness::{Harness, expect, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
+use source_sdk_2013::tf2::class_targets::ClassTargets;
 use source_sdk_2013::tf2::damage::DamageType;
 use source_sdk_2013::{InterfaceFactory, sys};
 use std::cell::RefCell;
@@ -158,6 +159,17 @@ fn buildings_are_searched_for_only_to_hook_them() {
 			)))
 		));
 
+		// Nor in a snapshot other hooks share.
+		let targets = ClassTargets::load(server).unwrap();
+
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe { api.hook_building_classes(&targets, binding, callbacks()) },
+			Err(BuildingHookError::Target(BuildingVtableError::NotFound(
+				BuildingClass::CartDispenser
+			)))
+		));
+
 		// Without callbacks, there is nothing to search for.
 		// SAFETY: As above.
 		let none = unsafe { api.hook_buildings(server, binding, BuildingCallbacks::default()) };
@@ -169,6 +181,11 @@ fn buildings_are_searched_for_only_to_hook_them() {
 		assert!(matches!(
 			// SAFETY: As above.
 			unsafe { api.hook_buildings(server, binding, callbacks()) },
+			Err(BuildingHookError::Hook(HookError::AlreadyInstalled))
+		));
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe { api.hook_building_classes(&targets, binding, callbacks()) },
 			Err(BuildingHookError::Hook(HookError::AlreadyInstalled))
 		));
 	});
