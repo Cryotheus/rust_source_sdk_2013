@@ -3,6 +3,7 @@
 pub mod game_rules;
 pub mod objectives;
 pub mod script_binding;
+pub mod spawning;
 
 #[cfg(test)]
 pub(crate) mod player;
