@@ -1,6 +1,7 @@
 //! ABI of TF2's game rules (`CTFGameRules`): the vtable slots and signatures of
 //! the methods that clean up the map and decide what it keeps, end and set up
-//! rounds, and decide captures, holidays, team balance and players' damage,
+//! rounds, and decide captures, holidays, how the teams are balanced,
+//! switched and scrambled, and players' damage,
 //! taken from the generated bindings, with calls of some; the round states of `gamerules_roundstate_t`, the team roles and the
 //! stalemate reasons; and the search for the game rules' vtable.
 
@@ -143,6 +144,18 @@ pub type ShouldBalanceTeamsFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
 pub type ShouldCreateEntityFn =
 	unsafe extern "C" fn(this: *mut c_void, class_name: *const c_char) -> bool;
 
+/// The signature of `CTFGameRules::ShouldScrambleTeams`, `bool ()`, with the
+/// game rules as its receiver: whether the teams are scrambled as the round
+/// restarts.
+#[doc(alias("ShouldScrambleTeams"))]
+pub type ShouldScrambleTeamsFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
+
+/// The signature of `CTFGameRules::ShouldSwitchTeams`, `bool ()`, with the
+/// game rules as its receiver: whether the teams switch sides as the round
+/// restarts.
+#[doc(alias("ShouldSwitchTeams"))]
+pub type ShouldSwitchTeamsFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
+
 /// The signature of `CTFGameRules::TeamMayCapturePoint`, `bool (int, int)`,
 /// with the game rules as its receiver: the team and the control point's
 /// index.
@@ -237,6 +250,16 @@ const _: fn(
 	&sys::CTFGameRules__bindgen_vtable,
 ) -> unsafe extern "C" fn(*mut sys::CTFGameRules, *const c_char) -> bool =
 	|vtable| vtable.CTFGameRules_ShouldCreateEntity;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldScrambleTeams;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldSwitchTeams;
 
 const _: fn(
 	&sys::CTFGameRules__bindgen_vtable,
@@ -432,6 +455,22 @@ pub const SHOULD_BALANCE_TEAMS_SLOT: usize = vtable_slot!(
 pub const SHOULD_CREATE_ENTITY_SLOT: usize = vtable_slot!(
 	sys::CTFGameRules__bindgen_vtable,
 	CTFGameRules_ShouldCreateEntity
+);
+
+/// The slot of `ShouldScrambleTeams` in `CTFGameRules`' primary vtable, from
+/// the generated binding.
+#[doc(alias("ShouldScrambleTeams"))]
+pub const SHOULD_SCRAMBLE_TEAMS_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_ShouldScrambleTeams
+);
+
+/// The slot of `ShouldSwitchTeams` in `CTFGameRules`' primary vtable, from
+/// the generated binding.
+#[doc(alias("ShouldSwitchTeams"))]
+pub const SHOULD_SWITCH_TEAMS_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_ShouldSwitchTeams
 );
 
 /// `STALEMATE_JOIN_MID` from `game/shared/teamplayroundbased_gamerules.h`: a

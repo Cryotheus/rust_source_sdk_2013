@@ -1,7 +1,7 @@
 //! TF2 game rules hooks, which [`MetamodApi::hook_rules`] installs on the
-//! game rules' decisions that are not about rounds: whether the teams are
-//! kept balanced, whether a holiday is active, and whether a player takes an
-//! attacker's damage.
+//! game rules' decisions that are not about a round's course: whether the
+//! teams are kept balanced, switched and scrambled, whether a holiday is
+//! active, and whether a player takes an attacker's damage.
 //!
 //! - [`RulesCallbacks::balance_teams`] runs before
 //!   `CTFGameRules::ShouldBalanceTeams`, which the game asks before it
@@ -14,6 +14,19 @@
 //!   in hell, and while `mp_teams_unbalance_limit` is 0. TF2's newer
 //!   balancing, under `mp_autoteambalance 2`, checks the limit itself, and
 //!   [`crate::autobalance_hooks`] decides whom it may move.
+//! - [`RulesCallbacks::switch_teams`] runs before
+//!   `CTFGameRules::ShouldSwitchTeams`, which the game asks as a round
+//!   restarts, before it moves every player to the other team, as a win
+//!   that switches teams ([`WinOptions::switch_teams`]) or `mp_switchteams`
+//!   asked, as it counts that win's score for the other team after the
+//!   switch, and as it announces a restart. The game answers no in Mann vs.
+//!   Machine.
+//! - [`RulesCallbacks::scramble_teams`] runs before
+//!   `CTFGameRules::ShouldScrambleTeams`, which the game asks as a round
+//!   restarts, before it scrambles the teams, as a vote, `mp_scrambleteams`
+//!   or `mp_scrambleteams_auto` asked, as it announces a restart, and as a
+//!   player calls a scramble vote, which they may not while a scramble is
+//!   pending. The game answers no in Mann vs. Machine and competitive games.
 //! - [`RulesCallbacks::holiday`] runs after `CTFGameRules::IsHolidayActive`,
 //!   which the game asks as it decides what players drop, which items its
 //!   holiday restrictions allow, the taunts, sounds and models of holidays,
@@ -35,6 +48,8 @@
 //! The hooks patch the methods in the primary vtable of `CTFGameRules`, as
 //! [`crate::round_hooks`] describes: install them once, such as while
 //! loading.
+//!
+//! [`WinOptions::switch_teams`]: source_sdk_2013::tf2::round_end::WinOptions::switch_teams
 
 #[cfg(test)]
 #[path = "tests/rules_hooks.rs"]
@@ -48,7 +63,9 @@ use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::game_rules::{
 	IS_HOLIDAY_ACTIVE_SLOT, IsHolidayActiveFn as IsHolidayActive, PLAYER_CAN_TAKE_DAMAGE_SLOT,
 	PlayerCanTakeDamageFn as PlayerCanTakeDamage, SHOULD_BALANCE_TEAMS_SLOT,
-	ShouldBalanceTeamsFn as ShouldBalanceTeams,
+	SHOULD_SCRAMBLE_TEAMS_SLOT, SHOULD_SWITCH_TEAMS_SLOT,
+	ShouldBalanceTeamsFn as ShouldBalanceTeams, ShouldScrambleTeamsFn as ShouldScrambleTeams,
+	ShouldSwitchTeamsFn as ShouldSwitchTeams,
 };
 
 use source_sdk_2013::tf2::damage::DamageInfo;
@@ -59,11 +76,6 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
-
-/// A callback-scoped server whose game asks whether it keeps the teams
-/// balanced, which decides whether it may. A panic is contained by the hook
-/// dispatcher, and lets the game decide.
-pub type BalanceFn = for<'s> fn(Server<'s>) -> BalanceAction;
 
 /// A callback-scoped server, a holiday the game asks about, and whether the
 /// game, or an earlier hook, found it active, returning whether it is active
@@ -77,6 +89,11 @@ pub type HolidayFn = for<'s> fn(Server<'s>, Holiday, bool) -> Option<bool>;
 /// answer.
 pub type PlayerDamageFn = for<'s> fn(Server<'s>, PlayerDamageCheck<'s>) -> Option<bool>;
 
+/// A callback-scoped server whose game asks whether it balances, switches or
+/// scrambles the teams, which decides whether it may. A panic is contained
+/// by the hook dispatcher, and lets the game decide.
+pub type TeamsFn = for<'s> fn(Server<'s>) -> TeamsAction;
+
 /// `IsHolidayActive` in TF2's game rules' primary vtable.
 const IS_HOLIDAY_ACTIVE: VirtualFunction<IsHolidayActive> =
 	VirtualFunction::new(IS_HOLIDAY_ACTIVE_SLOT);
@@ -89,23 +106,19 @@ const PLAYER_CAN_TAKE_DAMAGE: VirtualFunction<PlayerCanTakeDamage> =
 const SHOULD_BALANCE_TEAMS: VirtualFunction<ShouldBalanceTeams> =
 	VirtualFunction::new(SHOULD_BALANCE_TEAMS_SLOT);
 
-static BALANCE_ROUTE: RoundRoute<BalanceFn> = RoundRoute::new();
+/// `ShouldScrambleTeams` in TF2's game rules' primary vtable.
+const SHOULD_SCRAMBLE_TEAMS: VirtualFunction<ShouldScrambleTeams> =
+	VirtualFunction::new(SHOULD_SCRAMBLE_TEAMS_SLOT);
+
+/// `ShouldSwitchTeams` in TF2's game rules' primary vtable.
+const SHOULD_SWITCH_TEAMS: VirtualFunction<ShouldSwitchTeams> =
+	VirtualFunction::new(SHOULD_SWITCH_TEAMS_SLOT);
+
+static BALANCE_ROUTE: RoundRoute<TeamsFn> = RoundRoute::new();
 static HOLIDAY_ROUTE: RoundRoute<HolidayFn> = RoundRoute::new();
 static PLAYER_DAMAGE_ROUTE: RoundRoute<PlayerDamageFn> = RoundRoute::new();
-
-/// What a balance hook does with the game's question whether it keeps the
-/// teams balanced.
-#[must_use]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum BalanceAction {
-	/// Lets the game decide, through the other plugins' hooks.
-	#[default]
-	Allow,
-
-	/// Answers no: players may join any team, and the teams count as balanced
-	/// whatever their sizes.
-	Refuse,
-}
+static SCRAMBLE_ROUTE: RoundRoute<TeamsFn> = RoundRoute::new();
+static SWITCH_ROUTE: RoundRoute<TeamsFn> = RoundRoute::new();
 
 /// A player's damage the game asks about, as a player is about to take it
 /// (`FPlayerCanTakeDamage`).
@@ -131,7 +144,7 @@ pub struct PlayerDamageCheck<'s> {
 pub struct RulesCallbacks {
 	/// Runs before the game asks whether it keeps the teams balanced, and
 	/// decides whether it may.
-	pub balance_teams: Option<BalanceFn>,
+	pub balance_teams: Option<TeamsFn>,
 
 	/// Runs after the game rules decide whether a holiday is active, and may
 	/// decide otherwise.
@@ -140,6 +153,14 @@ pub struct RulesCallbacks {
 	/// Runs after the game rules decide whether a player takes an attacker's
 	/// damage, and may decide otherwise.
 	pub player_damage: Option<PlayerDamageFn>,
+
+	/// Runs before the game asks whether it scrambles the teams, and decides
+	/// whether it may.
+	pub scramble_teams: Option<TeamsFn>,
+
+	/// Runs before the game asks whether the teams switch sides, and decides
+	/// whether they may.
+	pub switch_teams: Option<TeamsFn>,
 }
 
 /// Handles for the game rules hooks installed by one call.
@@ -161,6 +182,8 @@ impl RulesHooks {
 			BALANCE_ROUTE.clear(hook);
 			HOLIDAY_ROUTE.clear(hook);
 			PLAYER_DAMAGE_ROUTE.clear(hook);
+			SCRAMBLE_ROUTE.clear(hook);
+			SWITCH_ROUTE.clear(hook);
 		}
 	}
 }
@@ -219,7 +242,9 @@ impl Handler<PlayerCanTakeDamage> for RoundRoute<PlayerDamageFn> {
 	}
 }
 
-impl Handler<ShouldBalanceTeams> for RoundRoute<BalanceFn> {
+// `ShouldScrambleTeams` and `ShouldSwitchTeams` have the same signature, so
+// their routes take this handler too.
+impl Handler<ShouldBalanceTeams> for RoundRoute<TeamsFn> {
 	fn call(&self, call: &HookCall<'_, ShouldBalanceTeams>) -> HookAction<bool> {
 		// An earlier hook already answered.
 		if call.superseded() == Some(true) {
@@ -232,15 +257,30 @@ impl Handler<ShouldBalanceTeams> for RoundRoute<BalanceFn> {
 		};
 
 		match callback(server) {
-			BalanceAction::Allow => HookAction::Ignore,
-			BalanceAction::Refuse => HookAction::Supersede(false),
+			TeamsAction::Allow => HookAction::Ignore,
+			TeamsAction::Refuse => HookAction::Supersede(false),
 		}
 	}
 }
 
+/// What a team hook does with the game's question whether it balances,
+/// switches or scrambles the teams.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TeamsAction {
+	/// Lets the game decide, through the other plugins' hooks.
+	#[default]
+	Allow,
+
+	/// Answers no. For balance, players may join any team, and the teams count
+	/// as balanced whatever their sizes; for a switch or a scramble, the teams
+	/// stay as they are, and the switch or scramble stays pending.
+	Refuse,
+}
+
 impl MetamodApi<'_> {
 	/// Runs `callbacks` as TF2's game rules decide whether they keep the teams
-	/// balanced, whether a holiday is active, and whether a player takes an
+	/// balanced, switch or scramble them, whether a holiday is active, and whether a player takes an
 	/// attacker's damage, hooking only the methods `callbacks` names a
 	/// callback for; see the [module documentation](crate::rules_hooks).
 	///
@@ -278,7 +318,9 @@ impl MetamodApi<'_> {
 
 		let none = callbacks.balance_teams.is_none()
 			&& callbacks.holiday.is_none()
-			&& callbacks.player_damage.is_none();
+			&& callbacks.player_damage.is_none()
+			&& callbacks.scramble_teams.is_none()
+			&& callbacks.switch_teams.is_none();
 
 		if none {
 			return Ok(RulesHooks {
@@ -301,10 +343,12 @@ impl MetamodApi<'_> {
 	/// # Safety
 	///
 	/// `vtable` must be live, hold functions of the signatures
-	/// [`IsHolidayActive`], [`PlayerCanTakeDamage`] and [`ShouldBalanceTeams`]
-	/// at the slots of `CTFGameRules`' methods `IsHolidayActive`,
-	/// `FPlayerCanTakeDamage` and `ShouldBalanceTeams`, called on game rules
-	/// objects, and stay loaded until Metamod unloads the plugin.
+	/// [`IsHolidayActive`], [`PlayerCanTakeDamage`], [`ShouldBalanceTeams`],
+	/// [`ShouldScrambleTeams`] and [`ShouldSwitchTeams`] at the slots of
+	/// `CTFGameRules`' methods `IsHolidayActive`, `FPlayerCanTakeDamage`,
+	/// `ShouldBalanceTeams`, `ShouldScrambleTeams` and `ShouldSwitchTeams`,
+	/// called on game rules objects, and stay loaded until Metamod unloads
+	/// the plugin.
 	unsafe fn install_rules(
 		self,
 		vtable: NonNull<*mut c_void>,
@@ -349,6 +393,8 @@ impl MetamodApi<'_> {
 			balance_teams,
 			holiday,
 			player_damage,
+			scramble_teams,
+			switch_teams,
 		} = callbacks;
 
 		// SAFETY: As the caller promises, the vtable has each method at its
@@ -386,6 +432,28 @@ impl MetamodApi<'_> {
 					hooks,
 				)?;
 			}
+
+			if let Some(callback) = scramble_teams {
+				self.route_round(
+					SHOULD_SCRAMBLE_TEAMS,
+					HookTiming::Pre,
+					&SCRAMBLE_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = switch_teams {
+				self.route_round(
+					SHOULD_SWITCH_TEAMS,
+					HookTiming::Pre,
+					&SWITCH_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
 		}
 
 		Ok(())
@@ -396,5 +464,7 @@ impl MetamodApi<'_> {
 		BALANCE_ROUTE.is_routed(self)
 			|| HOLIDAY_ROUTE.is_routed(self)
 			|| PLAYER_DAMAGE_ROUTE.is_routed(self)
+			|| SCRAMBLE_ROUTE.is_routed(self)
+			|| SWITCH_ROUTE.is_routed(self)
 	}
 }
