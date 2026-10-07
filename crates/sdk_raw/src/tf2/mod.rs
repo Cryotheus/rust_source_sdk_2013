@@ -32,6 +32,7 @@ pub mod scripts;
 pub mod spawn;
 pub mod teams;
 pub mod touch;
+pub mod virtuals;
 pub mod voice;
 pub mod voting;
 pub mod weapons;

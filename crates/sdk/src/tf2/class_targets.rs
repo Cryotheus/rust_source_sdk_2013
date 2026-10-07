@@ -27,6 +27,10 @@
 //! many classes it finds, so take one, and find every class needed with it,
 //! as the plugin loads.
 
+#[cfg(test)]
+#[path = "../tests/tf2/class_targets.rs"]
+mod tests;
+
 use crate::entities::Entity;
 use crate::{Game, Server};
 use sdk_raw::abi::VTABLE_SLOT_SIZE;
@@ -45,7 +49,8 @@ use std::ptr::NonNull;
 pub enum BaseEntity {}
 
 /// `CBaseObject`: TF2's buildings, those of
-/// [`OBJECT_CLASSES`](sdk_raw::tf2::class_targets::OBJECT_CLASSES).
+/// [`OBJECT_CLASSES`](sdk_raw::tf2::class_targets::OBJECT_CLASSES), which are
+/// [`CombatCharacter`]s.
 #[doc(alias("CBaseObject"))]
 #[derive(Debug)]
 pub enum BaseObject {}
@@ -63,6 +68,12 @@ pub trait ClassKind: sealed::Sealed + Debug + 'static {
 	/// more.
 	const VTABLE_SLOTS: usize;
 }
+
+/// `CBaseCombatCharacter`: the entities that take damage while alive, and
+/// can hold weapons. In TF2, its players and buildings.
+#[doc(alias("CBaseCombatCharacter"))]
+#[derive(Debug)]
+pub enum CombatCharacter {}
 
 /// `CBaseCombatWeapon`: the weapons players hold, which in TF2 are all
 /// [`TfWeapon`]s.
@@ -103,9 +114,10 @@ macro_rules! kinds {
 
 kinds! {
 	BaseEntity: c"CBaseEntity", sys::CBaseEntity__bindgen_vtable, [];
-	BaseObject: c"CBaseObject", sys::CBaseObject__bindgen_vtable, [BaseEntity];
+	BaseObject: c"CBaseObject", sys::CBaseObject__bindgen_vtable, [BaseEntity, CombatCharacter];
+	CombatCharacter: c"CBaseCombatCharacter", sys::CBaseCombatCharacter__bindgen_vtable, [BaseEntity];
 	CombatWeapon: c"CBaseCombatWeapon", sys::CBaseCombatWeapon__bindgen_vtable, [BaseEntity];
-	TfPlayer: c"CTFPlayer", sys::CTFPlayer__bindgen_vtable, [BaseEntity];
+	TfPlayer: c"CTFPlayer", sys::CTFPlayer__bindgen_vtable, [BaseEntity, CombatCharacter];
 	TfWeapon: c"CTFWeaponBase", sys::CTFWeaponBase__bindgen_vtable, [BaseEntity, CombatWeapon];
 }
 
@@ -119,32 +131,13 @@ pub struct ClassTarget<'s, K: ClassKind> {
 }
 
 impl<'s, K: ClassKind> ClassTarget<'s, K> {
-	/// The class of `entity`, if it is of the kind `K`: if the data description
-	/// map of its class, or of one of its bases, is named after `K`'s class.
-	/// An entity class's maps name the classes it derives from through its
-	/// primary bases, as `DECLARE_CLASS` and `BEGIN_DATADESC` chain them.
-	pub fn of(entity: Entity<'s>) -> Option<Self> {
-		if !entity.has_data_map_class(K::NAME) {
-			return None;
-		}
-
-		// SAFETY: A live entity starts with the pointer to its primary vtable,
-		// of which only the address is used.
-		let vtable = unsafe { vtable_pointer::<*mut c_void>(entity.as_ptr()) };
-
-		NonNull::new(vtable.cast_mut()).map(|vtable| Self {
-			vtable,
-			_kind: PhantomData,
-			_scope: PhantomData,
-		})
-	}
-
 	/// The class whose primary vtable `vtable` is.
 	///
 	/// # Safety
 	///
-	/// `vtable` must be the primary vtable of a class of the kind `K` in this
-	/// server's game module, as that of a live entity [`Self::of`] accepts is.
+	/// `vtable` must be the primary vtable of a class of the kind `K` in the game
+	/// module of this server, which runs TF2, as that of a live entity
+	/// [`Self::of`] accepts is.
 	pub const unsafe fn from_raw(vtable: NonNull<*mut c_void>) -> Self {
 		Self {
 			vtable,
@@ -163,6 +156,27 @@ impl<'s, K: ClassKind> ClassTarget<'s, K> {
 	pub const unsafe fn from_vtable(vtable: ClassVtable<'s>) -> Self {
 		// SAFETY: As the caller promises.
 		unsafe { Self::from_raw(vtable.as_ptr()) }
+	}
+
+	/// The class of `entity`, if the server runs TF2 and the entity is of the
+	/// kind `K`: if the data description map of its class, or of one of its
+	/// bases, is named after `K`'s class. An entity class's maps name the
+	/// classes it derives from through its primary bases, as `DECLARE_CLASS`
+	/// and `BEGIN_DATADESC` chain them.
+	pub fn of(server: Server<'s>, entity: Entity<'s>) -> Option<Self> {
+		if server.game() != Game::TeamFortress2 || !entity.has_data_map_class(K::NAME) {
+			return None;
+		}
+
+		// SAFETY: A live entity starts with the pointer to its primary vtable,
+		// of which only the address is used.
+		let vtable = unsafe { vtable_pointer::<*mut c_void>(entity.as_ptr()) };
+
+		NonNull::new(vtable.cast_mut()).map(|vtable| Self {
+			vtable,
+			_kind: PhantomData,
+			_scope: PhantomData,
+		})
 	}
 
 	/// The vtable's address in the game module.
