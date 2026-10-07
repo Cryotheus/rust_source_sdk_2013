@@ -80,6 +80,10 @@ pub mod sound_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod spawn_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod touch_hooks;
 
 #[cfg(feature = "tf2")]

@@ -26,6 +26,7 @@ pub mod respawn;
 pub mod scoreboard;
 mod script_binding;
 pub mod sound;
+pub mod spawn;
 pub mod teams;
 pub mod touch;
 pub mod user_messages;
