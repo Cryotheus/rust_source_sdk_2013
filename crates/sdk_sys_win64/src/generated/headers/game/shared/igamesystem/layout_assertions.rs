@@ -14,11 +14,44 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CAutoGameSystemPerFrame",
+    ][::std::mem::size_of::<CAutoGameSystemPerFrame>() - 24usize];
+    [
+        "Alignment of CAutoGameSystemPerFrame",
+    ][::std::mem::align_of::<CAutoGameSystemPerFrame>() - 8usize];
+    [
+        "Offset of field: CAutoGameSystemPerFrame::m_pNext",
+    ][::std::mem::offset_of!(CAutoGameSystemPerFrame, m_pNext) - 8usize];
+    [
+        "Offset of field: CAutoGameSystemPerFrame::m_pszName",
+    ][::std::mem::offset_of!(CAutoGameSystemPerFrame, m_pszName) - 16usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of CBaseGameSystem"][::std::mem::size_of::<CBaseGameSystem>() - 8usize];
     ["Alignment of CBaseGameSystem"][::std::mem::align_of::<CBaseGameSystem>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of CBaseGameSystemPerFrame",
+    ][::std::mem::size_of::<CBaseGameSystemPerFrame>() - 8usize];
+    [
+        "Alignment of CBaseGameSystemPerFrame",
+    ][::std::mem::align_of::<CBaseGameSystemPerFrame>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of IGameSystem"][::std::mem::size_of::<IGameSystem>() - 8usize];
     ["Alignment of IGameSystem"][::std::mem::align_of::<IGameSystem>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of IGameSystemPerFrame",
+    ][::std::mem::size_of::<IGameSystemPerFrame>() - 8usize];
+    [
+        "Alignment of IGameSystemPerFrame",
+    ][::std::mem::align_of::<IGameSystemPerFrame>() - 8usize];
 };

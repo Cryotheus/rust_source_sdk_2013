@@ -264,6 +264,16 @@ impl<'s> ValveEngine<'s> {
 		Some(unsafe { NetChannel::from_raw(info.cast()) })
 	}
 
+	/// Tells the engine that an edict's [`FL_EDICT_DONTSEND`] flag changed, as
+	/// `CBaseEntity::SetTransmitState` does, for a listen server's local client.
+	///
+	/// [`FL_EDICT_DONTSEND`]: sdk_raw::edicts::FL_EDICT_DONTSEND
+	#[doc(alias("NotifyEdictFlagsChange"))]
+	pub(crate) fn notify_edict_flags_change(self, edict: Edict<'_>) {
+		// SAFETY: As for `change_level`. The engine only reads the index.
+		unsafe { vcall!(self.as_ptr() => IVEngineServer_NotifyEdictFlagsChange(edict.index())) };
+	}
+
 	/// The network ID of the client owning an edict, such as a rendered Steam
 	/// ID or `BOT`.
 	///

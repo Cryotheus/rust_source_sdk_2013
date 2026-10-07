@@ -622,6 +622,80 @@ pub struct CBaseEntity_NetworkVar_m_Collision {
 }
 
 #[repr(C)]
+pub struct CBaseEntity_NetworkVar_m_Collision__bindgen_vtable {
+	pub CBaseEntity_NetworkVar_m_Collision_GetEntityHandle:
+		unsafe extern "C" fn(arg1: *mut CBaseEntity_NetworkVar_m_Collision) -> *mut IHandleEntity,
+	pub CBaseEntity_NetworkVar_m_Collision_OBBMinsPreScaled:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const Vector,
+	pub CBaseEntity_NetworkVar_m_Collision_OBBMaxsPreScaled:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const Vector,
+	pub CBaseEntity_NetworkVar_m_Collision_OBBMins:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const Vector,
+	pub CBaseEntity_NetworkVar_m_Collision_OBBMaxs:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const Vector,
+	pub CBaseEntity_NetworkVar_m_Collision_WorldSpaceTriggerBounds: unsafe extern "C" fn(
+		arg1: *const CBaseEntity_NetworkVar_m_Collision,
+		arg2: *mut Vector,
+		arg3: *mut Vector,
+	),
+	pub CBaseEntity_NetworkVar_m_Collision_TestCollision: unsafe extern "C" fn(
+		arg1: *mut CBaseEntity_NetworkVar_m_Collision,
+		arg2: *const Ray_t,
+		arg3: ::std::os::raw::c_uint,
+		arg4: *mut trace_t,
+	) -> bool,
+	pub CBaseEntity_NetworkVar_m_Collision_TestHitboxes: unsafe extern "C" fn(
+		arg1: *mut CBaseEntity_NetworkVar_m_Collision,
+		arg2: *const Ray_t,
+		arg3: ::std::os::raw::c_uint,
+		arg4: *mut trace_t,
+	) -> bool,
+	pub CBaseEntity_NetworkVar_m_Collision_GetCollisionModelIndex:
+		unsafe extern "C" fn(
+			arg1: *mut CBaseEntity_NetworkVar_m_Collision,
+		) -> ::std::os::raw::c_int,
+	pub CBaseEntity_NetworkVar_m_Collision_GetCollisionModel:
+		unsafe extern "C" fn(arg1: *mut CBaseEntity_NetworkVar_m_Collision) -> *const model_t,
+	pub CBaseEntity_NetworkVar_m_Collision_GetCollisionOrigin:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const Vector,
+	pub CBaseEntity_NetworkVar_m_Collision_GetCollisionAngles:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const QAngle,
+	pub CBaseEntity_NetworkVar_m_Collision_CollisionToWorldTransform:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const matrix3x4_t,
+	pub CBaseEntity_NetworkVar_m_Collision_GetSolid:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> SolidType_t,
+	pub CBaseEntity_NetworkVar_m_Collision_GetSolidFlags:
+		unsafe extern "C" fn(
+			arg1: *const CBaseEntity_NetworkVar_m_Collision,
+		) -> ::std::os::raw::c_int,
+	pub CBaseEntity_NetworkVar_m_Collision_GetIClientUnknown:
+		unsafe extern "C" fn(arg1: *mut CBaseEntity_NetworkVar_m_Collision) -> *mut IClientUnknown,
+	pub CBaseEntity_NetworkVar_m_Collision_GetCollisionGroup:
+		unsafe extern "C" fn(
+			arg1: *const CBaseEntity_NetworkVar_m_Collision,
+		) -> ::std::os::raw::c_int,
+	pub CBaseEntity_NetworkVar_m_Collision_WorldSpaceSurroundingBounds: unsafe extern "C" fn(
+		arg1: *mut CBaseEntity_NetworkVar_m_Collision,
+		arg2: *mut Vector,
+		arg3: *mut Vector,
+	),
+	pub CBaseEntity_NetworkVar_m_Collision_ShouldTouchTrigger: unsafe extern "C" fn(
+		arg1: *const CBaseEntity_NetworkVar_m_Collision,
+		arg2: ::std::os::raw::c_int,
+	) -> bool,
+	pub CBaseEntity_NetworkVar_m_Collision_GetRootParentToWorldTransform:
+		unsafe extern "C" fn(arg1: *const CBaseEntity_NetworkVar_m_Collision) -> *const matrix3x4_t,
+	pub CBaseEntity_NetworkVar_m_Collision_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CBaseEntity_NetworkVar_m_Collision),
+	pub CBaseEntity_NetworkVar_m_Collision_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CBaseEntity_NetworkVar_m_Collision,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CBaseEntity_NetworkVar_m_Collision_GetDataDescMap:
+		unsafe extern "C" fn(arg1: *mut CBaseEntity_NetworkVar_m_Collision) -> *mut datamap_t,
+}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CBaseEntity_NetworkVar_m_CollisionGroup {
 	pub _address: u8,
@@ -2437,19 +2511,7 @@ pub struct CSkyCamera {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct CTeam {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
 pub struct IEntitySaveUtils {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct INextBot {
 	_unused: [u8; 0],
 }
 

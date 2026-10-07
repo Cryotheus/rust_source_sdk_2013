@@ -74,6 +74,41 @@ const ROOT_TYPES: &[&str] = &[
 	"CTFPlayer",
 	"CTFPlayerShared",
 	"CTFWeaponBase",
+	// TF2's game rules, teams, objectives, buildings, weapons, projectiles and
+	// navigation areas, from the headers `bridge.hpp` includes for them.
+	// `CTFBot` cannot be one: its `GetLastKnownArea` overrides
+	// `CBaseCombatCharacter`'s with a covariant return type.
+	"CTFGameRules",
+	"CTFTeam",
+	"CCaptureFlag",
+	"CTeamControlPoint",
+	"CObjectSentrygun",
+	"CObjectDispenser",
+	"CObjectTeleporter",
+	"CWeaponMedigun",
+	"CTFFlameThrower",
+	"CTFMinigun",
+	"CTFSniperRifle",
+	"CTFKnife",
+	"CTFBaseRocket",
+	"CTFGrenadePipebombProjectile",
+	"CTFProjectile_Arrow",
+	"CTFNavArea",
+	// NextBot's interfaces, the ground and player locomotion and body
+	// components built on them, and TF2 bots' own components.
+	// `NextBotCombatCharacter` cannot be one: its `GetEntity` overrides
+	// `INextBot`'s with a covariant return type.
+	"INextBot",
+	"ILocomotion",
+	"IBody",
+	"IVision",
+	"IIntention",
+	"NextBotGroundLocomotion",
+	"PlayerLocomotion",
+	"PlayerBody",
+	"CTFBotLocomotion",
+	"CTFBotBody",
+	"CTFBotVision",
 	// econ_entity_creation.h's game system and its nonvirtual methods' inputs.
 	// The methods themselves are deliberately not directly linked.
 	"CItemGeneration",

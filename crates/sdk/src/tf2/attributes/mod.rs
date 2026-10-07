@@ -63,6 +63,10 @@ pub mod catalog;
 mod definition;
 mod layout;
 
+#[cfg(test)]
+#[path = "../../tests/tf2/attributes.rs"]
+mod tests;
+
 use crate::NotThreadSafe;
 use crate::entities::Entity;
 use crate::tf2::attributes::definition::RawDef;
@@ -1022,6 +1026,34 @@ impl<'s> PlayerAttributes<'s> {
 		Ok(())
 	}
 
+	/// Sets a custom attribute from the [`catalog`], with an expiry in seconds or
+	/// none, and returns whether reading it back gives the stored value. False
+	/// means the running schema dropped the name, or the value did not read back
+	/// equal; it does not undo the write.
+	///
+	/// Fails with [`AttributeError::OutOfDomain`] outside the definition's
+	/// bounds, and [`AttributeError::InvalidValue`] for a duration that is not
+	/// finite and positive. The player's attributes are not networked, so unlike
+	/// [`ItemAttributes::set`] this cannot see the index the running schema maps
+	/// the name to; the token vouches for the name wherever the schema keeps it.
+	#[doc(alias("AddCustomAttribute"))]
+	pub fn set<V: AttributeValue>(
+		self,
+		token: SchemaToken<'s>,
+		def: &AttributeDef<V>,
+		value: V,
+		duration: Option<f32>,
+	) -> Result<bool, AttributeError> {
+		let _ = token;
+		let stored = def.stored(value)?;
+
+		// SAFETY: The token's first condition gives the name, wherever the
+		// running schema keeps it, the default type and the gameplay domain the
+		// catalog's bounds were vetted against, which `stored` checked. Its second
+		// condition covers the attributes the speed update and read-back iterate.
+		unsafe { self.set_for_unchecked(def.name(), stored, duration) }
+	}
+
 	/// As [`Self::set_unchecked`], with an expiry in seconds. Fails with
 	/// [`AttributeError::InvalidValue`] for a non-finite value or a duration
 	/// that is not finite and positive.
@@ -1148,16 +1180,16 @@ fn removed_entry(
 ///
 /// For all of `'s`:
 ///
-/// 1. Every attribute of the running item schema that has both the name and
-///    the definition index of a [`catalog`] entry keeps what the shipped
-///    `items_game.txt` gives it, against which the catalog's bounds were
-///    vetted: TF2's legacy default numeric type
+/// 1. Every attribute of the running item schema that has the name of a
+///    [`catalog`] entry, at the entry's definition index or another, keeps
+///    what the shipped `items_game.txt` gives it, against which the catalog's
+///    bounds were vetted: TF2's legacy default numeric type
 ///    (`CSchemaAttributeType_Default`), its `attribute_class` (the hook that
 ///    reads it), its `description_format` (how the game combines it) and
 ///    float storage (no `stored_as_integer`). The game coordinator can send
 ///    the server a newer schema, which TF2 applies at the next level change;
-///    it may renumber or drop a catalog name, which the setters detect, but
-///    must not change any of these for a name it keeps at its index.
+///    it may renumber or drop a catalog name, which the item setters detect,
+///    but must not change any of these for a name it keeps.
 /// 2. Every runtime attribute of every economy item and player on the
 ///    server, including those other plugins or map scripts added, has a type
 ///    the game can iterate: one that supports gameplay modification

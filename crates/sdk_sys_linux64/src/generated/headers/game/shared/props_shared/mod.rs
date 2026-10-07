@@ -14,12 +14,106 @@
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
 
+pub type PerformanceMode_t = ::std::os::raw::c_uint;
 pub type mp_break_t = ::std::os::raw::c_uint;
+pub type propdata_interactions_t = ::std::os::raw::c_uint;
 
+pub const PerformanceMode_t_PM_FULL_GIBS: PerformanceMode_t = 2;
+pub const PerformanceMode_t_PM_NO_GIBS: PerformanceMode_t = 1;
+pub const PerformanceMode_t_PM_NORMAL: PerformanceMode_t = 0;
+pub const PerformanceMode_t_PM_REDUCED_GIBS: PerformanceMode_t = 3;
 pub const mp_break_t_MULTIPLAYER_BREAK_BOTH: mp_break_t = 3;
 pub const mp_break_t_MULTIPLAYER_BREAK_CLIENTSIDE: mp_break_t = 2;
 pub const mp_break_t_MULTIPLAYER_BREAK_DEFAULT: mp_break_t = 0;
 pub const mp_break_t_MULTIPLAYER_BREAK_SERVERSIDE: mp_break_t = 1;
+pub const propdata_interactions_t_PROPINTER_FIRE_EXPLOSIVE_RESIST: propdata_interactions_t = 9;
+pub const propdata_interactions_t_PROPINTER_FIRE_FLAMMABLE: propdata_interactions_t = 8;
+pub const propdata_interactions_t_PROPINTER_FIRE_IGNITE_HALFHEALTH: propdata_interactions_t = 10;
+pub const propdata_interactions_t_PROPINTER_NUM_INTERACTIONS: propdata_interactions_t = 15;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_ALLOW_OVERHEAD: propdata_interactions_t = 12;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_BREAK_EXPLODE: propdata_interactions_t = 6;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_CREATE_FLARE: propdata_interactions_t = 11;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_DAMAGE_NONE: propdata_interactions_t = 7;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_FIRST_BREAK: propdata_interactions_t = 1;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_FIRST_IMPALE: propdata_interactions_t = 3;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_FIRST_PAINT: propdata_interactions_t = 2;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_LAUNCH_SPIN_NONE: propdata_interactions_t = 4;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_LAUNCH_SPIN_Z: propdata_interactions_t = 5;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_NOTIFY_CHILDREN: propdata_interactions_t = 14;
+pub const propdata_interactions_t_PROPINTER_PHYSGUN_WORLD_STICK: propdata_interactions_t = 0;
+pub const propdata_interactions_t_PROPINTER_WORLD_BLOODSPLAT: propdata_interactions_t = 13;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct IBreakableWithPropData {
+	pub vtable_: *const IBreakableWithPropData__bindgen_vtable,
+}
+
+#[repr(C)]
+pub struct IBreakableWithPropData__bindgen_vtable {
+	pub IBreakableWithPropData_SetDmgModBullet:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: f32),
+	pub IBreakableWithPropData_SetDmgModClub:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: f32),
+	pub IBreakableWithPropData_SetDmgModExplosive:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: f32),
+	pub IBreakableWithPropData_GetDmgModBullet:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> f32,
+	pub IBreakableWithPropData_GetDmgModClub:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> f32,
+	pub IBreakableWithPropData_GetDmgModExplosive:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> f32,
+	pub IBreakableWithPropData_SetExplosiveRadius:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: f32),
+	pub IBreakableWithPropData_SetExplosiveDamage:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: f32),
+	pub IBreakableWithPropData_GetExplosiveRadius:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> f32,
+	pub IBreakableWithPropData_GetExplosiveDamage:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> f32,
+	pub IBreakableWithPropData_SetPhysicsDamageTable:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: string_t),
+	pub IBreakableWithPropData_GetPhysicsDamageTable:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> string_t,
+	pub IBreakableWithPropData_SetBreakableModel:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: string_t),
+	pub IBreakableWithPropData_GetBreakableModel:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> string_t,
+	pub IBreakableWithPropData_SetBreakableSkin:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: ::std::os::raw::c_int),
+	pub IBreakableWithPropData_GetBreakableSkin:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> ::std::os::raw::c_int,
+	pub IBreakableWithPropData_SetBreakableCount:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: ::std::os::raw::c_int),
+	pub IBreakableWithPropData_GetBreakableCount:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> ::std::os::raw::c_int,
+	pub IBreakableWithPropData_SetMaxBreakableSize:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: ::std::os::raw::c_int),
+	pub IBreakableWithPropData_GetMaxBreakableSize:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> ::std::os::raw::c_int,
+	pub IBreakableWithPropData_SetPropDataBlocksLOS:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: bool),
+	pub IBreakableWithPropData_SetPropDataIsAIWalkable:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: bool),
+	pub IBreakableWithPropData_SetInteraction:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: propdata_interactions_t),
+	pub IBreakableWithPropData_HasInteraction: unsafe extern "C" fn(
+		arg1: *mut IBreakableWithPropData,
+		arg2: propdata_interactions_t,
+	) -> bool,
+	pub IBreakableWithPropData_SetPhysicsMode:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: ::std::os::raw::c_int),
+	pub IBreakableWithPropData_GetPhysicsMode:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> ::std::os::raw::c_int,
+	pub IBreakableWithPropData_SetMultiplayerBreakMode:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: mp_break_t),
+	pub IBreakableWithPropData_GetMultiplayerBreakMode:
+		unsafe extern "C" fn(arg1: *const IBreakableWithPropData) -> mp_break_t,
+	pub IBreakableWithPropData_SetBasePropData:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData, arg2: string_t),
+	pub IBreakableWithPropData_GetBasePropData:
+		unsafe extern "C" fn(arg1: *mut IBreakableWithPropData) -> string_t,
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

@@ -14,6 +14,7 @@
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
 
+pub type BOOL = ::std::os::raw::c_int;
 pub type color32 = color32_s;
 pub type vec_t = f32;
 
