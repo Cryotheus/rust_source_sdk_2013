@@ -54,8 +54,24 @@ pub const HUD_TYPE: usize = 24;
 /// Where the fake TF2 rules keep `m_nMapHolidayType`.
 pub const MAP_HOLIDAY: usize = 28;
 
+/// The flags the fake round-based rules keep from [`ROUND_FLAGS`] on, in
+/// order.
+pub const ROUND_FLAG_NAMES: [&CStr; 4] = [
+	c"m_bInOvertime",
+	c"m_bStopWatch",
+	c"m_bMultipleTrains",
+	c"m_bSwitchedTeamsThisRound",
+];
+
+/// Where the fake round-based rules keep the first of [`ROUND_FLAG_NAMES`],
+/// each next one in the byte after.
+pub const ROUND_FLAGS: usize = 24;
+
 /// Where the fake round-based rules keep `m_iRoundState`.
 pub const ROUND_STATE: usize = 8;
+
+/// Where the fake round-based rules keep `m_nRoundsPlayed`.
+pub const ROUNDS_PLAYED: usize = 20;
 
 /// The size of each fake game rules object.
 pub const RULES_SIZE: usize = 48;
@@ -69,6 +85,9 @@ pub const SHADOWED: usize = 20;
 
 /// Where the fake round-based rules keep `m_bInWaitingForPlayers`.
 pub const WAITING: usize = 12;
+
+/// Where the fake round-based rules keep `m_iWinningTeam`.
+pub const WINNING_TEAM: usize = 16;
 
 thread_local! {
 	/// The entities [`find_by_class_name`] finds as `tf_gamerules`, in order.
@@ -153,13 +172,24 @@ impl World {
 			)
 		};
 
+		let mut round_rules_props = vec![
+			int(c"m_iRoundState", ROUND_STATE),
+			flag(c"m_bInWaitingForPlayers", WAITING),
+			flag(c"m_bInSetup", SETUP),
+			int(c"m_iWinningTeam", WINNING_TEAM),
+			int(c"m_nRoundsPlayed", ROUNDS_PLAYED),
+		];
+
+		round_rules_props.extend(
+			ROUND_FLAG_NAMES
+				.into_iter()
+				.zip(ROUND_FLAGS..)
+				.map(|(name, offset)| flag(name, offset)),
+		);
+
 		let round_rules_table = leak(table(
 			c"DT_TeamplayRoundBasedRules",
-			Box::leak(Box::new([
-				int(c"m_iRoundState", ROUND_STATE),
-				flag(c"m_bInWaitingForPlayers", WAITING),
-				flag(c"m_bInSetup", SETUP),
-			])),
+			round_rules_props.leak(),
 		));
 
 		// The TF2 rules shadow a variable of the round-based rules.

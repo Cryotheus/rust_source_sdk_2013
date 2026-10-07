@@ -25,7 +25,10 @@ use crate::datatables::{
 
 use crate::edicts::Edict;
 use crate::entities::Entity;
+use crate::inputs::{InputError, InputValue};
+use crate::interfaces::ServerTools;
 use crate::interfaces::ValveEngine;
+use crate::tf2::scoreboard::ScoringTeam;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::datatables::call_table_proxy;
 
@@ -35,6 +38,7 @@ use sdk_raw::tf2::game_rules::{
 	GR_STATE_STARTGAME, GR_STATE_TEAM_WIN, find_game_rules_vtable,
 };
 
+use sdk_raw::tf2::game_rules::{TEAM_ROLE_ATTACKERS, TEAM_ROLE_DEFENDERS, TEAM_ROLE_NONE};
 use sdk_raw::util;
 use std::ffi::{CStr, c_int, c_void};
 use std::marker::PhantomData;
@@ -87,6 +91,175 @@ pub struct GameRules<'s> {
 	round_rules_table: SendTable<'s>,
 	proxies: StandardSendProxies<'s>,
 	_not_thread_safe: NotThreadSafe,
+}
+
+/// The inputs of the `tf_gamerules` entity, through which maps control the
+/// game rules.
+///
+/// Each sends its input through `tools` as a map would, from the entity to
+/// itself, and fails as [`ServerTools::accept_input`] does.
+impl GameRules<'_> {
+	/// Activates the team's King of the Hill clock, and pauses the other
+	/// team's, as capturing the hill does (`SetRedKothClockActive`).
+	#[doc(alias("SetRedKothClockActive", "SetBlueKothClockActive"))]
+	pub fn activate_koth_clock(
+		self,
+		tools: ServerTools<'_>,
+		team: ScoringTeam,
+	) -> Result<(), InputError> {
+		let input = match team {
+			ScoringTeam::Red => c"SetRedKothClockActive",
+			ScoringTeam::Blue => c"SetBlueKothClockActive",
+		};
+
+		self.input(tools, input, InputValue::Void)
+	}
+
+	/// Adds seconds to the team's respawn wave time, from `mp_respawnwavetime`
+	/// if the level set none, down to no less than 0
+	/// (`AddRedTeamRespawnWaveTime`).
+	#[doc(alias("AddRedTeamRespawnWaveTime", "AddBlueTeamRespawnWaveTime"))]
+	pub fn add_respawn_wave_time(
+		self,
+		tools: ServerTools<'_>,
+		team: ScoringTeam,
+		seconds: f32,
+	) -> Result<(), InputError> {
+		let input = match team {
+			ScoringTeam::Red => c"AddRedTeamRespawnWaveTime",
+			ScoringTeam::Blue => c"AddBlueTeamRespawnWaveTime",
+		};
+
+		self.input(tools, input, InputValue::Float(seconds))
+	}
+
+	/// Adds points to the team's score, as capturing the flag does
+	/// (`AddRedTeamScore`). Negative points take some away.
+	#[doc(alias("AddRedTeamScore", "AddBlueTeamScore"))]
+	pub fn add_team_score(
+		self,
+		tools: ServerTools<'_>,
+		team: ScoringTeam,
+		points: c_int,
+	) -> Result<(), InputError> {
+		let input = match team {
+			ScoringTeam::Red => c"AddRedTeamScore",
+			ScoringTeam::Blue => c"AddBlueTeamScore",
+		};
+
+		self.input(tools, input, InputValue::Int(points))
+	}
+
+	/// Sends the input named `input` with `value` to the `tf_gamerules`
+	/// entity, from itself.
+	fn input(
+		self,
+		tools: ServerTools<'_>,
+		input: &CStr,
+		value: InputValue<'_>,
+	) -> Result<(), InputError> {
+		tools.accept_input(self.proxy, input, value, self.proxy, self.proxy)
+	}
+
+	/// Sets the team's respawn wave time, in seconds, no less than 0
+	/// (`SetRedTeamRespawnWaveTime`), which the time each player waits to
+	/// respawn scales from.
+	#[doc(alias("SetRedTeamRespawnWaveTime", "SetBlueTeamRespawnWaveTime"))]
+	pub fn set_respawn_wave_time(
+		self,
+		tools: ServerTools<'_>,
+		team: ScoringTeam,
+		seconds: f32,
+	) -> Result<(), InputError> {
+		let input = match team {
+			ScoringTeam::Red => c"SetRedTeamRespawnWaveTime",
+			ScoringTeam::Blue => c"SetBlueTeamRespawnWaveTime",
+		};
+
+		self.input(tools, input, InputValue::Float(seconds))
+	}
+
+	/// Sets the goal the team's players see as the round starts, a
+	/// localization token such as `#koth_setup_goal` or plain text, of fewer
+	/// than 256 bytes, or clears it with an empty string
+	/// (`SetRedTeamGoalString`).
+	#[doc(alias("SetRedTeamGoalString", "SetBlueTeamGoalString"))]
+	pub fn set_team_goal(
+		self,
+		tools: ServerTools<'_>,
+		team: ScoringTeam,
+		goal: &CStr,
+	) -> Result<(), InputError> {
+		let input = match team {
+			ScoringTeam::Red => c"SetRedTeamGoalString",
+			ScoringTeam::Blue => c"SetBlueTeamGoalString",
+		};
+
+		self.input(tools, input, InputValue::String(goal))
+	}
+
+	/// Sets whether the team attacks or defends the objectives
+	/// (`SetRedTeamRole`), which players' voice responses follow, and which
+	/// automatic team assignment breaks ties with, in the attackers' favor.
+	#[doc(alias("SetRedTeamRole", "SetBlueTeamRole"))]
+	pub fn set_team_role(
+		self,
+		tools: ServerTools<'_>,
+		team: ScoringTeam,
+		role: TeamRole,
+	) -> Result<(), InputError> {
+		let input = match team {
+			ScoringTeam::Red => c"SetRedTeamRole",
+			ScoringTeam::Blue => c"SetBlueTeamRole",
+		};
+
+		self.input(tools, input, InputValue::Int(role.to_raw()))
+	}
+}
+
+/// The round's progress, from the variables of `CTeamplayRoundBasedRules`.
+impl<'s> GameRules<'s> {
+	/// Whether the level has several payload carts per team
+	/// (`m_bMultipleTrains`), as Payload Race levels with a
+	/// `tf_logic_multiple_escort` do.
+	#[doc(alias("m_bMultipleTrains", "HasMultipleTrains"))]
+	pub fn has_multiple_trains(self) -> Result<bool, GameRulesError> {
+		self.read(c"m_bMultipleTrains")
+	}
+
+	/// Whether the round is in overtime (`m_bInOvertime`), as while a team
+	/// still contests the last objective as time runs out.
+	#[doc(alias("m_bInOvertime", "InOvertime"))]
+	pub fn is_in_overtime(self) -> Result<bool, GameRulesError> {
+		self.read(c"m_bInOvertime")
+	}
+
+	/// Whether the game plays stopwatch rounds (`m_bStopWatch`), as tournament
+	/// mode does on Attack/Defend levels.
+	#[doc(alias("m_bStopWatch", "IsInStopWatch"))]
+	pub fn is_stopwatch(self) -> Result<bool, GameRulesError> {
+		self.read(c"m_bStopWatch")
+	}
+
+	/// How many rounds were played on the level (`m_nRoundsPlayed`).
+	#[doc(alias("m_nRoundsPlayed", "GetRoundsPlayed"))]
+	pub fn rounds_played(self) -> Result<c_int, GameRulesError> {
+		self.read(c"m_nRoundsPlayed")
+	}
+
+	/// Whether the teams switched sides for this round
+	/// (`m_bSwitchedTeamsThisRound`).
+	#[doc(alias("m_bSwitchedTeamsThisRound", "SwitchedTeamsThisRound"))]
+	pub fn switched_teams_this_round(self) -> Result<bool, GameRulesError> {
+		self.read(c"m_bSwitchedTeamsThisRound")
+	}
+
+	/// The team that won the last round won (`m_iWinningTeam`), or `None` when
+	/// none has, as before the level's first win, and after a stalemate.
+	#[doc(alias("m_iWinningTeam", "GetWinningTeam"))]
+	pub fn winning_team(self) -> Result<Option<ScoringTeam>, GameRulesError> {
+		Ok(ScoringTeam::from_raw(self.read(c"m_iWinningTeam")?))
+	}
 }
 
 impl<'s> GameRules<'s> {
@@ -193,27 +366,6 @@ impl<'s> GameRules<'s> {
 		self.proxy
 	}
 
-	/// Writes a networked variable of the game rules by name, as [`Self::write`]
-	/// does, and records the change, as [`Self::network_state_changed`] does, so
-	/// clients receive it.
-	///
-	/// Fails, without writing, as [`Self::read`] does.
-	///
-	/// # Safety
-	///
-	/// As for [`Self::write`].
-	pub unsafe fn set<T: NetVar>(
-		self,
-		engine: ValveEngine<'_>,
-		name: &CStr,
-		value: T,
-	) -> Result<(), GameRulesError> {
-		// SAFETY: The caller upholds `write`'s contract.
-		unsafe { self.write(name, value) }?;
-		self.network_state_changed(engine);
-		Ok(())
-	}
-
 	/// Reads a networked variable of the game rules by name, as stored, such
 	/// as `m_nRoundsPlayed`, from `DT_TeamplayRoundBasedRules`, or else from
 	/// `DT_TFGameRules`, searching each table and the tables nested within it
@@ -241,6 +393,27 @@ impl<'s> GameRules<'s> {
 		let raw = self.read::<c_int>(c"m_iRoundState")?;
 
 		RoundState::from_raw(raw).ok_or(GameRulesError::UnknownRoundState(raw))
+	}
+
+	/// Writes a networked variable of the game rules by name, as [`Self::write`]
+	/// does, and records the change, as [`Self::network_state_changed`] does, so
+	/// clients receive it.
+	///
+	/// Fails, without writing, as [`Self::read`] does.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::write`].
+	pub unsafe fn set<T: NetVar>(
+		self,
+		engine: ValveEngine<'_>,
+		name: &CStr,
+		value: T,
+	) -> Result<(), GameRulesError> {
+		// SAFETY: The caller upholds `write`'s contract.
+		unsafe { self.write(name, value) }?;
+		self.network_state_changed(engine);
+		Ok(())
 	}
 
 	/// The networked variable named `name`, found as [`Self::read`] finds it,
@@ -463,6 +636,31 @@ impl RoundState {
 	}
 
 	/// The value the game stores for the state, as `m_iRoundState` holds it.
+	pub const fn to_raw(self) -> c_int {
+		self as c_int
+	}
+}
+
+/// Whether a team attacks or defends the objectives, as Attack/Defend levels
+/// set it through their `tf_gamerules` entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum TeamRole {
+	/// Neither, as on symmetric levels.
+	#[doc(alias("TEAM_ROLE_NONE"))]
+	None = TEAM_ROLE_NONE,
+
+	/// The team defends the objectives.
+	#[doc(alias("TEAM_ROLE_DEFENDERS"))]
+	Defenders = TEAM_ROLE_DEFENDERS,
+
+	/// The team attacks the objectives.
+	#[doc(alias("TEAM_ROLE_ATTACKERS"))]
+	Attackers = TEAM_ROLE_ATTACKERS,
+}
+
+impl TeamRole {
+	/// The value the game stores for the role.
 	pub const fn to_raw(self) -> c_int {
 		self as c_int
 	}
