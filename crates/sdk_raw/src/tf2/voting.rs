@@ -2,11 +2,14 @@
 //! `#define`s of `game/shared/shareddefs.h`, `CBaseIssue::RequestCallVote`'s
 //! slot and signature, and the search for each issue class's vtable.
 
-use crate::interfaces::CreateInterfaceFn;
-use crate::util::{self, Image};
+use crate::tf2::class_targets::SlotVtables;
 use crate::vtable_slot;
-use std::ffi::{c_char, c_int, c_void};
-use std::ptr::NonNull;
+use std::ffi::{c_char, c_int};
+
+/// An owned snapshot of TF2's game server module, in which to find the
+/// primary vtables of its vote issue classes, such as `CKickIssue`: those
+/// whose [`REQUEST_CALL_VOTE_SLOT`] entries are executable.
+pub type IssueVtables = SlotVtables<REQUEST_CALL_VOTE_SLOT>;
 
 /// The signature of `CBaseIssue::RequestCallVote`, which decides whether the
 /// player with entity index `caller`, or [`DEDICATED_SERVER`], may call a
@@ -37,35 +40,3 @@ pub const MAX_VOTE_OPTIONS: usize = 5;
 #[doc(alias("RequestCallVote"))]
 pub const REQUEST_CALL_VOTE_SLOT: usize =
 	vtable_slot!(sys::CBaseIssue__bindgen_vtable, CBaseIssue_RequestCallVote);
-
-/// An owned snapshot of TF2's game server module, in which to find the
-/// primary vtables of its vote issue classes.
-#[derive(Debug, Clone)]
-pub struct IssueVtables(Image);
-
-impl IssueVtables {
-	/// Snapshots the module whose `CreateInterface` export is `factory`, such
-	/// as the game server module.
-	///
-	/// # Safety
-	///
-	/// `factory` must be the `CreateInterface` export of a module that stays
-	/// loaded throughout this call.
-	pub unsafe fn load(factory: CreateInterfaceFn) -> Result<Self, util::Error> {
-		// SAFETY: The factory is an executable address in its module, which the
-		// caller keeps loaded while it is inspected.
-		unsafe { Image::load(factory as usize) }.map(Self)
-	}
-
-	/// The unique primary vtable of the global C++ class named `class`, such
-	/// as `CKickIssue`, whose [`REQUEST_CALL_VOTE_SLOT`] entry is executable,
-	/// from its run-time type information. Returns `None` if there is no such
-	/// table or more than one.
-	///
-	/// The address is metadata from the snapshot: it does not keep the module
-	/// loaded, and the table is the class's only while the module that
-	/// [`Self::load`] snapshot stays loaded.
-	pub fn find(&self, class: &str) -> Option<NonNull<*mut c_void>> {
-		NonNull::new(self.0.primary_vtable(class, REQUEST_CALL_VOTE_SLOT)? as *mut *mut c_void)
-	}
-}
