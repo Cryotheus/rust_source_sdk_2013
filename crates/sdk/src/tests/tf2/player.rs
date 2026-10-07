@@ -12,6 +12,7 @@ use crate::test_support::entities::MOCK_EFLAGS_OFFSET;
 use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
 use crate::test_support::leak;
 use crate::test_support::server::{export, mock_server, null_server};
+use crate::test_support::tf2::game_rules::{ENTITIES, World as RulesWorld, round_rules_proxy};
 
 use crate::test_support::tf2::script_binding::{
 	SCRIPT_DESCRIPTION_SLOT, class_description, member_binding,
@@ -731,6 +732,91 @@ fn int_prop(name: &'static CStr, at: usize) -> sys::SendProp {
 unsafe extern "C" fn is_alive(entity: *mut sys::CBaseEntity) -> bool {
 	// SAFETY: As for `commit_suicide`.
 	unsafe { (*entity.cast::<FakeEntity>()).alive }
+}
+
+#[test]
+fn max_reserves_are_the_lowest_counts_without_room() {
+	/// Each type's max, by its index, which `can_have_ammo` compares the
+	/// reserve with.
+	const MAXES: [c_int; 7] = [0, 32, 36, 200, 1, -1, c_int::MAX];
+
+	thread_local! {
+		/// How often `can_have_ammo` was asked.
+		static ASKED: Cell<usize> = const { Cell::new(0) };
+	}
+
+	/// `CTFGameRules::CanHaveAmmo`, which compares a fake player's reserve
+	/// with its type's max, as the game compares it with `GetMaxAmmo`.
+	unsafe extern "C" fn can_have_ammo(
+		_: *mut sys::CTFGameRules,
+		player: *mut sys::CBaseCombatCharacter,
+		ammo_type: c_int,
+	) -> bool {
+		let index = usize::try_from(ammo_type).unwrap();
+
+		ASKED.set(ASKED.get() + 1);
+
+		// SAFETY: Only fake players are asked about, and they are leaked.
+		unsafe { (*player.cast::<FakeEntity>()).ammo[index] < MAXES[index] }
+	}
+
+	// The game rules' game DLL is exported first, so it is the one found.
+	let rules = RulesWorld::new(Some(round_rules_proxy));
+	let world = World::new();
+	let scope = ();
+	let server = mock_server(&scope);
+	let player = entity(world.player);
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes a slot of the vtable
+	// being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::CTFGameRules__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).CTFGameRules_CanHaveAmmo).write(can_have_ammo);
+		})
+	};
+
+	rules.set_vtable(Box::leak(vtable));
+
+	// A max below none reads as none.
+	assert_eq!(
+		[
+			AmmoType::Primary,
+			AmmoType::Secondary,
+			AmmoType::Metal,
+			AmmoType::Grenades1,
+			AmmoType::Grenades2,
+			AmmoType::Grenades3,
+		]
+		.map(|ammo_type| ammo::max_reserve(server, player, ammo_type).unwrap()),
+		[32, 36, 200, 1, 0, c_int::MAX]
+	);
+
+	// The reserves are put back, and clients are told of no change.
+	// SAFETY: As for the fields written in `World::new`.
+	assert_eq!(unsafe { (*world.player).ammo }, [0, 32, 200, 0, 1, 0, 0]);
+	assert!(!world.changed(world.player));
+
+	// Ten counts double from none to 256, then seven halve down to 200.
+	ASKED.set(0);
+	assert_eq!(
+		ammo::max_reserve(server, player, AmmoType::Metal).unwrap(),
+		200
+	);
+	assert_eq!(ASKED.get(), 17);
+
+	assert!(matches!(
+		ammo::max_reserve(server, entity(world.prop), AmmoType::Metal),
+		Err(AmmoError::NotTfPlayer)
+	));
+
+	// Before a level's entities are created, there are no game rules to ask.
+	ENTITIES.set(Vec::new());
+	assert!(matches!(
+		ammo::max_reserve(server, player, AmmoType::Metal),
+		Err(AmmoError::GameRules(_))
+	));
+	assert_eq!(ASKED.get(), 17);
 }
 
 /// The adapter of every native member the fake player declares, which notes
