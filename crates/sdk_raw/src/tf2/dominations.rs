@@ -50,6 +50,8 @@ const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::C
 // SourceMod's `sdktools.games/game.tf.txt` gamedata lists under both ABIs. No outside source lists
 // these slots: Itanium vtables start with two destructor slots, MSVC's with
 // one, and the overloads of `CommitSuicide` sit in reverse order under MSVC.
+// The 64-bit Windows `server.dll` holds the pair at the Windows slots, where
+// its `CalcDominationAndRevenge` calls them.
 const _: () = {
 	let commit_suicide = vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CommitSuicide);
 
@@ -59,8 +61,9 @@ const _: () = {
 };
 
 /// The slot of `CTFPlayer::GetNumberofDominations` in a TF2 player's primary
-/// vtable, from the generated binding: 484 on Windows, 485 on Linux. `CTFBot`
-/// keeps the same function at the slot.
+/// vtable, from the generated binding: 484 on Windows, as in the 64-bit
+/// `server.dll`, and 485 on Linux. `CTFBot` keeps the same function at the
+/// slot.
 #[doc(alias("GetNumberofDominations"))]
 pub const GET_NUMBER_OF_DOMINATIONS_SLOT: usize = vtable_slot!(
 	sys::CTFPlayer__bindgen_vtable,
@@ -68,8 +71,9 @@ pub const GET_NUMBER_OF_DOMINATIONS_SLOT: usize = vtable_slot!(
 );
 
 /// The slot of `CTFPlayer::SetNumberofDominations` in a TF2 player's primary
-/// vtable, from the generated binding: 483 on Windows, 484 on Linux. `CTFBot`
-/// keeps the same function at the slot.
+/// vtable, from the generated binding: 483 on Windows, as in the 64-bit
+/// `server.dll`, and 484 on Linux. `CTFBot` keeps the same function at the
+/// slot.
 #[doc(alias("SetNumberofDominations"))]
 pub const SET_NUMBER_OF_DOMINATIONS_SLOT: usize = vtable_slot!(
 	sys::CTFPlayer__bindgen_vtable,

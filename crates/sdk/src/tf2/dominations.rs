@@ -21,8 +21,9 @@
 //! # Unverified
 //!
 //! No outside source lists the vtable slots of the count's methods, which
-//! come from the generated bindings only, and no running server has had its
-//! dominations ended yet.
+//! come from the generated bindings. The 64-bit Windows `server.dll` holds
+//! them at the same slots, but the Linux slots are unchecked, and no running
+//! server has had its dominations ended yet.
 
 #[cfg(test)]
 #[path = "../tests/tf2/dominations.rs"]

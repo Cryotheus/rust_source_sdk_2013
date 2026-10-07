@@ -212,7 +212,9 @@ pub const STATS_CURRENT_ROUND: usize = 0xb4;
 /// [`TFMAPSTAT_TOTAL`] `int`s each.
 ///
 /// Inferred from `game/shared/tf/tf_gamestats_shared.h`, whose `int`s leave
-/// no padding before it. Neither resolver checks it.
+/// no padding before it. Neither resolver checks it, but the 64-bit Windows
+/// `server.dll`'s `CTFGameRules::CalcDominationAndRevenge` reads the
+/// unanswered kills where it puts them.
 #[doc(alias("statsKills"))]
 pub const STATS_KILLS: usize = 0x234;
 
