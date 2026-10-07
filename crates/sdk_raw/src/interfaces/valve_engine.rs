@@ -4,10 +4,10 @@
 //! `IVEngineServer` declares no virtual destructor, so its methods occupy the
 //! same slots under both the MSVC and Itanium ABIs. The slots of `ChangeLevel`
 //! (0), `GetPlayerUserId` (15), `PEntityOfEntIndex` (19), `ServerCommand` (36),
-//! `LockNetworkStringTables` (53), `CreateFakeClient` (54) and
-//! `CreateFakeClientEx` (116), counted from `public/eiface.h`, are checked
-//! against the generated vtable, so a regenerated binding cannot silently
-//! dispatch to another method.
+//! `ServerExecute` (37), `LockNetworkStringTables` (53), `CreateFakeClient`
+//! (54) and `CreateFakeClientEx` (116), counted from `public/eiface.h`, are
+//! checked against the generated vtable, so a regenerated binding cannot
+//! silently dispatch to another method.
 
 use crate::vtable_slot;
 use std::ffi::{CStr, c_char};
@@ -36,6 +36,12 @@ const _: () = {
 			sys::IVEngineServer__bindgen_vtable,
 			IVEngineServer_ServerCommand
 		) == 36
+	);
+	assert!(
+		vtable_slot!(
+			sys::IVEngineServer__bindgen_vtable,
+			IVEngineServer_ServerExecute
+		) == 37
 	);
 	assert!(
 		vtable_slot!(
