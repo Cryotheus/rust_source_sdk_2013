@@ -20,6 +20,7 @@ pub mod conditions;
 pub mod damage;
 pub mod duels;
 pub mod effects;
+pub mod entity;
 pub mod game_events;
 pub mod game_mode;
 pub mod game_rules;

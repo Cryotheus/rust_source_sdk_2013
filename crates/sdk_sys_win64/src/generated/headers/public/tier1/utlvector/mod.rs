@@ -19,8 +19,10 @@ pub type CUtlVector_ElemType_t<T> = T;
 pub type CUtlVector_const_iterator<T> = *const T;
 pub type CUtlVector_iterator<T> = *mut T;
 pub type CUtlVectorConservative_BaseClass<T> = CUtlVector<T, CUtlMemoryConservative<T>>;
+pub type CUtlVectorUltraConservative__bindgen_ty_1 = ::std::os::raw::c_int;
 pub type base_vector_t__bindgen_ty_1 = ::std::os::raw::c_int;
 
+pub const CUtlVectorUltraConservative_IsUtlVector: CUtlVectorUltraConservative__bindgen_ty_1 = 0;
 pub const base_vector_t_IsUtlVector: base_vector_t__bindgen_ty_1 = 1;
 
 /// Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.
@@ -32,6 +34,12 @@ pub struct CCopyableUtlVector {}
 
 #[repr(C)]
 #[derive(Debug)]
+pub struct CUtlStringList {
+	pub _base: __BindgenOpaqueArray8<[u8; 32usize]>,
+}
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct CUtlVector<T, A> {
 	pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
 	pub _phantom_1: ::std::marker::PhantomData<::std::cell::UnsafeCell<A>>,
@@ -40,11 +48,43 @@ pub struct CUtlVector<T, A> {
 	pub m_pElements: *mut T,
 }
 
+/// Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.
+///
+/// Generated as fields, `CUtlVectorAutoPurge` refers to `A`, which is not defined.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CUtlVectorAutoPurge {
+	pub _address: u8,
+}
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct CUtlVectorConservative<T> {
 	pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
 	pub _base: CUtlVector<T, CUtlMemoryConservative<T>>,
+}
+
+/// Opaque: bindgen cannot express this record's C++ layout, so only its size and alignment are kept.
+///
+/// Generated as fields, its Rust size is 16, but C++ says 8.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CUtlVectorUltraConservative {
+	pub _address: u8,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct CUtlVectorUltraConservative_Data_t<T> {
+	pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
+	pub m_Size: ::std::os::raw::c_int,
+	pub m_Elements: __IncompleteArrayField<T>,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CUtlVectorUltraConservativeAllocator {
+	pub _address: u8,
 }
 
 #[repr(C)]
