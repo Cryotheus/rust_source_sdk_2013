@@ -5,10 +5,12 @@
 //! key values, and networked variables are reached through
 //! [`NetProp`](crate::datatables::NetProp). The factories entities are created
 //! with are in [`factory`], health, life state and damage modes in [`health`],
-//! solid flags in [`solid`], and think contexts in [`think`].
+//! the actions of outputs in [`outputs`], solid flags in [`solid`], and think
+//! contexts in [`think`].
 
 pub mod factory;
 pub mod health;
+pub mod outputs;
 pub mod solid;
 pub mod think;
 
@@ -285,6 +287,23 @@ impl<'s> Entity<'s> {
 		// pooled strings, which live until the level ends.
 		unsafe { borrow_cstr(vcall!(networkable.as_ptr() => IServerNetworkable_GetClassName())) }
 			.unwrap_or_default()
+	}
+
+	/// The entity's collision group (`m_CollisionGroup`), as its collision
+	/// property reports it, from which the game decides what the entity collides
+	/// with, and the engine which triggers it touches.
+	/// [`CollisionGroup::from_raw`] converts the groups every game shares;
+	/// games define more, such as TF2's projectiles' own. Returns `None` if the
+	/// entity has no collideable.
+	#[doc(alias("GetCollisionGroup", "m_CollisionGroup"))]
+	pub fn collision_group(self) -> Option<c_int> {
+		// SAFETY: As for `handle`.
+		let collideable = NonNull::new(unsafe {
+			vcall!(self.server_entity() => IServerEntity_GetCollideable())
+		})?;
+
+		// SAFETY: The collideable belongs to the live entity.
+		Some(unsafe { vcall!(collideable.as_ptr() => ICollideable_GetCollisionGroup()) })
 	}
 
 	/// The entity's data description maps, from its own class to its bases.

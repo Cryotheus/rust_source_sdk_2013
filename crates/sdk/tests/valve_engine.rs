@@ -1,6 +1,6 @@
 //! Tests of the engine's services for the game (`IVEngineServer`): the
-//! arguments its methods receive, edict and user ID lookups, the lock of the
-//! network string tables, and visibility queries.
+//! arguments its methods receive, edict and user ID lookups, clients' Steam
+//! IDs, the lock of the network string tables, and visibility queries.
 
 use sdk_raw::edicts::FL_EDICT_FREE;
 use sdk_raw::players::ABSOLUTE_PLAYER_LIMIT;
@@ -43,6 +43,8 @@ struct MockServer {
 	table_len: usize,
 	/// The edict and user ID of each client, as `GetPlayerUserId` sees them.
 	clients: Vec<(*const sys::edict_t, c_int)>,
+	/// The edict and Steam ID of each client, as `GetClientSteamID` sees them.
+	steam_ids: Vec<(*const sys::edict_t, sys::CSteamID)>,
 	/// Whether `PEntityOfEntIndex` returns free slots, which the engine does not.
 	returns_free_slots: bool,
 	/// Every index passed to `PEntityOfEntIndex`.
@@ -54,9 +56,59 @@ impl MockServer {
 		table: null_mut(),
 		table_len: 0,
 		clients: Vec::new(),
+		steam_ids: Vec::new(),
 		returns_free_slots: false,
 		requested: Vec::new(),
 	};
+}
+
+/// `IVEngineServer::GetClientSteamID`, which returns the Steam ID of a served
+/// client's edict, or null for any other edict, as the engine does.
+unsafe extern "C" fn client_steam_id(
+	_: *mut sys::IVEngineServer,
+	edict: *mut sys::edict_t,
+) -> *const sys::CSteamID {
+	SERVER.with_borrow(|server| {
+		server
+			.steam_ids
+			.iter()
+			.find(|&&(client_edict, _)| client_edict == edict.cast_const())
+			.map_or(ptr::null(), |(_, steam_id)| ptr::from_ref(steam_id))
+	})
+}
+
+#[test]
+fn client_steam_ids_are_only_valid_ones() {
+	const INDIVIDUAL: u64 = 0x0110_0001_0000_56BA;
+	const GAME_SERVER: u64 = 0x0130_0000_0000_04D2;
+
+	// Slot 1 holds an individual account's ID, 2 the zeroed ID of a fake client
+	// the engine does not report, 3 a game server's, 4 an individual account's
+	// in an instance it never uses, 5 one of no known universe, and 6 no client.
+	let mut table = edict_table(8, |_| false);
+
+	serve(&mut table, &[], false);
+	serve_steam_ids(&[
+		(1, INDIVIDUAL),
+		(2, 0),
+		(3, GAME_SERVER),
+		(4, 0x0110_0000_0000_56BA),
+		(5, 0x0510_0001_0000_56BA),
+	]);
+
+	export_edict_lookup();
+
+	let scope = ();
+	let engine = mock_server(&scope).valve_engine().unwrap();
+	let steam_id = |slot| engine.client_steam_id(engine.edict_of_index(slot).unwrap());
+
+	assert_eq!(INDIVIDUAL, 76561197960287930);
+	assert_eq!(steam_id(1), Some(INDIVIDUAL));
+	assert_eq!(steam_id(2), None);
+	assert_eq!(steam_id(3), Some(GAME_SERVER));
+	assert_eq!(steam_id(4), None);
+	assert_eq!(steam_id(5), None);
+	assert_eq!(steam_id(6), None);
 }
 
 /// `IVEngineServer::PEntityOfEntIndex`, which records the index and returns
@@ -92,13 +144,15 @@ unsafe extern "C" fn edict_of_index(
 	})
 }
 
-/// Exports a mock engine that serves the edicts and clients [`serve`] set.
+/// Exports a mock engine that serves the edicts, clients and Steam IDs
+/// [`serve`] and [`serve_steam_ids`] set.
 fn export_edict_lookup() {
 	// SAFETY: The patch only writes slots of the vtable.
 	unsafe {
 		export_engine(|vtable| {
 			(&raw mut (*vtable).IVEngineServer_PEntityOfEntIndex).write(edict_of_index);
 			(&raw mut (*vtable).IVEngineServer_GetPlayerUserId).write(player_user_id);
+			(&raw mut (*vtable).IVEngineServer_GetClientSteamID).write(client_steam_id);
 		})
 	};
 }
@@ -212,8 +266,28 @@ fn serve(table: &mut [sys::edict_t], clients: &[(usize, c_int)], returns_free_sl
 			.iter()
 			.map(|&(slot, user_id)| (base.wrapping_add(slot).cast_const(), user_id))
 			.collect(),
+		steam_ids: Vec::new(),
 		returns_free_slots,
 		requested: Vec::new(),
+	});
+}
+
+/// Serves the Steam IDs of clients, given as `(slot, 64-bit Steam ID)`, in the
+/// table [`serve`] set.
+fn serve_steam_ids(steam_ids: &[(usize, u64)]) {
+	SERVER.with_borrow_mut(|server| {
+		server.steam_ids = steam_ids
+			.iter()
+			.map(|&(slot, steam_id)| {
+				let steam_id = sys::CSteamID {
+					m_steamid: sys::CSteamID_SteamID_t {
+						m_unAll64Bits: steam_id,
+					},
+				};
+
+				(server.table.wrapping_add(slot).cast_const(), steam_id)
+			})
+			.collect();
 	});
 }
 
