@@ -5,7 +5,8 @@ use sdk_raw::tf2::class::{
 	TF_CLASS_SCOUT, TF_CLASS_SNIPER, TF_CLASS_SOLDIER, TF_CLASS_SPY,
 };
 
-use std::ffi::c_int;
+use std::ffi::{CStr, c_int};
+use std::str::FromStr;
 
 /// One of TF2's nine playable classes, numbered as the `TF_CLASS_*` constants
 /// in `game/shared/tf/tf_shareddefs.h`.
@@ -82,6 +83,78 @@ impl PlayerClass {
 		}
 	}
 
+	/// The class named `name`, compared ignoring ASCII case, or `None` for any
+	/// other name: the name `joinclass` takes, which [`Self::name`] gives, such
+	/// as `heavyweapons`, or the short name TF2 also uses, such as `heavy` or
+	/// `demo`, as `TF2_GetClass` and TF2's class icons do.
+	///
+	/// ```
+	/// use source_sdk_2013::tf2::PlayerClass;
+	///
+	/// assert_eq!(PlayerClass::from_name("Heavy"), Some(PlayerClass::Heavy));
+	/// assert_eq!(PlayerClass::from_name("heavyweapons"), Some(PlayerClass::Heavy));
+	/// assert_eq!(PlayerClass::from_name("civilian"), None);
+	/// ```
+	#[doc(alias("TF2_GetClass", "joinclass"))]
+	pub fn from_name(name: &str) -> Option<Self> {
+		Self::ALL.into_iter().find(|class| {
+			name.eq_ignore_ascii_case(class.name()) || name.eq_ignore_ascii_case(class.short_name())
+		})
+	}
+
+	/// The class's name as TF2's class data and the `joinclass` command spell
+	/// it, such as `heavyweapons` (`g_aRawPlayerClassNames`).
+	#[doc(alias("g_aRawPlayerClassNames"))]
+	pub const fn name(self) -> &'static str {
+		match self {
+			Self::Scout => "scout",
+			Self::Sniper => "sniper",
+			Self::Soldier => "soldier",
+			Self::Demoman => "demoman",
+			Self::Medic => "medic",
+			Self::Heavy => "heavyweapons",
+			Self::Pyro => "pyro",
+			Self::Spy => "spy",
+			Self::Engineer => "engineer",
+		}
+	}
+
+	/// The class's short name, as TF2 names its class icons and default custom
+	/// models, such as `heavy` (`g_aRawPlayerClassNamesShort`).
+	#[doc(alias("g_aRawPlayerClassNamesShort"))]
+	pub const fn short_name(self) -> &'static str {
+		match self {
+			Self::Demoman => "demo",
+			Self::Heavy => "heavy",
+			class => class.name(),
+		}
+	}
+
+	/// The class's player model, such as `models/player/heavy.mdl`, as its
+	/// class data (`scripts/playerclasses/`) names it. TF2 precaches every
+	/// class's model for each level (`CTFPlayer::PrecachePlayerModels`), so
+	/// it can be given to props and other entities.
+	///
+	/// ```
+	/// use source_sdk_2013::tf2::PlayerClass;
+	///
+	/// assert_eq!(PlayerClass::Heavy.model(), c"models/player/heavy.mdl");
+	/// ```
+	#[doc(alias("m_szModelName"))]
+	pub const fn model(self) -> &'static CStr {
+		match self {
+			Self::Scout => c"models/player/scout.mdl",
+			Self::Sniper => c"models/player/sniper.mdl",
+			Self::Soldier => c"models/player/soldier.mdl",
+			Self::Demoman => c"models/player/demo.mdl",
+			Self::Medic => c"models/player/medic.mdl",
+			Self::Heavy => c"models/player/heavy.mdl",
+			Self::Pyro => c"models/player/pyro.mdl",
+			Self::Spy => c"models/player/spy.mdl",
+			Self::Engineer => c"models/player/engineer.mdl",
+		}
+	}
+
 	/// The class's directory under `scenes/Player/`, as TF2's response rules
 	/// spell it, such as `Heavy`.
 	pub const fn scene_directory(self) -> &'static str {
@@ -103,3 +176,18 @@ impl PlayerClass {
 		self as c_int
 	}
 }
+
+impl FromStr for PlayerClass {
+	type Err = UnknownClassName;
+
+	/// The class [`PlayerClass::from_name`] finds.
+	fn from_str(name: &str) -> Result<Self, Self::Err> {
+		Self::from_name(name).ok_or_else(|| UnknownClassName(name.to_owned()))
+	}
+}
+
+/// A name of none of TF2's playable classes, which parsing a [`PlayerClass`]
+/// refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0:?} names none of TF2's playable classes")]
+pub struct UnknownClassName(pub String);

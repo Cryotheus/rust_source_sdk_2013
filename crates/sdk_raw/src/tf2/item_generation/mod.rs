@@ -32,6 +32,10 @@
 //! same base with its `CreateInterface` at the same address, and assumes, as
 //! [`ModuleCache`] describes, that this does not happen.
 
+#[cfg(test)]
+#[path = "../../tests/tf2/item_generation.rs"]
+mod tests;
+
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
@@ -241,6 +245,36 @@ impl ItemGeneration {
 		Ok(unsafe { Self::from_addresses(addresses) })
 	}
 
+	/// The item schema's default definition, which
+	/// `CEconItemSchema::GetItemDefinition` returns for an index the schema
+	/// does not have.
+	///
+	/// Fails with [`ItemGenerationError::NoSchema`] before the game has an item
+	/// schema, and with [`ItemGenerationError::UnknownDefinition`] if the
+	/// schema has no default definition.
+	///
+	/// The definition is valid only during the callback it was found in, as
+	/// for [`Self::definition`].
+	///
+	/// # Safety
+	///
+	/// As for [`Self::definition`].
+	#[doc(alias("GetDefaultItemDefinition"))]
+	pub unsafe fn default_definition(
+		&self,
+	) -> Result<NonNull<sys::CEconItemDefinition>, ItemGenerationError> {
+		// SAFETY: The caller keeps the resolved module loaded and calls on the
+		// main thread.
+		let schema = unsafe { self.schema() }?;
+
+		// SAFETY: `schema` points to the game's live item schema.
+		// `GetItemDefinition` only looks the index up, returning the default
+		// definition for an index it does not have.
+		let definition = unsafe { (self.get_item_definition)(schema.as_ptr(), NO_DEFINITION) };
+
+		NonNull::new(definition).ok_or(ItemGenerationError::UnknownDefinition)
+	}
+
 	/// The item schema's definition with the index, through
 	/// `CEconItemSchema::GetItemDefinition`.
 	///
@@ -266,6 +300,39 @@ impl ItemGeneration {
 		definition: u16,
 	) -> Result<NonNull<sys::CEconItemDefinition>, ItemGenerationError> {
 		// SAFETY: The caller keeps the resolved module loaded and calls on the
+		// main thread.
+		let (schema, fallback) = unsafe { (self.schema()?, self.default_definition()) };
+
+		// SAFETY: `schema` points to the game's live item schema.
+		// `GetItemDefinition` only looks the index up.
+		let item = NonNull::new(unsafe {
+			(self.get_item_definition)(schema.as_ptr(), c_int::from(definition))
+		})
+		.ok_or(ItemGenerationError::UnknownDefinition)?;
+
+		// An unknown index gives the default item.
+		if fallback == Ok(item) {
+			return Err(ItemGenerationError::UnknownDefinition);
+		}
+
+		Ok(item)
+	}
+
+	/// The game's item schema, through its getter: `GetItemSchema()` on Linux,
+	/// and the schema the item system `ItemSystem()` returns holds on Windows.
+	///
+	/// Fails with [`ItemGenerationError::NoSchema`] before the game has an item
+	/// schema.
+	///
+	/// The schema is the game's own, which it keeps for the rest of the
+	/// process, though it replaces its contents when it applies a newer one.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::definition`].
+	#[doc(alias("GetItemSchema", "ItemSystem"))]
+	pub unsafe fn schema(&self) -> Result<NonNull<sys::CEconItemSchema>, ItemGenerationError> {
+		// SAFETY: The caller keeps the resolved module loaded and calls on the
 		// main thread. The getter takes no arguments, and returns the game's
 		// item system or schema, or null before the game created it.
 		let system = unsafe { (self.schema_getter)() };
@@ -277,24 +344,9 @@ impl ItemGeneration {
 		// SAFETY: The schema lies `SCHEMA_OFFSET` bytes into the object the
 		// getter returns, which on Windows is the item system holding it, as
 		// `SpawnItem`'s own call to `GetItemDefinition` passes it.
-		let schema = unsafe { system.byte_add(platform::SCHEMA_OFFSET) }.cast();
+		let schema = unsafe { system.byte_add(platform::SCHEMA_OFFSET) };
 
-		// SAFETY: `schema` points to the game's live item schema.
-		// `GetItemDefinition` only looks the index up, returning the default
-		// definition for an index it does not have.
-		let (fallback, item) = unsafe {
-			(
-				(self.get_item_definition)(schema, NO_DEFINITION),
-				(self.get_item_definition)(schema, c_int::from(definition)),
-			)
-		};
-
-		// An unknown index gives the default item.
-		if item == fallback {
-			return Err(ItemGenerationError::UnknownDefinition);
-		}
-
-		NonNull::new(item).ok_or(ItemGenerationError::UnknownDefinition)
+		NonNull::new(schema.cast()).ok_or(ItemGenerationError::NoSchema)
 	}
 
 	/// Creates the economy item `definition` at `origin` through
@@ -302,7 +354,8 @@ impl ItemGeneration {
 	/// level 1, with Unique quality, and without rotation. With `classname`,
 	/// the item is created as that entity class instead of the definition's
 	/// own, unless no entity factory has that name, in which case `SpawnItem`
-	/// falls back to the definition's class.
+	/// falls back to the definition's class. [`Self::spawn_with_quality`]
+	/// creates it at another level or with another quality.
 	///
 	/// The entity returned is newly created, spawned, and activated. It must
 	/// not be spawned again.
@@ -333,6 +386,33 @@ impl ItemGeneration {
 		origin: sys::Vector,
 		classname: Option<&CStr>,
 	) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
+		// SAFETY: The caller upholds the guarantees of `spawn_with_quality`,
+		// which are this function's.
+		unsafe { self.spawn_with_quality(definition, origin, classname, ITEM_LEVEL, ITEM_QUALITY) }
+	}
+
+	/// As [`Self::spawn`], but creates the item at `level` and with `quality`
+	/// (`EEconItemQuality`), which its item view networks to clients: they show
+	/// both in the item's description, and color its name by its quality.
+	///
+	/// `SpawnItem` keeps both as given, except for `AE_USE_SCRIPT_VALUE`
+	/// (9999), which takes the definition's own quality or rolls a level in
+	/// its range, and for a quality of 255 (`k_unItemQuality_Any`), which gives
+	/// Genuine. Clients receive the level as a signed 8-bit number, and the
+	/// quality as a signed 5-bit one, so they see other values wrapped.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::spawn`].
+	#[doc(alias("SpawnItem"))]
+	pub unsafe fn spawn_with_quality(
+		&self,
+		definition: u16,
+		origin: sys::Vector,
+		classname: Option<&CStr>,
+		level: c_int,
+		quality: sys::entityquality_t,
+	) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
 		// An unknown index gives the default item, which could otherwise create
 		// an unrelated entity.
 		//
@@ -350,15 +430,15 @@ impl ItemGeneration {
 		// generation creates the entity, initializes its item view, and runs its
 		// `Spawn` and `Activate`, whose game code the caller vouches for, as for
 		// the classname. The definition exists, and the arguments live through
-		// this call.
+		// this call. The item view stores the level and quality as plain numbers.
 		let entity = unsafe {
 			(self.spawn_item)(
 				ptr::with_exposed_provenance_mut(self.singleton.get()),
 				c_int::from(definition),
 				&origin,
 				&angles,
-				ITEM_LEVEL,
-				ITEM_QUALITY,
+				level,
+				quality,
 				classname.map_or(ptr::null(), CStr::as_ptr),
 			)
 		};

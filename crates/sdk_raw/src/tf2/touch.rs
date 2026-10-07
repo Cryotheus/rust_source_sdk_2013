@@ -9,16 +9,18 @@
 //! as `func_regenerate`'s `CRegenerateZone` does.
 
 use crate::abi::CppDestructors;
-use crate::interfaces::CreateInterfaceFn;
-use crate::util::{self, Image};
+use crate::tf2::class_targets::SlotVtables;
 use crate::vtable_slot;
-use std::ffi::c_void;
-use std::ptr::NonNull;
 
 /// The signature of `CBaseEntity::Touch`, `void (CBaseEntity *)`, with the
 /// touched entity as its receiver and the entity touching it as `other`.
 #[doc(alias("Touch"))]
 pub type TouchFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity, other: *mut sys::CBaseEntity);
+
+/// An owned snapshot of TF2's game server module, in which to find the
+/// primary vtables of its entity classes whose [`TOUCH_SLOT`] entries are
+/// executable.
+pub type TouchVtables = SlotVtables<TOUCH_SLOT>;
 
 // SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `Touch` in its
 // `tf` section as slot 105 on Windows, and 106 on Linux, whose Itanium vtables
@@ -32,49 +34,3 @@ const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TouchFn = |vtable| vtable.CBas
 /// generated binding.
 #[doc(alias("Touch"))]
 pub const TOUCH_SLOT: usize = vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_Touch);
-
-/// An owned snapshot of TF2's game server module, in which to find the
-/// primary vtables of its entity classes.
-#[derive(Debug, Clone)]
-pub struct TouchVtables(Image);
-
-impl TouchVtables {
-	/// Snapshots the module whose `CreateInterface` export is `factory`, such
-	/// as the game server module.
-	///
-	/// # Safety
-	///
-	/// `factory` must be the `CreateInterface` export of a module that stays
-	/// loaded throughout this call.
-	pub unsafe fn load(factory: CreateInterfaceFn) -> Result<Self, util::Error> {
-		// SAFETY: The factory is an executable address in its module, which the
-		// caller keeps loaded while it is inspected.
-		unsafe { Image::load(factory as usize) }.map(Self)
-	}
-
-	/// The unique primary vtable of the global C++ class named `class`, such
-	/// as `CTFAmmoPack`, whose [`TOUCH_SLOT`] entry is executable, from its
-	/// run-time type information. Returns `None` if there is no such table or
-	/// more than one.
-	///
-	/// The search does not check that the class derives from `CBaseEntity`,
-	/// so that the slot holds `Touch`: any class with that many virtual methods
-	/// passes. The table is only the class's own: classes deriving from it have
-	/// tables of their own. The address is metadata from the snapshot: it does
-	/// not keep the module loaded, and the table is the class's only while the
-	/// module that [`Self::load`] snapshot stays loaded.
-	pub fn find(&self, class: &str) -> Option<NonNull<*mut c_void>> {
-		NonNull::new(self.0.primary_vtable(class, TOUCH_SLOT)? as *mut *mut c_void)
-	}
-
-	/// The tables [`Self::find`] finds for each of `classes`, in their order.
-	/// Each search reads the whole snapshot a few times, and this reads it as
-	/// often for every class as [`Self::find`] does for one.
-	pub fn find_all(&self, classes: &[&str]) -> Vec<Option<NonNull<*mut c_void>>> {
-		self.0
-			.primary_vtables(classes, TOUCH_SLOT)
-			.into_iter()
-			.map(|table| NonNull::new(table? as *mut *mut c_void))
-			.collect()
-	}
-}

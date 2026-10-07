@@ -518,12 +518,6 @@ pub struct CTFTeamSpawn__bindgen_vtable {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct CTeamControlPoint {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
 pub struct CTeamControlPointRound {
 	_unused: [u8; 0],
 }

@@ -73,6 +73,51 @@ class bf_read {};
 #include "game/shared/econ/econ_entity_creation.h"
 #include "game/shared/tf/tf_item_system.h"
 
+// TF2's game rules, teams, objectives, buildings, weapons, projectiles and
+// navigation areas.
+//
+// nav_area.h defines `CNavArea::GetZ` with a `__restrict` qualifier that its
+// declarations lack, which MSVC accepts and clang refuses. The qualifier
+// changes no layout or virtual table, so these headers are parsed without it.
+#if defined(COMPILER_MSVC)
+#undef RESTRICT
+#define RESTRICT
+#endif
+
+#include "game/shared/tf/tf_gamerules.h"
+#include "game/server/tf/tf_team.h"
+#include "game/shared/tf/entity_capture_flag.h"
+#include "game/server/team_control_point.h"
+#include "game/server/tf/tf_obj_sentrygun.h"
+#include "game/server/tf/tf_obj_dispenser.h"
+#include "game/server/tf/tf_obj_teleporter.h"
+#include "game/shared/tf/tf_weapon_medigun.h"
+#include "game/shared/tf/tf_weapon_flamethrower.h"
+#include "game/shared/tf/tf_weapon_minigun.h"
+#include "game/shared/tf/tf_weapon_sniperrifle.h"
+#include "game/shared/tf/tf_weapon_knife.h"
+#include "game/shared/tf/tf_weaponbase_rocket.h"
+#include "game/shared/tf/tf_weapon_grenade_pipebomb.h"
+#include "game/server/tf/tf_projectile_arrow.h"
+#include "game/server/tf/nav_mesh/tf_nav_area.h"
+#include "game/server/NextBot/NextBotInterface.h"
+#include "game/server/NextBot/NextBotLocomotionInterface.h"
+#include "game/server/NextBot/NextBotBodyInterface.h"
+#include "game/server/NextBot/NextBotVisionInterface.h"
+#include "game/server/NextBot/NextBotIntentionInterface.h"
+#include "game/server/NextBot/NextBot.h"
+#include "game/server/NextBot/NextBotGroundLocomotion.h"
+#include "game/server/NextBot/Player/NextBotPlayerLocomotion.h"
+#include "game/server/NextBot/Player/NextBotPlayerBody.h"
+#include "game/server/tf/bot/tf_bot_locomotion.h"
+#include "game/server/tf/bot/tf_bot_body.h"
+#include "game/server/tf/bot/tf_bot_vision.h"
+
+#if defined(COMPILER_MSVC)
+#undef RESTRICT
+#define RESTRICT __restrict
+#endif
+
 //TF2's engine is built with replay support, which adds virtual methods to the
 //client message handler and to IClient. Without it, their later slots would be
 //off by one. Nothing included above depends on it.

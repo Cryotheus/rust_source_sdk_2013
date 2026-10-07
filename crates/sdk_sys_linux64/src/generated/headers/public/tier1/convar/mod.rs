@@ -353,6 +353,13 @@ pub struct ConVar__bindgen_vtable {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct ConVarRef {
+	pub m_pConVar: *mut IConVar,
+	pub m_pConVarState: *mut ConVar,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct ICommandCallback {
 	pub vtable_: *const ICommandCallback__bindgen_vtable,
 }

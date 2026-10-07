@@ -135,6 +135,17 @@ const _: () = {
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of ConVarRef"][::std::mem::size_of::<ConVarRef>() - 16usize];
+    ["Alignment of ConVarRef"][::std::mem::align_of::<ConVarRef>() - 8usize];
+    [
+        "Offset of field: ConVarRef::m_pConVar",
+    ][::std::mem::offset_of!(ConVarRef, m_pConVar) - 0usize];
+    [
+        "Offset of field: ConVarRef::m_pConVarState",
+    ][::std::mem::offset_of!(ConVarRef, m_pConVarState) - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of ICommandCallback"][::std::mem::size_of::<ICommandCallback>() - 8usize];
     [
         "Alignment of ICommandCallback",

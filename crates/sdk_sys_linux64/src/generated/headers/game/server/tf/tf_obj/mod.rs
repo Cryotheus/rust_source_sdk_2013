@@ -1259,12 +1259,6 @@ pub struct CTFAmmoPack {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct CTFTeam {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
 pub struct CTFWrench {
 	_unused: [u8; 0],
 }

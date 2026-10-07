@@ -96,6 +96,48 @@ fn add_output_keeps_key_values_valid() {
 	assert_eq!(take_inputs().len(), 1);
 }
 
+#[test]
+fn control_points_are_only_given_owners_they_can_take() {
+	let mut mocks = mocks();
+	let target = entity(&mut mocks.target);
+	let tools = mocks.tools();
+	let send = |input: &CStr, value| tools.accept_input(target, input, value, target, target);
+
+	// `InternalSetOwner` indexes the point's per-team data with the owner, and
+	// sets the model of a spectator owner, which the point never precaches.
+	mocks.use_chain(c"CTeamControlPoint");
+
+	for value in [
+		InputValue::Int(1),
+		InputValue::Int(4),
+		InputValue::Int(-1),
+		InputValue::Float(1.5),
+		InputValue::String(c"5"),
+		InputValue::String(c"99999999999"),
+	] {
+		assert_eq!(send(c"setowner", value), Err(InputError::InvalidTeam));
+	}
+
+	send(c"SetOwner", InputValue::Int(0)).unwrap();
+	send(c"SetOwner", InputValue::Int(2)).unwrap();
+	send(c"SetOwner", InputValue::String(c"3 blue")).unwrap();
+
+	// The master forces the owner of its points, but `SetWinningTeam` checks
+	// the winner of `SetWinner` itself.
+	mocks.use_chain(c"CTeamControlPointMaster");
+	assert_eq!(
+		send(c"SetWinnerAndForceCaps", InputValue::Int(1)),
+		Err(InputError::InvalidTeam)
+	);
+	send(c"SetWinnerAndForceCaps", InputValue::Int(3)).unwrap();
+	send(c"SetWinner", InputValue::Int(1)).unwrap();
+
+	// Another class's `SetOwner` is not a point's.
+	mocks.use_chain(c"CTestEntity");
+	send(c"SetOwner", InputValue::Entity(None)).unwrap();
+	assert_eq!(take_inputs().len(), 6);
+}
+
 /// A mock entity, for as long as the mocks live.
 fn entity(mock: &mut MockEntity) -> Entity<'static> {
 	// SAFETY: Mock entities are leaked, and their vtables answer what inputs
@@ -488,6 +530,19 @@ fn mocks() -> Mocks {
 		base,
 	);
 	let sentry = map(c"CObjectSentrygun", vec![], building);
+	let point = map(
+		c"CTeamControlPoint",
+		vec![input(c"SetOwner", INTEGER)],
+		base,
+	);
+	let master = map(
+		c"CTeamControlPointMaster",
+		vec![
+			input(c"SetWinner", INTEGER),
+			input(c"SetWinnerAndForceCaps", INTEGER),
+		],
+		base,
+	);
 
 	set_datamap(test);
 
@@ -500,6 +555,8 @@ fn mocks() -> Mocks {
 		npc_maker,
 		building,
 		sentry,
+		point,
+		master,
 	];
 	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
 	// whichever slot reaches it, and the patch only writes slots of the vtable
