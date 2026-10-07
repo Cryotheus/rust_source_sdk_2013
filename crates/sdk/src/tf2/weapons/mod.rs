@@ -11,6 +11,7 @@
 #[path = "../../tests/tf2/weapons.rs"]
 mod tests;
 
+use crate::datatables::NetPropError;
 use crate::entities::{Entity, EntityHandle};
 use crate::math::Vector;
 use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
@@ -511,6 +512,89 @@ impl<'s> PlayerWeapons<'s> {
 			)
 		}
 	}
+
+	/// The weapon the player holds (`m_hActiveWeapon`), or `None` if they hold
+	/// none, or hold an entity that is no TF2 combat weapon.
+	#[doc(alias("m_hActiveWeapon", "GetActiveWeapon"))]
+	pub fn active(self) -> Result<Option<Weapon<'s>>, WeaponError> {
+		let handle = self
+			.server
+			.server_game_dll()?
+			.entity_net_prop(self.player, c"m_hActiveWeapon")?
+			.get_handle(self.player)?;
+
+		match self.server.server_tools()?.entity_by_handle(handle) {
+			Some(weapon) => weapon_of(self.server, weapon),
+			None => Ok(None),
+		}
+	}
+
+	/// The weapons the player carries (`m_hMyWeapons`), in the order of their
+	/// inventory, which is not that of their slots. Entities in it that are no
+	/// TF2 combat weapon are skipped.
+	#[doc(alias("m_hMyWeapons", "GetWeapon"))]
+	pub fn all(self) -> Result<Vec<Weapon<'s>>, WeaponError> {
+		let weapons = self
+			.server
+			.server_game_dll()?
+			.entity_net_prop(self.player, c"m_hMyWeapons")?;
+		let tools = self.server.server_tools()?;
+		let count = weapons
+			.element_count()
+			.ok_or_else(|| NetPropError::NotAnArray {
+				name: String::from("m_hMyWeapons"),
+				kind: weapons.prop().kind(),
+			})?;
+		let mut all = Vec::new();
+
+		for index in 0..count {
+			let handle = weapons.element(index)?.get_handle(self.player)?;
+
+			if let Some(weapon) = tools.entity_by_handle(handle) {
+				all.extend(weapon_of(self.server, weapon)?);
+			}
+		}
+
+		Ok(all)
+	}
+
+	/// Switches the player to `weapon`, one of theirs, as choosing it does
+	/// (`Weapon_Switch`), and returns whether they hold it now.
+	///
+	/// TF2 refuses the switch for a ghost, for a weapon that cannot be deployed,
+	/// and while the held weapon cannot be holstered, such as the Heavy's spun
+	/// up minigun. A weapon with a holster animation, through its
+	/// `holster_anim_time` attribute, switches when the animation ends instead,
+	/// so this returns false for it, although the switch happens later.
+	///
+	/// Holstering and deploying run the game's, other plugins', and this
+	/// plugin's own callbacks synchronously, such as hooks of the weapons'
+	/// `Deploy`, which must keep to the contract of [`Server::new`]. Fails with
+	/// [`WeaponError::DifferentOwner`] for a weapon this player does not own,
+	/// before the game is called.
+	#[doc(alias("Weapon_Switch"))]
+	pub fn switch_to(self, weapon: Weapon<'s>) -> Result<bool, WeaponError> {
+		check_live(self.player)?;
+
+		if weapon.owner()? != Some(self.player.handle()) {
+			return Err(WeaponError::DifferentOwner);
+		}
+
+		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+
+		// SAFETY: As for `detach`, at the slot `sdk_raw::tf2::player` checks: the
+		// player owns this live weapon, which `CTFPlayer::Weapon_Switch` casts
+		// to `CTFWeaponBase`, as `Weapon::new` found it to be, for the first
+		// view model. Holstering and deploying free entities only through
+		// deferred deletion, as do the callbacks they run (`Server::new`'s
+		// contract).
+		Ok(unsafe {
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_Weapon_Switch(
+				weapon.entity.as_ptr().cast(),
+				0,
+			))
+		})
+	}
 }
 
 /// A callback-scoped TF2 weapon. Keep its entity handle across callbacks.
@@ -769,6 +853,12 @@ pub enum WeaponError {
 	#[error("the player's absolute position could not be read")]
 	MissingOrigin,
 
+	/// The player's weapons, which [`PlayerWeapons::active`] and
+	/// [`PlayerWeapons::all`] read from its networked variables, could not
+	/// be read.
+	#[error(transparent)]
+	NetProp(#[from] NetPropError),
+
 	/// The weapon has no clip, as melee weapons and miniguns, or counts its
 	/// shots in energy.
 	#[error("the weapon has no clip")]
@@ -929,4 +1019,17 @@ pub(crate) unsafe fn generate_item(
 	// thread, inside the engine's callback. The caller vouches for the game
 	// code the generation runs, and for the classname.
 	unsafe { generation.spawn(definition.get(), origin.into(), classname) }
+}
+
+/// Wraps `entity` as a weapon, or returns `None` if it is no TF2 combat
+/// weapon.
+fn weapon_of<'s>(
+	server: Server<'s>,
+	entity: Entity<'s>,
+) -> Result<Option<Weapon<'s>>, WeaponError> {
+	match Weapon::new(server, entity) {
+		Ok(weapon) => Ok(Some(weapon)),
+		Err(WeaponError::NotWeapon) => Ok(None),
+		Err(error) => Err(error),
+	}
 }
