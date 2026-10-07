@@ -894,7 +894,7 @@ fn members_are_called_with_their_arguments() {
 
 	// Members the player's script class lacks.
 	assert!(matches!(
-		player.remove_all_objects(true),
+		player.set_forced_taunt_cam(ForcedTauntCam::Always),
 		Err(PlayerError::UnsupportedMethod)
 	));
 	assert!(matches!(

@@ -10,7 +10,8 @@
 //!
 //! Other parts of a player have modules of their own:
 //! [`weapons`](crate::tf2::weapons) and [`ammo`](crate::tf2::ammo) for what
-//! they carry, [`conditions`](crate::tf2::conditions),
+//! they carry, [`buildings`](crate::tf2::buildings) for an Engineer's
+//! buildings, [`conditions`](crate::tf2::conditions) for their conditions,
 //! [`observer`](crate::tf2::observer) for spectating, and
 //! [`respawn`](crate::tf2::respawn).
 //!
@@ -686,19 +687,6 @@ impl<'s> TfPlayer<'s> {
 		unsafe { self.call(c"ForceRegenerateAndRespawn", &mut [], binding::VOID) }?;
 
 		Ok(())
-	}
-
-	/// Removes the player's buildings, as changing class does
-	/// (`RemoveAllObjects`), or, with `explode`, destroys them, as the
-	/// Engineer's destruction PDA does.
-	///
-	/// TF2 fires `object_removed` for each, then, with `explode`, also
-	/// `object_destroyed`, and the listeners of these run before this returns.
-	#[doc(alias("RemoveAllObjects"))]
-	pub fn remove_all_objects(self, explode: bool) -> Result<(), PlayerError> {
-		// SAFETY: The checked member removes the player's buildings through
-		// deferred deletion, and its callbacks free entities only so too.
-		unsafe { self.call_with_bool(c"RemoveAllObjects", explode) }
 	}
 
 	/// Shows parts of the player's HUD again (`RemoveHudHideFlags`).
