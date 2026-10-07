@@ -21,6 +21,9 @@
 //!   with the points, its mini-rounds, [`ControlPointRound`]
 //!   (`team_control_point_round`), and the [`ObjectiveResource`]
 //!   (`tf_objective_resource`) that networks the points' state.
+//! - Flags: [`CaptureFlag`] (`item_teamflag`) and the [`CaptureZone`]
+//!   (`func_capturezone`) players capture it in.
+//! - Payload: [`TrainWatcher`] (`team_train_watcher`), which tracks a cart.
 //!
 //! Map logic, other plugins and the game's own code send the same inputs
 //! and change the same variables, so what a wrapper reads can change after
@@ -32,8 +35,10 @@
 
 mod capture_area;
 mod control_points;
+mod flags;
 mod objective_resource;
 mod round_timer;
+mod train_watcher;
 
 use crate::datatables::{NetProp, NetPropError, NetVar, Storage};
 use crate::entities::Entity;
@@ -43,8 +48,10 @@ use std::ffi::{CStr, CString, c_int};
 
 pub use capture_area::CaptureArea;
 pub use control_points::{CaptureWins, ControlPoint, ControlPointMaster, ControlPointRound};
+pub use flags::{CaptureFlag, CaptureZone, FlagStatus, FlagType};
 pub use objective_resource::ObjectiveResource;
 pub use round_timer::{KothLogic, RoundTimer, RoundTimerOutput, RoundWin, TimerState, WinReason};
+pub use train_watcher::TrainWatcher;
 
 /// An entity of one of the objective classes, which the wrappers read and
 /// send inputs to.
@@ -194,6 +201,14 @@ impl<'s> Objective<'s> {
 	/// Reads the networked variable `name`.
 	pub(crate) fn get<T: NetVar>(self, name: &CStr) -> Result<T, ObjectiveError> {
 		Ok(self.net_prop(name)?.get(self.entity)?)
+	}
+
+	/// The entity the networked handle `name` refers to, or `None` if it refers
+	/// to none, or to an entity that no longer exists.
+	pub(crate) fn handle_entity(self, name: &CStr) -> Result<Option<Entity<'s>>, ObjectiveError> {
+		let handle = self.net_prop(name)?.get_handle(self.entity)?;
+
+		Ok(self.server.server_tools()?.entity_by_handle(handle))
 	}
 
 	/// Sends the input `name` with `value`, with the entity as its activator
