@@ -43,6 +43,11 @@ pub type TeleportFn = unsafe extern "C" fn(
 	velocity: *const sys::Vector,
 );
 
+/// `CBaseEntity::Think`, which runs the entity's think function,
+/// `m_pfnThink`, if it has one.
+#[doc(alias("Think"))]
+pub type ThinkFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
+
 // `m_hOwnerEntity` is a `CNetworkHandle`, which holds nothing but its
 // `CBaseHandle`, as the datamap's `FIELD_EHANDLE` field of it declares.
 const _: () = {
@@ -63,12 +68,14 @@ const _: () = {
 	assert!(GET_DATA_DESC_MAP_SLOT == vtable_slot!(Vtable, CBaseEntity_GetDataDescMap));
 	assert!(SET_OWNER_ENTITY_SLOT == vtable_slot!(Vtable, CBaseEntity_SetOwnerEntity));
 	assert!(SPAWN_SLOT == vtable_slot!(Vtable, CBaseEntity_Spawn));
+	assert!(THINK_SLOT == vtable_slot!(Vtable, CBaseEntity_Think));
 
 	// No method whose declaration depends on the game's defines precedes
-	// `SetOwnerEntity` or `Spawn`, as the assertions below on `IsNextBot`
-	// describe.
+	// `SetOwnerEntity`, `Spawn` or `Think`, as the assertions below on
+	// `IsNextBot` describe.
 	assert!(SET_OWNER_ENTITY_SLOT < vtable_slot!(Vtable, CBaseEntity_IsNextBot));
 	assert!(SPAWN_SLOT < vtable_slot!(Vtable, CBaseEntity_IsNextBot));
+	assert!(THINK_SLOT < vtable_slot!(Vtable, CBaseEntity_IsNextBot));
 };
 
 // Of the virtual methods `CBaseEntity` declares before `Teleport`, only
@@ -101,7 +108,7 @@ const _: () = {
 	assert!(SDK2013_TELEPORT_SLOT == SDK2013_NEXT_BOT_TELEPORT_SLOT - 1);
 };
 
-// The generated `SetOwnerEntity`, `Spawn` and `Teleport` have the
+// The generated `SetOwnerEntity`, `Spawn`, `Teleport` and `Think` have the
 // hand-written signatures.
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> SetOwnerEntityFn =
 	|vtable| vtable.CBaseEntity_SetOwnerEntity;
@@ -109,6 +116,8 @@ const _: fn(&sys::CBaseEntity__bindgen_vtable) -> SetOwnerEntityFn =
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> SpawnFn = |vtable| vtable.CBaseEntity_Spawn;
 
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TeleportFn = |vtable| vtable.CBaseEntity_Teleport;
+
+const _: fn(&sys::CBaseEntity__bindgen_vtable) -> ThinkFn = |vtable| vtable.CBaseEntity_Think;
 
 /// `CBaseEntity::AcceptInput` in the primary vtable. TF2 declares its own
 /// virtual methods after it, so the slot is the same for every game.
@@ -403,6 +412,19 @@ pub const SPAWN_SLOT: usize = cfg_select! {
 #[doc(alias("Teleport"))]
 pub const TF2_TELEPORT_SLOT: usize =
 	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_Teleport);
+
+/// `CBaseEntity::Think` in the primary vtable, through which the engine runs
+/// each entity's main think as it comes due (`PhysicsRunSpecificThink(-1,
+/// &CBaseEntity::Think)`), but not the think contexts of [`think`]. No virtual
+/// method a game declares under its own defines precedes it, so the slot is
+/// the same for every game. Derived from `game/server/baseentity.h` with the
+/// MSVC ABI model on Windows and the Itanium ABI model on Linux, and verified
+/// against SourceMod's `sdkhooks.games/engine.ep2v.txt` gamedata.
+#[doc(alias("Think"))]
+pub const THINK_SLOT: usize = cfg_select! {
+	target_os = "windows" => 49,
+	target_os = "linux" => 50,
+};
 
 /// Where a game DLL's primary `CBaseEntity` vtable has `Teleport`, which the
 /// virtual methods declared before it under `TF_DLL` and `NEXT_BOT` move.

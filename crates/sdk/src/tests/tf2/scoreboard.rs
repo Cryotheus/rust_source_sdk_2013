@@ -3,12 +3,12 @@
 //! TF2's, and an engine that records changes as the real one does.
 
 use super::*;
-use crate::Module;
 use crate::test_support::datatables::{direct_table, int32_proxy, prop, table, table_prop};
 use crate::test_support::edicts::{edict_of_index, edict_table, serve_edicts};
 use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
 use crate::test_support::leak;
 use crate::test_support::server::{export, mock_server, null_server};
+use crate::{InterfaceFactory, Module};
 use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
 use sdk_raw::entities::NUM_SERIAL_NUM_SHIFT_BITS;
 use sdk_raw::test_support::entities::{data_map, field};
@@ -676,6 +676,100 @@ fn arrays_must_be_contiguous_and_long_enough() {
 	);
 }
 
+#[test]
+fn blocks_are_set_to_the_statistics_and_score_asked() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let player_offset = |word: usize| u16::try_from(DATA + word * ELEMENT_SIZE).unwrap();
+	let points = player_offset(SCORE_DATA + POINTS);
+	let round_points = player_offset(ROUND_SCORE_DATA + POINTS);
+
+	// The game's last think saw a Score of 10 and a round score of 4.
+	world.put_stat(3, STATS_ACCUMULATED, Stat::Kills, 10);
+	world.put_stat(3, STATS_CURRENT_ROUND, Stat::Kills, 4);
+	world.put(c"m_iTotalScore", 3, 10);
+	world.put_data(3, SCORE_DATA + POINTS, 10);
+	world.put_data(3, ROUND_SCORE_DATA + POINTS, 4);
+
+	let score = world.score(server, 3);
+	let held = [(Stat::Kills, 0), (Stat::Deaths, 2), (Stat::Damage, 1200)];
+
+	// The points make up what the statistics do not score.
+	assert_eq!(
+		score.set_stats(StatScope::Session, &held, 5),
+		Ok(Applied {
+			round_shown: 0,
+			shown: -5,
+		})
+	);
+	assert_eq!(
+		[Stat::Kills, Stat::Deaths, Stat::Damage].map(|stat| score.stat(stat, StatScope::Session)),
+		[0, 2, 1200]
+	);
+	assert_eq!(score.points(), 3);
+	assert_eq!(world.stat(3, STATS_CURRENT_ROUND, Stat::Kills), 4);
+	assert_eq!(world.get(c"m_iTotalScore", 3), 5);
+	assert_eq!(world.data(3, SCORE_DATA + POINTS), 5);
+	assert_eq!(
+		changed(RESOURCE),
+		Changed::Offsets(vec![world.offset(c"m_iTotalScore", 3)])
+	);
+	assert_eq!(changed(3), Changed::Offsets(vec![points]));
+	end_snapshot();
+
+	// Holding them again writes nothing.
+	assert_eq!(
+		score.set_stats(StatScope::Session, &held, 5),
+		Ok(Applied::default())
+	);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	assert_eq!(changed(3), Changed::Nothing);
+
+	// The round's block is set apart from the session's.
+	assert_eq!(
+		score.set_stats(StatScope::Round, &[(Stat::Kills, 0)], 1),
+		Ok(Applied {
+			round_shown: -3,
+			shown: 0,
+		})
+	);
+	assert_eq!((score.round_total(), score.total()), (1, 5));
+	assert_eq!(world.data(3, ROUND_SCORE_DATA + POINTS), 1);
+	assert_eq!(changed(RESOURCE), Changed::Nothing);
+	assert_eq!(changed(3), Changed::Offsets(vec![round_points]));
+	end_snapshot();
+
+	// Kills the game awarded since its last think are taken back, and the
+	// difference it has not sent stays until a rebase.
+	world.put_stat(3, STATS_ACCUMULATED, Stat::Kills, 15);
+	assert_eq!(
+		score.set_stats(StatScope::Session, &held, 5).unwrap().shown,
+		-15
+	);
+	assert_eq!(world.get(c"m_iTotalScore", 3), -10);
+	assert_eq!(score.rebase().unwrap().discarded, 15);
+	assert_eq!(world.get(c"m_iTotalScore", 3), 5);
+
+	// Nothing is written when a value would overflow.
+	assert_eq!(
+		score.set_stats(StatScope::Session, &[], u32::MAX),
+		Err(ScoreError::Overflow)
+	);
+	assert_eq!(
+		score.set_stats(StatScope::Session, &[(Stat::Kills, i32::MIN)], 5),
+		Err(ScoreError::Overflow)
+	);
+	assert_eq!(world.stat(3, STATS_ACCUMULATED, Stat::Kills), 0);
+
+	// The Score is the one asked, whatever the player's attributes.
+	MINIGAME.set(true);
+	score.set_stats(StatScope::Session, &held, 5).unwrap();
+	assert_eq!(score.total(), 5);
+	score.set_stats(StatScope::Session, &held, 0).unwrap();
+	assert_eq!(score.total(), 0);
+}
+
 /// `CTFGameRules::CalcPlayerScore`, as the SDK's source computes it for the
 /// statistics the tests use: kills and points, one each, damage, a point per
 /// 600, and with the `scoreboard_minigame` attribute, kills again and -3 per
@@ -1280,10 +1374,67 @@ fn layouts_and_players_are_checked() {
 	);
 }
 
+#[test]
+fn layouts_keep_the_game_statistics_of_their_module() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let unreachable = || -> Result<GameStats, GameStatsError> {
+		panic!("the game's statistics were resolved again")
+	};
+	let mut layout = ScoreboardLayout::new();
+
+	layout
+		.player_with(server, world.player(1), || Ok(world.game_stats))
+		.unwrap();
+	layout
+		.player_with(server, world.player(2), unreachable)
+		.unwrap();
+
+	// Another module's are resolved, and kept once found.
+	// SAFETY: As for `mock_server`, whose game server factory the other one
+	// forwards to.
+	let other = unsafe {
+		Server::new(
+			server.engine_factory(),
+			InterfaceFactory::new(other_game_server),
+			Game::TeamFortress2,
+			&scope,
+		)
+	};
+
+	assert_eq!(
+		layout
+			.player_with(other, world.player(1), || {
+				Err(GameStatsError::SelfTestFailed)
+			})
+			.unwrap_err(),
+		ScoreError::GameStats(GameStatsError::SelfTestFailed)
+	);
+	layout
+		.player_with(other, world.player(1), || Ok(world.game_stats))
+		.unwrap();
+	layout
+		.player_with(other, world.player(2), unreachable)
+		.unwrap();
+}
+
 /// `IServerUnknown::GetNetworkable`, which returns the fake entity's.
 unsafe extern "C" fn networkable(this: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
 	// SAFETY: As for `datamap`.
 	unsafe { &raw mut (*this.cast::<FakeEntity>()).networkable }
+}
+
+/// The game server factory of [`mock_server`] at another address, as another
+/// module's would be.
+unsafe extern "C" fn other_game_server(
+	name: *const c_char,
+	return_code: *mut c_int,
+) -> *mut c_void {
+	let scope = ();
+
+	// SAFETY: The caller passes what a factory takes.
+	unsafe { (mock_server(&scope).game_server_factory().as_raw())(name, return_code) }
 }
 
 #[test]
