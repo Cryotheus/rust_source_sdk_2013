@@ -1,6 +1,10 @@
 //! TF2's taunts: starting, stopping and reading a player's taunt, through
 //! the game's native script methods and the player's networked variables.
 
+#[cfg(test)]
+#[path = "../tests/tf2/taunts.rs"]
+mod tests;
+
 use crate::Server;
 use crate::datatables::NetProp;
 use crate::entities::Entity;

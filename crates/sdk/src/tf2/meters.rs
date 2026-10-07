@@ -6,6 +6,10 @@
 //! game keeps in `CTFPlayerShared`: its script setters refuse some writes,
 //! such as rage while it drains, so they are not used.
 
+#[cfg(test)]
+#[path = "../tests/tf2/meters.rs"]
+mod tests;
+
 use crate::datatables::{NetProp, NetVar};
 use crate::entities::{Entity, EntityHandle};
 use crate::tf2::effects::EffectError;

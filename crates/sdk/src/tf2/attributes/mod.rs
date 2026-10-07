@@ -63,6 +63,10 @@ pub mod catalog;
 mod definition;
 mod layout;
 
+#[cfg(test)]
+#[path = "../../tests/tf2/attributes.rs"]
+mod tests;
+
 use crate::NotThreadSafe;
 use crate::entities::Entity;
 use crate::tf2::attributes::definition::RawDef;

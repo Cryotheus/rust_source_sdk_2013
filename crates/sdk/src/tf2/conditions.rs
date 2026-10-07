@@ -5,6 +5,10 @@
 //! No script VM is needed, and no condition bits are written directly: the
 //! game runs its normal add/remove notifications, durations and cleanup.
 
+#[cfg(test)]
+#[path = "../tests/tf2/conditions.rs"]
+mod tests;
+
 use crate::Server;
 use crate::datatables::{ServerClass, Storage};
 use crate::entities::Entity;
