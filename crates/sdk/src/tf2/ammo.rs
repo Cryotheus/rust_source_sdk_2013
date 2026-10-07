@@ -3,10 +3,11 @@
 //! player's class and items (`CTFPlayer::GetMaxAmmo`).
 //!
 //! [`give_ammo`] gives a player reserve ammo as a pickup does, through the
-//! game's own `CTFPlayer::GiveAmmo`, which applies that max.
+//! game's own `CTFPlayer::GiveAmmo`, which applies that max. [`reserve`] and
+//! [`set_reserve`] read and set the reserve itself, past the max if need be.
 
 use crate::Game;
-use crate::datatables::NetPropError;
+use crate::datatables::{NetProp, NetPropError};
 use crate::entities::Entity;
 use crate::server::{InterfaceError, Server};
 use sdk_raw::tf2::ammo as raw;
@@ -17,7 +18,7 @@ use std::ffi::c_int;
 /// pickup multipliers of TF2's items, which stay below 64.
 pub const MAX_GIVEN: c_int = 1 << 20;
 
-/// Why reserve ammo could not be given.
+/// Why reserve ammo could not be given, read or set.
 #[derive(Debug, thiserror::Error)]
 pub enum AmmoError {
 	/// The server does not run TF2, or the entity is not a TF2 player.
@@ -27,6 +28,10 @@ pub enum AmmoError {
 	/// The count is negative or more than [`MAX_GIVEN`].
 	#[error("cannot give {0} reserve ammo at once, only from 0 to {MAX_GIVEN}")]
 	InvalidCount(c_int),
+
+	/// [`set_reserve`] was given a negative count.
+	#[error("cannot hold {0} reserve ammo, less than none")]
+	InvalidReserve(c_int),
 
 	/// The player holds less than none of the type, which the game cannot
 	/// compute their room for.
@@ -100,6 +105,20 @@ impl AmmoType {
 	}
 }
 
+/// Fails with [`AmmoError::NotTfPlayer`] unless the server runs TF2 and
+/// `player`'s server class is `CTFPlayer`.
+fn check_player(server: Server<'_>, player: Entity<'_>) -> Result<(), AmmoError> {
+	if server.game() != Game::TeamFortress2
+		|| !player
+			.server_class()
+			.is_some_and(|class| class.name() == c"CTFPlayer")
+	{
+		return Err(AmmoError::NotTfPlayer);
+	}
+
+	Ok(())
+}
+
 /// Gives `player` up to `count` reserve ammo of `ammo_type`, as a pickup
 /// does (`CTFPlayer::GiveAmmo`), and returns how much they gained: never
 /// more than the room left below the max of their class and items, and
@@ -121,24 +140,13 @@ pub fn give_ammo(
 	count: c_int,
 	suppress_sound: bool,
 ) -> Result<c_int, AmmoError> {
-	if server.game() != Game::TeamFortress2
-		|| !player
-			.server_class()
-			.is_some_and(|class| class.name() == c"CTFPlayer")
-	{
-		return Err(AmmoError::NotTfPlayer);
-	}
+	check_player(server, player)?;
 
 	if !(0..=MAX_GIVEN).contains(&count) {
 		return Err(AmmoError::InvalidCount(count));
 	}
 
-	let index = ammo_type.to_raw();
-	let held = server
-		.server_game_dll()?
-		.entity_net_prop(player, c"m_iAmmo")?
-		.element(index as usize)?
-		.get::<c_int>(player)?;
+	let held = reserve_prop(server, player, ammo_type)?.get::<c_int>(player)?;
 
 	if held < 0 {
 		return Err(AmmoError::NegativeReserve(held));
@@ -152,5 +160,67 @@ pub fn give_ammo(
 	// those domains can only be set with unsafe calls whose callers rule them
 	// out. The gain, including TF2's attribute hooks and the `ammo_pickup`
 	// event, frees no entity (`Server::new` condition 4).
-	Ok(unsafe { raw::give_ammo(player.as_ptr(), count, index, suppress_sound) })
+	Ok(unsafe { raw::give_ammo(player.as_ptr(), count, ammo_type.to_raw(), suppress_sound) })
+}
+
+/// How much reserve ammo of `ammo_type` `player` holds (`m_iAmmo`), which
+/// can be more than the max of their class and items, if set so.
+///
+/// Fails with [`AmmoError::NotTfPlayer`] unless the server runs TF2 and
+/// `player` is a TF2 player.
+#[doc(alias("GetAmmoCount", "m_iAmmo"))]
+pub fn reserve(
+	server: Server<'_>,
+	player: Entity<'_>,
+	ammo_type: AmmoType,
+) -> Result<c_int, AmmoError> {
+	check_player(server, player)?;
+
+	Ok(reserve_prop(server, player, ammo_type)?.get::<c_int>(player)?)
+}
+
+/// Resolves the element of `m_iAmmo` that holds `ammo_type`.
+fn reserve_prop<'s>(
+	server: Server<'s>,
+	player: Entity<'s>,
+	ammo_type: AmmoType,
+) -> Result<NetProp<'s>, AmmoError> {
+	Ok(server
+		.server_game_dll()?
+		.entity_net_prop(player, c"m_iAmmo")?
+		.element(ammo_type.to_raw() as usize)?)
+}
+
+/// Sets how much reserve ammo of `ammo_type` `player` holds (`m_iAmmo`), as
+/// the game's `SetAmmoCount` does, and records the change so the engine
+/// sends it to the player.
+///
+/// Any count from none up is kept, more than the max of the player's class
+/// and items included: pickups, dispensers and resupply cabinets then give
+/// them nothing more of it, but take none away, while firing spends it as
+/// usual.
+///
+/// Fails with [`AmmoError::NotTfPlayer`] unless the server runs TF2 and
+/// `player` is a TF2 player, and with [`AmmoError::InvalidReserve`] for a
+/// negative count, before anything is written.
+#[doc(alias("SetAmmoCount", "m_iAmmo"))]
+pub fn set_reserve(
+	server: Server<'_>,
+	player: Entity<'_>,
+	ammo_type: AmmoType,
+	count: c_int,
+) -> Result<(), AmmoError> {
+	check_player(server, player)?;
+
+	if count < 0 {
+		return Err(AmmoError::InvalidReserve(count));
+	}
+
+	let engine = server.valve_engine()?;
+
+	// SAFETY: The game sets reserve ammo to any count from none up, as
+	// `SetAmmoCount` does, and computes the room left below the max with it.
+	unsafe { reserve_prop(server, player, ammo_type)?.set(engine, player, count) }?;
+
+	Ok(())
 }
