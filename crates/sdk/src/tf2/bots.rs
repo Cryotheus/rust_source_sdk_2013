@@ -28,7 +28,9 @@
 //! [`NextBot`] wraps a bot or another entity deriving from
 //! `NextBotCombatCharacter`, whose script class declares the same queries
 //! (`game/server/NextBot/NextBot.cpp:77-93`): its bot ID, immobility, update
-//! flag, and whom it counts as friend or enemy.
+//! flag, and whom it counts as friend or enemy. [`NextBot::interface`] reaches
+//! its components, which [`next_bot`](crate::tf2::next_bot) wraps: how it
+//! moves, aims and sees.
 //!
 //! # Unverified
 //!
@@ -41,6 +43,7 @@ mod tests;
 
 use crate::entities::Entity;
 use crate::tf2::PlayerClass;
+use crate::tf2::next_bot::{NextBotInterface, next_bot_pointer};
 use crate::tf2::script_binding::{self as binding, BindingError, FLOAT, VOID, float, string};
 use crate::tf2::script_instances::{ScriptInstance, ScriptInstanceError};
 use crate::{Game, InterfaceError, Server};
@@ -570,6 +573,19 @@ impl<'s> NextBot<'s> {
 	pub fn immobile_speed_threshold(self) -> Result<f32, BotError> {
 		// SAFETY: The query returns a constant of the actor's class.
 		unsafe { self.float(c"GetImmobileSpeedThreshold") }
+	}
+
+	/// The actor's `INextBot` (`MyNextBotPointer`), which holds its
+	/// [locomotion](NextBotInterface::locomotion),
+	/// [body](NextBotInterface::body) and [vision](NextBotInterface::vision).
+	#[doc(alias("MyNextBotPointer"))]
+	pub fn interface(self) -> Result<NextBotInterface<'s>, BotError> {
+		// SAFETY: `new` checked that the server runs TF2. The actor frees its
+		// `INextBot` only with itself, which `Server::new`'s contract defers
+		// past `'s`.
+		unsafe { next_bot_pointer(self.entity) }
+			.map(|bot| unsafe { NextBotInterface::from_raw(bot) })
+			.ok_or(BotError::NotANextBot)
 	}
 
 	/// Calls a NextBot query without arguments that returns an `int`.
