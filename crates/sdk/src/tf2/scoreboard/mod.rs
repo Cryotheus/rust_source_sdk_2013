@@ -98,6 +98,14 @@
 //!   player who spawns with items before that think.
 //! - For every player when the plugin starts, unpauses, or a level starts,
 //!   discarding what the game has not sent since its last think.
+//! - For every connected player from a hook before each of the player
+//!   resource's thinks, through `CBaseEntity::Think` at
+//!   [`THINK_SLOT`](sdk_raw::entities::THINK_SLOT), which covers all of the
+//!   above: the think then finds nothing to report, whatever the game awarded
+//!   or reset since its last one. The resource also updates as a Mann vs.
+//!   Machine wave completes and as a matchmade game reports its result
+//!   (`tf_player_resource.cpp:70-80`, `tf_gamerules.cpp:2575`), which the hook
+//!   does not precede.
 //!
 //! The game reports as usual when nothing rebases, as while the plugin is
 //! paused, and in these cases:
@@ -157,6 +165,14 @@
 //! A script's `ResetScores` on the player clears their scoring data but not
 //! their statistics, so the next think fires the event with their whole
 //! Score as its increase.
+//!
+//! A hook before each of the player resource's thinks can hold every
+//! statistic the scoreboard shows, and the Score, without listening to any
+//! event: set the session's and the round's with [`PlayerScore::set_stats`],
+//! and the frags and deaths the think copies with [`PlayerScore::set_frags`]
+//! and [`PlayerScore::set_deaths`], then call [`PlayerScore::rebase`]. The
+//! think then shows exactly those, fires no `player_score_changed`, and
+//! reports nothing, whatever the game changed since its last think.
 //!
 //! # Limits
 //!
@@ -942,6 +958,91 @@ impl<'s> PlayerScore<'s> {
 		self.add_stat(stat, delta, adjust)
 	}
 
+	/// Sets the listed statistics of the player's block for `scope` to their
+	/// values, and the block's points, [`Stat::KillsRuneCarrier`], so that it
+	/// scores `total`, as [`Self::set_total`] does, and returns how much that
+	/// moved the score clients see for `scope`.
+	///
+	/// As [`Self::add_stat`] does, it adds the change in the score to the values
+	/// the game compares against, so the game reports nothing for it, and
+	/// clients receive it at once. Setting both blocks this way, then
+	/// [rebasing](Self::rebase), before each of the player resource's thinks
+	/// shows exactly the statistics set, as the
+	/// [module documentation](self#holding-a-score) describes.
+	///
+	/// Fails with [`ScoreError::Overflow`], writing nothing, if `total` exceeds
+	/// `i32::MAX`, or the points, or a score the game compares against, would
+	/// not fit an `i32`.
+	pub fn set_stats(
+		self,
+		scope: StatScope,
+		stats: &[(Stat, i32)],
+		total: u32,
+	) -> Result<Applied, ScoreError> {
+		let total = i32::try_from(total).map_err(|_| ScoreError::Overflow)?;
+		let old = self.read_block(scope);
+		let mut new = old;
+
+		for &(stat, value) in stats {
+			new.stat[stat.index()] = value;
+		}
+
+		let unclamped = self.unclamped(new)?;
+
+		// A block scoring below 0 already shows 0.
+		if total != 0 || unclamped > 0 {
+			let points = new.stat[stat::KILLS_RUNECARRIER];
+
+			new.stat[stat::KILLS_RUNECARRIER] = total
+				.checked_sub(unclamped)
+				.and_then(|delta| points.checked_add(delta))
+				.ok_or(ScoreError::Overflow)?;
+		}
+
+		if new.stat == old.stat {
+			return Ok(Applied::default());
+		}
+
+		// Both scores are clamped at 0, so their difference fits.
+		let change = self.score(&new) - self.score(&old);
+		let fields = self.reported_fields();
+		let mut reported = fields.read();
+		let compensate = |value: i32| value.checked_add(change).ok_or(ScoreError::Overflow);
+
+		let applied = match scope {
+			StatScope::Session => {
+				reported.total = compensate(reported.total)?;
+				reported.points = compensate(reported.points)?;
+
+				Applied {
+					round_shown: 0,
+					shown: change,
+				}
+			}
+
+			StatScope::Round => {
+				reported.round_points = compensate(reported.round_points)?;
+
+				Applied {
+					round_shown: change,
+					shown: 0,
+				}
+			}
+		};
+
+		let engine = self.server.valve_engine()?;
+
+		// Only the listed statistics and the points can differ.
+		for (index, (&old, &new)) in old.stat.iter().zip(&new.stat).enumerate() {
+			if new != old {
+				self.write_stat(scope, index, new);
+			}
+		}
+
+		self.write_reported(fields, reported, engine);
+		Ok(applied)
+	}
+
 	/// Sets the player's Score to `target` exactly, by changing their points,
 	/// as [`Self::add_points`] does, and the round's points by as much if
 	/// [`Adjust::round`].
@@ -1279,6 +1380,9 @@ pub enum ScoreError {
 /// [`PlayerScore::new`] use a fresh one each call.
 #[derive(Debug, Default)]
 pub struct ScoreboardLayout {
+	/// The game's statistics, with the address of the `CreateInterface` of
+	/// the game server module they were found in.
+	game_stats: Option<(usize, GameStats)>,
 	player: Option<PlayerLayout>,
 	resource: Option<ResourceCache>,
 	teams: [Option<TeamCache>; ScoringTeam::ALL.len()],
@@ -1319,8 +1423,9 @@ impl ScoreboardLayout {
 	/// The first call in the game server module finds and tests the game's
 	/// statistics and score calculation, as `sdk_raw`'s [`GameStats::cached`]
 	/// describes, running the game's `CalcPlayerScore` once; later calls reuse
-	/// them. This relies on Source never unloading that module while plugins
-	/// are loaded.
+	/// them, and the layout keeps them, so that its own later calls need not
+	/// look the module up. This relies on Source never unloading that module
+	/// while plugins are loaded.
 	///
 	/// Fails if the server does not run TF2, `player` is not a TF2 player with
 	/// an entity index from 1 to `MAX_PLAYERS`, the game's statistics cannot
@@ -1363,7 +1468,8 @@ impl ScoreboardLayout {
 	}
 
 	/// [`Self::player`], with the game's statistics from `game_stats`, which
-	/// is only called once the player is checked.
+	/// is only called once the player is checked, and unless the layout kept
+	/// them for the same game server module.
 	fn player_with<'s>(
 		&mut self,
 		server: Server<'s>,
@@ -1382,14 +1488,29 @@ impl ScoreboardLayout {
 			.ok_or(ScoreError::NoPlayerStats)?;
 		let (class, edict) = networking(player)?;
 		let context = Context::new(server)?;
-		let game_stats = game_stats()?;
+		let factory = server.game_server_factory().as_raw() as usize;
+
+		let game_stats = match self.game_stats {
+			Some((module, game_stats)) if module == factory => game_stats,
+
+			_ => {
+				let game_stats = game_stats()?;
+
+				self.game_stats = Some((factory, game_stats));
+				game_stats
+			}
+		};
+
 		let base = NonNull::new(player.as_ptr().cast::<sys::CBasePlayer>())
 			.ok_or(ScoreError::NotTfPlayer)?;
 
 		// SAFETY: As for `Self::player`'s resolution, the module stays loaded
-		// and this runs on the main thread. The player is a live `CTFPlayer`, as
-		// its datamaps show, whose entity pointer is its `CBasePlayer` pointer,
-		// as `sdk_raw::tf2` asserts, with its live edict.
+		// and this runs on the main thread. Statistics the layout kept were
+		// resolved in the module of the same factory, which is this one, since
+		// Source never unloads the game server module while plugins are loaded.
+		// The player is a live `CTFPlayer`, as its datamaps show, whose entity
+		// pointer is its `CBasePlayer` pointer, as `sdk_raw::tf2` asserts, with
+		// its live edict.
 		let stats =
 			unsafe { game_stats.player_stats(base, index) }.ok_or(ScoreError::NoPlayerStats)?;
 
