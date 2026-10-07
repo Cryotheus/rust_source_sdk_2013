@@ -19,6 +19,17 @@ use crate::util::elf::LoadedElf;
 use std::ffi::{c_char, c_int, c_void};
 use std::ptr::NonNull;
 
+/// The signature of `CTFGameRules::CanHaveAmmo`,
+/// `bool (CBaseCombatCharacter *, int)`, with the game rules as its receiver:
+/// whether the player, which TF2 takes for a `CTFPlayer` without checking,
+/// holds less of the ammo type than their max.
+#[doc(alias("CanHaveAmmo"))]
+pub type CanHaveAmmoFn = unsafe extern "C" fn(
+	this: *mut c_void,
+	player: *mut sys::CBaseCombatCharacter,
+	ammo_type: c_int,
+) -> bool;
+
 /// The signature of `CTFGameRules::CleanUpMap`, `void ()`, with the game
 /// rules as its receiver, which removes every entity a round's restart does
 /// not keep, then creates the map's entities anew.
@@ -91,6 +102,14 @@ pub type TeamMayCapturePointFn =
 
 // The generated methods have the signatures above, with a `CTFGameRules`
 // receiver, the object at the game rules' address.
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFGameRules,
+	*mut sys::CBaseCombatCharacter,
+	c_int,
+) -> bool = |vtable| vtable.CTFGameRules_CanHaveAmmo;
+
 const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
 	|vtable| vtable.CTFGameRules_CleanUpMap;
 
@@ -167,6 +186,13 @@ const _: () = {
 			}
 	);
 };
+
+/// The slot of `CanHaveAmmo(CBaseCombatCharacter *, int)` in `CTFGameRules`'
+/// primary vtable, from the generated binding, which names the overload
+/// taking an ammo name `CanHaveAmmo1`.
+#[doc(alias("CanHaveAmmo"))]
+pub const CAN_HAVE_AMMO_SLOT: usize =
+	vtable_slot!(sys::CTFGameRules__bindgen_vtable, CTFGameRules_CanHaveAmmo);
 
 /// The slot of `CleanUpMap` in `CTFGameRules`' primary vtable, from the
 /// generated binding.
@@ -343,6 +369,32 @@ pub unsafe fn find_game_rules_vtable(
 	}
 
 	Ok(NonNull::new(vtable as *mut *mut c_void))
+}
+
+/// Calls `CTFGameRules::CanHaveAmmo`, which tells whether `player` holds less
+/// of the ammo type `ammo_type`, an index of `m_iAmmo`, than their max, as
+/// their class and items make it (`CTFPlayer::GetMaxAmmo`).
+///
+/// The method is called through the generated vtable, at
+/// [`CAN_HAVE_AMMO_SLOT`].
+///
+/// # Safety
+///
+/// `rules` must point to TF2's live game rules, a `CTFGameRules`, `player` to
+/// a live `CTFPlayer`, and the call must be made on the server's main thread.
+#[doc(alias("CanHaveAmmo"))]
+pub unsafe fn can_have_ammo(
+	rules: NonNull<c_void>,
+	player: NonNull<sys::CBaseCombatCharacter>,
+	ammo_type: c_int,
+) -> bool {
+	let rules = rules.as_ptr().cast::<sys::CTFGameRules>();
+
+	// SAFETY: As the caller promises; the game rules' primary vtable is TF2's
+	// `CTFGameRules` vtable, as generated.
+	unsafe {
+		vcall!(rules as sys::CTFGameRules__bindgen_vtable => CTFGameRules_CanHaveAmmo(player.as_ptr(), ammo_type))
+	}
 }
 
 /// Calls `CTFGameRules::IsHolidayActive`, which tells whether the `EHoliday`
