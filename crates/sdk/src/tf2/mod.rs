@@ -28,6 +28,7 @@ pub mod objectives;
 pub mod objects;
 pub mod observer;
 pub mod overlays;
+pub mod pickups;
 
 pub mod player;
 
