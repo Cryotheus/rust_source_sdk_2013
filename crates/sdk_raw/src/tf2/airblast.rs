@@ -1,8 +1,9 @@
-//! Hand-written ABI of TF2's airblast pushing players: the vtable slots of
-//! `CTFWeaponBase::DeflectProjectiles`, which runs a weapon's airblast, and of
-//! `CTFWeaponBase::DeflectPlayer`, which the flame throwers override to push
-//! each player it reaches, their signatures, and the search for the vtables
-//! of the weapon classes that push.
+//! Hand-written ABI of TF2's airblast pushing players and deflecting
+//! projectiles: the vtable slots of `CTFWeaponBase::DeflectProjectiles`, which
+//! runs a weapon's airblast, and of `CTFWeaponBase::DeflectPlayer` and
+//! `CTFWeaponBase::DeflectEntity`, which the flame throwers override to push
+//! each player it reaches and deflect each other entity, their signatures,
+//! and the search for the vtables of the weapon classes that push.
 //!
 //! A flame thrower's airblast (`CTFFlameThrower::FireAirBlast`) runs
 //! `DeflectProjectiles`, which every weapon class inherits: it goes through
@@ -16,12 +17,34 @@
 //! sound and have its owner speak. A flame thrower whose attributes make its
 //! airblast push its owner instead calls `DeflectPlayer` with the owner as
 //! both players.
+//!
+//! `CTFWeaponBase`'s own `DeflectEntity` sends what it is given back where
+//! the owner aims, and hands a projectile to the owner. The flame throwers'
+//! override, which the Dragon's Fury inherits too, leaves alone the
+//! projectiles of the owner's team, and every projectile for a flame thrower
+//! whose attributes forbid deflecting them. It destroys them for one whose
+//! attributes say so, and otherwise deflects them as `CTFWeaponBase`'s does.
 
 use crate::interfaces::CreateInterfaceFn;
 use crate::util::{self, Image};
 use crate::vtable_slot;
 use std::ffi::c_void;
 use std::ptr::NonNull;
+
+/// The signature of `CTFWeaponBase::DeflectEntity`,
+/// `bool (CBaseEntity *, CTFPlayer *, Vector &)`, with the weapon as its
+/// receiver, the entity other than a player its airblast reached as `target`,
+/// and the weapon's owner as `owner`, which returns whether it deflected the
+/// entity. `forward` is where the owner aims, which the function only reads.
+///
+/// As for [`DeflectPlayerFn`], the receiver and the owner are entities.
+#[doc(alias("DeflectEntity"))]
+pub type DeflectEntityFn = unsafe extern "C" fn(
+	this: *mut sys::CBaseEntity,
+	target: *mut sys::CBaseEntity,
+	owner: *mut sys::CBaseEntity,
+	forward: *mut sys::Vector,
+) -> bool;
 
 /// The signature of `CTFWeaponBase::DeflectPlayer`,
 /// `bool (CTFPlayer *, CTFPlayer *, Vector &)`, with the weapon as its
@@ -49,10 +72,11 @@ pub type DeflectPlayerFn = unsafe extern "C" fn(
 pub type DeflectProjectilesFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> bool;
 
 // `CTFWeaponBase` (`game/shared/tf/tf_weaponbase.h`) declares, for the game
-// server (`GAME_DLL`), `DeflectProjectiles()` and then
-// `DeflectPlayer(CTFPlayer *, CTFPlayer *, Vector &)` as virtual methods of
-// its own, which the generated vtables put at 422 and 423 on Windows, and at
-// 429 and 430 on Linux. Linux is one past Windows for the Itanium ABI's
+// server (`GAME_DLL`), `DeflectProjectiles()`, then
+// `DeflectPlayer(CTFPlayer *, CTFPlayer *, Vector &)` and
+// `DeflectEntity(CBaseEntity *, CTFPlayer *, Vector &)` as virtual methods of
+// its own, which the generated vtables put at 422 to 424 on Windows, and at
+// 429 to 431 on Linux. Linux is one past Windows for the Itanium ABI's
 // second destructor slot, five more for the methods of `IHasAttributes` that
 // `CEconEntity` overrides, and one more for `GetOwnerViaInterface`, which
 // `CTFWeaponBase` overrides from `IHasOwner`: that ABI also gives each
@@ -63,8 +87,13 @@ pub type DeflectProjectilesFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity
 // class overrides, is one function in the vtables of both classes that push
 // and of [`REFERENCE_CLASS`], and that `DeflectPlayer` is one function in the
 // classes that push, and another in the reference, which keeps
-// `CTFWeaponBase`'s.
+// `CTFWeaponBase`'s. The hooks of `DeflectEntity` also check that it is laid
+// out as `DeflectPlayer` is, with functions of its own.
 const _: () = {
+	let deflect_entity = vtable_slot!(
+		sys::CTFWeaponBase__bindgen_vtable,
+		CTFWeaponBase_DeflectEntity
+	);
 	let deflect_player = vtable_slot!(
 		sys::CTFWeaponBase__bindgen_vtable,
 		CTFWeaponBase_DeflectPlayer
@@ -75,11 +104,22 @@ const _: () = {
 	);
 
 	assert!(
-		DEFLECT_PLAYER_SLOT == deflect_player && DEFLECT_PROJECTILES_SLOT == deflect_projectiles
+		DEFLECT_ENTITY_SLOT == deflect_entity
+			&& DEFLECT_PLAYER_SLOT == deflect_player
+			&& DEFLECT_PROJECTILES_SLOT == deflect_projectiles
 	);
 };
 
 // The generated methods have these parameters and return a `bool`.
+const _: fn(
+	&sys::CTFWeaponBase__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFWeaponBase,
+	*mut sys::CBaseEntity,
+	*mut sys::CTFPlayer,
+	*mut sys::Vector,
+) -> bool = |vtable| vtable.CTFWeaponBase_DeflectEntity;
+
 const _: fn(
 	&sys::CTFWeaponBase__bindgen_vtable,
 ) -> unsafe extern "C" fn(
@@ -93,6 +133,13 @@ const _: fn(
 	&sys::CTFWeaponBase__bindgen_vtable,
 ) -> unsafe extern "C" fn(*mut sys::CTFWeaponBase) -> bool =
 	|vtable| vtable.CTFWeaponBase_DeflectProjectiles;
+
+/// The slot of `CTFWeaponBase::DeflectEntity` in a TF2 weapon's primary
+/// vtable, just after [`DEFLECT_PLAYER_SLOT`]. [`FLAME_THROWER_CLASS`]
+/// overrides it, and every other weapon class but [`DRAGONS_FURY_CLASS`],
+/// which inherits the override, keeps `CTFWeaponBase`'s.
+#[doc(alias("DeflectEntity"))]
+pub const DEFLECT_ENTITY_SLOT: usize = DEFLECT_PLAYER_SLOT + 1;
 
 /// The slot of `CTFWeaponBase::DeflectPlayer` in a TF2 weapon's primary
 /// vtable. [`FLAME_THROWER_CLASS`] overrides it, and every other weapon class
@@ -129,7 +176,7 @@ pub const REFERENCE_CLASS: &str = "CTFRocketLauncher";
 
 /// Finds the unique primary vtables of [`FLAME_THROWER_CLASS`],
 /// [`DRAGONS_FURY_CLASS`] and [`REFERENCE_CLASS`], in that order, whose
-/// [`DEFLECT_PLAYER_SLOT`] entries are executable, from the run-time type
+/// [`DEFLECT_ENTITY_SLOT`] entries are executable, from the run-time type
 /// information of the module whose `CreateInterface` export is `factory`, such
 /// as the game server module. Each is `None` if there is no such table, or
 /// more than one. The module is snapshot and searched once for all three.
@@ -153,7 +200,7 @@ pub unsafe fn find_airblast_vtables(
 	let mut tables = image
 		.primary_vtables(
 			&[FLAME_THROWER_CLASS, DRAGONS_FURY_CLASS, REFERENCE_CLASS],
-			DEFLECT_PLAYER_SLOT,
+			DEFLECT_ENTITY_SLOT,
 		)
 		.into_iter()
 		.map(|table| NonNull::new(table? as *mut *mut c_void));
