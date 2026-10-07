@@ -17,6 +17,7 @@ use super::super::super::super::__bindgen_prelude::*;
 pub type NavCornerType = ::std::os::raw::c_int;
 pub type NavDirType = ::std::os::raw::c_int;
 pub type NavErrorType = ::std::os::raw::c_int;
+pub type NavRelativeDirType = ::std::os::raw::c_int;
 
 /// Defines possible ways to move from one area to another
 pub type NavTraverseType = ::std::os::raw::c_int;
@@ -41,6 +42,13 @@ pub const NavErrorType_NAV_FILE_OUT_OF_DATE: NavErrorType = 4;
 pub const NavErrorType_NAV_INVALID_FILE: NavErrorType = 2;
 pub const NavErrorType_NAV_OK: NavErrorType = 0;
 pub const NavErrorType_NAV_OUT_OF_MEMORY: NavErrorType = 6;
+pub const NavRelativeDirType_BACKWARD: NavRelativeDirType = 2;
+pub const NavRelativeDirType_DOWN: NavRelativeDirType = 5;
+pub const NavRelativeDirType_FORWARD: NavRelativeDirType = 0;
+pub const NavRelativeDirType_LEFT: NavRelativeDirType = 3;
+pub const NavRelativeDirType_NUM_RELATIVE_DIRECTIONS: NavRelativeDirType = 6;
+pub const NavRelativeDirType_RIGHT: NavRelativeDirType = 1;
+pub const NavRelativeDirType_UP: NavRelativeDirType = 4;
 pub const NavTraverseType_GO_EAST: NavTraverseType = 1;
 pub const NavTraverseType_GO_ELEVATOR_DOWN: NavTraverseType = 8;
 pub const NavTraverseType_GO_ELEVATOR_UP: NavTraverseType = 7;

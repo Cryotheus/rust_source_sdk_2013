@@ -22,8 +22,8 @@ pub type CTraceFilterIgnoreTeammatesAndTeamObjects_BaseClass = CTraceFilterSimpl
 pub type TFCYOAPDAAnimState_t = ::std::os::raw::c_int;
 pub type TFPassTimeThrowAnimState_t = ::std::os::raw::c_int;
 pub type TFStunAnimState_t = ::std::os::raw::c_int;
-pub type _bindgen_ty_169 = ::std::os::raw::c_int;
-pub type _bindgen_ty_170 = ::std::os::raw::c_int;
+pub type _bindgen_ty_171 = ::std::os::raw::c_int;
+pub type _bindgen_ty_172 = ::std::os::raw::c_int;
 
 pub const CTFPlayerShared_EKartStateFlags_kKartState_Braking: CTFPlayerShared_EKartStateFlags = 2;
 pub const CTFPlayerShared_EKartStateFlags_kKartState_Driving: CTFPlayerShared_EKartStateFlags = 1;

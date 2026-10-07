@@ -16,10 +16,10 @@ use super::super::super::__bindgen_prelude::*;
 
 pub type std_string = __BindgenOpaqueArray8<[u8; 32usize]>;
 
-pub const MELEE_CRIT: _bindgen_ty_169 = 2;
-pub const MELEE_MINICRIT: _bindgen_ty_169 = 1;
-pub const MELEE_NOCRIT: _bindgen_ty_169 = 0;
-pub const kSoldierBuffCount: _bindgen_ty_170 = 6;
+pub const MELEE_CRIT: _bindgen_ty_171 = 2;
+pub const MELEE_MINICRIT: _bindgen_ty_171 = 1;
+pub const MELEE_NOCRIT: _bindgen_ty_171 = 0;
+pub const kSoldierBuffCount: _bindgen_ty_172 = 6;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]

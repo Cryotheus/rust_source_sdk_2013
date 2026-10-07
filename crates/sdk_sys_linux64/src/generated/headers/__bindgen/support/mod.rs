@@ -18,10 +18,10 @@ pub type std_basic_string__bindgen_ty_2 = i32;
 pub type std_string = __BindgenOpaqueArray8<[u8; 32usize]>;
 pub type uint = u32;
 
-pub const MELEE_CRIT: _bindgen_ty_225 = 2;
-pub const MELEE_MINICRIT: _bindgen_ty_225 = 1;
-pub const MELEE_NOCRIT: _bindgen_ty_225 = 0;
-pub const kSoldierBuffCount: _bindgen_ty_226 = 6;
+pub const MELEE_CRIT: _bindgen_ty_227 = 2;
+pub const MELEE_MINICRIT: _bindgen_ty_227 = 1;
+pub const MELEE_NOCRIT: _bindgen_ty_227 = 0;
+pub const kSoldierBuffCount: _bindgen_ty_228 = 6;
 pub const std_basic_string__S_local_capacity: std_basic_string__bindgen_ty_2 = 0;
 
 #[repr(C)]
