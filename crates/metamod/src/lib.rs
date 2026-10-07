@@ -120,6 +120,10 @@ pub mod rules_hooks;
 pub mod script_hooks;
 
 #[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod sent_message_hooks;
+
+#[cfg(feature = "sdk")]
 mod server_hooks;
 
 #[cfg(feature = "sdk")]

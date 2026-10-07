@@ -480,7 +480,7 @@ unsafe extern "C" fn level_shutdown(context: *mut c_void) {
 
 /// Runs `f` with a server for the current call from the engine. A panic is
 /// caught: it must not unwind into the engine, and the panic hook reports it.
-fn with_server(binding: ServerBinding, f: impl FnOnce(Server<'_>)) {
+pub(crate) fn with_server(binding: ServerBinding, f: impl FnOnce(Server<'_>)) {
 	let scope = ();
 
 	// SAFETY: Hooks and listeners call back on the server's main thread, during
