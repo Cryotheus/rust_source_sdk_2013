@@ -22,9 +22,13 @@ pub mod game_rules;
 pub mod gc;
 pub mod host_timescale;
 pub mod item_schema;
+pub mod objectives;
 pub mod objects;
 pub mod observer;
 pub mod overlays;
+
+pub mod player;
+
 pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
@@ -45,4 +49,4 @@ pub mod wearables;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2_loadout")))]
 pub mod loadout;
 
-pub use class::PlayerClass;
+pub use class::{PlayerClass, UnknownClassName};

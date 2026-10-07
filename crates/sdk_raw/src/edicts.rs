@@ -32,6 +32,11 @@ pub const FL_EDICT_ALWAYS: c_int = 1 << 3;
 /// `FL_EDICT_CHANGED` from `public/edict.h`, set when a networked variable changes.
 pub const FL_EDICT_CHANGED: c_int = 1 << 0;
 
+/// `FL_EDICT_DIRTY_PVS_INFORMATION` from `public/edict.h`, set when the
+/// areas and clusters the entity is in must be computed anew, as
+/// `CServerNetworkProperty::MarkPVSInformationDirty` does.
+pub const FL_EDICT_DIRTY_PVS_INFORMATION: c_int = 1 << 7;
+
 /// `FL_EDICT_DONTSEND` from `public/edict.h`: the entity is sent to no
 /// client. `CBaseEntity::UpdateTransmitState` gives it to an entity drawn
 /// with `EF_NODRAW`, unless another entity moves with it.

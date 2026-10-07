@@ -19,7 +19,8 @@
 //!
 //! [`add_tf_bots`] queues `tf_bot_add` with the arguments of a
 //! [`TfBotRequest`], which the server runs from its command buffer, normally
-//! on the next frame. [`kick_tf_bots`] and [`TfBot::kick`] queue
+//! on the next frame. `metamod_source`'s `bot_hooks` report the bots each run
+//! of `tf_bot_add` adds. [`kick_tf_bots`] and [`TfBot::kick`] queue
 //! `tf_bot_kick` and `kickid`, so the bots leave once the commands run.
 //!
 //! # NextBot actors
@@ -135,9 +136,9 @@ pub enum BotNameError {
 		byte: u8,
 	},
 
-	/// `tf_bot_add` would read the name as another argument: a class, a team,
-	/// a difficulty, `noquota`, or a number of bots, which is any argument
-	/// `atoi` reads as positive, such as `3rd`.
+	/// `tf_bot_add` would read the name as another argument: a class, Civilian
+	/// included, a team, a difficulty, `noquota`, or a number of bots, which
+	/// is any argument `atoi` reads as positive, such as `3rd`.
 	#[error("`tf_bot_add` would read the bot name as another argument")]
 	Reserved,
 }
@@ -1587,7 +1588,8 @@ fn check_name(name: &CStr) -> Result<(), BotNameError> {
 	let reserved = PlayerClass::ALL
 		.into_iter()
 		.map(class_argument)
-		.chain([c"red", c"blue", c"noquota"])
+		// `IsPlayerClassname` also takes the unplayable Civilian.
+		.chain([c"civilian", c"red", c"blue", c"noquota"])
 		.chain(Difficulty::ALL.map(Difficulty::argument))
 		.any(|argument| argument.to_bytes().eq_ignore_ascii_case(bytes));
 

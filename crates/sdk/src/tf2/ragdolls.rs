@@ -31,12 +31,22 @@
 //! player's `tf_ragdoll` (`m_hRagdoll`) to leave only the server ragdoll, but
 //! never point `m_hRagdoll` at a server ragdoll, which TF2's clients take to
 //! be a `tf_ragdoll` unchecked.
+//!
+//! [`TfRagdoll`] reads a `tf_ragdoll`, and sets its [`RagdollFlag`]s before
+//! clients make their ragdoll from it.
+//! [`TfPlayer::ragdoll`](crate::tf2::player::TfPlayer::ragdoll) finds a
+//! player's, and
+//! [`TfPlayer::remove_ragdoll`](crate::tf2::player::TfPlayer::remove_ragdoll)
+//! removes it.
 
-use crate::datatables::{NetPropError, NetValue};
+use crate::datatables::{NetProp, NetPropError, NetValue, NetVar};
 use crate::entities::{CollisionGroup, Entity};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
+use crate::math::Vector;
+use crate::tf2::PlayerClass;
 use crate::tf2::damage::{DamageInfo, DamageType};
+use crate::tf2::teams::Team;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::damage::DMG_VEHICLE;
 use sdk_raw::tf2::ragdolls::{self as raw, RAGDOLL_MAX_ELEMENTS};
@@ -90,6 +100,94 @@ pub enum RagdollError {
 	/// The server does not run TF2.
 	#[error("server ragdolls require a TF2 server")]
 	UnsupportedGame,
+}
+
+/// A flag of a [`TfRagdoll`], which decides how clients make the ragdoll of a
+/// player's death.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RagdollFlag {
+	/// Burns away to ash, as the victims of some of the Pyro's weapons do
+	/// (`m_bBecomeAsh`).
+	#[doc(alias("m_bBecomeAsh"))]
+	BecomeAsh,
+
+	/// Burns (`m_bBurning`).
+	#[doc(alias("m_bBurning"))]
+	Burning,
+
+	/// Fades out as a cloaked Spy does (`m_bCloaked`).
+	#[doc(alias("m_bCloaked"))]
+	Cloaked,
+
+	/// Bursts in a red mist as it gibs, as the victims of the Classic's
+	/// critical hits do (`m_bCritOnHardHit`).
+	#[doc(alias("m_bCritOnHardHit"))]
+	CritOnHardHit,
+
+	/// Crackles with electricity (`m_bElectrocuted`).
+	#[doc(alias("m_bElectrocuted"))]
+	Electrocuted,
+
+	/// A Spy's feigned death (`m_bFeignDeath`).
+	#[doc(alias("m_bFeignDeath"))]
+	FeignDeath,
+
+	/// Bursts into gibs instead of a ragdoll (`m_bGib`).
+	#[doc(alias("m_bGib"))]
+	Gib,
+
+	/// Turns to gold, as the victims of golden weapons do (`m_bGoldRagdoll`).
+	#[doc(alias("m_bGoldRagdoll"))]
+	Gold,
+
+	/// Freezes into an ice statue, as the Spy-cicle's victims do
+	/// (`m_bIceRagdoll`).
+	#[doc(alias("m_bIceRagdoll"))]
+	Ice,
+
+	/// The player died on the ground (`m_bOnGround`). Clients play most death
+	/// animations only for such a ragdoll.
+	#[doc(alias("m_bOnGround"))]
+	OnGround,
+
+	/// The player was disguised (`m_bWasDisguised`), so a feigned death shows
+	/// the disguise.
+	#[doc(alias("m_bWasDisguised"))]
+	WasDisguised,
+}
+
+impl RagdollFlag {
+	/// Every flag.
+	pub const ALL: [Self; 11] = [
+		Self::BecomeAsh,
+		Self::Burning,
+		Self::Cloaked,
+		Self::CritOnHardHit,
+		Self::Electrocuted,
+		Self::FeignDeath,
+		Self::Gib,
+		Self::Gold,
+		Self::Ice,
+		Self::OnGround,
+		Self::WasDisguised,
+	];
+
+	/// The name of the flag's networked variable.
+	pub const fn net_prop_name(self) -> &'static CStr {
+		match self {
+			Self::BecomeAsh => c"m_bBecomeAsh",
+			Self::Burning => c"m_bBurning",
+			Self::Cloaked => c"m_bCloaked",
+			Self::CritOnHardHit => c"m_bCritOnHardHit",
+			Self::Electrocuted => c"m_bElectrocuted",
+			Self::FeignDeath => c"m_bFeignDeath",
+			Self::Gib => c"m_bGib",
+			Self::Gold => c"m_bGoldRagdoll",
+			Self::Ice => c"m_bIceRagdoll",
+			Self::OnGround => c"m_bOnGround",
+			Self::WasDisguised => c"m_bWasDisguised",
+		}
+	}
 }
 
 /// TF2's `CreateServerRagdoll`, within the current engine callback.
@@ -237,6 +335,204 @@ impl<'s> ServerRagdolls<'s> {
 
 		Ok(ragdoll)
 	}
+}
+
+/// What a TF2 player's death leaves for clients to make a ragdoll or gibs
+/// from (`tf_ragdoll`, `CTFRagdoll`), within one engine callback.
+///
+/// The game creates one as a player dies, which clients make their own
+/// ragdoll from when they first receive it, and which the player's
+/// [`ragdoll`](crate::tf2::player::TfPlayer::ragdoll) refers to until their
+/// next death. Clients read it once, so changing it only matters before it
+/// is first sent to them, in the frame of the death, such as from a hook of
+/// the death that runs after the game's.
+#[doc(alias("tf_ragdoll", "CTFRagdoll"))]
+#[derive(Debug, Clone, Copy)]
+pub struct TfRagdoll<'s> {
+	server: Server<'s>,
+	ragdoll: Entity<'s>,
+}
+
+impl<'s> TfRagdoll<'s> {
+	/// Wraps a player's ragdoll, or returns [`TfRagdollError::NotTfRagdoll`]
+	/// unless the server runs TF2 and `ragdoll`'s server class is
+	/// `CTFRagdoll`.
+	pub fn new(server: Server<'s>, ragdoll: Entity<'s>) -> Result<Self, TfRagdollError> {
+		if server.game() != Game::TeamFortress2
+			|| !ragdoll
+				.server_class()
+				.is_some_and(|class| class.name() == c"CTFRagdoll")
+		{
+			return Err(TfRagdollError::NotTfRagdoll);
+		}
+
+		Ok(Self { server, ragdoll })
+	}
+
+	/// The class the player died as (`m_iClass`), or `None` for
+	/// `TF_CLASS_UNDEFINED`.
+	///
+	/// Fails with [`TfRagdollError::UnknownClass`] for any other value that is
+	/// no playable class.
+	#[doc(alias("m_iClass"))]
+	pub fn class(self) -> Result<Option<PlayerClass>, TfRagdollError> {
+		match self.get::<c_int>(c"m_iClass")? {
+			0 => Ok(None),
+
+			raw => PlayerClass::from_raw(raw)
+				.map(Some)
+				.ok_or(TfRagdollError::UnknownClass(raw)),
+		}
+	}
+
+	/// The kind of the death's damage (`m_iDamageCustom`), a `TF_DMG_CUSTOM_*`
+	/// value such as a headshot's, from which clients choose the death
+	/// animation. The game clears it when the death animation should stop.
+	#[doc(alias("m_iDamageCustom"))]
+	pub fn damage_custom(self) -> Result<c_int, TfRagdollError> {
+		self.get(c"m_iDamageCustom")
+	}
+
+	/// The ragdoll's entity.
+	pub const fn entity(self) -> Entity<'s> {
+		self.ragdoll
+	}
+
+	/// Whether the ragdoll has `flag`.
+	pub fn flag(self, flag: RagdollFlag) -> Result<bool, TfRagdollError> {
+		self.get(flag.net_prop_name())
+	}
+
+	/// The damage force of the death (`m_vecForce`), with which clients push
+	/// the ragdoll.
+	#[doc(alias("m_vecForce"))]
+	pub fn force(self) -> Result<Vector, TfRagdollError> {
+		self.get(c"m_vecForce")
+	}
+
+	/// The bone the death's force pushes (`m_nForceBone`).
+	#[doc(alias("m_nForceBone"))]
+	pub fn force_bone(self) -> Result<c_int, TfRagdollError> {
+		self.get(c"m_nForceBone")
+	}
+
+	/// Reads one of the ragdoll's networked variables.
+	fn get<T: NetVar>(self, name: &CStr) -> Result<T, TfRagdollError> {
+		Ok(self.net_prop(name)?.get(self.ragdoll)?)
+	}
+
+	/// How much the player's hands were scaled (`m_flHandScale`), as some
+	/// conditions and taunts scale them.
+	#[doc(alias("m_flHandScale"))]
+	pub fn hand_scale(self) -> Result<f32, TfRagdollError> {
+		self.get(c"m_flHandScale")
+	}
+
+	/// How much the player's head was scaled (`m_flHeadScale`).
+	#[doc(alias("m_flHeadScale"))]
+	pub fn head_scale(self) -> Result<f32, TfRagdollError> {
+		self.get(c"m_flHeadScale")
+	}
+
+	/// Resolves one of the ragdoll's networked variables.
+	fn net_prop(self, name: &CStr) -> Result<NetProp<'s>, TfRagdollError> {
+		Ok(self
+			.server
+			.server_game_dll()?
+			.entity_net_prop(self.ragdoll, name)?)
+	}
+
+	/// Where the player died (`m_vecRagdollOrigin`).
+	#[doc(alias("m_vecRagdollOrigin"))]
+	pub fn origin(self) -> Result<Vector, TfRagdollError> {
+		self.get(c"m_vecRagdollOrigin")
+	}
+
+	/// The player who died (`m_hPlayer`), or `None` if they no longer exist.
+	#[doc(alias("m_hPlayer"))]
+	pub fn player(self) -> Result<Option<Entity<'s>>, TfRagdollError> {
+		let handle = self.net_prop(c"m_hPlayer")?.get_handle(self.ragdoll)?;
+
+		Ok(self.server.server_tools()?.entity_by_handle(handle))
+	}
+
+	/// Sets or clears one of the ragdoll's flags, and records the change so
+	/// the engine sends it to clients. Clients read the flags once, as they
+	/// make the ragdoll, so set them before the ragdoll is first sent, in the
+	/// frame of the death.
+	///
+	/// Fails with [`TfRagdollError::MarkedForDeletion`] for a ragdoll marked
+	/// for deletion.
+	pub fn set_flag(self, flag: RagdollFlag, value: bool) -> Result<(), TfRagdollError> {
+		if self.ragdoll.is_marked_for_deletion() {
+			return Err(TfRagdollError::MarkedForDeletion);
+		}
+
+		let engine = self.server.valve_engine()?;
+
+		// SAFETY: The game sets each flag either way itself, and clients
+		// combine any of them.
+		unsafe {
+			self.net_prop(flag.net_prop_name())?
+				.set(engine, self.ragdoll, value)
+		}?;
+
+		Ok(())
+	}
+
+	/// The player's team as they died (`m_iTeam`).
+	///
+	/// Fails with [`TfRagdollError::UnknownTeam`] for a value that is not one
+	/// of TF2's teams.
+	#[doc(alias("m_iTeam"))]
+	pub fn team(self) -> Result<Team, TfRagdollError> {
+		let raw = self.get::<c_int>(c"m_iTeam")?;
+
+		Team::from_raw(raw).ok_or(TfRagdollError::UnknownTeam(raw))
+	}
+
+	/// How much the player's torso was scaled (`m_flTorsoScale`).
+	#[doc(alias("m_flTorsoScale"))]
+	pub fn torso_scale(self) -> Result<f32, TfRagdollError> {
+		self.get(c"m_flTorsoScale")
+	}
+
+	/// The player's velocity as they died (`m_vecRagdollVelocity`), which
+	/// clients receive clamped to 2048 units per second in each axis.
+	#[doc(alias("m_vecRagdollVelocity"))]
+	pub fn velocity(self) -> Result<Vector, TfRagdollError> {
+		self.get(c"m_vecRagdollVelocity")
+	}
+}
+
+/// Why a [`TfRagdoll`] could not be read or changed.
+#[derive(Debug, thiserror::Error)]
+pub enum TfRagdollError {
+	/// A required engine interface is unavailable.
+	#[error(transparent)]
+	Interface(#[from] InterfaceError),
+
+	/// The ragdoll is marked for deletion.
+	#[error("the ragdoll is marked for deletion")]
+	MarkedForDeletion,
+
+	/// A networked variable could not be read or written.
+	#[error(transparent)]
+	NetProp(#[from] NetPropError),
+
+	/// The entity is not a TF2 player's ragdoll, or the server does not run
+	/// TF2.
+	#[error("the entity is not a tf_ragdoll")]
+	NotTfRagdoll,
+
+	/// The ragdoll's `m_iClass` holds neither `TF_CLASS_UNDEFINED` nor a
+	/// playable class.
+	#[error("the ragdoll's class {0} is not one of TF2's playable classes")]
+	UnknownClass(c_int),
+
+	/// The ragdoll's `m_iTeam` is not one of TF2's teams.
+	#[error("the ragdoll's team {0} is not one of TF2's")]
+	UnknownTeam(c_int),
 }
 
 /// Sends `ragdoll` the input that shows it, or removes it if it refuses.

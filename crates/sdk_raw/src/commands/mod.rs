@@ -36,6 +36,16 @@ pub use variable::{
 	parse_float, parse_int,
 };
 
+/// `void ConCommand::Dispatch(const CCommand &)`, through which the engine
+/// runs a command, and which plugins hook on a command's object to see its
+/// runs or replace them.
+#[doc(alias("Dispatch"))]
+pub type DispatchFn = unsafe extern "C" fn(this: *mut sys::ConCommand, args: *const sys::CCommand);
+
+/// The vtable slot of `ConCommand::Dispatch`, a [`DispatchFn`].
+pub const DISPATCH_SLOT: usize =
+	crate::vtable_slot!(sys::ConCommand__bindgen_vtable, ConCommand_Dispatch);
+
 /// The names the engine runs for clients itself, through `Dispatch` as
 /// though the server had run them, before the game or any hook sees them: the
 /// list `CGameClient::ExecuteStringCommand` checks in TF2's 64-bit engine.
