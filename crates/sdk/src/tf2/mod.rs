@@ -8,6 +8,7 @@
 
 pub mod achievements;
 pub mod ammo;
+pub mod animating;
 pub mod attributes;
 mod class;
 pub mod conditions;

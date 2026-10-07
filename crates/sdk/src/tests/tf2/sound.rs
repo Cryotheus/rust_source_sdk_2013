@@ -1,5 +1,5 @@
 //! Tests of `crate::tf2::sound`: broadcasts through a fake event manager and
-//! channels, and precaching through the world's native member.
+//! channels, and emitting and precaching through entities' native members.
 
 use super::*;
 use crate::bitbuf::BitWriter;
@@ -32,6 +32,8 @@ thread_local! {
 	static CHANNELS: Cell<(*mut sys::INetChannel, u32)> = const { Cell::new((null_mut(), 0)) };
 	static CREATE_FAILS: Cell<bool> = const { Cell::new(false) };
 	static CREATED: Cell<usize> = const { Cell::new(0) };
+	static EMIT_REJECTS: Cell<bool> = const { Cell::new(false) };
+	static EMITTED: RefCell<Vec<(*mut c_void, CString)>> = const { RefCell::new(Vec::new()) };
 	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
 	// whichever slot reaches it, and the patch only writes slots of the vtable
 	// being built.
@@ -410,6 +412,30 @@ fn player_unknown() -> sys::IServerUnknown {
 	}
 }
 
+/// The adapter of `CBaseEntity::EmitSound`, which records the entity and the
+/// name, unless [`EMIT_REJECTS`] is set.
+unsafe extern "C" fn emit_adapter(
+	_: sys::ScriptFunctionBindingStorageType_t,
+	object: *mut c_void,
+	arguments: *mut sys::ScriptVariant_t,
+	count: c_int,
+	result: *mut sys::ScriptVariant_t,
+) -> bool {
+	assert_eq!(count, 1);
+	assert!(result.is_null(), "a void member gets no result");
+
+	if EMIT_REJECTS.get() {
+		return false;
+	}
+
+	// SAFETY: The binding declares one string parameter, so the caller passes
+	// one string variant, NUL-terminated.
+	let name = unsafe { CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString) };
+
+	EMITTED.with_borrow_mut(|emitted| emitted.push((object, name.to_owned())));
+	true
+}
+
 /// The adapter of `CBaseEntity::PrecacheScriptSound`, which records the name,
 /// unless [`PRECACHE_REJECTS`] is set.
 unsafe extern "C" fn precache_adapter(
@@ -441,6 +467,85 @@ fn reset_event() {
 	FREED.set(0);
 	INTS.take();
 	STRINGS.take();
+}
+
+#[test]
+fn script_sounds_are_emitted_through_the_entitys_native_member() {
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut parameters = [STRING];
+	let mut bindings = [member_binding(
+		c"EmitSound",
+		binding::VOID,
+		&mut parameters,
+		Some(emit_adapter),
+	)];
+	let mut description = class_description(c"CBaseEntity", &mut bindings, null_mut());
+
+	// Changed below only through the pointer `call` reads it by.
+	let binding = description.m_FunctionBindings.m_Memory.m_pMemory;
+	let mut mock = MockEntity::new(1);
+	let pointer = mock.as_ptr();
+	let mut vtable = [unexpected_call as *const (); SCRIPT_DESCRIPTION_SLOT + 1];
+
+	// The mock's own vtable answers every slot before the descriptor's, which
+	// include the datamap's.
+	// SAFETY: A mock entity starts with the pointer to its vtable, which has
+	// slots up to TF2's `Teleport`, past `GetScriptDesc`.
+	unsafe {
+		let original = pointer.cast::<*const *const ()>().read();
+
+		for (slot, entry) in vtable.iter_mut().enumerate().take(SCRIPT_DESCRIPTION_SLOT) {
+			*entry = original.add(slot).read();
+		}
+	}
+
+	vtable[SCRIPT_DESCRIPTION_SLOT] = script_description as *const ();
+	// SAFETY: A mock entity starts with the pointer to its vtable, and the new
+	// vtable outlives the entity's last use, at the end of the test.
+	unsafe { pointer.cast::<*const *const ()>().write(vtable.as_ptr()) };
+	set_script_description(&raw mut description);
+	EMITTED.take();
+
+	// SAFETY: Mock entities are leaked, and the vtable answers what the call
+	// reads of an entity.
+	let entity = unsafe { Entity::from_raw(NonNull::new(pointer).unwrap()) };
+
+	assert_eq!(
+		emit_script_sound(server, entity, c"TFPlayer.Decapitated"),
+		Ok(())
+	);
+	assert_eq!(
+		EMITTED.take(),
+		[(pointer.cast(), c"TFPlayer.Decapitated".to_owned())]
+	);
+
+	// The adapter's refusal is reported.
+	EMIT_REJECTS.set(true);
+	assert_eq!(
+		emit_script_sound(server, entity, c"TFPlayer.Decapitated"),
+		Err(EmitError::Rejected)
+	);
+	EMIT_REJECTS.set(false);
+
+	// An entity marked for deletion is not used.
+	mock.set_eflags(1);
+	assert_eq!(
+		emit_script_sound(server, entity, c"TFPlayer.Decapitated"),
+		Err(EmitError::MarkedForDeletion)
+	);
+	mock.set_eflags(0);
+
+	// Another signature is refused before the call.
+	// SAFETY: `binding` points to the binding in `bindings`, which is alive,
+	// and which the call only reads through the same pointer.
+	unsafe { (*binding).m_desc.m_ReturnType = binding::FLOAT };
+	assert_eq!(
+		emit_script_sound(server, entity, c"TFPlayer.Decapitated"),
+		Err(EmitError::UnsupportedMethod)
+	);
+	assert!(EMITTED.take().is_empty());
+	set_script_description(null_mut());
 }
 
 #[test]
