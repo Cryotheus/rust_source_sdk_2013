@@ -5,10 +5,26 @@ mod tests;
 use super::{Error, Image, MAX_IMAGE_BYTES, PinnedModule, Section, u16_at, u32_at, word_at};
 use std::ffi::{CStr, CString, OsStr, c_char, c_int, c_void};
 use std::fs::File;
+use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
+
+/// `mmap`'s flag for memory backed by no file.
+const MAP_ANONYMOUS: c_int = 0x20;
+
+/// `mmap`'s flag for memory no other process shares.
+const MAP_PRIVATE: c_int = 2;
+
+/// `PROT_EXEC`: pages that may be executed.
+const PROT_EXEC: c_int = 4;
+
+/// `PROT_READ`: pages that may be read.
+const PROT_READ: c_int = 1;
+
+/// `PROT_WRITE`: pages that may be written.
+const PROT_WRITE: c_int = 2;
 
 /// `dlopen`'s flag to never unload the library, even once every reference
 /// to it is closed.
@@ -121,6 +137,60 @@ unsafe extern "C" {
 	fn dlclose(handle: *mut c_void) -> c_int;
 	fn dlopen(file: *const c_char, mode: c_int) -> *mut c_void;
 	fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
+}
+
+unsafe extern "C" {
+	fn mmap(
+		address: *mut c_void,
+		len: usize,
+		protection: c_int,
+		flags: c_int,
+		file: c_int,
+		offset: i64,
+	) -> *mut c_void;
+
+	fn mprotect(address: *mut c_void, len: usize, protection: c_int) -> c_int;
+}
+
+/// Allocates `len` bytes of fresh pages, readable and writable, which are
+/// never freed.
+pub(super) fn allocate_pages(len: usize) -> io::Result<NonNull<u8>> {
+	// SAFETY: This maps new anonymous pages wherever the system chooses,
+	// touching no existing memory.
+	let pages = unsafe {
+		mmap(
+			std::ptr::null_mut(),
+			len,
+			PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS,
+			-1,
+			0,
+		)
+	};
+
+	// `MAP_FAILED` is the address -1.
+	if pages.addr() == usize::MAX {
+		return Err(io::Error::last_os_error());
+	}
+
+	NonNull::new(pages.cast()).ok_or_else(io::Error::last_os_error)
+}
+
+/// Makes the `len` bytes of pages at `address` executable and read-only.
+/// x86-64 keeps instruction fetches coherent with writes, so nothing needs
+/// flushing.
+///
+/// # Safety
+///
+/// The pages must be an allocation of [`allocate_pages`], and no code may run
+/// from them or write to them during the call.
+pub(super) unsafe fn make_executable(address: NonNull<c_void>, len: usize) -> io::Result<()> {
+	// SAFETY: As the caller promises.
+	if unsafe { mprotect(address.as_ptr(), len, PROT_READ | PROT_EXEC) } != 0 {
+		return Err(io::Error::last_os_error());
+	}
+
+	Ok(())
 }
 
 /// Checks current process mapping permissions. The result is a snapshot;
