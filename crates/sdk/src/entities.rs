@@ -494,6 +494,35 @@ impl<'s> Entity<'s> {
 		Some(unsafe { origin.as_ptr().read() }.into())
 	}
 
+	/// Reads the box around the entity in world space, as its minimum and
+	/// maximum corners: the bounds Source sorts it into its spatial partition
+	/// by, which hold all of its collision or trigger volume, rotated or not.
+	/// A brush entity's box surrounds its brushes, wherever its origin is.
+	///
+	/// Returns `None` if the entity has no collideable.
+	#[doc(alias("WorldSpaceSurroundingBounds"))]
+	pub fn bounds(self) -> Option<(Vector, Vector)> {
+		// SAFETY: As for `handle`.
+		let collideable = NonNull::new(unsafe {
+			vcall!(self.server_entity() => IServerEntity_GetCollideable())
+		})?;
+
+		let mut mins = sys::Vector {
+			x: 0.0,
+			y: 0.0,
+			z: 0.0,
+		};
+		let mut maxs = mins;
+
+		// SAFETY: The collideable belongs to the live entity, and only writes
+		// the two vectors, which outlive the call.
+		unsafe {
+			vcall!(collideable.as_ptr() => ICollideable_WorldSpaceSurroundingBounds(&raw mut mins, &raw mut maxs));
+		}
+
+		Some((mins.into(), maxs.into()))
+	}
+
 	/// The class describing how the entity is networked, or `None` if Source
 	/// reports none.
 	#[doc(alias("GetServerClass"))]
