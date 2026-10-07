@@ -2,7 +2,29 @@
 //! data description maps, and of teleporting them.
 
 use super::*;
-use crate::test_support::entities::{MockEntity, teleports};
+use crate::test_support::entities::{MockEntity, set_collision_group, teleports};
+
+#[test]
+fn collision_groups_are_read_from_the_collideable() {
+	// `TFCOLLISION_GROUP_ROCKETS`, a group of TF2's own.
+	let rockets = sdk_raw::entities::LAST_SHARED_COLLISION_GROUP + 4;
+	let mut mock = MockEntity::new(5);
+
+	assert_eq!(mock.entity().collision_group(), Some(COLLISION_GROUP_NONE));
+
+	// Shared groups convert, and games' own are kept as they are.
+	set_collision_group(COLLISION_GROUP_DEBRIS);
+	assert_eq!(
+		mock.entity()
+			.collision_group()
+			.and_then(CollisionGroup::from_raw),
+		Some(CollisionGroup::Debris)
+	);
+
+	set_collision_group(rockets);
+	assert_eq!(mock.entity().collision_group(), Some(rockets));
+	assert_eq!(CollisionGroup::from_raw(rockets), None);
+}
 
 #[test]
 fn entities_read_native_properties_and_teleport() {

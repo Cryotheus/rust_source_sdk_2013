@@ -29,6 +29,9 @@ thread_local! {
 
 	/// Every key and value `SetKeyValue` received, in order.
 	static KEYS_SET: RefCell<Vec<(CString, CString)>> = const { RefCell::new(Vec::new()) };
+
+	/// Every name `FindEntityByName` was asked for, in order.
+	static NAMES_FOUND: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
 }
 
 /// A field embedding `count` objects described by `map` at `offset`.
@@ -57,6 +60,29 @@ unsafe extern "C" fn entity_by_index(
 	index: c_int,
 ) -> *mut sys::CBaseEntity {
 	if index == 1 { ENTITY.get() } else { null_mut() }
+}
+
+/// `IServerTools::FindEntityByName`, which records each name, and finds
+/// [`ENTITY`] as the first entity named `cap_base`. The entities procedural
+/// names are relative to, and the filter, must be null.
+unsafe extern "C" fn entity_by_name(
+	_: *mut sys::IServerTools,
+	after: *mut sys::CBaseEntity,
+	name: *const c_char,
+	searching: *mut sys::CBaseEntity,
+	activator: *mut sys::CBaseEntity,
+	caller: *mut sys::CBaseEntity,
+	filter: *mut sys::IEntityFindFilter,
+) -> *mut sys::CBaseEntity {
+	// SAFETY: The wrapper passes a NUL-terminated name.
+	let name = unsafe { CStr::from_ptr(name) }.to_owned();
+	let found = after.is_null() && name.as_c_str() == c"cap_base";
+
+	assert!(searching.is_null() && activator.is_null() && caller.is_null());
+	assert!(filter.is_null());
+	NAMES_FOUND.with_borrow_mut(|names| names.push(name));
+
+	if found { ENTITY.get() } else { null_mut() }
 }
 
 /// `IServerTools::GetEntityList`, which returns [`LIST`].
@@ -104,6 +130,43 @@ fn key(name: &'static CStr, field_type: sys::fieldtype_t, offset: usize) -> sys:
 	key.flags = FTYPEDESC_KEY;
 	key.externalName = name.as_ptr();
 	key
+}
+
+#[test]
+fn entities_are_found_by_name() {
+	let mut mock = MockEntity::new(1 | 9 << 16);
+
+	ENTITY.set(mock.as_ptr());
+	NAMES_FOUND.take();
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes a slot of the
+	// vtable being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::IServerTools__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IServerTools_FindEntityByName).write(entity_by_name)
+		})
+	};
+
+	let mut interface = sys::IServerTools {
+		vtable_: &raw const *vtable,
+	};
+
+	// SAFETY: The mock outlives the handle.
+	let tools =
+		unsafe { ServerTools::from_raw(NonNull::from(&mut interface), Game::TeamFortress2) };
+	let found = tools.find_by_name(None, c"cap_base");
+
+	assert_eq!(found.map(Entity::as_ptr), Some(mock.as_ptr()));
+	assert!(tools.find_by_name(found, c"cap_base").is_none());
+
+	// Procedural names never reach the game, which needs an entity searching.
+	assert!(tools.find_by_name(None, c"!activator").is_none());
+	assert!(tools.find_by_name(None, c"!picker").is_none());
+	assert_eq!(
+		NAMES_FOUND.take(),
+		[c"cap_base", c"cap_base"].map(CString::from)
+	);
 }
 
 #[test]

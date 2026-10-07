@@ -9,11 +9,13 @@
 //! `CBaseAnimating` as opaque blobs, whose single, polymorphic primary bases
 //! that ABI also places first.
 
+pub mod airblast;
 pub mod ammo;
 pub mod attributes;
 pub mod class;
 pub mod conditions;
 pub mod damage;
+pub mod duels;
 pub mod game_events;
 pub mod game_rules;
 pub mod gc;
@@ -25,6 +27,7 @@ pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
 pub mod script_binding;
+pub mod spawn;
 pub mod teams;
 pub mod touch;
 pub mod voice;
