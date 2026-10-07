@@ -1,6 +1,6 @@
 //! TF2's objective entities: the map entities that time rounds, hold and
-//! capture control points, carry flags and push payload carts, and the
-//! round wins they end in.
+//! capture control points, carry flags and push payload carts, the round
+//! wins they end in, and the spawn points and zones each team plays from.
 //!
 //! Each wrapper checks the entity's class when it is created, as
 //! [`RoundTimer::new`] does, and then reads the entity's state from its
@@ -24,6 +24,10 @@
 //! - Flags: [`CaptureFlag`] (`item_teamflag`) and the [`CaptureZone`]
 //!   (`func_capturezone`) players capture it in.
 //! - Payload: [`TrainWatcher`] (`team_train_watcher`), which tracks a cart.
+//! - Teams' places: [`TeamSpawn`] (`info_player_teamspawn`), [`RespawnRoom`]
+//!   (`func_respawnroom`) and its [`RespawnRoomVisualizer`]
+//!   (`func_respawnroomvisualizer`), [`RegenerateZone`] (`func_regenerate`)
+//!   and [`NoBuildZone`] (`func_nobuild`).
 //!
 //! Map logic, other plugins and the game's own code send the same inputs
 //! and change the same variables, so what a wrapper reads can change after
@@ -38,7 +42,9 @@ mod control_points;
 mod flags;
 mod objective_resource;
 mod round_timer;
+mod team_spawn;
 mod train_watcher;
+mod zones;
 
 use crate::datatables::{NetProp, NetPropError, NetVar, Storage};
 use crate::entities::Entity;
@@ -51,7 +57,9 @@ pub use control_points::{CaptureWins, ControlPoint, ControlPointMaster, ControlP
 pub use flags::{CaptureFlag, CaptureZone, FlagStatus, FlagType};
 pub use objective_resource::ObjectiveResource;
 pub use round_timer::{KothLogic, RoundTimer, RoundTimerOutput, RoundWin, TimerState, WinReason};
+pub use team_spawn::{TeamSpawn, TeamSpawnMode};
 pub use train_watcher::TrainWatcher;
+pub use zones::{NoBuildZone, RegenerateZone, RespawnRoom, RespawnRoomVisualizer};
 
 /// An entity of one of the objective classes, which the wrappers read and
 /// send inputs to.
