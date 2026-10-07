@@ -49,6 +49,8 @@ mod zones;
 use crate::datatables::{NetProp, NetPropError, NetVar, Storage};
 use crate::entities::Entity;
 use crate::inputs::{InputError, InputValue};
+use crate::tf2::game_rules::GameRules;
+use crate::tf2::round_end::RoundEndError;
 use crate::{Game, InterfaceError, Server};
 use std::ffi::{CStr, CString, c_int};
 
@@ -108,6 +110,15 @@ impl<'s> Objective<'s> {
 		} else {
 			Ok(())
 		}
+	}
+
+	/// Checks that the round may end, as [`GameRules::set_winning_team`] does,
+	/// before an input that ends it.
+	pub(crate) fn check_round_end(self) -> Result<(), ObjectiveError> {
+		let tools = self.server.server_tools()?;
+		let rules = GameRules::get(self.server).map_err(RoundEndError::from)?;
+
+		Ok(rules.check_round_end(tools)?)
 	}
 
 	/// The game time, in seconds.
@@ -342,6 +353,14 @@ pub enum ObjectiveError {
 	/// The entity is marked for deletion.
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
+
+	/// An input that ends the round was not sent, because a team already won
+	/// it, or the game would read King of the Hill timers that do not exist,
+	/// as [`GameRules::set_winning_team`] refuses.
+	///
+	/// [`GameRules::set_winning_team`]: crate::tf2::game_rules::GameRules::set_winning_team
+	#[error(transparent)]
+	RoundEnd(#[from] RoundEndError),
 
 	/// A networked variable could not be read or written.
 	#[error(transparent)]

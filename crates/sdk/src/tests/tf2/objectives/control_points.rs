@@ -2,8 +2,12 @@
 //! entities of their classes.
 
 use super::*;
-use crate::test_support::entities::take_inputs;
+use crate::test_support::entities::{set_networking, take_inputs};
 use crate::test_support::server::mock_server;
+use crate::test_support::tf2::game_rules::{ROUND_STATE, World, round_rules_proxy};
+use crate::tf2::objectives::RoundWin;
+use crate::tf2::round_end::RoundEndError;
+use sdk_raw::tf2::game_rules::{GR_STATE_RND_RUNNING, GR_STATE_TEAM_WIN};
 
 use crate::test_support::tf2::objectives::{
 	FIELDS_OFFSET, FakeClass, FakeObjective, expected, input, key_field, received,
@@ -215,22 +219,8 @@ fn masters_read_their_rules_and_end_rounds() {
 	take_inputs();
 	master.enable().unwrap();
 	master.disable().unwrap();
-	master.set_winner(Some(ScoringTeam::Blue)).unwrap();
-	master.set_winner(None).unwrap();
-	master
-		.set_winner_and_force_caps(Some(ScoringTeam::Red))
-		.unwrap();
 
-	assert_eq!(
-		received(),
-		expected(&[
-			(c"Enable", 0),
-			(c"Disable", 0),
-			(c"SetWinner", 3),
-			(c"SetWinner", 0),
-			(c"SetWinnerAndForceCaps", 2),
-		])
-	);
+	assert_eq!(received(), expected(&[(c"Enable", 0), (c"Disable", 0)]));
 
 	master.set_cap_layout(c"0 1 2").unwrap();
 	master.set_cap_layout_position(0.5, -1.0).unwrap();
@@ -333,4 +323,71 @@ fn mini_rounds_read_their_points_and_rules() {
 			expected: "team_control_point"
 		})
 	));
+}
+
+#[test]
+fn rounds_end_only_while_no_team_has_won() {
+	use sys::{_fieldtypes_FIELD_INTEGER as INTEGER, _fieldtypes_FIELD_VOID as VOID};
+
+	// The first interfaces exported are the ones found, so the game rules'
+	// come first, and a new mock entity forgets their networking, so it is
+	// set again. Mock entities share one class, so one entity stands in for
+	// both wrappers.
+	let world = World::new(Some(round_rules_proxy));
+	let fake = FakeObjective::new(FakeClass {
+		maps: vec![
+			(
+				c"CTeamControlPointMaster",
+				vec![
+					input(c"SetWinner", INTEGER),
+					input(c"SetWinnerAndForceCaps", INTEGER),
+				],
+			),
+			(c"CTeamplayRoundWin", vec![input(c"RoundWin", VOID)]),
+		],
+		base_fields: vec![],
+		table: None,
+	});
+	let scope = ();
+	let server = mock_server(&scope);
+
+	set_networking(world.class, world.edict);
+
+	let master = ControlPointMaster::new(server, fake.entity()).unwrap();
+	let win = RoundWin::new(server, fake.entity()).unwrap();
+
+	world.put_int(true, ROUND_STATE, GR_STATE_RND_RUNNING);
+	received();
+	master.set_winner(Some(ScoringTeam::Blue)).unwrap();
+	master.set_winner(None).unwrap();
+	master
+		.set_winner_and_force_caps(Some(ScoringTeam::Red))
+		.unwrap();
+	win.win().unwrap();
+
+	assert_eq!(
+		received(),
+		expected(&[
+			(c"SetWinner", 3),
+			(c"SetWinner", 0),
+			(c"SetWinnerAndForceCaps", 2),
+			(c"RoundWin", 0),
+		])
+	);
+
+	// Once a team has won, TF2 would crit boost the winners again.
+	world.put_int(true, ROUND_STATE, GR_STATE_TEAM_WIN);
+
+	for result in [
+		master.set_winner(Some(ScoringTeam::Red)),
+		master.set_winner_and_force_caps(None),
+		win.win(),
+	] {
+		assert!(matches!(
+			result,
+			Err(ObjectiveError::RoundEnd(RoundEndError::AlreadyWon))
+		));
+	}
+
+	assert!(received().is_empty());
 }
