@@ -9,6 +9,7 @@
 pub mod commands;
 pub mod edicts;
 pub mod entities;
+pub mod key_values;
 pub mod net;
 
 #[cfg(feature = "tf2")]

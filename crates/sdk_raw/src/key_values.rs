@@ -1,5 +1,6 @@
-//! tier1's `KeyValues`, as far as reading the name of key values the engine
-//! made, and vstdlib's `IKeyValuesSystem`, whose symbol table holds most names.
+//! tier1's `KeyValues`, as far as reading the names, string values and own key
+//! values of key values the engine or game made, and vstdlib's
+//! `IKeyValuesSystem`, whose symbol table holds most names.
 //!
 //! Key values name themselves by a symbol, which `KeyValues::GetName` looks up
 //! in the table of the `IKeyValuesSystem` that vstdlib's `KeyValuesSystem`
@@ -25,7 +26,7 @@ mod tests;
 use crate::util::loaded_symbol;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::offset_of;
-use std::ptr::{NonNull, null};
+use std::ptr::{NonNull, null, null_mut};
 use std::sync::OnceLock;
 
 /// `IKeyValuesSystem::GetStringForSymbol`: the name `symbol` stands for.
@@ -54,14 +55,20 @@ pub type KeyValuesSystemFn = unsafe extern "C" fn() -> *mut IKeyValuesSystem;
 // `IKeyValuesSystem` declares no destructor, so its slots are the same on both
 // ABIs, in the order `public/vstdlib/IKeyValuesSystem.h` declares them.
 // `KeyValues` declares no virtual function: `m_iKeyName` is its first field,
-// at offset 0, of the 64 bytes the generated bindings assert on both ABIs.
-// TF2's tier1 puts the pointer to the key values' own table after those.
+// at offset 0, of the 64 bytes the generated bindings assert on both ABIs,
+// which end with `m_pPeer`, `m_pSub` and `m_pChain`. TF2's tier1 puts the
+// pointer to the key values' own table after those.
 const _: () = assert!(
 	GET_SYMBOL_FOR_STRING_SLOT == 3
 		&& GET_STRING_FOR_SYMBOL_SLOT == 4
 		&& size_of::<sys::KeyValues>() == 64
+		&& PEER_OFFSET == 64 - 3 * size_of::<usize>()
+		&& SUB_OFFSET == 64 - 2 * size_of::<usize>()
 		&& OWN_NAMES_TABLE_OFFSET == 64
 );
+
+/// Where key values keep `m_iDataType`, the type of their value.
+const DATA_TYPE_OFFSET: usize = 0x20;
 
 /// `IKeyValuesSystem::GetStringForSymbol`'s slot.
 #[doc(alias("GetStringForSymbol"))]
@@ -106,6 +113,21 @@ const OWN_NAMES_SIZE_OFFSET: usize = 0x68;
 /// tier1 keeps the pointer to the table: after the SDK's 64 bytes.
 const OWN_NAMES_TABLE_OFFSET: usize = 0x40;
 
+/// Where key values keep `m_pPeer`, the next key values in their parent's
+/// list, or null after the last.
+const PEER_OFFSET: usize = 0x28;
+
+/// Where key values keep `m_sValue`, their value as a string, which they own
+/// and free with themselves.
+const STRING_OFFSET: usize = 0x08;
+
+/// Where key values keep `m_pSub`, the first of their own key values, or null
+/// if they have none.
+const SUB_OFFSET: usize = 0x30;
+
+/// `KeyValues::TYPE_STRING`: the type of key values whose value is a string.
+const TYPE_STRING: u8 = 1;
+
 /// `IKeyValuesSystem`, the process's store of key values' names and memory,
 /// from `public/vstdlib/IKeyValuesSystem.h`.
 #[repr(C)]
@@ -149,6 +171,27 @@ fn find_key_values_system() -> Option<KeyValuesSystemFn> {
 
 	// SAFETY: vstdlib exports `KeyValuesSystem` with this signature.
 	Some(unsafe { std::mem::transmute::<*mut c_void, KeyValuesSystemFn>(address.as_ptr()) })
+}
+
+/// The first of `key_values`' own key values, as `KeyValues::GetFirstSubKey`
+/// returns it, or null if they have none.
+///
+/// # Safety
+///
+/// `key_values` must point to live key values laid out as tier1 lays them out.
+/// The result, if not null, points to key values of the same tree, which live
+/// as long as their parent does.
+#[doc(alias("GetFirstSubKey", "m_pSub"))]
+pub unsafe fn first_sub_key(key_values: NonNull<sys::KeyValues>) -> *mut sys::KeyValues {
+	// SAFETY: The caller passes live key values, which have the aligned pointer
+	// among their first 64 bytes.
+	unsafe {
+		key_values
+			.cast::<u8>()
+			.add(SUB_OFFSET)
+			.cast::<*mut sys::KeyValues>()
+			.read()
+	}
 }
 
 /// The name of `key_values`, found as TF2's `KeyValues::GetName` finds it: in
@@ -218,6 +261,24 @@ pub fn key_values_system() -> Option<NonNull<IKeyValuesSystem>> {
 	NonNull::new(unsafe { key_values_system() })
 }
 
+/// The key values after `key_values` in their parent's list, as
+/// `KeyValues::GetNextKey` returns them, or null after the last.
+///
+/// # Safety
+///
+/// As for [`first_sub_key`].
+#[doc(alias("GetNextKey", "m_pPeer"))]
+pub unsafe fn next_key(key_values: NonNull<sys::KeyValues>) -> *mut sys::KeyValues {
+	// SAFETY: As for `first_sub_key`.
+	unsafe {
+		key_values
+			.cast::<u8>()
+			.add(PEER_OFFSET)
+			.cast::<*mut sys::KeyValues>()
+			.read()
+	}
+}
+
 /// The name `symbol` stands for in `table`, a table of names that key values
 /// keep for themselves: the string at that offset in its strings. Returns an
 /// empty name for [`INVALID_KEY_SYMBOL`], as the game does, and null if
@@ -262,4 +323,30 @@ unsafe fn own_name(table: *const u8, symbol: HKeySymbol) -> *const c_char {
 	// SAFETY: The symbol is an offset within the vector's `size` bytes, where
 	// the table writes each name with its NUL.
 	unsafe { memory.add(symbol as usize) }
+}
+
+/// The value of `key_values` whose value is a string, which they own, or null
+/// for key values of another type, such as those that only hold key values
+/// of their own.
+///
+/// `KeyValues::GetString` converts values of other types to strings, and keeps
+/// the string in place of the value. This only reads.
+///
+/// # Safety
+///
+/// As for [`first_sub_key`]. The string, if any, is NUL-terminated, and lives
+/// until its key values change their value or are freed.
+#[doc(alias("GetString", "m_sValue"))]
+pub unsafe fn string_value(key_values: NonNull<sys::KeyValues>) -> *mut c_char {
+	let bytes = key_values.cast::<u8>();
+
+	// SAFETY: As for `first_sub_key`, with the type a byte, and the string an
+	// aligned pointer, among their first 64 bytes.
+	unsafe {
+		if bytes.add(DATA_TYPE_OFFSET).read() != TYPE_STRING {
+			return null_mut();
+		}
+
+		bytes.add(STRING_OFFSET).cast::<*mut c_char>().read()
+	}
 }
