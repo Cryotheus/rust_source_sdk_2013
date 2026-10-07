@@ -617,6 +617,7 @@ fn names_tf_bot_add_would_misread_are_refused() {
 	for name in [
 		c"Scout",
 		c"HEAVYWEAPONS",
+		c"Civilian",
 		c"red",
 		c"Blue",
 		c"noquota",
