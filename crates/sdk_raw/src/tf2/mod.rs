@@ -43,6 +43,7 @@ pub mod teams;
 pub mod touch;
 pub mod virtuals;
 pub mod voice;
+pub mod voice_chat;
 pub mod voting;
 pub mod weapons;
 pub mod wearables;
