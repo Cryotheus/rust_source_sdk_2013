@@ -29,6 +29,7 @@ pub mod gc;
 pub mod host_timescale;
 pub mod item_generation;
 pub mod item_schema;
+pub mod nav;
 pub mod objectives;
 pub mod objects;
 pub mod observer;
