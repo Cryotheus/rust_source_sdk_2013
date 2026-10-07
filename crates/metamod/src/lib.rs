@@ -98,6 +98,10 @@ pub mod touch_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod team_hooks;
 
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod transmit_hooks;
+
 #[cfg(feature = "tf2")]
 mod vote_hooks;
 
