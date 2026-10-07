@@ -154,7 +154,10 @@ impl<'s> ServerTools<'s> {
 	///   player, whose `ChangeTeam` checks the team itself, with a team
 	///   outside 0 to 3, which the game indexes per-team arrays with
 	///   unchecked, and any `SetTeam` on a team entity, which clients look up
-	///   by its team number.
+	///   by its team number. Also `SetOwner` on a `team_control_point` and
+	///   `SetWinnerAndForceCaps` on a `team_control_point_master` with a team
+	///   other than 0, 2 or 3, which points index their per-team data with
+	///   unchecked, and whose model for spectators they never precache.
 	/// - [`InputError::ProtectedEntity`]: `Kill` and `KillHierarchy` on the
 	///   world, a player, or a soundscape, which [`Self::remove`] refuses too.
 	///
@@ -574,7 +577,9 @@ impl<'s> ServerTools<'s> {
 	///   to it once it is freed. On a team entity, every value, since clients
 	///   look teams up by their number without checking that they are found.
 	/// - On a `team_control_point` (`CTeamControlPoint`): `point_index`
-	///   outside 0 to 7, `point_default_owner` an invalid team number, and
+	///   outside 0 to 7, `point_default_owner` other than 0, 2 or 3, the
+	///   owners the point can take at its next spawn without crashing, as
+	///   [`InputError::InvalidTeam`] describes for `SetOwner`, and
 	///   the keys `team_capsound_<team>`, `team_model_`, `team_timedpoints_`,
 	///   `team_bodygroup_`, `team_icon_` and `team_overlay_` with an invalid
 	///   team number, which the entity writes past its per-team data during the
