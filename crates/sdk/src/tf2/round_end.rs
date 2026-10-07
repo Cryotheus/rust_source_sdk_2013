@@ -148,7 +148,7 @@ pub enum RoundEndError {
 impl GameRules<'_> {
 	/// Checks that ending the round is safe, and has TF2 do no more than the
 	/// game rules accept.
-	fn check_round_end(self, tools: ServerTools<'_>) -> Result<(), RoundEndError> {
+	pub(crate) fn check_round_end(self, tools: ServerTools<'_>) -> Result<(), RoundEndError> {
 		if self.round_state()? == RoundState::TeamWin {
 			return Err(RoundEndError::AlreadyWon);
 		}

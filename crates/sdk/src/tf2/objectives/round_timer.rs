@@ -524,10 +524,17 @@ impl<'s> RoundWin<'s> {
 	/// [the reason](Self::win_reason), or a stalemate without one, and fires
 	/// the `OnRoundWin` output (`CTeamplayRoundWin::RoundWin`).
 	///
-	/// The game rules ignore a win while a round is already won, and in
-	/// commentary mode.
+	/// The game ignores a win in commentary mode. Fails with
+	/// [`ObjectiveError::RoundEnd`], without sending the input, while a team
+	/// has already won the round, which TF2 would crit boost again before
+	/// ignoring the win, and on a King of the Hill level whose round has not
+	/// spawned the teams' timers, which the game would read.
+	/// [`GameRules::set_winning_team`] ends rounds without an entity.
+	///
+	/// [`GameRules::set_winning_team`]: crate::tf2::game_rules::GameRules::set_winning_team
 	#[doc(alias("RoundWin"))]
 	pub fn win(self) -> Result<(), ObjectiveError> {
+		self.0.check_round_end()?;
 		self.0.input(c"RoundWin", InputValue::Void)
 	}
 
