@@ -8,7 +8,7 @@
 //! the spawn.
 //!
 //! [`sdk_raw::entities`] holds the function's signature and its vtable slot,
-//! [`SPAWN_SLOT`](sdk_raw::entities::SPAWN_SLOT). [`SpawnTargets`] finds the
+//! [`SPAWN_SLOT`]. [`SpawnTargets`] finds the
 //! vtable of an entity class by its C++ name, which `metamod_source`'s
 //! `spawn_hooks` hook, to see each of the class's entities once spawned,
 //! before any entity of the class exists.

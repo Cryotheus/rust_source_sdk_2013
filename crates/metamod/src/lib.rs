@@ -37,6 +37,10 @@ pub mod connect_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod crit_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod damage_hooks;
 
 #[cfg(feature = "tf2")]
@@ -66,6 +70,10 @@ pub mod fake_client_hooks;
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod gc_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod give_item_hooks;
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
@@ -127,7 +135,15 @@ pub mod transmit_hooks;
 pub mod think_hooks;
 
 #[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod user_cmd_hooks;
+
+#[cfg(feature = "tf2")]
 mod vote_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod weapon_hooks;
 
 #[cfg(test)]
 #[path = "tests/support/mod.rs"]

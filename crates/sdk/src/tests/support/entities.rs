@@ -165,6 +165,20 @@ pub struct MockState {
 }
 
 impl MockEntity {
+	/// The number of slots in the vtable of a mock entity.
+	pub fn vtable_slots() -> usize {
+		sdk_raw::entities::TF2_TELEPORT_SLOT
+			.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
+			.max(sdk_raw::entities::ACCEPT_INPUT_SLOT)
+			.max(sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT)
+			.max(sdk_raw::entities::health::TAKE_HEALTH_SLOT)
+			.max(sdk_raw::entities::health::IS_ALIVE_SLOT)
+			.max(sdk_raw::transmit::UPDATE_TRANSMIT_STATE_SLOT)
+			.max(sdk_raw::entities::spawn::ACTIVATE_SLOT)
+			.max(sdk_raw::entities::spawn::SET_MODEL_SLOT)
+			+ 1
+	}
+
 	/// Builds an entity whose handle is `handle`, and resets the datamap,
 	/// origin, collision group, teleport count, transmit state update count,
 	/// `TakeHealth`, `Activate` and `SetModel` calls, server class, and edict
@@ -177,17 +191,7 @@ impl MockEntity {
 	/// `layout`, such as that of a class whose generated members a wrapper
 	/// writes, padded to at least the 64 words a mock entity uses.
 	pub fn with_layout(handle: u32, layout: Layout) -> Self {
-		let slot_count = sdk_raw::entities::TF2_TELEPORT_SLOT
-			.max(sdk_raw::entities::GET_DATA_DESC_MAP_SLOT)
-			.max(sdk_raw::entities::ACCEPT_INPUT_SLOT)
-			.max(sdk_raw::entities::health::TF2_GET_MAX_HEALTH_SLOT)
-			.max(sdk_raw::entities::health::TAKE_HEALTH_SLOT)
-			.max(sdk_raw::entities::health::IS_ALIVE_SLOT)
-			.max(sdk_raw::transmit::UPDATE_TRANSMIT_STATE_SLOT)
-			.max(sdk_raw::entities::spawn::ACTIVATE_SLOT)
-			.max(sdk_raw::entities::spawn::SET_MODEL_SLOT)
-			+ 1;
-		let mut vtable = vec![unexpected_call as *const (); slot_count];
+		let mut vtable = vec![unexpected_call as *const (); Self::vtable_slots()];
 		let slot = |field: usize| field / size_of::<usize>();
 
 		vtable[slot(offset_of!(

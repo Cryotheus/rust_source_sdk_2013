@@ -32,6 +32,10 @@
 //! same base with its `CreateInterface` at the same address, and assumes, as
 //! [`ModuleCache`] describes, that this does not happen.
 
+#[cfg(test)]
+#[path = "../../tests/tf2/item_generation.rs"]
+mod tests;
+
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
@@ -302,7 +306,8 @@ impl ItemGeneration {
 	/// level 1, with Unique quality, and without rotation. With `classname`,
 	/// the item is created as that entity class instead of the definition's
 	/// own, unless no entity factory has that name, in which case `SpawnItem`
-	/// falls back to the definition's class.
+	/// falls back to the definition's class. [`Self::spawn_with_quality`]
+	/// creates it at another level or with another quality.
 	///
 	/// The entity returned is newly created, spawned, and activated. It must
 	/// not be spawned again.
@@ -333,6 +338,33 @@ impl ItemGeneration {
 		origin: sys::Vector,
 		classname: Option<&CStr>,
 	) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
+		// SAFETY: The caller upholds the guarantees of `spawn_with_quality`,
+		// which are this function's.
+		unsafe { self.spawn_with_quality(definition, origin, classname, ITEM_LEVEL, ITEM_QUALITY) }
+	}
+
+	/// As [`Self::spawn`], but creates the item at `level` and with `quality`
+	/// (`EEconItemQuality`), which its item view networks to clients: they show
+	/// both in the item's description, and color its name by its quality.
+	///
+	/// `SpawnItem` keeps both as given, except for `AE_USE_SCRIPT_VALUE`
+	/// (9999), which takes the definition's own quality or rolls a level in
+	/// its range, and for a quality of 255 (`k_unItemQuality_Any`), which gives
+	/// Genuine. Clients receive the level as a signed 8-bit number, and the
+	/// quality as a signed 5-bit one, so they see other values wrapped.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::spawn`].
+	#[doc(alias("SpawnItem"))]
+	pub unsafe fn spawn_with_quality(
+		&self,
+		definition: u16,
+		origin: sys::Vector,
+		classname: Option<&CStr>,
+		level: c_int,
+		quality: sys::entityquality_t,
+	) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
 		// An unknown index gives the default item, which could otherwise create
 		// an unrelated entity.
 		//
@@ -350,15 +382,15 @@ impl ItemGeneration {
 		// generation creates the entity, initializes its item view, and runs its
 		// `Spawn` and `Activate`, whose game code the caller vouches for, as for
 		// the classname. The definition exists, and the arguments live through
-		// this call.
+		// this call. The item view stores the level and quality as plain numbers.
 		let entity = unsafe {
 			(self.spawn_item)(
 				ptr::with_exposed_provenance_mut(self.singleton.get()),
 				c_int::from(definition),
 				&origin,
 				&angles,
-				ITEM_LEVEL,
-				ITEM_QUALITY,
+				level,
+				quality,
 				classname.map_or(ptr::null(), CStr::as_ptr),
 			)
 		};
