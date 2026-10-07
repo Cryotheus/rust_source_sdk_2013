@@ -370,6 +370,19 @@ impl<'s> TfPlayer<'s> {
 		Ok(unsafe { binding::call(self.player, SCRIPT_CLASS, name, arguments, result_type) }?)
 	}
 
+	/// Calls a member that returns one float.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::call`].
+	unsafe fn call_for_float(self, name: &CStr) -> Result<f32, PlayerError> {
+		// SAFETY: The caller vouches for the member.
+		let result = unsafe { self.call(name, &mut [], binding::FLOAT) }?;
+
+		// SAFETY: The checked return type selects the float member.
+		Ok(unsafe { result.__bindgen_anon_1.m_float })
+	}
+
 	/// Calls a member that takes one boolean and returns nothing.
 	///
 	/// # Safety
@@ -399,19 +412,6 @@ impl<'s> TfPlayer<'s> {
 		unsafe { self.call(name, &mut [binding::string(model)], binding::VOID) }?;
 
 		Ok(())
-	}
-
-	/// Calls a member that returns one float.
-	///
-	/// # Safety
-	///
-	/// As for [`Self::call`].
-	unsafe fn call_for_float(self, name: &CStr) -> Result<f32, PlayerError> {
-		// SAFETY: The caller vouches for the member.
-		let result = unsafe { self.call(name, &mut [], binding::FLOAT) }?;
-
-		// SAFETY: The checked return type selects the float member.
-		Ok(unsafe { result.__bindgen_anon_1.m_float })
 	}
 
 	/// Fails with [`PlayerError::MarkedForDeletion`] for a player marked for
@@ -986,12 +986,14 @@ impl<'s> TfPlayer<'s> {
 	/// A bit the game flips each time the player spawns (`m_iSpawnCounter`),
 	/// from which clients tell that they respawned. A change between two
 	/// reads means they spawned an odd number of times in between.
+	///
+	/// Despite its name, the variable is a `bool`, which TF2 sends as an 8-bit
+	/// integer.
 	#[doc(alias("m_iSpawnCounter"))]
 	pub fn spawn_parity(self) -> Result<bool, PlayerError> {
 		Ok(self
 			.net_prop(c"m_iSpawnCounter")?
-			.get::<c_int>(self.player)?
-			!= 0)
+			.get::<bool>(self.player)?)
 	}
 
 	/// Where the player is in the game's handling of them
