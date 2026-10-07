@@ -113,6 +113,10 @@ pub mod round_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod rules_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod script_hooks;
 
 #[cfg(feature = "sdk")]

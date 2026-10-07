@@ -1,7 +1,7 @@
 //! ABI of TF2's game rules (`CTFGameRules`): the vtable slots and signatures of
-//! the methods that clean up the map, end and set up rounds, and decide
-//! captures and holidays, taken from the generated bindings, with calls of
-//! some; the round states of `gamerules_roundstate_t`, the team roles and the
+//! the methods that clean up the map and decide what it keeps, end and set up
+//! rounds, and decide captures, holidays, team balance and players' damage,
+//! taken from the generated bindings, with calls of some; the round states of `gamerules_roundstate_t`, the team roles and the
 //! stalemate reasons; and the search for the game rules' vtable.
 
 #[cfg(test)]
@@ -36,10 +36,40 @@ pub type CanHaveAmmoFn = unsafe extern "C" fn(
 #[doc(alias("CleanUpMap"))]
 pub type CleanUpMapFn = unsafe extern "C" fn(this: *mut c_void);
 
+/// The signature of `CTFGameRules::FlagsMayBeCapped`, `bool ()`, with the
+/// game rules as its receiver: whether flags may be picked up and captured.
+#[doc(alias("FlagsMayBeCapped"))]
+pub type FlagsMayBeCappedFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
+
 /// The signature of `CTFGameRules::IsHolidayActive`, `bool (int) const`,
 /// with the game rules as its receiver: whether the `EHoliday` is active.
 #[doc(alias("IsHolidayActive"))]
 pub type IsHolidayActiveFn = unsafe extern "C" fn(this: *mut c_void, holiday: c_int) -> bool;
+
+/// The signature of `CTFGameRules::FPlayerCanTakeDamage`,
+/// `bool (CBasePlayer *, CBaseEntity *, const CTakeDamageInfo &)`, with the
+/// game rules as its receiver: whether the player takes the damage the
+/// attacker deals.
+#[doc(alias("FPlayerCanTakeDamage"))]
+pub type PlayerCanTakeDamageFn = unsafe extern "C" fn(
+	this: *mut c_void,
+	player: *mut sys::CBasePlayer,
+	attacker: *mut sys::CBaseEntity,
+	info: *const sys::CTakeDamageInfo,
+) -> bool;
+
+/// The signature of `CTFGameRules::PlayerMayBlockPoint`,
+/// `bool (CBasePlayer *, int, char *, int)`, with the game rules as its
+/// receiver: the player, the control point's index, and a buffer of the given
+/// size for the reason the player may not, or null.
+#[doc(alias("PlayerMayBlockPoint"))]
+pub type PlayerMayBlockPointFn = unsafe extern "C" fn(
+	this: *mut c_void,
+	player: *mut sys::CBasePlayer,
+	point: c_int,
+	reason: *mut c_char,
+	reason_size: c_int,
+) -> bool;
 
 /// The signature of `CTFGameRules::PlayerMayCapturePoint`,
 /// `bool (CBasePlayer *, int, char *, int)`, with the game rules as its
@@ -58,6 +88,13 @@ pub type PlayerMayCapturePointFn = unsafe extern "C" fn(
 /// game rules as its receiver: whether any control point may be captured.
 #[doc(alias("PointsMayBeCaptured"))]
 pub type PointsMayBeCapturedFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
+
+/// The signature of `CTFGameRules::RoundCleanupShouldIgnore`,
+/// `bool (CBaseEntity *)`, with the game rules as its receiver: whether the
+/// map's cleanup keeps the entity.
+#[doc(alias("RoundCleanupShouldIgnore"))]
+pub type RoundCleanupShouldIgnoreFn =
+	unsafe extern "C" fn(this: *mut c_void, entity: *mut sys::CBaseEntity) -> bool;
 
 /// The signature of `CTFGameRules::SetupOnRoundStart` and
 /// `CTFGameRules::SetupOnRoundRunning`, `void ()`, with the game rules as
@@ -93,6 +130,19 @@ pub type SetWinningTeamFn = unsafe extern "C" fn(
 	final_round: bool,
 );
 
+/// The signature of `CTFGameRules::ShouldBalanceTeams`, `bool ()`, with the
+/// game rules as its receiver: whether the game keeps the teams' sizes
+/// balanced.
+#[doc(alias("ShouldBalanceTeams"))]
+pub type ShouldBalanceTeamsFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
+
+/// The signature of `CTFGameRules::ShouldCreateEntity`, `bool (const char *)`,
+/// with the game rules as its receiver: whether the map's cleanup creates the
+/// map's entities of the class name anew.
+#[doc(alias("ShouldCreateEntity"))]
+pub type ShouldCreateEntityFn =
+	unsafe extern "C" fn(this: *mut c_void, class_name: *const c_char) -> bool;
+
 /// The signature of `CTFGameRules::TeamMayCapturePoint`, `bool (int, int)`,
 /// with the game rules as its receiver: the team and the control point's
 /// index.
@@ -115,8 +165,32 @@ const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys
 
 const _: fn(
 	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_FlagsMayBeCapped;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
 ) -> unsafe extern "C" fn(*const sys::CTFGameRules, c_int) -> bool =
 	|vtable| vtable.CTFGameRules_IsHolidayActive;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFGameRules,
+	*mut sys::CBasePlayer,
+	*mut sys::CBaseEntity,
+	*const sys::CTakeDamageInfo,
+) -> bool = |vtable| vtable.CTFGameRules_FPlayerCanTakeDamage;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFGameRules,
+	*mut sys::CBasePlayer,
+	c_int,
+	*mut c_char,
+	c_int,
+) -> bool = |vtable| vtable.CTFGameRules_PlayerMayBlockPoint;
 
 const _: fn(
 	&sys::CTFGameRules__bindgen_vtable,
@@ -133,6 +207,11 @@ const _: fn(
 ) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
 	|vtable| vtable.CTFGameRules_PointsMayBeCaptured;
 
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules, *mut sys::CBaseEntity) -> bool =
+	|vtable| vtable.CTFGameRules_RoundCleanupShouldIgnore;
+
 const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
 	|vtable| vtable.CTFGameRules_SetupOnRoundRunning;
 
@@ -148,6 +227,16 @@ const _: fn(
 	&sys::CTFGameRules__bindgen_vtable,
 ) -> unsafe extern "C" fn(*mut sys::CTFGameRules, c_int, c_int, bool, bool, bool, bool) =
 	|vtable| vtable.CTFGameRules_SetWinningTeam;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldBalanceTeams;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules, *const c_char) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldCreateEntity;
 
 const _: fn(
 	&sys::CTFGameRules__bindgen_vtable,
@@ -205,6 +294,14 @@ pub const CLEAN_UP_MAP_SLOT: usize =
 #[cfg(target_os = "linux")]
 const CLEAN_UP_MAP_SYMBOL: &[u8] = b"_ZN12CTFGameRules10CleanUpMapEv";
 
+/// The slot of `FlagsMayBeCapped` in `CTFGameRules`' primary vtable, from the
+/// generated binding.
+#[doc(alias("FlagsMayBeCapped"))]
+pub const FLAGS_MAY_BE_CAPPED_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_FlagsMayBeCapped
+);
+
 /// The name of TF2's game rules class in its run-time type information.
 pub const GAME_RULES_CLASS: &str = "CTFGameRules";
 
@@ -251,6 +348,22 @@ pub const IS_HOLIDAY_ACTIVE_SLOT: usize = vtable_slot!(
 	CTFGameRules_IsHolidayActive
 );
 
+/// The slot of `FPlayerCanTakeDamage` in `CTFGameRules`' primary vtable,
+/// from the generated binding.
+#[doc(alias("FPlayerCanTakeDamage"))]
+pub const PLAYER_CAN_TAKE_DAMAGE_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_FPlayerCanTakeDamage
+);
+
+/// The slot of `PlayerMayBlockPoint` in `CTFGameRules`' primary vtable, from
+/// the generated binding.
+#[doc(alias("PlayerMayBlockPoint"))]
+pub const PLAYER_MAY_BLOCK_POINT_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_PlayerMayBlockPoint
+);
+
 /// The slot of `PlayerMayCapturePoint` in `CTFGameRules`' primary vtable,
 /// from the generated binding.
 #[doc(alias("PlayerMayCapturePoint"))]
@@ -265,6 +378,14 @@ pub const PLAYER_MAY_CAPTURE_POINT_SLOT: usize = vtable_slot!(
 pub const POINTS_MAY_BE_CAPTURED_SLOT: usize = vtable_slot!(
 	sys::CTFGameRules__bindgen_vtable,
 	CTFGameRules_PointsMayBeCaptured
+);
+
+/// The slot of `RoundCleanupShouldIgnore` in `CTFGameRules`' primary vtable,
+/// from the generated binding.
+#[doc(alias("RoundCleanupShouldIgnore"))]
+pub const ROUND_CLEANUP_SHOULD_IGNORE_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_RoundCleanupShouldIgnore
 );
 
 /// The slot of `SetStalemate` in `CTFGameRules`' primary vtable, from the
@@ -295,6 +416,22 @@ pub const SETUP_ON_ROUND_RUNNING_SLOT: usize = vtable_slot!(
 pub const SETUP_ON_ROUND_START_SLOT: usize = vtable_slot!(
 	sys::CTFGameRules__bindgen_vtable,
 	CTFGameRules_SetupOnRoundStart
+);
+
+/// The slot of `ShouldBalanceTeams` in `CTFGameRules`' primary vtable, from
+/// the generated binding.
+#[doc(alias("ShouldBalanceTeams"))]
+pub const SHOULD_BALANCE_TEAMS_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_ShouldBalanceTeams
+);
+
+/// The slot of `ShouldCreateEntity` in `CTFGameRules`' primary vtable, from
+/// the generated binding.
+#[doc(alias("ShouldCreateEntity"))]
+pub const SHOULD_CREATE_ENTITY_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_ShouldCreateEntity
 );
 
 /// `STALEMATE_JOIN_MID` from `game/shared/teamplayroundbased_gamerules.h`: a

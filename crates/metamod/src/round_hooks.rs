@@ -1,9 +1,10 @@
 //! TF2 round hooks: the map cleanup of a round's restart, which they run
 //! before the game's `CTFGameRules::CleanUpMap` and may skip, and the rest of
-//! a round's life, as [`MetamodApi::hook_rounds`] hooks it: its end with a
-//! win or in sudden death, which they may refuse, its setup and its start,
-//! and the game's questions whether control points may be captured, which
-//! they may answer no.
+//! a round's life, as [`MetamodApi::hook_rounds`] hooks it: which entities the
+//! map's cleanup keeps and creates anew, the round's end with a win or in
+//! sudden death, which they may refuse, its setup and its start, and the
+//! game's questions whether control points and flags may be captured, which
+//! they may answer no, and whether players block a point's capture.
 //!
 //! # Map cleanup
 //!
@@ -52,6 +53,31 @@
 //!   in them, and TF2 as it credits players for defending and capturing
 //!   points.
 //!
+//! - [`RoundCallbacks::player_block`] runs before
+//!   `CTFGameRules::PlayerMayBlockPoint`, which capture areas ask for the
+//!   living players in them whom [`RoundCallbacks::player_capture`], or the
+//!   game, refused, of teams that may capture the point: a player who blocks
+//!   it stops the other team's capture as a capturing player would. The game
+//!   answers yes only for invulnerable players.
+//! - [`RoundCallbacks::flags_capturable`] runs before
+//!   `CTFGameRules::FlagsMayBeCapped`, which flags ask before a player picks
+//!   one up and as they think, which returns dropped flags, capture zones
+//!   before they capture a carried flag, outside Mann vs. Machine, and Robot
+//!   Destruction's logic before it scores. The game answers no in the
+//!   pre-round and once a team has won the round.
+//! - [`RoundCallbacks::cleanup_keep`] runs before
+//!   `CTFGameRules::RoundCleanupShouldIgnore`, which the map's cleanup asks
+//!   of every entity, and removes those not kept. The game keeps players,
+//!   their weapons and wearables, the game rules, the teams and the other
+//!   entities of its list of classes. An entity the map placed that is kept
+//!   is also created anew from the map, unless
+//!   [`RoundCallbacks::cleanup_create`] skips its class.
+//! - [`RoundCallbacks::cleanup_create`] runs before
+//!   `CTFGameRules::ShouldCreateEntity`, which the map's cleanup asks of each
+//!   class name of the map's entities as it creates them anew, after it
+//!   removed the others. The game skips the classes it keeps. Only the
+//!   cleanup asks, so the map's entities are all created as the level loads.
+//!
 //! Clients ask their own game rules whether points may be captured, so their
 //! HUD can show a capture the server refuses.
 //!
@@ -83,11 +109,15 @@ use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::players::TEAM_UNASSIGNED;
 
 use source_sdk_2013::raw::tf2::game_rules::{
-	CLEAN_UP_MAP_SLOT, CleanUpMapFn as CleanUpMap, PLAYER_MAY_CAPTURE_POINT_SLOT,
-	POINTS_MAY_BE_CAPTURED_SLOT, PlayerMayCapturePointFn as PlayerMayCapturePoint,
-	PointsMayBeCapturedFn as PointsMayBeCaptured, RoundSetupFn as RoundSetup, SET_STALEMATE_SLOT,
-	SET_WINNING_TEAM_SLOT, SETUP_ON_ROUND_RUNNING_SLOT, SETUP_ON_ROUND_START_SLOT,
-	SetStalemateFn as SetStalemate, SetWinningTeamFn as SetWinningTeam,
+	CLEAN_UP_MAP_SLOT, CleanUpMapFn as CleanUpMap, FLAGS_MAY_BE_CAPPED_SLOT,
+	FlagsMayBeCappedFn as FlagsMayBeCapped, PLAYER_MAY_BLOCK_POINT_SLOT,
+	PLAYER_MAY_CAPTURE_POINT_SLOT, POINTS_MAY_BE_CAPTURED_SLOT,
+	PlayerMayBlockPointFn as PlayerMayBlockPoint, PlayerMayCapturePointFn as PlayerMayCapturePoint,
+	PointsMayBeCapturedFn as PointsMayBeCaptured, ROUND_CLEANUP_SHOULD_IGNORE_SLOT,
+	RoundCleanupShouldIgnoreFn as RoundCleanupShouldIgnore, RoundSetupFn as RoundSetup,
+	SET_STALEMATE_SLOT, SET_WINNING_TEAM_SLOT, SETUP_ON_ROUND_RUNNING_SLOT,
+	SETUP_ON_ROUND_START_SLOT, SHOULD_CREATE_ENTITY_SLOT, SetStalemateFn as SetStalemate,
+	SetWinningTeamFn as SetWinningTeam, ShouldCreateEntityFn as ShouldCreateEntity,
 	TEAM_MAY_CAPTURE_POINT_SLOT, TeamMayCapturePointFn as TeamMayCapturePoint,
 };
 
@@ -98,15 +128,36 @@ use source_sdk_2013::tf2::scoreboard::ScoringTeam;
 use source_sdk_2013::tf2::teams::Team;
 use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
-use std::ffi::{c_int, c_void};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
+
+/// A callback-scoped server, and the class name of the map's entities the
+/// map's cleanup is about to create anew, which decides whether it does. A
+/// panic is contained by the hook dispatcher, and lets the game decide.
+pub type CleanupCreateFn = for<'s> fn(Server<'s>, &CStr) -> CleanupCreateAction;
+
+/// A callback-scoped server, and an entity the map's cleanup is about to
+/// remove, unless it keeps it, which decides whether it is kept. A panic is
+/// contained by the hook dispatcher, and lets the game decide.
+pub type CleanupKeepFn = for<'s> fn(Server<'s>, Entity<'s>) -> CleanupKeepAction;
+
+/// A callback-scoped server whose flags are asked about, which decides
+/// whether they may be picked up and captured. A panic is contained by the
+/// hook dispatcher, and lets the game decide.
+pub type FlagsCapturableFn = for<'s> fn(Server<'s>) -> CaptureAction;
 
 /// A callback-scoped server whose map is about to be cleaned up, which
 /// decides whether it is. A panic is contained by the hook dispatcher, and
 /// lets the cleanup run.
 pub type MapCleanupFn = for<'s> fn(Server<'s>) -> MapCleanupAction;
+
+/// A callback-scoped server, and a player a capture area asks about, who may
+/// not capture the point, returning whether the player blocks its capture, or
+/// `None` to let the game decide. A panic is contained by the hook dispatcher,
+/// and lets the game decide.
+pub type PlayerBlockFn = for<'s> fn(Server<'s>, PlayerCaptureCheck<'s>) -> Option<bool>;
 
 /// A callback-scoped server, and a player a capture area or TF2 asks about,
 /// which decides whether the player may capture the point. A panic is
@@ -140,6 +191,14 @@ pub type TeamCaptureFn = for<'s> fn(Server<'s>, TeamCaptureCheck) -> CaptureActi
 /// `CleanUpMap` in TF2's game rules' primary vtable.
 const CLEAN_UP_MAP: VirtualFunction<CleanUpMap> = VirtualFunction::new(CLEAN_UP_MAP_SLOT);
 
+/// `FlagsMayBeCapped` in TF2's game rules' primary vtable.
+const FLAGS_MAY_BE_CAPPED: VirtualFunction<FlagsMayBeCapped> =
+	VirtualFunction::new(FLAGS_MAY_BE_CAPPED_SLOT);
+
+/// `PlayerMayBlockPoint` in TF2's game rules' primary vtable.
+const PLAYER_MAY_BLOCK_POINT: VirtualFunction<PlayerMayBlockPoint> =
+	VirtualFunction::new(PLAYER_MAY_BLOCK_POINT_SLOT);
+
 /// `PlayerMayCapturePoint` in TF2's game rules' primary vtable.
 const PLAYER_MAY_CAPTURE_POINT: VirtualFunction<PlayerMayCapturePoint> =
 	VirtualFunction::new(PLAYER_MAY_CAPTURE_POINT_SLOT);
@@ -147,6 +206,10 @@ const PLAYER_MAY_CAPTURE_POINT: VirtualFunction<PlayerMayCapturePoint> =
 /// `PointsMayBeCaptured` in TF2's game rules' primary vtable.
 const POINTS_MAY_BE_CAPTURED: VirtualFunction<PointsMayBeCaptured> =
 	VirtualFunction::new(POINTS_MAY_BE_CAPTURED_SLOT);
+
+/// `RoundCleanupShouldIgnore` in TF2's game rules' primary vtable.
+const ROUND_CLEANUP_SHOULD_IGNORE: VirtualFunction<RoundCleanupShouldIgnore> =
+	VirtualFunction::new(ROUND_CLEANUP_SHOULD_IGNORE_SLOT);
 
 /// `SetStalemate` in TF2's game rules' primary vtable.
 const SET_STALEMATE: VirtualFunction<SetStalemate> = VirtualFunction::new(SET_STALEMATE_SLOT);
@@ -163,12 +226,20 @@ const SETUP_ON_ROUND_RUNNING: VirtualFunction<RoundSetup> =
 const SETUP_ON_ROUND_START: VirtualFunction<RoundSetup> =
 	VirtualFunction::new(SETUP_ON_ROUND_START_SLOT);
 
+/// `ShouldCreateEntity` in TF2's game rules' primary vtable.
+const SHOULD_CREATE_ENTITY: VirtualFunction<ShouldCreateEntity> =
+	VirtualFunction::new(SHOULD_CREATE_ENTITY_SLOT);
+
 /// `TeamMayCapturePoint` in TF2's game rules' primary vtable.
 const TEAM_MAY_CAPTURE_POINT: VirtualFunction<TeamMayCapturePoint> =
 	VirtualFunction::new(TEAM_MAY_CAPTURE_POINT_SLOT);
 
 static ROUTE: CleanupRoute = CleanupRoute::new();
 
+static CLEANUP_CREATE_ROUTE: RoundRoute<CleanupCreateFn> = RoundRoute::new();
+static CLEANUP_KEEP_ROUTE: RoundRoute<CleanupKeepFn> = RoundRoute::new();
+static FLAGS_ROUTE: RoundRoute<FlagsCapturableFn> = RoundRoute::new();
+static PLAYER_BLOCK_ROUTE: RoundRoute<PlayerBlockFn> = RoundRoute::new();
 static PLAYER_CAPTURE_ROUTE: RoundRoute<PlayerCaptureFn> = RoundRoute::new();
 static POINTS_ROUTE: RoundRoute<PointsCapturableFn> = RoundRoute::new();
 static RUNNING_ROUTE: RoundRoute<RoundFn> = RoundRoute::new();
@@ -188,6 +259,34 @@ pub enum CaptureAction {
 
 	/// Answers that the capture may not happen, without asking the game.
 	Refuse,
+}
+
+/// What a cleanup hook does with the map's entities of a class, which the
+/// map's cleanup is about to create anew.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CleanupCreateAction {
+	/// Lets the game decide, through the other plugins' hooks: it creates them
+	/// unless it keeps the class's entities through cleanups.
+	#[default]
+	Allow,
+
+	/// Skips them: the map's entities of the class are not created anew, so
+	/// those the cleanup removed are gone until the level loads again.
+	Skip,
+}
+
+/// What a cleanup hook does with an entity the map's cleanup is about to
+/// remove, unless it keeps it.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CleanupKeepAction {
+	/// Lets the game decide, through the other plugins' hooks.
+	#[default]
+	Allow,
+
+	/// Keeps the entity through the cleanup.
+	Keep,
 }
 
 /// What a map cleanup hook does with a cleanup.
@@ -279,6 +378,23 @@ pub struct PlayerCaptureCheck<'s> {
 /// game rules; see the [module documentation](crate::round_hooks).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RoundCallbacks {
+	/// Runs before the map's cleanup creates the map's entities of a class
+	/// anew, and decides whether it does.
+	pub cleanup_create: Option<CleanupCreateFn>,
+
+	/// Runs before the map's cleanup removes or keeps an entity, and decides
+	/// whether it keeps the entity.
+	pub cleanup_keep: Option<CleanupKeepFn>,
+
+	/// Runs before a flag, a capture zone or Robot Destruction's logic asks
+	/// whether flags may be picked up and captured, and decides whether they
+	/// may.
+	pub flags_capturable: Option<FlagsCapturableFn>,
+
+	/// Runs before a capture area asks whether a player who may not capture a
+	/// control point blocks its capture, and decides whether the player does.
+	pub player_block: Option<PlayerBlockFn>,
+
 	/// Runs before a capture area or TF2 asks whether a player may capture a
 	/// control point, and decides whether the player may.
 	pub player_capture: Option<PlayerCaptureFn>,
@@ -320,7 +436,8 @@ pub enum RoundEndAction {
 	Refuse,
 }
 
-/// Why the round hooks could not be installed.
+/// Why the round hooks, or the game rules hooks of
+/// [`crate::rules_hooks`], could not be installed.
 #[derive(Debug, thiserror::Error)]
 pub enum RoundHookError {
 	/// The server does not run TF2, or the game rules class's vtable could
@@ -350,6 +467,10 @@ impl RoundHooks {
 	pub fn remove(self, api: MetamodApi<'_>) {
 		for hook in self.hooks {
 			api.remove_hook(hook);
+			CLEANUP_CREATE_ROUTE.clear(hook);
+			CLEANUP_KEEP_ROUTE.clear(hook);
+			FLAGS_ROUTE.clear(hook);
+			PLAYER_BLOCK_ROUTE.clear(hook);
 			PLAYER_CAPTURE_ROUTE.clear(hook);
 			POINTS_ROUTE.clear(hook);
 			RUNNING_ROUTE.clear(hook);
@@ -361,26 +482,27 @@ impl RoundHooks {
 	}
 }
 
-struct RoundRoute<C: 'static> {
+/// A hook's route to its callback, for the methods of the game rules.
+pub(crate) struct RoundRoute<C: 'static> {
 	state: Cell<Option<RoutedRound<C>>>,
 }
 
 impl<C: Copy> RoundRoute<C> {
-	const fn new() -> Self {
+	pub(crate) const fn new() -> Self {
 		Self {
 			state: Cell::new(None),
 		}
 	}
 
 	/// Forgets `hook`, if the route was installed with it.
-	fn clear(&self, hook: HookId) {
+	pub(crate) fn clear(&self, hook: HookId) {
 		if self.state.get().is_some_and(|state| state.hook == hook) {
 			self.state.set(None);
 		}
 	}
 
 	/// The route's callback and server, unless the route is not installed.
-	fn enter<'s>(&self, scope: &'s ()) -> Option<(C, Server<'s>)> {
+	pub(crate) fn enter<'s>(&self, scope: &'s ()) -> Option<(C, Server<'s>)> {
 		let route = self.state.get()?;
 		// SAFETY: The hook dispatcher runs on the main thread during one live
 		// engine invocation. Binding was supplied during plugin integration.
@@ -390,10 +512,38 @@ impl<C: Copy> RoundRoute<C> {
 	}
 
 	/// Whether the route has a hook installed, for this load of the plugin.
-	fn is_routed(&self, api: MetamodApi<'_>) -> bool {
+	pub(crate) fn is_routed(&self, api: MetamodApi<'_>) -> bool {
 		self.state
 			.get()
 			.is_some_and(|state| api.has_hook(state.hook))
+	}
+}
+
+impl Handler<PlayerMayBlockPoint> for RoundRoute<PlayerBlockFn> {
+	fn call(&self, call: &HookCall<'_, PlayerMayBlockPoint>) -> HookAction<bool> {
+		// An earlier hook already answered.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let (player, point, reason, reason_size) = call.args();
+		let Some(player) = NonNull::new(player) else {
+			return HookAction::Ignore;
+		};
+		// SAFETY: The game passes a live player, which stays in the entity list
+		// through the call, and whose `CBaseEntity` base is at its address.
+		let player = unsafe { Entity::from_live(server, player.cast()) };
+		let Some(blocks) = callback(server, PlayerCaptureCheck { player, point }) else {
+			return HookAction::Ignore;
+		};
+
+		// SAFETY: The caller passes a writable buffer of the size, or null.
+		unsafe { clear_reason(reason, reason_size) };
+		HookAction::Supersede(blocks)
 	}
 }
 
@@ -420,13 +570,9 @@ impl Handler<PlayerMayCapturePoint> for RoundRoute<PlayerCaptureFn> {
 			CaptureAction::Allow => HookAction::Ignore,
 
 			CaptureAction::Refuse => {
-				// The game writes the reason it refuses for into the caller's
-				// buffer, if given one: this refusal gives none.
-				if !reason.is_null() && reason_size > 0 {
-					// SAFETY: The caller passes a writable buffer of the size.
-					unsafe { reason.write(0) };
-				}
-
+				// SAFETY: The caller passes a writable buffer of the size, or
+				// null.
+				unsafe { clear_reason(reason, reason_size) };
 				HookAction::Supersede(false)
 			}
 		}
@@ -448,6 +594,32 @@ impl Handler<PointsMayBeCaptured> for RoundRoute<PointsCapturableFn> {
 		match callback(server) {
 			CaptureAction::Allow => HookAction::Ignore,
 			CaptureAction::Refuse => HookAction::Supersede(false),
+		}
+	}
+}
+
+impl Handler<RoundCleanupShouldIgnore> for RoundRoute<CleanupKeepFn> {
+	fn call(&self, call: &HookCall<'_, RoundCleanupShouldIgnore>) -> HookAction<bool> {
+		// An earlier hook already answered.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let Some(entity) = NonNull::new(call.args().0) else {
+			return HookAction::Ignore;
+		};
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		// SAFETY: The cleanup passes an entity of the entity list, which it
+		// removes, if it does, only through deferred deletion after the call.
+		let entity = unsafe { Entity::from_live(server, entity) };
+
+		match callback(server, entity) {
+			CleanupKeepAction::Allow => HookAction::Ignore,
+			CleanupKeepAction::Keep => HookAction::Supersede(true),
 		}
 	}
 }
@@ -532,6 +704,34 @@ impl Handler<SetWinningTeam> for RoundRoute<RoundWinFn> {
 	}
 }
 
+impl Handler<ShouldCreateEntity> for RoundRoute<CleanupCreateFn> {
+	fn call(&self, call: &HookCall<'_, ShouldCreateEntity>) -> HookAction<bool> {
+		// An earlier hook already answered.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let class_name = call.args().0;
+
+		if class_name.is_null() {
+			return HookAction::Ignore;
+		}
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		// SAFETY: The map's entity parser passes the class name it read, a
+		// string that lives through the call.
+		let class_name = unsafe { CStr::from_ptr(class_name) };
+
+		match callback(server, class_name) {
+			CleanupCreateAction::Allow => HookAction::Ignore,
+			CleanupCreateAction::Skip => HookAction::Supersede(false),
+		}
+	}
+}
+
 impl Handler<TeamMayCapturePoint> for RoundRoute<TeamCaptureFn> {
 	fn call(&self, call: &HookCall<'_, TeamMayCapturePoint>) -> HookAction<bool> {
 		// An earlier hook already answered.
@@ -559,6 +759,20 @@ impl Handler<TeamMayCapturePoint> for RoundRoute<TeamCaptureFn> {
 // SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
 // calls handlers only on that thread. Cell borrows are never held over calls.
 unsafe impl<C> Sync for RoundRoute<C> {}
+
+/// Clears the buffer a capture area passes for the reason the game answers
+/// as it does, which the game writes, if given one: a hook's answer gives
+/// none.
+///
+/// # Safety
+///
+/// `reason` must be null, or writable for `reason_size` bytes.
+unsafe fn clear_reason(reason: *mut c_char, reason_size: c_int) {
+	if !reason.is_null() && reason_size > 0 {
+		// SAFETY: As the caller promises.
+		unsafe { reason.write(0) };
+	}
+}
 
 /// A round's end with a win, or without a winner, about to happen, as TF2's
 /// game rules are told to end it (`SetWinningTeam`).
@@ -701,9 +915,11 @@ impl MetamodApi<'_> {
 
 impl MetamodApi<'_> {
 	/// Runs `callbacks` as TF2's rounds end, go to sudden death, are set up
-	/// and start running, and as the game asks whether control points may be
-	/// captured, hooking only the methods `callbacks` names a callback for; see
-	/// the [module documentation](crate::round_hooks).
+	/// and start running, as the game asks whether control points and flags
+	/// may be captured and whether players block captures, and as the map's
+	/// cleanup decides what it keeps and creates anew, hooking only the
+	/// methods `callbacks` names a callback for; see the
+	/// [module documentation](crate::round_hooks).
 	///
 	/// `binding` must describe the same running server as `server`. Finds the
 	/// game rules class in the game server module, as
@@ -738,7 +954,11 @@ impl MetamodApi<'_> {
 			return Err(HookError::AlreadyInstalled.into());
 		}
 
-		let none = callbacks.player_capture.is_none()
+		let none = callbacks.cleanup_create.is_none()
+			&& callbacks.cleanup_keep.is_none()
+			&& callbacks.flags_capturable.is_none()
+			&& callbacks.player_block.is_none()
+			&& callbacks.player_capture.is_none()
 			&& callbacks.points_capturable.is_none()
 			&& callbacks.running.is_none()
 			&& callbacks.setup.is_none()
@@ -767,10 +987,12 @@ impl MetamodApi<'_> {
 	/// # Safety
 	///
 	/// `vtable` must be live, hold functions of the signatures
-	/// [`PlayerMayCapturePoint`], [`PointsMayBeCaptured`], [`RoundSetup`],
-	/// [`SetStalemate`], [`SetWinningTeam`] and [`TeamMayCapturePoint`] at the
-	/// slots of `CTFGameRules`' methods of those names, called on game rules
-	/// objects, and stay loaded until Metamod unloads the plugin.
+	/// [`FlagsMayBeCapped`], [`PlayerMayBlockPoint`], [`PlayerMayCapturePoint`],
+	/// [`PointsMayBeCaptured`], [`RoundCleanupShouldIgnore`], [`RoundSetup`],
+	/// [`SetStalemate`], [`SetWinningTeam`], [`ShouldCreateEntity`] and
+	/// [`TeamMayCapturePoint`] at the slots of `CTFGameRules`' methods of those
+	/// names, called on game rules objects, and stay loaded until Metamod
+	/// unloads the plugin.
 	unsafe fn install_rounds(
 		self,
 		vtable: NonNull<*mut c_void>,
@@ -805,7 +1027,7 @@ impl MetamodApi<'_> {
 	/// `vtable` must be live, hold a function of the signature `S` at the
 	/// function's slot, called on game rules objects, and stay loaded until
 	/// Metamod unloads the plugin.
-	unsafe fn route_round<S: Signature, C: Copy>(
+	pub(crate) unsafe fn route_round<S: Signature, C: Copy>(
 		self,
 		function: VirtualFunction<S>,
 		timing: HookTiming,
@@ -844,6 +1066,10 @@ impl MetamodApi<'_> {
 		hooks: &mut Vec<HookId>,
 	) -> Result<(), HookError> {
 		let RoundCallbacks {
+			cleanup_create,
+			cleanup_keep,
+			flags_capturable,
+			player_block,
 			player_capture,
 			points_capturable,
 			running,
@@ -856,6 +1082,50 @@ impl MetamodApi<'_> {
 		// SAFETY: As the caller promises, the vtable has each method at its
 		// slot, called on game rules objects, and stays loaded.
 		unsafe {
+			if let Some(callback) = cleanup_create {
+				self.route_round(
+					SHOULD_CREATE_ENTITY,
+					HookTiming::Pre,
+					&CLEANUP_CREATE_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = cleanup_keep {
+				self.route_round(
+					ROUND_CLEANUP_SHOULD_IGNORE,
+					HookTiming::Pre,
+					&CLEANUP_KEEP_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = flags_capturable {
+				self.route_round(
+					FLAGS_MAY_BE_CAPPED,
+					HookTiming::Pre,
+					&FLAGS_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = player_block {
+				self.route_round(
+					PLAYER_MAY_BLOCK_POINT,
+					HookTiming::Pre,
+					&PLAYER_BLOCK_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
 			if let Some(callback) = player_capture {
 				self.route_round(
 					PLAYER_MAY_CAPTURE_POINT,
@@ -939,7 +1209,11 @@ impl MetamodApi<'_> {
 
 	/// Whether any round hook is installed, for this load of the plugin.
 	fn rounds_hooked(self) -> bool {
-		PLAYER_CAPTURE_ROUTE.is_routed(self)
+		CLEANUP_CREATE_ROUTE.is_routed(self)
+			|| CLEANUP_KEEP_ROUTE.is_routed(self)
+			|| FLAGS_ROUTE.is_routed(self)
+			|| PLAYER_BLOCK_ROUTE.is_routed(self)
+			|| PLAYER_CAPTURE_ROUTE.is_routed(self)
 			|| POINTS_ROUTE.is_routed(self)
 			|| RUNNING_ROUTE.is_routed(self)
 			|| SETUP_ROUTE.is_routed(self)
