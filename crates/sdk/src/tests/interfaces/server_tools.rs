@@ -376,7 +376,10 @@ fn key_values_the_game_cannot_handle_are_not_set() {
 			(c"POINT_INDEX", c"8", false),
 			(c"point_index", c"7", true),
 			(c"point_default_owner", c"4", false),
+			(c"point_default_owner", c"1", false),
+			(c"point_default_owner", c"-1", false),
 			(c"point_default_owner", c"3", true),
+			(c"point_default_owner", c"0", true),
 		],
 	);
 	check(
