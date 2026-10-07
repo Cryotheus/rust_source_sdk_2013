@@ -11,6 +11,7 @@ use crate::entities::fields::{BaseField, FieldError};
 use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::{ServerTools, ValveEngine};
 use crate::math::Vector;
+use sdk_raw::entities::find_physics_object_field;
 
 use sdk_raw::entities::flags::{
 	FL_AIMTARGET, FL_ANIMDUCKING, FL_ATCONTROLS, FL_BASEVELOCITY, FL_CLIENT, FL_CONVEYOR,
@@ -21,7 +22,8 @@ use sdk_raw::entities::flags::{
 };
 
 use sdk_raw::vcall;
-use std::ffi::c_int;
+use std::ffi::{c_int, c_void};
+use std::sync::OnceLock;
 
 /// `EFL_DIRTY_ABSVELOCITY` from `game/shared/shareddefs.h`: the entity's
 /// velocity in the world is yet to be computed from its parent's.
@@ -340,6 +342,44 @@ impl<'s> Entity<'s> {
 	#[doc(alias("GetGravity", "m_flGravity"))]
 	pub fn gravity(self) -> Result<f32, FieldError> {
 		GRAVITY.read(self)
+	}
+
+	/// Whether the entity has a VPhysics object (`m_pPhysicsObject`): physics
+	/// props have one once spawned, as do the players, brushes and others whose
+	/// shadows block what VPhysics simulates.
+	///
+	/// Fails with [`FieldError::NotFound`] unless `CBaseEntity`'s datamap
+	/// declares the object as the game does, at an aligned, plausible offset.
+	#[doc(alias("VPhysicsGetObject", "m_pPhysicsObject"))]
+	pub fn has_physics_object(self) -> Result<bool, FieldError> {
+		static OFFSET: OnceLock<usize> = OnceLock::new();
+
+		let offset = match OFFSET.get() {
+			Some(&offset) => offset,
+
+			None => {
+				let offset = find_physics_object_field(self.data_maps()).ok_or_else(|| {
+					FieldError::NotFound {
+						name: c"m_pPhysicsObject".to_owned(),
+					}
+				})?;
+
+				*OFFSET.get_or_init(|| offset)
+			}
+		};
+
+		// SAFETY: The offset was validated against the entity datamap, which
+		// every entity shares through its `CBaseEntity` base, and is aligned for
+		// the pointer, which is read without forming a reference, as the game
+		// writes it too.
+		let object = unsafe {
+			self.as_ptr()
+				.byte_add(offset)
+				.cast::<*const c_void>()
+				.read()
+		};
+
+		Ok(!object.is_null())
 	}
 
 	/// The entity's velocity relative to its move parent, or in the world

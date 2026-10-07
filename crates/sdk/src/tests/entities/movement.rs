@@ -159,3 +159,15 @@ fn move_types_convert_both_ways() {
 		Some(MoveType::Custom)
 	);
 }
+
+#[test]
+fn physics_objects_are_found_through_the_datamap() {
+	let mut mock = MockEntity::new(5);
+	let mut object = 0_u8;
+
+	set_datamap(state_maps(vec![]));
+	assert_eq!(mock.entity().has_physics_object(), Ok(false));
+
+	mock.state().physics_object = (&raw mut object).cast();
+	assert_eq!(mock.entity().has_physics_object(), Ok(true));
+}
