@@ -33,6 +33,7 @@ pub mod overlays;
 pub mod pickups;
 pub mod player;
 mod player_methods;
+pub mod projectiles;
 pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
