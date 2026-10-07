@@ -591,6 +591,88 @@ pub struct CEconEntity_NetworkVar_m_AttributeManager {
 }
 
 #[repr(C)]
+pub struct CEconEntity_NetworkVar_m_AttributeManager__bindgen_vtable {
+	pub CEconEntity_NetworkVar_m_AttributeManager_GetDataDescMap:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+		) -> *mut datamap_t,
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CEconEntity_NetworkVar_m_AttributeManager),
+	pub CEconEntity_NetworkVar_m_AttributeManager_destructor:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+			arg2: ::std::os::raw::c_uint,
+		) -> *mut ::std::os::raw::c_void,
+	pub CEconEntity_NetworkVar_m_AttributeManager_InitializeAttributes: unsafe extern "C" fn(
+		arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+		arg2: *mut CBaseEntity,
+	),
+	pub CEconEntity_NetworkVar_m_AttributeManager_ApplyAttributeFloat: unsafe extern "C" fn(
+		arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+		arg2: f32,
+		arg3: *mut CBaseEntity,
+		arg4: string_t,
+		arg5: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+	)
+		-> f32,
+	/// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+	pub CEconEntity_NetworkVar_m_AttributeManager_ApplyAttributeString:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+			arg2: *mut string_t,
+			arg3: string_t,
+			arg4: *mut CBaseEntity,
+			arg5: string_t,
+			arg6: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+		) -> *mut string_t,
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged_m_iReapplyProvisionParity1:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+			arg2: *mut ::std::os::raw::c_void,
+		),
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged_m_iReapplyProvisionParity:
+		unsafe extern "C" fn(arg1: *mut CEconEntity_NetworkVar_m_AttributeManager),
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged_m_hOuter1:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+			arg2: *mut ::std::os::raw::c_void,
+		),
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged_m_hOuter:
+		unsafe extern "C" fn(arg1: *mut CEconEntity_NetworkVar_m_AttributeManager),
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged_m_ProviderType1:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+			arg2: *mut ::std::os::raw::c_void,
+		),
+	pub CEconEntity_NetworkVar_m_AttributeManager_NetworkStateChanged_m_ProviderType:
+		unsafe extern "C" fn(arg1: *mut CEconEntity_NetworkVar_m_AttributeManager),
+	pub CEconEntity_NetworkVar_m_AttributeManager_OnAttributeValuesChanged:
+		unsafe extern "C" fn(arg1: *mut CEconEntity_NetworkVar_m_AttributeManager),
+	pub CEconEntity_NetworkVar_m_AttributeManager_ApplyAttributeFloatWrapper:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+			arg2: f32,
+			arg3: *mut CBaseEntity,
+			arg4: string_t,
+			arg5: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+		) -> f32,
+	/// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+	pub CEconEntity_NetworkVar_m_AttributeManager_ApplyAttributeStringWrapper:
+		unsafe extern "C" fn(
+			arg1: *mut CEconEntity_NetworkVar_m_AttributeManager,
+			arg2: *mut string_t,
+			arg3: string_t,
+			arg4: *mut CBaseEntity,
+			arg5: string_t,
+			arg6: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+		) -> *mut string_t,
+}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CEconEntity_NetworkVar_m_bValidatedAttachedEntity {
 	pub _address: u8,

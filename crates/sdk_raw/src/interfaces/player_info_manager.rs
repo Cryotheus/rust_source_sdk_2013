@@ -4,11 +4,8 @@
 //! methods that return vectors by value, whose generated signatures differ by
 //! ABI.
 
-use crate::vcall;
+use crate::vcall_by_value;
 use std::ffi::CStr;
-
-#[cfg(target_os = "windows")]
-use std::mem::MaybeUninit;
 
 /// The version string `IPlayerInfoManager` is exported and requested under.
 ///
@@ -18,9 +15,10 @@ use std::mem::MaybeUninit;
 pub const VERSION: &CStr = c"PlayerInfoManager002";
 
 /// Declares a function calling an `IPlayerInfo` method that returns a class
-/// by value: through a hidden result pointer after `this` under the MSVC ABI,
-/// since the class has constructors, and in registers under the Itanium ABI,
-/// since it is trivially copyable, as the generated signatures give.
+/// by value, through [`vcall_by_value!`]: through a hidden result pointer
+/// after `this` under the MSVC ABI, since the class has constructors, and in
+/// registers under the Itanium ABI, since it is trivially copyable, as the
+/// generated signatures give.
 macro_rules! by_value {
 	($(#[$meta:meta])* $name:ident => $method:ident() -> $Type:ty) => {
 		$(#[$meta])*
@@ -31,23 +29,9 @@ macro_rules! by_value {
 		/// whose player is live, and the call must be made on the server's main
 		/// thread.
 		pub unsafe fn $name(info: *mut sys::IPlayerInfo) -> $Type {
-			cfg_select! {
-				target_os = "windows" => {
-					let mut result = MaybeUninit::<$Type>::uninit();
-
-					// SAFETY: The caller upholds the contract, and the method
-					// constructs its result in the local storage it is given.
-					unsafe {
-						vcall!(info => $method(result.as_mut_ptr()));
-						result.assume_init()
-					}
-				}
-
-				target_os = "linux" => {
-					// SAFETY: The caller upholds the contract.
-					unsafe { vcall!(info => $method()) }
-				}
-			}
+			// SAFETY: The caller upholds the contract, and the method has the
+			// shapes `vcall_by_value!` calls.
+			unsafe { vcall_by_value!(info => $method() -> $Type) }
 		}
 	};
 }

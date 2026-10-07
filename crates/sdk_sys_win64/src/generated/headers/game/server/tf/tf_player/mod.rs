@@ -605,12 +605,6 @@ pub struct CTFGoalItem {
 }
 
 #[repr(C)]
-#[derive(Debug)]
-pub struct CTFItem {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
 pub struct CTFPlayer {
 	pub _base: CBaseMultiplayerPlayer,
 	pub _base_1: IHasAttributes,
@@ -2054,8 +2048,105 @@ pub struct CTFPlayer_NetworkVar_m_AttributeManager {
 }
 
 #[repr(C)]
+pub struct CTFPlayer_NetworkVar_m_AttributeManager__bindgen_vtable {
+	pub CTFPlayer_NetworkVar_m_AttributeManager_GetDataDescMap:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager) -> *mut datamap_t,
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_destructor:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+			arg2: ::std::os::raw::c_uint,
+		) -> *mut ::std::os::raw::c_void,
+	pub CTFPlayer_NetworkVar_m_AttributeManager_InitializeAttributes: unsafe extern "C" fn(
+		arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+		arg2: *mut CBaseEntity,
+	),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_ApplyAttributeFloat: unsafe extern "C" fn(
+		arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+		arg2: f32,
+		arg3: *mut CBaseEntity,
+		arg4: string_t,
+		arg5: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+	)
+		-> f32,
+	/// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+	pub CTFPlayer_NetworkVar_m_AttributeManager_ApplyAttributeString:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+			arg2: *mut string_t,
+			arg3: string_t,
+			arg4: *mut CBaseEntity,
+			arg5: string_t,
+			arg6: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+		) -> *mut string_t,
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged_m_iReapplyProvisionParity1:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+			arg2: *mut ::std::os::raw::c_void,
+		),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged_m_iReapplyProvisionParity:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged_m_hOuter1:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+			arg2: *mut ::std::os::raw::c_void,
+		),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged_m_hOuter:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged_m_ProviderType1:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+			arg2: *mut ::std::os::raw::c_void,
+		),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_NetworkStateChanged_m_ProviderType:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_OnAttributeValuesChanged:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager),
+	pub CTFPlayer_NetworkVar_m_AttributeManager_ApplyAttributeFloatWrapper:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+			arg2: f32,
+			arg3: *mut CBaseEntity,
+			arg4: string_t,
+			arg5: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+		) -> f32,
+	/// C++ returns `::string_t` by value. `arg2` is the hidden result pointer: the callee constructs the result in the uninitialized storage it points to, and returns it.
+	pub CTFPlayer_NetworkVar_m_AttributeManager_ApplyAttributeStringWrapper:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_AttributeManager,
+			arg2: *mut string_t,
+			arg3: string_t,
+			arg4: *mut CBaseEntity,
+			arg5: string_t,
+			arg6: *mut CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+		) -> *mut string_t,
+}
+
+#[repr(C)]
 pub struct CTFPlayer_NetworkVar_m_Shared {
 	pub _base: CTFPlayerShared,
+}
+
+#[repr(C)]
+pub struct CTFPlayer_NetworkVar_m_Shared__bindgen_vtable {
+	pub CTFPlayer_NetworkVar_m_Shared_destructor:
+		unsafe extern "C" fn(
+			arg1: *mut CTFPlayer_NetworkVar_m_Shared,
+			arg2: ::std::os::raw::c_uint,
+		) -> *mut ::std::os::raw::c_void,
+	pub CTFPlayer_NetworkVar_m_Shared_FireGameEvent:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_Shared, arg2: *mut IGameEvent),
+	pub CTFPlayer_NetworkVar_m_Shared_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CTFPlayer_NetworkVar_m_Shared,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CTFPlayer_NetworkVar_m_Shared_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CTFPlayer_NetworkVar_m_Shared),
 }
 
 #[repr(C)]
@@ -2361,12 +2452,6 @@ pub struct CTFReviveMarker {
 #[repr(C)]
 #[derive(Debug)]
 pub struct CTFTauntProp {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct CTFWeaponBaseGun {
 	_unused: [u8; 0],
 }
 

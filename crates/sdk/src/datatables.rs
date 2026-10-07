@@ -309,6 +309,40 @@ impl<'s> SendTable<'s> {
 		false
 	}
 
+	/// Finds the first property named `name` in the table or the tables nested
+	/// within it, depth first, as [`NetProp`] lookups do, but wherever its data
+	/// lives: also in a table whose proxy relocates it, such as the game rules'
+	/// variables, which TF2 sends from `CTFGameRulesProxy`'s `tf_gamerules_data`.
+	///
+	/// Array element templates and exclude properties are skipped. Use it to
+	/// find a property to [override](crate::send_proxies::SendProxyOverride),
+	/// rather than one to read or write.
+	pub fn find_prop(self, name: &CStr) -> Option<SendProp<'s>> {
+		fn search<'s>(table: SendTable<'s>, name: &CStr, depth: usize) -> Option<SendProp<'s>> {
+			if depth > MAX_TABLE_DEPTH {
+				return None;
+			}
+
+			table.props().find_map(|prop| {
+				if prop.flags().contains(PropFlags::INSIDE_ARRAY)
+					|| prop.flags().contains(PropFlags::EXCLUDE)
+				{
+					return None;
+				}
+
+				if prop.name() == name {
+					return Some(prop);
+				}
+
+				prop.data_table()
+					.filter(|_| prop.kind() == PropKind::DataTable)
+					.and_then(|nested| search(nested, name, depth + 1))
+			})
+		}
+
+		search(self, name, 0)
+	}
+
 	/// Whether the table has no properties.
 	pub fn is_empty(self) -> bool {
 		self.len() == 0
@@ -1080,6 +1114,36 @@ impl<'s> NetProp<'s> {
 		// SAFETY: The structure is laid out as the variable's table describes, as
 		// the caller promises, and the variable's storage is compatible with `T`.
 		Ok(unsafe { T::read(base.as_ptr().cast::<u8>().add(self.offset)) })
+	}
+
+	/// Reads an entity handle variable (`CHandle`), as stored, from the
+	/// structure at `base`, as [`get_handle`](Self::get_handle) reads one from an
+	/// entity.
+	///
+	/// Fails with [`NetPropError::NotAHandle`] as [`get_handle`](Self::get_handle)
+	/// does.
+	///
+	/// # Safety
+	///
+	/// As for [`get_at`](Self::get_at).
+	#[cfg(feature = "tf2")]
+	pub(crate) unsafe fn get_handle_at(
+		self,
+		base: NonNull<c_void>,
+	) -> Result<EntityHandle, NetPropError> {
+		self.check_handle()?;
+
+		// SAFETY: The structure is laid out as the variable's table describes, as
+		// the caller promises, and the variable is a handle, whose `CBaseHandle`
+		// holds only its raw value, read without forming a reference or assuming
+		// alignment.
+		Ok(EntityHandle::from_raw(unsafe {
+			base.as_ptr()
+				.cast::<u8>()
+				.add(self.offset)
+				.cast::<u32>()
+				.read_unaligned()
+		}))
 	}
 
 	/// Reads an entity handle variable (`CHandle`) from an entity, as stored,

@@ -8,11 +8,14 @@
 //! extinguishes a burning teammate, and pushes a player of the other team
 //! away: it knocks them into the air, slows them for a moment, stops a
 //! charging Demoman's charge, and credits the Pyro if the player then falls to
-//! their death. The weapon reflects projectiles through another function,
-//! `DeflectEntity`.
+//! their death. The weapon deflects projectiles and other entities through
+//! another function, `CTFWeaponBase::DeflectEntity`, which the flame
+//! throwers' override restricts to the other team's projectiles: it sends them
+//! back where the Pyro aims, and makes the Pyro their owner, their weapon
+//! their launcher, and their team the Pyro's.
 //!
-//! [`sdk_raw::tf2::airblast`] holds the function's signature and vtable slot,
-//! and `metamod_source`'s `airblast_hooks` hook it in the classes
+//! [`sdk_raw::tf2::airblast`] holds the functions' signatures and vtable
+//! slots, and `metamod_source`'s `airblast_hooks` hook them in the classes
 //! [`airblast_vtables`] finds.
 
 use crate::{Game, Server};
@@ -64,9 +67,9 @@ pub struct AirblastVtables<'s> {
 
 impl AirblastVtables<'_> {
 	/// The vtable of the rocket launchers' class, `CTFRocketLauncher`, which
-	/// keeps `CTFWeaponBase`'s `DeflectProjectiles` and `DeflectPlayer`: the
-	/// first, as the weapons with airblast do, and the second, which they
-	/// override.
+	/// keeps `CTFWeaponBase`'s `DeflectProjectiles`, `DeflectPlayer` and
+	/// `DeflectEntity`: the first, as the weapons with airblast do, and the
+	/// others, which they override.
 	pub const fn reference(self) -> NonNull<*mut c_void> {
 		self.reference
 	}
@@ -113,7 +116,7 @@ impl AirblastWeapon {
 /// searches it once for all three, so call it once, such as while loading.
 ///
 /// The search only checks that each vtable reaches
-/// [`DEFLECT_PLAYER_SLOT`](sdk_raw::tf2::airblast::DEFLECT_PLAYER_SLOT) and
+/// [`DEFLECT_ENTITY_SLOT`](sdk_raw::tf2::airblast::DEFLECT_ENTITY_SLOT) and
 /// holds code there, not that the class is the weapon it is named after.
 pub fn airblast_vtables(server: Server<'_>) -> Result<AirblastVtables<'_>, AirblastVtableError> {
 	if server.game() != Game::TeamFortress2 {
