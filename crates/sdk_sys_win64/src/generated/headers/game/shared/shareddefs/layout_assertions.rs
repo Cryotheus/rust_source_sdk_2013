@@ -3,6 +3,38 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of CViewVectors"][::std::mem::size_of::<CViewVectors>() - 108usize];
+    ["Alignment of CViewVectors"][::std::mem::align_of::<CViewVectors>() - 4usize];
+    [
+        "Offset of field: CViewVectors::m_vView",
+    ][::std::mem::offset_of!(CViewVectors, m_vView) - 0usize];
+    [
+        "Offset of field: CViewVectors::m_vHullMin",
+    ][::std::mem::offset_of!(CViewVectors, m_vHullMin) - 12usize];
+    [
+        "Offset of field: CViewVectors::m_vHullMax",
+    ][::std::mem::offset_of!(CViewVectors, m_vHullMax) - 24usize];
+    [
+        "Offset of field: CViewVectors::m_vDuckHullMin",
+    ][::std::mem::offset_of!(CViewVectors, m_vDuckHullMin) - 36usize];
+    [
+        "Offset of field: CViewVectors::m_vDuckHullMax",
+    ][::std::mem::offset_of!(CViewVectors, m_vDuckHullMax) - 48usize];
+    [
+        "Offset of field: CViewVectors::m_vDuckView",
+    ][::std::mem::offset_of!(CViewVectors, m_vDuckView) - 60usize];
+    [
+        "Offset of field: CViewVectors::m_vObsHullMin",
+    ][::std::mem::offset_of!(CViewVectors, m_vObsHullMin) - 72usize];
+    [
+        "Offset of field: CViewVectors::m_vObsHullMax",
+    ][::std::mem::offset_of!(CViewVectors, m_vObsHullMax) - 84usize];
+    [
+        "Offset of field: CViewVectors::m_vDeadViewHeight",
+    ][::std::mem::offset_of!(CViewVectors, m_vDeadViewHeight) - 96usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of EmitSound_t"][::std::mem::size_of::<EmitSound_t>() - 112usize];
     ["Alignment of EmitSound_t"][::std::mem::align_of::<EmitSound_t>() - 8usize];
     [

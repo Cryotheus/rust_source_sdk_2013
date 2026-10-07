@@ -14,6 +14,8 @@
 #[allow(unused_imports)]
 use super::super::super::super::super::__bindgen_prelude::*;
 
+pub type MapDefIndex_t = uint32;
+
 #[repr(C)]
 pub struct CTFItemDefinition {
 	pub _base: CEconItemDefinition,

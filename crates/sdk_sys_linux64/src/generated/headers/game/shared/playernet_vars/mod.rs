@@ -236,6 +236,16 @@ pub struct sky3dparams_t_NetworkVar_fog {
 }
 
 #[repr(C)]
+pub struct sky3dparams_t_NetworkVar_fog__bindgen_vtable {
+	pub sky3dparams_t_NetworkVar_fog_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut sky3dparams_t_NetworkVar_fog),
+	pub sky3dparams_t_NetworkVar_fog_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut sky3dparams_t_NetworkVar_fog,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct sky3dparams_t_NetworkVar_origin {
 	pub _address: u8,

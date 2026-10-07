@@ -11,7 +11,9 @@
 
 pub mod datamap;
 pub mod factory;
+pub mod flags;
 pub mod health;
+pub mod spawn;
 pub mod think;
 
 use crate::edicts::MAX_EDICT_BITS;
@@ -499,8 +501,9 @@ pub unsafe fn data_desc_map(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_
 /// bytes, that `CBaseEntity`'s own map in `maps` declares.
 ///
 /// Returns `None` unless the field lies under
-/// [`BASE_ENTITY_FIELD_OFFSET_LIMIT`], at an offset aligned for its size, up
-/// to a pointer's alignment.
+/// [`BASE_ENTITY_FIELD_OFFSET_LIMIT`], at an offset aligned for its size: to
+/// the largest power of two dividing it, up to a pointer's alignment, so a
+/// 12-byte `Vector` of floats needs 4 bytes.
 pub fn find_base_entity_field(
 	mut maps: DataMaps<'_>,
 	name: &CStr,
@@ -516,9 +519,32 @@ pub fn find_base_entity_field(
 	})?;
 
 	let offset = field.offset()?;
-	let is_aligned = offset.is_multiple_of(size.min(align_of::<*const ()>()));
+	let alignment = size.isolate_lowest_one().clamp(1, align_of::<*const ()>());
 
-	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && is_aligned).then_some(offset)
+	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && offset.is_multiple_of(alignment)).then_some(offset)
+}
+
+/// Finds the offset of the entity's VPhysics object, `m_pPhysicsObject`,
+/// which `VPhysicsGetObject` returns, as `CBaseEntity`'s own map in `maps`
+/// declares it: one `FIELD_CUSTOM` member (`DEFINE_PHYSPTR`), whose size the
+/// map leaves out.
+///
+/// Returns `None` unless the field lies under
+/// [`BASE_ENTITY_FIELD_OFFSET_LIMIT`], aligned for a pointer.
+#[doc(alias("m_pPhysicsObject", "VPhysicsGetObject", "DEFINE_PHYSPTR"))]
+pub fn find_physics_object_field(mut maps: DataMaps<'_>) -> Option<usize> {
+	let map = maps.find(|map| map.class_name() == Some(c"CBaseEntity"))?;
+
+	let field = map.fields().iter().find(|field| {
+		field.fieldType == sys::_fieldtypes_FIELD_CUSTOM
+			&& field.fieldSize == 1
+			&& field.name() == Some(c"m_pPhysicsObject")
+	})?;
+
+	let offset = field.offset()?;
+
+	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && offset.is_multiple_of(align_of::<*const ()>()))
+		.then_some(offset)
 }
 
 /// Finds the offset of the entity's solid flags, `m_usSolidFlags`, the

@@ -2,7 +2,7 @@
 //! them through `IVEngineServer`.
 
 use sdk_raw::test_support::edicts::mock_edict;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::ffi::c_int;
 use std::ptr::null_mut;
 
@@ -12,6 +12,9 @@ thread_local! {
 
 	/// The table [`edict_of_index`] serves, and its length.
 	static EDICTS: Cell<(*mut sys::edict_t, usize)> = const { Cell::new((null_mut(), 0)) };
+
+	/// The edicts [`notify_edict_flags_change`] was told of, in order.
+	static FLAG_CHANGES: RefCell<Vec<c_int>> = const { RefCell::new(Vec::new()) };
 
 	/// What [`shared_change_info`] returns.
 	static SHARED: Cell<*mut sys::CSharedEdictChangeInfo> = const { Cell::new(null_mut()) };
@@ -65,6 +68,16 @@ pub fn edict_table(len: usize, free: impl Fn(usize) -> bool) -> Box<[sys::edict_
 		.collect()
 }
 
+/// `IVEngineServer::NotifyEdictFlagsChange`, which notes the edict on this
+/// thread, for [`take_flag_changes`].
+///
+/// # Safety
+///
+/// None: it reads no pointer. It is `unsafe` to fit the vtable slot.
+pub unsafe extern "C" fn notify_edict_flags_change(_: *mut sys::IVEngineServer, edict: c_int) {
+	FLAG_CHANGES.with_borrow_mut(|changes| changes.push(edict));
+}
+
 /// Makes [`edict_of_index`] serve the `len` slots at `table` on this thread,
 /// which must stay alive while it does.
 ///
@@ -100,4 +113,12 @@ pub unsafe extern "C" fn shared_change_info(
 	_: *mut sys::IVEngineServer,
 ) -> *mut sys::CSharedEdictChangeInfo {
 	SHARED.get()
+}
+
+/// The edicts [`notify_edict_flags_change`] was told of on this thread since
+/// the last call, in order.
+///
+/// For tests only.
+pub fn take_flag_changes() -> Vec<c_int> {
+	FLAG_CHANGES.take()
 }

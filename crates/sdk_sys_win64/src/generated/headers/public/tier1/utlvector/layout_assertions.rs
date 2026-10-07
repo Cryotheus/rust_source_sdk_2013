@@ -3,6 +3,20 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    ["Size of CUtlStringList"][::std::mem::size_of::<CUtlStringList>() - 32usize];
+    ["Alignment of CUtlStringList"][::std::mem::align_of::<CUtlStringList>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of CUtlVectorUltraConservativeAllocator",
+    ][::std::mem::size_of::<CUtlVectorUltraConservativeAllocator>() - 1usize];
+    [
+        "Alignment of CUtlVectorUltraConservativeAllocator",
+    ][::std::mem::align_of::<CUtlVectorUltraConservativeAllocator>() - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of base_vector_t"][::std::mem::size_of::<base_vector_t>() - 1usize];
     ["Alignment of base_vector_t"][::std::mem::align_of::<base_vector_t>() - 1usize];
 };

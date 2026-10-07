@@ -66,7 +66,9 @@ impl<'s> GameClient<'s> {
 	/// # Safety
 	///
 	/// The command must not disconnect the client or free entities
-	/// immediately, as `disconnect` and some game commands do.
+	/// immediately, as `disconnect` and some game commands do, nor change the
+	/// navigation mesh, as the nav editor's commands do for a listen server's
+	/// host.
 	#[doc(alias("ExecuteStringCommand"))]
 	pub unsafe fn execute_string_command(self, command: &CStr) -> bool {
 		// SAFETY: As for `slot`, and the caller vouches for the command.

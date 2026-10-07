@@ -16,10 +16,10 @@ use super::super::super::__bindgen_prelude::*;
 
 pub type std_string = __BindgenOpaqueArray8<[u8; 32usize]>;
 
-pub const MELEE_CRIT: _bindgen_ty_161 = 2;
-pub const MELEE_MINICRIT: _bindgen_ty_161 = 1;
-pub const MELEE_NOCRIT: _bindgen_ty_161 = 0;
-pub const kSoldierBuffCount: _bindgen_ty_162 = 6;
+pub const MELEE_CRIT: _bindgen_ty_171 = 2;
+pub const MELEE_MINICRIT: _bindgen_ty_171 = 1;
+pub const MELEE_NOCRIT: _bindgen_ty_171 = 0;
+pub const kSoldierBuffCount: _bindgen_ty_172 = 6;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -548,6 +548,16 @@ impl<T: Copy + Default, const N: usize> Default for __BindgenOpaqueArray8<[T; N]
 	}
 }
 
+#[derive(PartialEq, Eq, Copy, Clone, Debug, Hash)]
+#[repr(C, align(16))]
+pub struct __BindgenOpaqueArray16<T>(pub T);
+
+impl<T: Copy + Default, const N: usize> Default for __BindgenOpaqueArray16<[T; N]> {
+	fn default() -> Self {
+		Self([<T as Default>::default(); N])
+	}
+}
+
 #[repr(C)]
 #[repr(align(8))]
 #[derive(Debug, Copy, Clone)]
@@ -581,6 +591,43 @@ pub struct CAttribute_WorldItemPlacement {
 #[derive(Debug, Copy, Clone)]
 pub struct CSOItemCriteriaCondition {
 	pub _bindgen_opaque_blob: __BindgenOpaqueArray8<[u8; 56usize]>,
+}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct __IncompleteArrayField<T>(::std::marker::PhantomData<T>, [T; 0]);
+
+impl<T> __IncompleteArrayField<T> {
+	#[inline]
+	pub const fn new() -> Self {
+		__IncompleteArrayField(::std::marker::PhantomData, [])
+	}
+
+	#[inline]
+	pub fn as_mut_ptr(&mut self) -> *mut T {
+		self as *mut _ as *mut T
+	}
+
+	#[inline]
+	pub unsafe fn as_mut_slice(&mut self, len: usize) -> &mut [T] {
+		::std::slice::from_raw_parts_mut(self.as_mut_ptr(), len)
+	}
+
+	#[inline]
+	pub fn as_ptr(&self) -> *const T {
+		self as *const _ as *const T
+	}
+
+	#[inline]
+	pub unsafe fn as_slice(&self, len: usize) -> &[T] {
+		::std::slice::from_raw_parts(self.as_ptr(), len)
+	}
+}
+
+impl<T> ::std::fmt::Debug for __IncompleteArrayField<T> {
+	fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+		fmt.write_str("__IncompleteArrayField")
+	}
 }
 
 #[repr(C)]
