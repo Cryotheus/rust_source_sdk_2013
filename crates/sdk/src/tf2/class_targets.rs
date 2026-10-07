@@ -49,7 +49,7 @@ use std::ptr::NonNull;
 pub enum BaseEntity {}
 
 /// `CBaseObject`: TF2's buildings, those of
-/// [`OBJECT_CLASSES`](sdk_raw::tf2::class_targets::OBJECT_CLASSES), which are
+/// [`OBJECT_CLASSES`], which are
 /// [`CombatCharacter`]s.
 #[doc(alias("CBaseObject"))]
 #[derive(Debug)]
@@ -88,7 +88,7 @@ pub trait DerivesFrom<B: ClassKind>: ClassKind {}
 impl<K: ClassKind> DerivesFrom<K> for K {}
 
 /// `CTFPlayer`: TF2's players, of the two classes of
-/// [`PLAYER_CLASSES`](sdk_raw::tf2::class_targets::PLAYER_CLASSES).
+/// [`PLAYER_CLASSES`].
 #[doc(alias("CTFPlayer", "CTFBot"))]
 #[derive(Debug)]
 pub enum TfPlayer {}
@@ -343,7 +343,7 @@ impl<'s> ClassTargets<'s> {
 	}
 
 	/// The classes of TF2's buildings, those of
-	/// [`OBJECT_CLASSES`](sdk_raw::tf2::class_targets::OBJECT_CLASSES), in the
+	/// [`OBJECT_CLASSES`], in the
 	/// order of [`BuildingClass::ALL`](super::buildings::BuildingClass::ALL).
 	/// A class without a unique vtable is an error.
 	pub fn objects(
@@ -356,7 +356,7 @@ impl<'s> ClassTargets<'s> {
 	}
 
 	/// The classes of TF2's players, those of
-	/// [`PLAYER_CLASSES`](sdk_raw::tf2::class_targets::PLAYER_CLASSES): the
+	/// [`PLAYER_CLASSES`]: the
 	/// humans', then the bots'. A class without a unique vtable is an error.
 	pub fn players(
 		&self,

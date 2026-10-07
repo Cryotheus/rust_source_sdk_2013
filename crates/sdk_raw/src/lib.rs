@@ -57,6 +57,7 @@ pub mod soundscapes;
 pub mod steam;
 pub mod tier0;
 pub mod transmit;
+pub mod user_cmd;
 pub mod user_messages;
 pub mod util;
 
