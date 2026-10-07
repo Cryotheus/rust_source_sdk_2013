@@ -94,7 +94,8 @@ struct FakeEntity {
 	desired_class: c_int,
 	state: c_int,
 	team: c_int,
-	spawn_counter: c_int,
+	/// `m_iSpawnCounter`, a `bool` that TF2 sends as an 8-bit integer.
+	spawn_counter: bool,
 	force_bone: c_int,
 	damage_custom: c_int,
 	/// `m_hRagdoll` of a player.
@@ -231,7 +232,7 @@ impl World {
 			),
 			int_prop(c"m_nPlayerState", offset_of!(FakeEntity, state)),
 			int_prop(c"m_iTeamNum", offset_of!(FakeEntity, team)),
-			int_prop(c"m_iSpawnCounter", offset_of!(FakeEntity, spawn_counter)),
+			byte_prop(c"m_iSpawnCounter", offset_of!(FakeEntity, spawn_counter)),
 			handle_prop(c"m_hRagdoll", offset_of!(FakeEntity, ragdoll)),
 			handle_prop(c"m_hActiveWeapon", offset_of!(FakeEntity, active_weapon)),
 			inside_array(handle_prop(
@@ -320,7 +321,7 @@ impl World {
 				desired_class: PlayerClass::Medic.to_raw(),
 				state: raw::TF_STATE_ACTIVE,
 				team: Team::Red.to_raw(),
-				spawn_counter: 1,
+				spawn_counter: true,
 				force_bone: 7,
 				damage_custom: 1,
 				ragdoll: NULL,
@@ -379,7 +380,7 @@ impl World {
 			newcomer.desired_class = 0;
 			newcomer.state = raw::TF_STATE_WELCOME;
 			newcomer.team = Team::Unassigned.to_raw();
-			newcomer.spawn_counter = 0;
+			newcomer.spawn_counter = false;
 		}
 
 		world
@@ -431,6 +432,21 @@ fn bool_prop(name: &'static CStr, at: usize) -> sys::SendProp {
 	);
 
 	prop.m_nBits = 1;
+	prop
+}
+
+/// An 8-bit integer property, as `SendPropInt` declares one for a `bool`
+/// variable, such as `m_iSpawnCounter`.
+fn byte_prop(name: &'static CStr, at: usize) -> sys::SendProp {
+	let mut prop = prop(
+		name,
+		sys::SendPropType_DPT_Int,
+		offset(at),
+		PropFlags::default(),
+		Some(int8_proxy),
+	);
+
+	prop.m_nBits = 8;
 	prop
 }
 
@@ -491,6 +507,11 @@ fn classes_states_and_teams_read_as_tf2_numbers_them() {
 	assert_eq!(newcomer.state().unwrap(), PlayerState::Welcome);
 	assert_eq!(newcomer.team().unwrap(), Team::Unassigned);
 	assert!(!newcomer.spawn_parity().unwrap());
+
+	// The game flips the bit as the player spawns.
+	// SAFETY: As for the fields written in `World::new`.
+	unsafe { (*world.newcomer).spawn_counter = true };
+	assert!(newcomer.spawn_parity().unwrap());
 
 	// Values the game never assigns, such as a script's civilian.
 	// SAFETY: As for the fields written in `World::new`.
