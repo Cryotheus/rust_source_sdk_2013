@@ -1,5 +1,6 @@
-//! Tests of `crate::server_hooks`: `GameFrame` hooks on a mock
-//! `IServerGameDLL`, through the mock SourceHook and KHook.
+//! Tests of `crate::server_hooks`: `GameFrame`, `Think` and
+//! `SetServerHibernation` hooks on a mock `IServerGameDLL`, through the mock
+//! SourceHook and KHook.
 
 use super::*;
 use crate::api::MetamodVersion;
@@ -11,8 +12,8 @@ use source_sdk_2013::sys;
 use std::cell::RefCell;
 
 /// The size of the mock `IServerGameDLL`'s vtable, every slot of which
-/// holds [`game_frame`].
-const SLOTS: usize = 8;
+/// holds [`game_frame`]: up to `SetServerHibernation`, the last hooked.
+const SLOTS: usize = SET_SERVER_HIBERNATION_SLOT + 1;
 
 thread_local! {
 	/// What ran during the frames since the last [`run_frame`], in order.
@@ -26,13 +27,52 @@ fn after_frame(_server: Server<'_>, simulating: bool) {
 	FRAMES.with_borrow_mut(|frames| frames.push(("after", simulating)));
 }
 
+fn after_hibernation(_server: Server<'_>, hibernating: bool) {
+	FRAMES.with_borrow_mut(|frames| frames.push(("hibernation", hibernating)));
+}
+
 fn before_frame(_server: Server<'_>, simulating: bool) {
 	FRAMES.with_borrow_mut(|frames| frames.push(("before", simulating)));
+}
+
+fn before_think(_server: Server<'_>, final_tick: bool) {
+	FRAMES.with_borrow_mut(|frames| frames.push(("think", final_tick)));
 }
 
 /// A binding to a game server exporting only the mock of [`game_dll`].
 fn binding() -> ServerBinding {
 	tf2_binding(game_server_factory)
+}
+
+#[test]
+fn each_game_dll_hook_installs_once() {
+	on_both(|harness| {
+		let api = harness.api();
+		let scope = ();
+		let game_dll = game_dll(&scope);
+
+		api.hook_game_frame(game_dll, binding(), before_frame)
+			.unwrap();
+		api.hook_server_think(game_dll, binding(), before_think)
+			.unwrap();
+		api.hook_server_hibernation(game_dll, binding(), after_hibernation)
+			.unwrap();
+
+		assert!(matches!(
+			api.hook_server_think(game_dll, binding(), before_think),
+			Err(HookError::AlreadyInstalled)
+		));
+
+		assert!(matches!(
+			api.hook_server_hibernation(game_dll, binding(), after_hibernation),
+			Err(HookError::AlreadyInstalled)
+		));
+
+		assert_eq!(
+			run(harness, game_dll, THINK, true),
+			[("think", true), ("game", true)]
+		);
+	});
 }
 
 /// A new mock of the game's `IServerGameDLL`, which the game server's
@@ -137,6 +177,36 @@ unsafe extern "C" fn game_server_factory(
 	}
 }
 
+#[test]
+fn hibernation_hooks_run_after_the_game() {
+	on_both(|harness| {
+		let api = harness.api();
+		let scope = ();
+		let game_dll = game_dll(&scope);
+
+		api.hook_server_hibernation(game_dll, binding(), after_hibernation)
+			.unwrap();
+
+		for hibernating in [true, false] {
+			assert_eq!(
+				run(harness, game_dll, SET_SERVER_HIBERNATION, hibernating),
+				[("game", hibernating), ("hibernation", hibernating)]
+			);
+		}
+	});
+}
+
+/// Calls the mock's hooked `function`, and returns what ran during the call.
+fn run(
+	harness: &Harness,
+	game_dll: ServerGameDll<'_>,
+	function: VirtualFunction<GameFrame>,
+	argument: bool,
+) -> Vec<(&'static str, bool)> {
+	harness.call::<GameFrame>(game_dll.as_ptr(), function.index(), (argument,));
+	FRAMES.take()
+}
+
 /// Runs a frame through the mock's hooked `GameFrame`, and returns what ran
 /// during it.
 fn run_frame(
@@ -144,6 +214,27 @@ fn run_frame(
 	game_dll: ServerGameDll<'_>,
 	simulating: bool,
 ) -> Vec<(&'static str, bool)> {
-	harness.call::<GameFrame>(game_dll.as_ptr(), GAME_FRAME.index(), (simulating,));
-	FRAMES.take()
+	run(harness, game_dll, GAME_FRAME, simulating)
+}
+
+#[test]
+fn think_hooks_run_before_think() {
+	on_both(|harness| {
+		let api = harness.api();
+		let scope = ();
+		let game_dll = game_dll(&scope);
+
+		api.hook_server_think(game_dll, binding(), before_think)
+			.unwrap();
+
+		for final_tick in [true, false] {
+			assert_eq!(
+				run(harness, game_dll, THINK, final_tick),
+				[("think", final_tick), ("game", final_tick)]
+			);
+		}
+
+		// Frames are not thinks.
+		assert_eq!(run_frame(harness, game_dll, true), [("game", true)]);
+	});
 }

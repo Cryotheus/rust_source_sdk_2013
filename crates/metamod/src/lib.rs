@@ -189,7 +189,9 @@ pub use plugin::{ErrorBuffer, PluginCallbacks, PluginDescriptor, PluginMetadata}
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
-pub use server_hooks::{GameFrameFn, LevelEvents, NetMessageHookError};
+pub use server_hooks::{
+	GameFrameFn, HibernationFn, LevelEvents, NetMessageHookError, ServerThinkFn,
+};
 
 pub use sys;
 
