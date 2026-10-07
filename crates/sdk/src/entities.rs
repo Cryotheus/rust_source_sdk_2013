@@ -5,10 +5,12 @@
 //! key values, and networked variables are reached through
 //! [`NetProp`](crate::datatables::NetProp). The factories entities are created
 //! with are in [`factory`], health, life state and damage modes in [`health`],
-//! solid flags in [`solid`], and think contexts in [`think`].
+//! the actions of outputs in [`outputs`], solid flags in [`solid`], and think
+//! contexts in [`think`].
 
 pub mod factory;
 pub mod health;
+pub mod outputs;
 pub mod solid;
 pub mod think;
 

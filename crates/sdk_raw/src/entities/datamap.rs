@@ -21,6 +21,11 @@ pub const FTYPEDESC_INPUT: c_short = 0x0008;
 /// which `KeyValue` finds by its external name.
 pub const FTYPEDESC_KEY: c_short = 0x0004;
 
+/// `FTYPEDESC_OUTPUT` from `public/datamap.h`: the field is an output, a
+/// `CBaseEntityOutput` (`DEFINE_OUTPUT`), to which the key value of its
+/// external name adds an action.
+pub const FTYPEDESC_OUTPUT: c_short = 0x0010;
+
 /// `TD_OFFSET_NORMAL` from `public/datamap.h`: the index, in a field's
 /// `fieldOffset`, of its offset in the object its map describes. The other
 /// offset is the one prediction packs fields at.
