@@ -30,6 +30,7 @@ pub mod item_schema;
 pub mod meters;
 pub mod mvm;
 pub mod nav;
+pub mod next_bot;
 pub mod objectives;
 pub mod objects;
 pub mod observer;
