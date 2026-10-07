@@ -106,6 +106,31 @@ impl<'s> ValveEngine<'s> {
 		};
 	}
 
+	/// The 64-bit Steam ID of the client owning an edict.
+	///
+	/// A remote client's ID comes from the Steam ticket it connected with, so the
+	/// engine has it by the time the game's `ClientConnect` runs, where TF2 reads
+	/// it too. Steam checks the ticket afterwards, and the engine disconnects the
+	/// client if the check fails.
+	///
+	/// Returns `None` for an edict that no connected client owns, and for an ID
+	/// that `CSteamID::IsValid` would reject, such as the cleared ID of a fake
+	/// client the engine does not report to Steam.
+	#[doc(alias("GetClientSteamID"))]
+	pub fn client_steam_id(self, client: Edict<'_>) -> Option<u64> {
+		// SAFETY: As for `change_level`, and the edict is live. The engine checks
+		// that a connected client owns it, and returns null otherwise.
+		let steam_id =
+			unsafe { vcall!(self.as_ptr() => IVEngineServer_GetClientSteamID(client.as_ptr())) };
+
+		// SAFETY: A non-null result points to the ID the engine's client holds,
+		// which lives as long as the client and is copied at once, and the union's
+		// bits always make a valid `u64`.
+		let steam_id = unsafe { steam_id.as_ref()?.m_steamid.m_unAll64Bits };
+
+		is_valid_steam_id(steam_id).then_some(steam_id)
+	}
+
 	/// The visibility cluster of the level's map a point lies in, or `None` for a
 	/// point outside the world or inside its solid parts.
 	#[doc(alias("GetClusterForOrigin"))]
@@ -437,4 +462,37 @@ impl Pvs<'_> {
 			*byte |= other;
 		}
 	}
+}
+
+/// Whether a 64-bit Steam ID is valid, as `CSteamID::IsValid` decides: its
+/// universe and account type are known ones, and those of individual
+/// accounts, groups and game servers name an account, the first two in the
+/// one instance they use.
+fn is_valid_steam_id(steam_id: u64) -> bool {
+	// `CSteamID`'s fields, from its lowest bits.
+	let account = steam_id as u32;
+	let instance = (steam_id >> 32) as u32 & 0xF_FFFF;
+	let account_type = (steam_id >> 52) as u32 & 0xF;
+	let universe = (steam_id >> 56) as u32;
+
+	// From `k_EUniversePublic` to `k_EUniverseDev`.
+	let known_universe = (1..=4).contains(&universe);
+
+	known_universe
+		&& match account_type {
+			// `k_EAccountTypeIndividual`, in `k_unSteamUserDefaultInstance`.
+			1 => account != 0 && instance == 1,
+
+			// `k_EAccountTypeGameServer`, in any instance.
+			3 => account != 0,
+
+			// `k_EAccountTypeClan`.
+			7 => account != 0 && instance == 0,
+
+			// The other types, up to `k_EAccountTypeAnonUser`.
+			2..=10 => true,
+
+			// `k_EAccountTypeInvalid`, and types Steam does not know.
+			_ => false,
+		}
 }

@@ -65,6 +65,7 @@ pub struct ReceivedInput {
 thread_local! {
 	static ACCEPTS: Cell<bool> = const { Cell::new(true) };
 	static COLLIDEABLE: Cell<*mut sys::ICollideable> = const { Cell::new(null_mut()) };
+	static COLLISION_GROUP: Cell<c_int> = const { Cell::new(sdk_raw::entities::COLLISION_GROUP_NONE) };
 	static DATA_MAP: Cell<*mut sys::datamap_t> = const { Cell::new(null_mut()) };
 	static EDICT: Cell<*mut sys::edict_t> = const { Cell::new(null_mut()) };
 	static INPUTS: RefCell<Vec<ReceivedInput>> = const { RefCell::new(Vec::new()) };
@@ -87,8 +88,8 @@ pub struct MockEntity {
 
 impl MockEntity {
 	/// Builds an entity whose handle is `handle`, and resets the datamap,
-	/// origin, teleport count, `TakeHealth` calls, server class, and edict
-	/// that mock entities on this thread report.
+	/// origin, collision group, teleport count, `TakeHealth` calls, server class,
+	/// and edict that mock entities on this thread report.
 	pub fn new(handle: u32) -> Self {
 		Self::with_layout(handle, Layout::new::<[usize; 64]>())
 	}
@@ -164,6 +165,9 @@ impl MockEntity {
 				unexpected_call as *const (),
 				|vtable| {
 					(&raw mut (*vtable).ICollideable_GetCollisionOrigin).write(get_origin);
+					(&raw mut (*vtable).ICollideable_GetCollisionGroup).write(get_collision_group);
+					(&raw mut (*vtable).ICollideable_WorldSpaceSurroundingBounds)
+						.write(get_surrounding_bounds);
 				},
 			)
 		};
@@ -188,6 +192,7 @@ impl MockEntity {
 
 		DATA_MAP.set(map);
 		COLLIDEABLE.set(collideable);
+		COLLISION_GROUP.set(sdk_raw::entities::COLLISION_GROUP_NONE);
 		NETWORKABLE.set(networkable);
 		ORIGIN.set(sys::Vector {
 			x: 1.0,
@@ -391,6 +396,12 @@ unsafe extern "C" fn get_collideable(_: *mut sys::IServerEntity) -> *mut sys::IC
 	COLLIDEABLE.get()
 }
 
+/// `ICollideable::GetCollisionGroup`, which returns the group
+/// [`set_collision_group`] or the last [`MockEntity::new`] set on this thread.
+unsafe extern "C" fn get_collision_group(_: *const sys::ICollideable) -> c_int {
+	COLLISION_GROUP.get()
+}
+
 /// `CBaseEntity::GetDataDescMap`, which returns the map [`set_datamap`] or
 /// the last [`MockEntity::new`] set on this thread.
 ///
@@ -425,6 +436,30 @@ unsafe extern "C" fn get_networkable(_: *mut sys::IServerEntity) -> *mut sys::IS
 
 unsafe extern "C" fn get_origin(_: *const sys::ICollideable) -> *const sys::Vector {
 	ORIGIN.with(Cell::as_ptr).cast_const()
+}
+
+/// Writes a box reaching one unit from the origin each way.
+unsafe extern "C" fn get_surrounding_bounds(
+	_: *mut sys::ICollideable,
+	mins: *mut sys::Vector,
+	maxs: *mut sys::Vector,
+) {
+	let origin = ORIGIN.get();
+
+	// SAFETY: The caller passes two writable vectors.
+	unsafe {
+		mins.write(sys::Vector {
+			x: origin.x - 1.0,
+			y: origin.y - 1.0,
+			z: origin.z - 1.0,
+		});
+
+		maxs.write(sys::Vector {
+			x: origin.x + 1.0,
+			y: origin.y + 1.0,
+			z: origin.z + 1.0,
+		});
+	}
 }
 
 unsafe extern "C" fn get_server_class(_: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
@@ -484,6 +519,15 @@ unsafe extern "C" fn is_alive(this: *mut sys::CBaseEntity) -> bool {
 /// For tests only.
 pub fn set_accepts(accepts: bool) {
 	ACCEPTS.set(accepts);
+}
+
+/// Sets the collision group mock entities report on this thread, such as
+/// `COLLISION_GROUP_DEBRIS`, until the next [`MockEntity::new`] resets it to
+/// `COLLISION_GROUP_NONE`.
+///
+/// For tests only.
+pub fn set_collision_group(group: c_int) {
+	COLLISION_GROUP.set(group);
 }
 
 /// Replaces the datamap chain mock entities, and [`get_datamap`], report on

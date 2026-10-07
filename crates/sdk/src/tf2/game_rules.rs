@@ -10,8 +10,8 @@
 //! proxies that give the game rules object instead of the entity. A
 //! [`NetProp`] of the entity's class therefore finds those variables
 //! [relocated](NetPropError::Relocated). [`GameRules`] calls the proxies as
-//! the engine does when it sends the entity, and reads the variables from the
-//! object they give.
+//! the engine does when it sends the entity, and reads and writes the
+//! variables in the object they give.
 
 #[cfg(test)]
 #[path = "../tests/tf2/game_rules.rs"]
@@ -172,14 +172,7 @@ impl<'s> GameRules<'s> {
 	/// if it is not a single value stored
 	/// [compatibly](crate::datatables::Storage::is_compatible) with `T`.
 	pub fn read<T: NetVar>(self, name: &CStr) -> Result<T, GameRulesError> {
-		let (prop, object) = match NetProp::resolve(self.round_rules_table, name, self.proxies) {
-			Err(NetPropError::NotFound { .. }) => (
-				NetProp::resolve(self.rules_table, name, self.proxies)?,
-				self.rules,
-			),
-
-			found => (found?, self.round_rules),
-		};
+		let (prop, object) = self.variable(name)?;
 
 		// SAFETY: The object is the one the proxy of the table's property gave,
 		// so the table describes it, and the game only deletes it as the level
@@ -198,9 +191,48 @@ impl<'s> GameRules<'s> {
 
 		RoundState::from_raw(raw).ok_or(GameRulesError::UnknownRoundState(raw))
 	}
+
+	/// The networked variable named `name`, found as [`Self::read`] finds it,
+	/// and the object holding it.
+	fn variable(self, name: &CStr) -> Result<(NetProp<'s>, NonNull<c_void>), GameRulesError> {
+		match NetProp::resolve(self.round_rules_table, name, self.proxies) {
+			Err(NetPropError::NotFound { .. }) => Ok((
+				NetProp::resolve(self.rules_table, name, self.proxies)?,
+				self.rules,
+			)),
+
+			found => Ok((found?, self.round_rules)),
+		}
+	}
+
+	/// Writes a networked variable of the game rules by name, as stored, where
+	/// [`Self::read`] reads it, without recording the change for clients.
+	///
+	/// The engine sends the game rules to clients through the `tf_gamerules`
+	/// entity, which it only packs again once the game records a change of the
+	/// game rules' variables. A written value reaches clients only if it is still
+	/// there then, so one put back before the game's next change never does.
+	///
+	/// Fails, without writing, as [`Self::read`] does.
+	///
+	/// # Safety
+	///
+	/// The game must accept `value` for this variable for as long as it holds
+	/// it. Game code trusts the game rules to hold values it could have assigned
+	/// itself, and assigns some variables together with other state, which a
+	/// write leaves as it was. `m_bInWaitingForPlayers` written true outside the
+	/// game's own waiting for players, whose end it sets as it starts, makes the
+	/// game restart the round at its next check of the waiting.
+	pub unsafe fn write<T: NetVar>(self, name: &CStr, value: T) -> Result<(), GameRulesError> {
+		let (prop, object) = self.variable(name)?;
+
+		// SAFETY: As for `read`, and the game accepts the value, as the caller
+		// promises.
+		Ok(unsafe { prop.set_at(object, value) }?)
+	}
 }
 
-/// Why TF2's game rules could not be found or read.
+/// Why TF2's game rules could not be found, read or written.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GameRulesError {
 	/// The server does not run TF2.
@@ -226,7 +258,7 @@ pub enum GameRulesError {
 	#[error("the game has no game rules object")]
 	NoGameRules,
 
-	/// A networked variable could not be found or read.
+	/// A networked variable could not be found, read or written.
 	#[error(transparent)]
 	NetProp(#[from] NetPropError),
 

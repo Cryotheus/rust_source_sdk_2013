@@ -2,7 +2,29 @@
 //! data description maps, and of teleporting them.
 
 use super::*;
-use crate::test_support::entities::{MockEntity, teleports};
+use crate::test_support::entities::{MockEntity, set_collision_group, teleports};
+
+#[test]
+fn collision_groups_are_read_from_the_collideable() {
+	// `TFCOLLISION_GROUP_ROCKETS`, a group of TF2's own.
+	let rockets = sdk_raw::entities::LAST_SHARED_COLLISION_GROUP + 4;
+	let mut mock = MockEntity::new(5);
+
+	assert_eq!(mock.entity().collision_group(), Some(COLLISION_GROUP_NONE));
+
+	// Shared groups convert, and games' own are kept as they are.
+	set_collision_group(COLLISION_GROUP_DEBRIS);
+	assert_eq!(
+		mock.entity()
+			.collision_group()
+			.and_then(CollisionGroup::from_raw),
+		Some(CollisionGroup::Debris)
+	);
+
+	set_collision_group(rockets);
+	assert_eq!(mock.entity().collision_group(), Some(rockets));
+	assert_eq!(CollisionGroup::from_raw(rockets), None);
+}
 
 #[test]
 fn entities_read_native_properties_and_teleport() {
@@ -11,6 +33,10 @@ fn entities_read_native_properties_and_teleport() {
 
 	assert_eq!(entity.class_name(), c"tf_player");
 	assert_eq!(entity.position(), Some(Vector::new(1.0, 2.0, 3.0)));
+	assert_eq!(
+		entity.bounds(),
+		Some((Vector::new(0.0, 1.0, 2.0), Vector::new(2.0, 3.0, 4.0)))
+	);
 	assert_eq!(entity.handle(), EntityHandle::from_raw(5 | 7 << 16));
 	assert_eq!(entity.index(), Some(5));
 	assert!(!entity.is_marked_for_deletion());
