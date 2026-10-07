@@ -5,7 +5,7 @@ use sdk_raw::tf2::class::{
 	TF_CLASS_SCOUT, TF_CLASS_SNIPER, TF_CLASS_SOLDIER, TF_CLASS_SPY,
 };
 
-use std::ffi::c_int;
+use std::ffi::{CStr, c_int};
 use std::str::FromStr;
 
 /// One of TF2's nine playable classes, numbered as the `TF_CLASS_*` constants
@@ -127,6 +127,31 @@ impl PlayerClass {
 			Self::Demoman => "demo",
 			Self::Heavy => "heavy",
 			class => class.name(),
+		}
+	}
+
+	/// The class's player model, such as `models/player/heavy.mdl`, as its
+	/// class data (`scripts/playerclasses/`) names it. TF2 precaches every
+	/// class's model for each level (`CTFPlayer::PrecachePlayerModels`), so
+	/// it can be given to props and other entities.
+	///
+	/// ```
+	/// use source_sdk_2013::tf2::PlayerClass;
+	///
+	/// assert_eq!(PlayerClass::Heavy.model(), c"models/player/heavy.mdl");
+	/// ```
+	#[doc(alias("m_szModelName"))]
+	pub const fn model(self) -> &'static CStr {
+		match self {
+			Self::Scout => c"models/player/scout.mdl",
+			Self::Sniper => c"models/player/sniper.mdl",
+			Self::Soldier => c"models/player/soldier.mdl",
+			Self::Demoman => c"models/player/demo.mdl",
+			Self::Medic => c"models/player/medic.mdl",
+			Self::Heavy => c"models/player/heavy.mdl",
+			Self::Pyro => c"models/player/pyro.mdl",
+			Self::Spy => c"models/player/spy.mdl",
+			Self::Engineer => c"models/player/engineer.mdl",
 		}
 	}
 

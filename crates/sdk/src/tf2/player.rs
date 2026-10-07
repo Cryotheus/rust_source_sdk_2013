@@ -41,6 +41,25 @@ use sdk_raw::tf2::script_binding::{BOOL, INT, boolean, int, qangle, vector};
 use sdk_raw::{vcall, vcall_by_value};
 use std::ffi::{CStr, c_int};
 
+/// The bounds of a crouching player, relative to their origin at their feet
+/// (`VEC_DUCK_HULL_MIN` and `VEC_DUCK_HULL_MAX` in TF2's view vectors,
+/// `game/shared/tf/tf_gamerules.cpp`): as wide and deep as standing, and 62
+/// units tall.
+#[doc(alias("VEC_DUCK_HULL_MIN", "VEC_DUCK_HULL_MAX"))]
+pub const PLAYER_DUCK_HULL: (Vector, Vector) = (
+	Vector::new(-24.0, -24.0, 0.0),
+	Vector::new(24.0, 24.0, 62.0),
+);
+
+/// The bounds of a standing player of any class, relative to their origin
+/// at their feet (`VEC_HULL_MIN` and `VEC_HULL_MAX` in TF2's view vectors,
+/// `game/shared/tf/tf_gamerules.cpp`): 48 units wide and deep, and 82 tall.
+#[doc(alias("VEC_HULL_MIN", "VEC_HULL_MAX"))]
+pub const PLAYER_HULL: (Vector, Vector) = (
+	Vector::new(-24.0, -24.0, 0.0),
+	Vector::new(24.0, 24.0, 82.0),
+);
+
 /// The script class that declares the members [`TfPlayer`] calls.
 const SCRIPT_CLASS: &CStr = c"CTFPlayer";
 
