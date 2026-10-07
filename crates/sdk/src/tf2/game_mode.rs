@@ -51,6 +51,15 @@ const MAP_HOLIDAY: &CStr = c"m_nMapHolidayType";
 /// The `m_bIsUsingSpells` of the game rules.
 const USES_SPELLS: &CStr = c"m_bIsUsingSpells";
 
+/// The `m_nForceEscortPushLogic` of the game rules.
+const ESCORT_PUSH: &CStr = c"m_nForceEscortPushLogic";
+
+/// The `m_bHelltowerPlayersInHell` of the game rules.
+const PLAYERS_IN_HELL: &CStr = c"m_bHelltowerPlayersInHell";
+
+/// The `m_nForceUpgrades` of the game rules.
+const UPGRADES: &CStr = c"m_nForceUpgrades";
+
 /// The game type of a level (`ETFGameType`), which TF2 decides from its
 /// objective entities, and which decides the HUD clients show for it, unless
 /// the level sets a [`HudType`].
@@ -365,13 +374,136 @@ impl HudType {
 	}
 }
 
+/// Whether one of the game's rules is forced on or off, or follows the game
+/// type, as scripts' `ForceEnableUpgrades` and `ForceEscortPushLogic` set
+/// them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum RuleOverride {
+	/// The rule follows the game type, as it does unless forced.
+	#[default]
+	Default = 0,
+
+	/// The rule is forced off.
+	Off = 1,
+
+	/// The rule is forced on.
+	On = 2,
+}
+
+impl RuleOverride {
+	/// Every override, in the game's order.
+	pub const ALL: [Self; 3] = [Self::Default, Self::Off, Self::On];
+
+	/// The override the game stores as `raw`, or `None` for any other value.
+	pub const fn from_raw(raw: c_int) -> Option<Self> {
+		match raw {
+			0 => Some(Self::Default),
+			1 => Some(Self::Off),
+			2 => Some(Self::On),
+			_ => None,
+		}
+	}
+
+	/// The value the game stores for the override.
+	pub const fn to_raw(self) -> c_int {
+		self as c_int
+	}
+}
+
+/// The rules scripts force through the VScript functions the game registers
+/// with the script VM alone, such as `ForceEnableUpgrades`, which change the
+/// game rules' variables, as these do.
+///
+/// The game resets both overrides as each level's `tf_gamerules` entity
+/// activates, and Helltower's underworld flag as each round starts.
+impl GameRules<'_> {
+	/// Whether the game forces Payload's logic for moving entities on or off
+	/// (`m_nForceEscortPushLogic`), under which moving entities, such as
+	/// payload carts and doors, push players out of their way, as they do on
+	/// Payload levels.
+	///
+	/// Fails with [`GameRulesError::UnknownValue`] for a value
+	/// [`RuleOverride`] does not know.
+	#[doc(alias("m_nForceEscortPushLogic", "GameModeUsesEscortPushLogic"))]
+	pub fn escort_push_override(self) -> Result<RuleOverride, GameRulesError> {
+		self.rule_override(ESCORT_PUSH)
+	}
+
+	/// The override named `variable`, as [`Self::upgrades_override`] reads it.
+	fn rule_override(self, variable: &'static CStr) -> Result<RuleOverride, GameRulesError> {
+		let raw = self.read::<c_int>(variable)?;
+
+		RuleOverride::from_raw(raw).ok_or(GameRulesError::UnknownValue {
+			variable,
+			value: raw,
+		})
+	}
+
+	/// Forces Payload's logic for moving entities on or off, as
+	/// [`Self::escort_push_override`] reads it, and records the change for
+	/// clients, as a script's `ForceEscortPushLogic` does.
+	#[doc(alias("ForceEscortPushLogic"))]
+	pub fn set_escort_push_override(
+		self,
+		engine: ValveEngine<'_>,
+		value: RuleOverride,
+	) -> Result<(), GameRulesError> {
+		// SAFETY: Scripts assign the variable any of the overrides, and the game
+		// only compares it with them.
+		unsafe { self.set(engine, ESCORT_PUSH, value.to_raw()) }
+	}
+
+	/// Moves Helltower's players into the underworld or out of it, as
+	/// [`Self::are_players_in_hell`] reads it, and records the change for
+	/// clients, as a script's `SetPlayersInHell` does.
+	///
+	/// Only the flag changes, which keeps players from changing teams, and
+	/// teams from being balanced, while set. Helltower's `tf_logic_holiday`
+	/// teleports the players itself, and sets the flag as it does.
+	#[doc(alias("SetPlayersInHell"))]
+	pub fn set_players_in_hell(
+		self,
+		engine: ValveEngine<'_>,
+		in_hell: bool,
+	) -> Result<(), GameRulesError> {
+		// SAFETY: Scripts assign the flag either value on any level, and the
+		// game only reads it.
+		unsafe { self.set(engine, PLAYERS_IN_HELL, in_hell) }
+	}
+
+	/// Forces Mann vs. Machine's upgrades on or off (`m_nForceUpgrades`), with
+	/// which players buy upgrades at the level's upgrade stations, and
+	/// buildings and canteens act as in Mann vs. Machine.
+	///
+	/// Fails with [`GameRulesError::UnknownValue`] for a value
+	/// [`RuleOverride`] does not know.
+	#[doc(alias("m_nForceUpgrades", "GameModeUsesUpgrades"))]
+	pub fn upgrades_override(self) -> Result<RuleOverride, GameRulesError> {
+		self.rule_override(UPGRADES)
+	}
+
+	/// Forces Mann vs. Machine's upgrades on or off, as
+	/// [`Self::upgrades_override`] reads it, and records the change for
+	/// clients, as a script's `ForceEnableUpgrades` does.
+	#[doc(alias("ForceEnableUpgrades"))]
+	pub fn set_upgrades_override(
+		self,
+		engine: ValveEngine<'_>,
+		value: RuleOverride,
+	) -> Result<(), GameRulesError> {
+		// SAFETY: As for `set_escort_push_override`.
+		unsafe { self.set(engine, UPGRADES, value.to_raw()) }
+	}
+}
+
 impl GameRules<'_> {
 	/// Whether Helltower's players are in the underworld
 	/// (`m_bHelltowerPlayersInHell`), as Helltower's logic entity or a script's
 	/// `SetPlayersInHell` sets it.
 	#[doc(alias("m_bHelltowerPlayersInHell", "ArePlayersInHell"))]
 	pub fn are_players_in_hell(self) -> Result<bool, GameRulesError> {
-		self.read(c"m_bHelltowerPlayersInHell")
+		self.read(PLAYERS_IN_HELL)
 	}
 
 	/// The level's game type (`m_nGameType`).

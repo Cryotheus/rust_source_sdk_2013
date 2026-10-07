@@ -6,8 +6,8 @@ use crate::test_support::sdk_core::change_tracking_engine;
 use crate::test_support::server::mock_server;
 
 use crate::test_support::tf2::game_rules::{
-	FLAG_NAMES, FLAGS, GAME_TYPE, HALLOWEEN_SCENARIO, HUD_TYPE, MAP_HOLIDAY, World,
-	round_rules_proxy,
+	FLAG_NAMES, FLAGS, FORCE_ESCORT_PUSH, FORCE_UPGRADES, GAME_TYPE, HALLOWEEN_SCENARIO, HUD_TYPE,
+	MAP_HOLIDAY, World, round_rules_proxy,
 };
 
 use sdk_raw::edicts::FL_FULL_EDICT_CHANGED;
@@ -154,6 +154,49 @@ fn spells_are_turned_on_and_off_for_clients() {
 }
 
 #[test]
+fn rule_overrides_and_the_underworld_are_set_for_clients() {
+	let world = World::new(Some(round_rules_proxy));
+	let scope = ();
+	let rules = GameRules::get(mock_server(&scope)).unwrap();
+	let engine = change_tracking_engine();
+
+	let overrides = [
+		(
+			FORCE_UPGRADES,
+			GameRules::upgrades_override as fn(_) -> _,
+			GameRules::set_upgrades_override as fn(_, _, _) -> _,
+		),
+		(
+			FORCE_ESCORT_PUSH,
+			GameRules::escort_push_override,
+			GameRules::set_escort_push_override,
+		),
+	];
+
+	for (offset, get, set) in overrides {
+		assert_eq!(get(rules), Ok(RuleOverride::Default));
+
+		set(rules, engine, RuleOverride::On).unwrap();
+		assert_eq!(world.int(false, offset), 2);
+		assert_eq!(get(rules), Ok(RuleOverride::On));
+
+		world.put_int(false, offset, 3);
+		assert!(matches!(
+			get(rules),
+			Err(GameRulesError::UnknownValue { value: 3, .. })
+		));
+	}
+
+	assert_ne!(world.state_flags() & FL_FULL_EDICT_CHANGED, 0);
+
+	let in_hell = flag(c"m_bHelltowerPlayersInHell");
+
+	rules.set_players_in_hell(engine, true).unwrap();
+	assert_eq!(world.byte(false, in_hell), 1);
+	assert_eq!(rules.are_players_in_hell(), Ok(true));
+}
+
+#[test]
 fn types_round_trip_through_their_raw_values() {
 	for (game_type, raw) in GameType::ALL.into_iter().zip(TF_GAMETYPE_UNDEFINED..) {
 		assert_eq!(game_type.to_raw(), raw);
@@ -178,6 +221,11 @@ fn types_round_trip_through_their_raw_values() {
 		assert_eq!(HalloweenScenario::from_raw(raw), Some(scenario));
 	}
 
+	for (rule_override, raw) in RuleOverride::ALL.into_iter().zip(0..) {
+		assert_eq!(rule_override.to_raw(), raw);
+		assert_eq!(RuleOverride::from_raw(raw), Some(rule_override));
+	}
+
 	// The last of each is the game's last, and nothing past either end is
 	// known.
 	assert_eq!(GameType::PlayerDestruction.to_raw(), TF_GAMETYPE_PD);
@@ -198,4 +246,6 @@ fn types_round_trip_through_their_raw_values() {
 		HalloweenScenario::from_raw(HALLOWEEN_SCENARIO_DOOMSDAY + 1),
 		None
 	);
+	assert_eq!(RuleOverride::from_raw(-1), None);
+	assert_eq!(RuleOverride::from_raw(3), None);
 }

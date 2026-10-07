@@ -42,6 +42,13 @@ pub const FLAG_NAMES: [&CStr; 11] = [
 /// in the byte after.
 pub const FLAGS: usize = 36;
 
+/// Where the fake TF2 rules keep `m_nForceUpgrades`, after the last of
+/// [`FLAG_NAMES`].
+pub const FORCE_UPGRADES: usize = 48;
+
+/// Where the fake TF2 rules keep `m_nForceEscortPushLogic`.
+pub const FORCE_ESCORT_PUSH: usize = 52;
+
 /// Where the fake TF2 rules keep `m_nGameType`.
 pub const GAME_TYPE: usize = 16;
 
@@ -74,7 +81,7 @@ pub const ROUND_STATE: usize = 8;
 pub const ROUNDS_PLAYED: usize = 20;
 
 /// The size of each fake game rules object.
-pub const RULES_SIZE: usize = 48;
+pub const RULES_SIZE: usize = 56;
 
 /// Where the fake round-based rules keep `m_bInSetup`.
 pub const SETUP: usize = 13;
@@ -199,6 +206,8 @@ impl World {
 			int(c"m_nHudType", HUD_TYPE),
 			int(c"m_nMapHolidayType", MAP_HOLIDAY),
 			int(c"m_halloweenScenario", HALLOWEEN_SCENARIO),
+			int(c"m_nForceUpgrades", FORCE_UPGRADES),
+			int(c"m_nForceEscortPushLogic", FORCE_ESCORT_PUSH),
 		];
 
 		rules_props.extend(
