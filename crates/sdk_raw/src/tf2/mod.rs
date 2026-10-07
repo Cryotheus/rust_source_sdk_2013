@@ -12,6 +12,7 @@
 pub mod airblast;
 pub mod ammo;
 pub mod attributes;
+pub mod bots;
 pub mod buildings;
 pub mod class;
 pub mod collision;
