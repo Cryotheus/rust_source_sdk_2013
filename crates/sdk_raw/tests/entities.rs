@@ -178,7 +178,20 @@ fn base_entity_fields_are_found_where_plausible() {
 	distant.fieldOffset[TD_OFFSET_NORMAL] =
 		c_int::try_from(BASE_ENTITY_FIELD_OFFSET_LIMIT).unwrap();
 
-	let base = data_map(c"CBaseEntity", vec![flags, misaligned, distant], null_mut());
+	// A vector of floats needs their alignment, not one of its size.
+	let vector_size = size_of::<sys::Vector>();
+	let mut velocity = field(c"m_vecAbsVelocity", sys::_fieldtypes_FIELD_VECTOR, 44);
+	velocity.fieldSizeInBytes = c_int::try_from(vector_size).unwrap();
+
+	let mut misaligned_velocity = velocity;
+	misaligned_velocity.fieldName = c"m_vecMisaligned".as_ptr();
+	misaligned_velocity.fieldOffset[TD_OFFSET_NORMAL] = 58;
+
+	let base = data_map(
+		c"CBaseEntity",
+		vec![flags, misaligned, distant, velocity, misaligned_velocity],
+		null_mut(),
+	);
 	let derived = data_map(c"CDerived", vec![flags], base);
 	let find = |name, field_type, size| {
 		// SAFETY: The tests' maps are leaked and never changed.
@@ -197,6 +210,22 @@ fn base_entity_fields_are_found_where_plausible() {
 	);
 	assert_eq!(
 		find(c"m_iDistant", sys::_fieldtypes_FIELD_INTEGER, size),
+		None
+	);
+	assert_eq!(
+		find(
+			c"m_vecAbsVelocity",
+			sys::_fieldtypes_FIELD_VECTOR,
+			vector_size
+		),
+		Some(44)
+	);
+	assert_eq!(
+		find(
+			c"m_vecMisaligned",
+			sys::_fieldtypes_FIELD_VECTOR,
+			vector_size
+		),
 		None
 	);
 }

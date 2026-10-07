@@ -6,11 +6,17 @@
 //! [`NetProp`](crate::datatables::NetProp). The factories entities are created
 //! with are in [`factory`], health, life state and damage modes in [`health`],
 //! the actions of outputs in [`outputs`], solid flags in [`solid`], and think
-//! contexts in [`think`].
+//! contexts in [`think`]. Members that datamaps declare are read by name in
+//! [`fields`], and an entity's identity, movement and rendering in
+//! [`identity`], [`movement`] and [`render`].
 
 pub mod factory;
+pub mod fields;
 pub mod health;
+pub mod identity;
+pub mod movement;
 pub mod outputs;
+pub mod render;
 pub mod solid;
 pub mod think;
 

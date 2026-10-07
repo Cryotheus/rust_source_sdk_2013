@@ -11,6 +11,7 @@
 
 pub mod datamap;
 pub mod factory;
+pub mod flags;
 pub mod health;
 pub mod think;
 
@@ -499,8 +500,9 @@ pub unsafe fn data_desc_map(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_
 /// bytes, that `CBaseEntity`'s own map in `maps` declares.
 ///
 /// Returns `None` unless the field lies under
-/// [`BASE_ENTITY_FIELD_OFFSET_LIMIT`], at an offset aligned for its size, up
-/// to a pointer's alignment.
+/// [`BASE_ENTITY_FIELD_OFFSET_LIMIT`], at an offset aligned for its size: to
+/// the largest power of two dividing it, up to a pointer's alignment, so a
+/// 12-byte `Vector` of floats needs 4 bytes.
 pub fn find_base_entity_field(
 	mut maps: DataMaps<'_>,
 	name: &CStr,
@@ -516,9 +518,9 @@ pub fn find_base_entity_field(
 	})?;
 
 	let offset = field.offset()?;
-	let is_aligned = offset.is_multiple_of(size.min(align_of::<*const ()>()));
+	let alignment = size.isolate_lowest_one().clamp(1, align_of::<*const ()>());
 
-	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && is_aligned).then_some(offset)
+	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && offset.is_multiple_of(alignment)).then_some(offset)
 }
 
 /// Finds the offset of the entity's solid flags, `m_usSolidFlags`, the
