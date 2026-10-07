@@ -352,6 +352,41 @@ impl<'s> ServerTools<'s> {
 		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
 	}
 
+	/// Finds the next entity after `after`, or from the start of the entity
+	/// list if it is `None`, whose name (`targetname`) is `name`, as the game
+	/// matches names: ignoring ASCII case, and to any name that starts with
+	/// what comes before a `*` that ends `name`. Returns `None` if no later
+	/// entity matches.
+	///
+	/// Procedural names, which start with `!`, such as `!activator`, find
+	/// nothing: they name entities relative to the input or output searching,
+	/// which this search has none of.
+	#[doc(alias("FindEntityByName"))]
+	pub fn find_by_name(self, after: Option<Entity<'_>>, name: &CStr) -> Option<Entity<'s>> {
+		if name.to_bytes().starts_with(b"!") {
+			return None;
+		}
+
+		let after = after.map_or(ptr::null_mut(), Entity::as_ptr);
+
+		// SAFETY: As for `entity_by_index`, and `after` is live or null. A name
+		// that is not procedural is only compared with each entity's name, so the
+		// entities procedural names are relative to, and the filter, may be null.
+		let entity = unsafe {
+			vcall!(self.as_ptr() => IServerTools_FindEntityByName(
+				after,
+				name.as_ptr(),
+				ptr::null_mut(),
+				ptr::null_mut(),
+				ptr::null_mut(),
+				ptr::null_mut(),
+			))
+		};
+
+		// SAFETY: As for `entity_by_index`.
+		NonNull::new(entity).map(|entity| unsafe { Entity::from_raw(entity) })
+	}
+
 	/// Reads one of an entity's key values, as formatted by its datamap.
 	/// Returns `None` if the game finds no key with the name, or cannot format
 	/// the key's type.
