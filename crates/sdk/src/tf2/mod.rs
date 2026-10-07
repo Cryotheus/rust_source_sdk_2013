@@ -11,6 +11,7 @@ pub mod airblast;
 pub mod ammo;
 pub mod attributes;
 mod class;
+pub mod collision;
 pub mod conditions;
 pub mod damage;
 pub mod duels;
