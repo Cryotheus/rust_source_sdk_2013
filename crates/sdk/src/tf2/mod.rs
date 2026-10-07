@@ -15,6 +15,7 @@ pub mod conditions;
 pub mod damage;
 pub mod duels;
 pub mod game_events;
+pub mod game_mode;
 pub mod game_rules;
 pub mod gc;
 pub mod host_timescale;

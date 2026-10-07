@@ -18,11 +18,14 @@
 mod tests;
 
 use crate::NotThreadSafe;
+
 use crate::datatables::{
 	NetProp, NetPropError, NetVar, PropKind, SendProp, SendTable, ServerClass, StandardSendProxies,
 };
 
+use crate::edicts::Edict;
 use crate::entities::Entity;
+use crate::interfaces::ValveEngine;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::datatables::call_table_proxy;
 
@@ -46,16 +49,16 @@ const PROXY_ENTITY: &CStr = c"tf_gamerules";
 /// The send table of [`PROXY_CLASS`].
 const PROXY_TABLE: &CStr = c"DT_TFGameRulesProxy";
 
-/// The property of [`PROXY_TABLE`] nesting `CTFGameRules`' table, and that
-/// table.
-const RULES_DATA: (&CStr, &CStr) = (c"tf_gamerules_data", c"DT_TFGameRules");
-
 /// The property of [`PROXY_TABLE`]'s base table nesting
 /// `CTeamplayRoundBasedRules`' table, and that table.
 const ROUND_RULES_DATA: (&CStr, &CStr) = (
 	c"teamplayroundbased_gamerules_data",
 	c"DT_TeamplayRoundBasedRules",
 );
+
+/// The property of [`PROXY_TABLE`] nesting `CTFGameRules`' table, and that
+/// table.
+const RULES_DATA: (&CStr, &CStr) = (c"tf_gamerules_data", c"DT_TFGameRules");
 
 /// TF2's game rules object, as the proxies of its networked tables give it.
 ///
@@ -73,6 +76,12 @@ pub struct GameRules<'s> {
 	/// The game rules as `CTeamplayRoundBasedRules`, which
 	/// [`Self::round_rules_table`] describes.
 	round_rules: NonNull<c_void>,
+
+	/// The `tf_gamerules` entity, whose proxies gave the game rules.
+	proxy: Entity<'s>,
+
+	/// The edict of [`Self::proxy`].
+	proxy_edict: Edict<'s>,
 
 	rules_table: SendTable<'s>,
 	round_rules_table: SendTable<'s>,
@@ -136,6 +145,8 @@ impl<'s> GameRules<'s> {
 		Ok(Self {
 			rules: call(rules_prop)?,
 			round_rules: call(round_rules_prop)?,
+			proxy: entity,
+			proxy_edict: edict,
 			rules_table,
 			round_rules_table,
 			proxies,
@@ -161,6 +172,46 @@ impl<'s> GameRules<'s> {
 	#[doc(alias("m_bInWaitingForPlayers"))]
 	pub fn is_waiting_for_players(self) -> Result<bool, GameRulesError> {
 		self.read(c"m_bInWaitingForPlayers")
+	}
+
+	/// Records that the game rules' networked variables changed, so the engine
+	/// compares all of them, and sends clients those that differ.
+	///
+	/// The game does this for every change of its own, as
+	/// `CGameRules::NetworkStateChanged`, through the `tf_gamerules` entity, which
+	/// the engine sends the game rules with.
+	#[doc(alias("NetworkStateChanged", "NotifyNetworkStateChanged"))]
+	pub fn network_state_changed(self, engine: ValveEngine<'_>) {
+		self.proxy_edict.full_state_changed(engine);
+	}
+
+	/// The `tf_gamerules` entity, of the server class `CTFGameRulesProxy`, which
+	/// networks the game rules, and takes the inputs maps send them, such as
+	/// `SetRedTeamRespawnWaveTime`.
+	#[doc(alias("CTFGameRulesProxy", "tf_gamerules"))]
+	pub const fn proxy(self) -> Entity<'s> {
+		self.proxy
+	}
+
+	/// Writes a networked variable of the game rules by name, as [`Self::write`]
+	/// does, and records the change, as [`Self::network_state_changed`] does, so
+	/// clients receive it.
+	///
+	/// Fails, without writing, as [`Self::read`] does.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::write`].
+	pub unsafe fn set<T: NetVar>(
+		self,
+		engine: ValveEngine<'_>,
+		name: &CStr,
+		value: T,
+	) -> Result<(), GameRulesError> {
+		// SAFETY: The caller upholds `write`'s contract.
+		unsafe { self.write(name, value) }?;
+		self.network_state_changed(engine);
+		Ok(())
 	}
 
 	/// Reads a networked variable of the game rules by name, as stored, such
@@ -265,6 +316,17 @@ pub enum GameRulesError {
 	/// The round's state is a value [`RoundState`] does not know.
 	#[error("the game rules hold an unknown round state, {0}")]
 	UnknownRoundState(c_int),
+
+	/// A networked variable holds a value its type does not know, such as a
+	/// game type a later update added.
+	#[error("the game rules' `{}` holds an unknown value, {value}", variable.to_string_lossy())]
+	UnknownValue {
+		/// The variable's name, such as `m_nGameType`.
+		variable: &'static CStr,
+
+		/// The value it holds.
+		value: c_int,
+	},
 }
 
 /// The vtable of TF2's game rules class, `CTFGameRules`, in the game server
