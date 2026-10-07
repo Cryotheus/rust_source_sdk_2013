@@ -127,6 +127,12 @@ unsafe impl<T: 'static> HookArg for Option<NonNull<T>> {}
 // SAFETY: As above.
 unsafe impl<T: 'static> HookReturn for Option<NonNull<T>> {}
 
+// SAFETY: The SDK's `Vector` is `#[repr(C)]`, with the layout of the engine's
+// trivially copyable `Vector`, three `float`s, which C++ passes by value as C
+// passes the struct.
+#[cfg(feature = "sdk")]
+unsafe impl HookArg for source_sdk_2013::sys::Vector {}
+
 macro_rules! signatures {
 	($(($($arg:ident: $Arg:ident),*))*) => {$(
 		impl<T: 'static, R: HookReturn, $($Arg: HookArg),*>
