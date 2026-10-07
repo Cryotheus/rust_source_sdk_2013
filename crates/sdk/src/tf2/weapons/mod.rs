@@ -11,6 +11,8 @@
 #[path = "../../tests/tf2/weapons.rs"]
 mod tests;
 
+pub mod identity;
+
 use crate::datatables::NetPropError;
 use crate::entities::{Entity, EntityHandle};
 use crate::math::Vector;
