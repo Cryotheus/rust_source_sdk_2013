@@ -12,12 +12,19 @@
 //! (`public/vscript/vscript_templates.h`). With the default allocator's
 //! `ALWAYS_COPY` of 0 (`public/vscript/variant.h`), a returned `const char *`
 //! is stored as is, without a copy and without [`SV_FREE`], so a string result
-//! borrows whatever storage the method returned it from.
+//! borrows whatever storage the method returned it from. Vectors and angles
+//! are copied into an allocation the result owns, so [`call`] takes them only
+//! as arguments.
+//!
+//! Native methods take and return entities as their script instances
+//! (`HSCRIPT`), which [`ensure_script_instance`] gets for an entity.
 
+use crate::entities::datamap::DataMaps;
+use crate::entities::find_base_entity_field;
 use crate::util::cstr::{borrow_cstr, copy_cstr};
 use crate::{vcall, vtable_slot};
-use std::ffi::{CStr, CString, c_int, c_uint};
-use std::mem::zeroed;
+use std::ffi::{CStr, CString, c_int, c_uint, c_void};
+use std::mem::{offset_of, zeroed};
 use std::ptr::NonNull;
 
 // GetScriptDesc precedes all TF2-specific additions to CBaseEntity, directly
@@ -30,6 +37,10 @@ const _: () = {
 			== vtable_slot!(Vtable, CBaseEntity_GetDataDescMap) + 1
 	);
 };
+
+// `game/server/baseentity.h` declares the instance handle directly before
+// the script ID, with nothing between them on either ABI.
+const _: () = assert!(SCRIPT_INSTANCE_BEFORE_SCRIPT_ID == size_of::<sys::HSCRIPT>());
 
 // The member adapter stores a returned `const char *` without a copy, and so
 // without `SV_FREE`, only while the default allocator does not always copy.
@@ -55,6 +66,18 @@ const MAX_CLASS_DEPTH: usize = 64;
 /// is taken as a signature mismatch.
 const MAX_FUNCTION_BINDINGS: c_int = 4096;
 
+/// The script type of a `QAngle` (`FIELD_QANGLE`), for [`qangle`] arguments.
+///
+/// Native methods returning angles copy them into an allocation the result
+/// owns, so [`call`] refuses this as a result type.
+pub const QANGLE: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_QANGLE as _;
+
+/// How many bytes `CBaseEntity::m_hScriptInstance` lies before
+/// `m_iszScriptId`, the member after it, whose offset the `CBaseEntity`
+/// datamap declares.
+const SCRIPT_INSTANCE_BEFORE_SCRIPT_ID: usize =
+	offset_of!(sys::CBaseEntity, m_iszScriptId) - offset_of!(sys::CBaseEntity, m_hScriptInstance);
+
 /// `SF_MEMBER_FUNC` from `public/vscript/ivscript.h`: the binding wraps a
 /// member function, whose object [`call`] passes as the adapter's context.
 pub const SF_MEMBER_FUNC: c_uint = 0x01;
@@ -65,6 +88,12 @@ pub const STRING: sys::ScriptDataType_t = sys::ExtendedFieldType_t_FIELD_CSTRING
 /// `SV_FREE` from `public/vscript/variant.h`: the variant owns its pointed-to
 /// data, which only the game's allocator may free.
 pub const SV_FREE: u16 = 0x01;
+
+/// The script type of a `Vector` (`FIELD_VECTOR`), for [`vector`] arguments.
+///
+/// Native methods returning vectors copy them into an allocation the result
+/// owns, so [`call`] refuses this as a result type.
+pub const VECTOR: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_VECTOR as _;
 
 /// The script type of no value (`FIELD_VOID`), for methods returning nothing.
 pub const VOID: sys::ScriptDataType_t = sys::_fieldtypes_FIELD_VOID as _;
@@ -102,27 +131,13 @@ pub fn boolean(value: bool) -> sys::ScriptVariant_t {
 ///
 /// Searches the entity's script class descriptor and its bases for the class
 /// named `class`, then calls that class's binding named `name` through the
-/// binding's adapter. The binding must declare the types of `arguments` and
-/// return `result_type`; a [`VOID`] call returns an empty variant.
-///
-/// The returned variant must not own an allocation: any flag, of which
-/// [`SV_FREE`] is the only one, fails with [`BindingError::SignatureMismatch`]
-/// after the method has run, leaking the allocation. Scalar results (bool,
-/// int, float, or HSCRIPT) are values. A [`STRING`] result is the pointer the
-/// method returned, without a copy or ownership: it may be null, and it stays
-/// valid only as long as the storage the method returned it from. Prefer
-/// [`call_string`], which copies it before any other game code runs.
+/// binding's adapter, as [`call_on`] does with the descriptor the entity's
+/// `GetScriptDesc` returns.
 ///
 /// # Safety
 ///
-/// - `entity` points to a live `CBaseEntity` of the loaded game module, which
-///   stays loaded for the call, and the call is made on the server's main
-///   thread.
-/// - The selected method accepts this entity and these argument values.
-///   Pointer arguments, such as [`string`]'s, remain valid for the call and
-///   for as long as the method retains them.
-/// - The game code the method runs, and everything it reaches, frees entities
-///   only through the engine's deferred deletion.
+/// As for [`call_on`], with `entity` pointing to a live `CBaseEntity` of the
+/// loaded game module.
 pub unsafe fn call(
 	entity: NonNull<sys::CBaseEntity>,
 	class: &CStr,
@@ -134,8 +149,68 @@ pub unsafe fn call(
 
 	// SAFETY: The entity is live, and its primary vtable has the generated
 	// layout up to GetScriptDesc under both supported 64-bit ABIs.
-	let mut descriptor =
+	let descriptor =
 		unsafe { vcall!(this as sys::CBaseEntity__bindgen_vtable => CBaseEntity_GetScriptDesc()) };
+
+	// SAFETY: The descriptor is the entity's own, and the caller upholds the
+	// rest of `call_on`'s contract.
+	unsafe {
+		call_on(
+			entity.cast(),
+			descriptor,
+			class,
+			name,
+			arguments,
+			result_type,
+		)
+	}
+}
+
+/// Finds and invokes a native member of `object`, whose script class
+/// descriptor is `descriptor`, on a named declaring class.
+///
+/// Searches `descriptor` and its bases for the class named `class`, then
+/// calls that class's binding named `name` through the binding's adapter. The
+/// binding must declare the types of `arguments` and return `result_type`; a
+/// [`VOID`] call returns an empty variant. This reaches the native methods of
+/// script objects that are not entities, such as a NextBot's locomotion
+/// interface, as well as an entity's.
+///
+/// The returned variant must not own an allocation: any flag, of which
+/// [`SV_FREE`] is the only one, fails with [`BindingError::SignatureMismatch`]
+/// after the method has run, leaking the allocation. Scalar results (bool,
+/// int, float, or HSCRIPT) are values. A [`STRING`] result is the pointer the
+/// method returned, without a copy or ownership: it may be null, and it stays
+/// valid only as long as the storage the method returned it from. Prefer
+/// [`call_string`], which copies it before any other game code runs. A
+/// [`VECTOR`] or [`QANGLE`] result, which the game's adapter would copy into
+/// such an allocation, fails with [`BindingError::SignatureMismatch`] before
+/// the method runs.
+///
+/// # Safety
+///
+/// - `object` points to a live object of the loaded game module, which stays
+///   loaded for the call, `descriptor` is null or the descriptor of the
+///   object's script class or one of its bases, and the call is made on the
+///   server's main thread.
+/// - The selected method accepts this object and these argument values.
+///   Pointer arguments, such as [`string`]'s, remain valid for the call and
+///   for as long as the method retains them.
+/// - The game code the method runs, and everything it reaches, frees entities
+///   only through the engine's deferred deletion.
+pub unsafe fn call_on(
+	object: NonNull<c_void>,
+	descriptor: *mut sys::ScriptClassDesc_t,
+	class: &CStr,
+	name: &CStr,
+	arguments: &mut [sys::ScriptVariant_t],
+	result_type: sys::ScriptDataType_t,
+) -> Result<sys::ScriptVariant_t, BindingError> {
+	if result_type == VECTOR || result_type == QANGLE {
+		return Err(BindingError::SignatureMismatch);
+	}
+
+	let mut descriptor = descriptor;
 
 	for _ in 0..MAX_CLASS_DEPTH {
 		if descriptor.is_null() {
@@ -213,7 +288,7 @@ pub unsafe fn call(
 				if !unsafe {
 					adapter(
 						function,
-						this.cast(),
+						object.as_ptr(),
 						arguments.as_mut_ptr(),
 						parameter_count,
 						result_ptr,
@@ -286,6 +361,55 @@ unsafe fn copy_string(result: sys::ScriptVariant_t) -> Result<Option<CString>, B
 	Ok(unsafe { copy_cstr(result.__bindgen_anon_1.m_pszString) })
 }
 
+/// Returns the entity's script instance, the `HSCRIPT` native methods take and
+/// return for it, creating it if it has none yet.
+///
+/// The instance is read from `CBaseEntity::m_hScriptInstance` at `offset`,
+/// which [`script_instance_offset`] finds. An entity without one gets one
+/// from the `CBaseEntity` binding `ValidateScriptScope`, which creates the
+/// instance and the script scope that scripts touching the entity would
+/// create. Fails with [`BindingError::Rejected`] if the game has no script
+/// VM, such as under `-scripting`, and with [`BindingError::Unavailable`] if
+/// the entity still has no instance afterwards.
+///
+/// # Safety
+///
+/// As for [`call`], with `offset` from [`script_instance_offset`] of this
+/// entity's datamaps. The entity must not be marked for deletion: one whose
+/// `UpdateOnRemove` already removed its instance would register a new one
+/// that nothing removes.
+#[doc(alias("GetScriptInstance", "ValidateScriptScope", "m_hScriptInstance"))]
+pub unsafe fn ensure_script_instance(
+	entity: NonNull<sys::CBaseEntity>,
+	offset: usize,
+) -> Result<NonNull<sys::HSCRIPT__>, BindingError> {
+	// SAFETY: The caller vouches for the entity and the offset.
+	if let Some(instance) = NonNull::new(unsafe { script_instance(entity, offset) }) {
+		return Ok(instance);
+	}
+
+	// SAFETY: As the caller promises. The binding takes no arguments, and only
+	// creates the entity's script instance and scope.
+	let result = unsafe {
+		call(
+			entity,
+			c"CBaseEntity",
+			c"ValidateScriptScope",
+			&mut [],
+			BOOL,
+		)
+	}?;
+
+	// SAFETY: `call` checked that the adapter returned a `FIELD_BOOLEAN`
+	// variant, which it assigns through the bool member.
+	if !unsafe { result.__bindgen_anon_1.m_bool } {
+		return Err(BindingError::Rejected);
+	}
+
+	// SAFETY: As above.
+	NonNull::new(unsafe { script_instance(entity, offset) }).ok_or(BindingError::Unavailable)
+}
+
 /// An `f32` argument.
 pub fn float(value: f32) -> sys::ScriptVariant_t {
 	let mut result = variant(FLOAT);
@@ -307,6 +431,48 @@ pub fn int(value: i32) -> sys::ScriptVariant_t {
 	result
 }
 
+/// A borrowed `QAngle` argument. The caller of [`call`] keeps the angles alive
+/// until the native call ends. The method only reads them.
+pub fn qangle(value: &sys::QAngle) -> sys::ScriptVariant_t {
+	let mut result = variant(QANGLE);
+	result.__bindgen_anon_1.m_pData = std::ptr::from_ref(value).cast_mut().cast();
+	result
+}
+
+/// Reads the entity's script instance at `offset`: the `HSCRIPT` its
+/// `GetScriptInstance` registered, or null if nothing has made one yet.
+///
+/// # Safety
+///
+/// `entity` points to a live `CBaseEntity` of the loaded game module, and
+/// `offset` is from [`script_instance_offset`] of its datamaps.
+#[doc(alias("m_hScriptInstance"))]
+pub unsafe fn script_instance(entity: NonNull<sys::CBaseEntity>, offset: usize) -> sys::HSCRIPT {
+	// SAFETY: The offset is the instance handle's in every entity, aligned for
+	// it, as the caller vouches.
+	unsafe { entity.byte_add(offset).cast::<sys::HSCRIPT>().read() }
+}
+
+/// The offset of `CBaseEntity::m_hScriptInstance` in the entity whose
+/// datamaps `maps` are: the member before `m_iszScriptId`, which the
+/// `CBaseEntity` datamap declares (`baseentity.cpp`).
+///
+/// Returns `None` if that map does not declare the script ID as a pooled
+/// string, or the instance handle would not be aligned for a pointer.
+#[doc(alias("m_hScriptInstance", "m_iszScriptId"))]
+pub fn script_instance_offset(maps: DataMaps<'_>) -> Option<usize> {
+	let script_id = find_base_entity_field(
+		maps,
+		c"m_iszScriptId",
+		sys::_fieldtypes_FIELD_STRING,
+		size_of::<sys::string_t>(),
+	)?;
+
+	script_id
+		.checked_sub(SCRIPT_INSTANCE_BEFORE_SCRIPT_ID)
+		.filter(|offset| offset.is_multiple_of(align_of::<sys::HSCRIPT>()))
+}
+
 /// A borrowed C string argument. The caller of [`call`] keeps the string
 /// alive until the native call ends, and for as long as the method retains it.
 pub fn string(value: &CStr) -> sys::ScriptVariant_t {
@@ -323,4 +489,12 @@ fn variant(kind: sys::ScriptDataType_t) -> sys::ScriptVariant_t {
 	let mut value: sys::ScriptVariant_t = unsafe { zeroed() };
 	value.m_type = kind as _;
 	value
+}
+
+/// A borrowed `Vector` argument. The caller of [`call`] keeps the vector alive
+/// until the native call ends. The method only reads it.
+pub fn vector(value: &sys::Vector) -> sys::ScriptVariant_t {
+	let mut result = variant(VECTOR);
+	result.__bindgen_anon_1.m_pVector = value;
+	result
 }
