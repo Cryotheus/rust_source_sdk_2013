@@ -4978,6 +4978,15 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CUtlMemory_open0_CHandle_open1_CBaseCombatCharacter_close1_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<CHandle>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_CHandle_open1_CBaseCombatCharacter_close1_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<CHandle>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CUtlMemory_open0_CHandle_open1_CBaseEntity_close1_int_close0",
     ][::std::mem::size_of::<CUtlMemory<CHandle>>() - 16usize];
     [
@@ -5307,6 +5316,42 @@ const _: () = {
     [
         "Align of template specialization: CUtlMemory_open0_CItemSelectionCriteria_int_close0",
     ][::std::mem::align_of::<CUtlMemory<CItemSelectionCriteria>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<CKnownEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<CKnownEntity>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<CKnownEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<CKnownEntity>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<CKnownEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<CKnownEntity>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<CKnownEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_CKnownEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<CKnownEntity>>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -6930,6 +6975,42 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*mut CBaseEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*mut CBaseEntity>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*mut CBaseEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*mut CBaseEntity>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*mut CBaseEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*mut CBaseEntity>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*mut CBaseEntity>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_CBaseEntity_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*mut CBaseEntity>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CUtlMemory_open0_ptr_CBaseIssue_int_close0",
     ][::std::mem::size_of::<CUtlMemory<*mut CBaseIssue>>() - 16usize];
     [
@@ -7052,6 +7133,15 @@ const _: () = {
     [
         "Align of template specialization: CUtlMemory_open0_ptr_CLootlistJob_int_close0",
     ][::std::mem::align_of::<CUtlMemory<*mut CLootlistJob>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_CNavArea_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*mut CNavArea>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_CNavArea_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*mut CNavArea>>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -7387,6 +7477,15 @@ const _: () = {
     [
         "Align of template specialization: CUtlMemory_open0_ptr_ITFTeamSpawnAutoList_int_close0",
     ][::std::mem::align_of::<CUtlMemory<*mut ITFTeamSpawnAutoList>>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlMemory_open0_ptr_NextBotDebugLineType_int_close0",
+    ][::std::mem::size_of::<CUtlMemory<*mut INextBot_NextBotDebugLineType>>() - 16usize];
+    [
+        "Align of template specialization: CUtlMemory_open0_ptr_NextBotDebugLineType_int_close0",
+    ][::std::mem::align_of::<CUtlMemory<*mut INextBot_NextBotDebugLineType>>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -7967,7 +8066,7 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_550837_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
+        "Size of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_565156_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
     ][::std::mem::size_of::<
         CUtlRBTree<
             AI_CriteriaSet_CritEntry_t,
@@ -7984,7 +8083,7 @@ const _: () = {
         >,
     >() - 40usize];
     [
-        "Align of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_550837_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
+        "Align of template specialization: CUtlRBTree_open0_AI_CriteriaSet_CritEntry_t_short__bindgen_ty_id_565156_CUtlMemory_open1_UtlRBTreeNode_t_open2_AI_CriteriaSet_CritEntry_t_short_close2_short_close1_close0",
     ][::std::mem::align_of::<
         CUtlRBTree<
             AI_CriteriaSet_CritEntry_t,
@@ -8004,7 +8103,7 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
-        "Size of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_507684_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
+        "Size of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_522002_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
     ][::std::mem::size_of::<
         CUtlRBTree<
             CBaseFlex_FS_LocalToGlobal_t,
@@ -8021,7 +8120,7 @@ const _: () = {
         >,
     >() - 40usize];
     [
-        "Align of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_507684_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
+        "Align of template specialization: CUtlRBTree_open0_CBaseFlex_FS_LocalToGlobal_t_unsigned_short__bindgen_ty_id_522002_CUtlMemory_open1_UtlRBTreeNode_t_open2_CBaseFlex_FS_LocalToGlobal_t_unsigned_short_close2_unsigned_short_close1_close0",
     ][::std::mem::align_of::<
         CUtlRBTree<
             CBaseFlex_FS_LocalToGlobal_t,
@@ -8262,6 +8361,15 @@ const _: () = {
         "Align of template specialization: CUtlVector_open0_CEconItemView_CUtlMemory_open1_CEconItemView_int_close1_close0",
     ][::std::mem::align_of::<CUtlVector<CEconItemView, CUtlMemory<CEconItemView>>>()
         - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_CHandle_open1_CBaseCombatCharacter_close1_CUtlMemory_open1_CHandle_open2_CBaseCombatCharacter_close2_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<CHandle, CUtlMemory<CHandle>>>() - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_CHandle_open1_CBaseCombatCharacter_close1_CUtlMemory_open1_CHandle_open2_CBaseCombatCharacter_close2_int_close1_close0",
+    ][::std::mem::align_of::<CUtlVector<CHandle, CUtlMemory<CHandle>>>() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -8543,6 +8651,50 @@ const _: () = {
     ][::std::mem::align_of::<
         CUtlVector<CItemSelectionCriteria, CUtlMemory<CItemSelectionCriteria>>,
     >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::align_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::align_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::align_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_CKnownEntity_CUtlMemory_open1_CKnownEntity_int_close1_close0",
+    ][::std::mem::align_of::<CUtlVector<CKnownEntity, CUtlMemory<CKnownEntity>>>()
+        - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -10505,6 +10657,54 @@ const _: () = {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
+        "Size of template specialization: CUtlVector_open0_ptr___CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr___CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr___CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr___CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
         "Size of template specialization: CUtlVector_open0_ptr_CBaseEntity_CUtlMemory_open1_ptr_CBaseEntity_int_close1_close0",
     ][::std::mem::size_of::<CUtlVector<*mut CBaseEntity, CUtlMemory<*mut CBaseEntity>>>()
         - 32usize];
@@ -10752,6 +10952,17 @@ const _: () = {
     ][::std::mem::align_of::<
         CUtlVector<*mut CLootlistJob, CUtlMemory<*mut CLootlistJob>>,
     >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_CNavArea_CUtlMemory_open1_ptr_CNavArea_int_close1_close0",
+    ][::std::mem::size_of::<CUtlVector<*mut CNavArea, CUtlMemory<*mut CNavArea>>>()
+        - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_CNavArea_CUtlMemory_open1_ptr_CNavArea_int_close1_close0",
+    ][::std::mem::align_of::<CUtlVector<*mut CNavArea, CUtlMemory<*mut CNavArea>>>()
+        - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -11198,6 +11409,25 @@ const _: () = {
         "Align of template specialization: CUtlVector_open0_ptr_ITFTeamSpawnAutoList_CUtlMemory_open1_ptr_ITFTeamSpawnAutoList_int_close1_close0",
     ][::std::mem::align_of::<
         CUtlVector<*mut ITFTeamSpawnAutoList, CUtlMemory<*mut ITFTeamSpawnAutoList>>,
+    >() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of template specialization: CUtlVector_open0_ptr_NextBotDebugLineType_CUtlMemory_open1_ptr_NextBotDebugLineType_int_close1_close0",
+    ][::std::mem::size_of::<
+        CUtlVector<
+            *mut INextBot_NextBotDebugLineType,
+            CUtlMemory<*mut INextBot_NextBotDebugLineType>,
+        >,
+    >() - 32usize];
+    [
+        "Align of template specialization: CUtlVector_open0_ptr_NextBotDebugLineType_CUtlMemory_open1_ptr_NextBotDebugLineType_int_close1_close0",
+    ][::std::mem::align_of::<
+        CUtlVector<
+            *mut INextBot_NextBotDebugLineType,
+            CUtlMemory<*mut INextBot_NextBotDebugLineType>,
+        >,
     >() - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]

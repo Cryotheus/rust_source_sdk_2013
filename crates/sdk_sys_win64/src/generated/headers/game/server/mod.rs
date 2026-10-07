@@ -4,6 +4,7 @@
 pub mod AI_Criteria;
 pub mod AI_ResponseSystem;
 pub mod BaseAnimatingOverlay;
+pub mod NextBot;
 pub mod ServerNetworkProperty;
 pub mod ai_hull;
 pub mod ai_speech;

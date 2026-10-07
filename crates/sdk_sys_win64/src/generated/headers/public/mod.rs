@@ -18,6 +18,7 @@ pub mod dt_send;
 pub mod edict;
 pub mod eiface;
 pub mod engine;
+pub mod filesystem;
 pub mod game;
 pub mod gametrace;
 pub mod gcsdk;

@@ -14,6 +14,7 @@
 #[allow(unused_imports)]
 use super::super::super::super::__bindgen_prelude::*;
 
+pub type FileHandle_t = *mut ::std::os::raw::c_void;
 pub type KeyValues_types_t = ::std::os::raw::c_int;
 pub type KeyValuesUnpackDestinationTypes_t = ::std::os::raw::c_int;
 
@@ -50,12 +51,6 @@ pub const KeyValuesUnpackDestinationTypes_t_UNPACK_TYPE_VECTOR_COLOR:
 #[repr(C)]
 #[derive(Debug)]
 pub struct CKeyValuesGrowableStringTable {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct IBaseFileSystem {
 	_unused: [u8; 0],
 }
 
