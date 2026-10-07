@@ -7,7 +7,7 @@ use sdk_raw::test_support::entities::field;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::alloc::{Layout, alloc_zeroed, handle_alloc_error};
 use std::cell::{Cell, RefCell};
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::mem::offset_of;
 use std::ptr::{self, null_mut};
 
@@ -88,8 +88,9 @@ thread_local! {
 /// whose teleports are counted by [`teleports`], health methods, whose
 /// `TakeHealth` calls [`take_health_calls`] records, `UpdateTransmitState`,
 /// whose calls [`transmit_state_updates`] counts, `Activate`, whose calls
-/// [`activations`] records, and `SetModel`, whose calls [`models_set`]
-/// records.
+/// [`activations`] records, `SetModel`, whose calls [`models_set`] records,
+/// and, with TF2's script bindings, `GetScriptDesc`, which returns the
+/// descriptor `set_script_description` sets.
 ///
 /// For tests only. Its allocations are leaked, and only reached through raw
 /// pointers, like the engine's objects.
@@ -158,6 +159,9 @@ pub struct MockState {
 
 	/// `m_iParentAttachment`.
 	pub parent_attachment: u8,
+
+	/// `m_pPhysicsObject`, which only the wrappers' null checks read.
+	pub physics_object: *mut c_void,
 }
 
 impl MockEntity {
@@ -211,6 +215,13 @@ impl MockEntity {
 		vtable[sdk_raw::transmit::UPDATE_TRANSMIT_STATE_SLOT] = update_transmit_state as *const ();
 		vtable[sdk_raw::entities::spawn::ACTIVATE_SLOT] = activate as *const ();
 		vtable[sdk_raw::entities::spawn::SET_MODEL_SLOT] = set_model as *const ();
+
+		#[cfg(feature = "tf2")]
+		{
+			use super::tf2::script_binding::{SCRIPT_DESCRIPTION_SLOT, script_description};
+
+			vtable[SCRIPT_DESCRIPTION_SLOT] = script_description as *const ();
+		}
 
 		let layout = Layout::from_size_align(
 			layout.size().max(size_of::<[usize; 64]>()),
@@ -718,7 +729,7 @@ pub fn set_networking(class: *mut sys::ServerClass, edict: *mut sys::edict_t) {
 ///
 /// For tests only. They are kept apart from [`base_entity_fields`], as
 /// [`health_fields`] are.
-pub fn state_fields() -> [sys::typedescription_t; 18] {
+pub fn state_fields() -> [sys::typedescription_t; 19] {
 	let member = |name, field_type, offset: usize, size: usize| {
 		let mut member = field(name, field_type, MOCK_STATE_OFFSET + offset);
 
@@ -839,6 +850,13 @@ pub fn state_fields() -> [sys::typedescription_t; 18] {
 			sys::_fieldtypes_FIELD_CHARACTER,
 			offset_of!(MockState, parent_attachment),
 			1,
+		),
+		// `DEFINE_PHYSPTR` leaves the size out.
+		member(
+			c"m_pPhysicsObject",
+			sys::_fieldtypes_FIELD_CUSTOM,
+			offset_of!(MockState, physics_object),
+			0,
 		),
 	]
 }

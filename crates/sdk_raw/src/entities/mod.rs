@@ -524,6 +524,29 @@ pub fn find_base_entity_field(
 	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && offset.is_multiple_of(alignment)).then_some(offset)
 }
 
+/// Finds the offset of the entity's VPhysics object, `m_pPhysicsObject`,
+/// which `VPhysicsGetObject` returns, as `CBaseEntity`'s own map in `maps`
+/// declares it: one `FIELD_CUSTOM` member (`DEFINE_PHYSPTR`), whose size the
+/// map leaves out.
+///
+/// Returns `None` unless the field lies under
+/// [`BASE_ENTITY_FIELD_OFFSET_LIMIT`], aligned for a pointer.
+#[doc(alias("m_pPhysicsObject", "VPhysicsGetObject", "DEFINE_PHYSPTR"))]
+pub fn find_physics_object_field(mut maps: DataMaps<'_>) -> Option<usize> {
+	let map = maps.find(|map| map.class_name() == Some(c"CBaseEntity"))?;
+
+	let field = map.fields().iter().find(|field| {
+		field.fieldType == sys::_fieldtypes_FIELD_CUSTOM
+			&& field.fieldSize == 1
+			&& field.name() == Some(c"m_pPhysicsObject")
+	})?;
+
+	let offset = field.offset()?;
+
+	(offset < BASE_ENTITY_FIELD_OFFSET_LIMIT && offset.is_multiple_of(align_of::<*const ()>()))
+		.then_some(offset)
+}
+
 /// Finds the offset of the entity's solid flags, `m_usSolidFlags`, the
 /// `unsigned short` of its collision property, `m_Collision`, which
 /// `CBaseEntity`'s own map in `maps` embeds.
