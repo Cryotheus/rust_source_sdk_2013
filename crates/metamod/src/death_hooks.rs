@@ -1,5 +1,5 @@
-//! TF2 player death hooks, which run after the game's `Event_Killed` with an
-//! owned copy of the damage that killed the player.
+//! TF2 player death hooks, which run before or after the game's
+//! `Event_Killed` with an owned copy of the damage that kills the player.
 //!
 //! Install for each distinct player class (for example on player spawn; bots
 //! have a vtable of their own). Hooks cover that class, including
@@ -31,6 +31,10 @@ use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
+/// A callback-scoped server, the player about to die, and an owned copy of
+/// the damage killing them. A panic is contained by the hook dispatcher.
+pub type DyingFn = for<'s> fn(Server<'s>, Entity<'s>, &DamageInfo);
+
 /// A callback-scoped server, the player who died, and an owned copy of the
 /// damage that killed them. A panic is contained by the hook dispatcher.
 pub type KilledFn = for<'s> fn(Server<'s>, Entity<'s>, &DamageInfo);
@@ -38,7 +42,11 @@ pub type KilledFn = for<'s> fn(Server<'s>, Entity<'s>, &DamageInfo);
 /// `Event_Killed` in a TF2 player's primary vtable.
 const EVENT_KILLED: VirtualFunction<EventKilled> = VirtualFunction::new(EVENT_KILLED_SLOT);
 
-static ROUTES: [KilledRoute; 8] = [const { KilledRoute::new() }; 8];
+/// The routes of the hooks before `Event_Killed`, one per hooked class.
+static DYING_ROUTES: [DeathRoute; 8] = [const { DeathRoute::new() }; 8];
+
+/// The routes of the hooks after `Event_Killed`, one per hooked class.
+static KILLED_ROUTES: [DeathRoute; 8] = [const { DeathRoute::new() }; 8];
 
 /// Why a death hook could not be installed.
 #[derive(Debug, thiserror::Error)]
@@ -54,11 +62,11 @@ pub enum DeathHookError {
 	Hook(#[from] HookError),
 }
 
-struct KilledRoute {
+struct DeathRoute {
 	state: Cell<Option<RoutedDeath>>,
 }
 
-impl KilledRoute {
+impl DeathRoute {
 	const fn new() -> Self {
 		Self {
 			state: Cell::new(None),
@@ -66,7 +74,7 @@ impl KilledRoute {
 	}
 }
 
-impl Handler<EventKilled> for KilledRoute {
+impl Handler<EventKilled> for DeathRoute {
 	fn call(&self, call: &HookCall<'_, EventKilled>) -> HookAction<()> {
 		let Some(route) = self.state.get() else {
 			return HookAction::Ignore;
@@ -81,7 +89,8 @@ impl Handler<EventKilled> for KilledRoute {
 		// engine invocation. Binding was supplied during plugin integration.
 		let server = unsafe { route.binding.server(&scope) };
 		// SAFETY: The class hook supplies a live player and its const damage
-		// reference, which the game keeps live through its post hooks.
+		// reference, which the game keeps live from its pre hooks through its
+		// post hooks.
 		unsafe { dispatch(server, route.callback, victim, info) };
 		HookAction::Ignore
 	}
@@ -89,7 +98,7 @@ impl Handler<EventKilled> for KilledRoute {
 
 // SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
 // calls handlers only on that thread. Cell borrows are never held over calls.
-unsafe impl Sync for KilledRoute {}
+unsafe impl Sync for DeathRoute {}
 
 #[derive(Clone, Copy)]
 struct RoutedDeath {
@@ -100,6 +109,57 @@ struct RoutedDeath {
 }
 
 impl MetamodApi<'_> {
+	/// Runs `callback` before each death of a TF2 player of this player's
+	/// class is handled, as `CTFPlayer::Event_Killed` is called: the player is
+	/// still alive, and neither the game rules (`CTFGameRules::PlayerKilled`),
+	/// which decide dominations and revenges and count the kill, nor the
+	/// `player_death` event have seen the death.
+	///
+	/// The callback may change what the game reads as it handles the death,
+	/// such as the victim's statistics, but not the damage, of which it gets a
+	/// copy. Another plugin's pre hook may supersede the call, so that the
+	/// player does not die after all.
+	///
+	/// Installs as [`Self::hook_player_killed`] does, with the same
+	/// requirements, refusals, and caveats about KHook's activation, and a
+	/// class of its own: either hook can be installed without the other.
+	pub fn hook_player_dying(
+		self,
+		player: Entity<'_>,
+		binding: ServerBinding,
+		callback: DyingFn,
+	) -> Result<HookId, DeathHookError> {
+		self.hook_player_death(player, binding, callback, HookTiming::Pre)
+	}
+
+	/// Checks the player, then hooks `Event_Killed` on its class, at `timing`.
+	fn hook_player_death(
+		self,
+		player: Entity<'_>,
+		binding: ServerBinding,
+		callback: KilledFn,
+		timing: HookTiming,
+	) -> Result<HookId, DeathHookError> {
+		if binding.game() != Game::TeamFortress2
+			|| !player
+				.server_class()
+				.is_some_and(|class| class.name() == c"CTFPlayer")
+		{
+			return Err(DeathHookError::NotTfPlayer);
+		}
+
+		// SAFETY: The player is a live TF2 player, whose vtable belongs to the
+		// server DLL, which outlives this plugin.
+		unsafe {
+			self.install_death(
+				NonNull::new(player.as_ptr()).unwrap(),
+				binding,
+				callback,
+				timing,
+			)
+		}
+	}
+
 	/// Runs `callback` after each death of a TF2 player of this player's
 	/// class, once `CTFPlayer::Event_Killed` has run: the player is dead, the
 	/// `player_death` event was fired, and the `tf_ragdoll` from which clients
@@ -125,36 +185,33 @@ impl MetamodApi<'_> {
 		binding: ServerBinding,
 		callback: KilledFn,
 	) -> Result<HookId, DeathHookError> {
-		if binding.game() != Game::TeamFortress2
-			|| !player
-				.server_class()
-				.is_some_and(|class| class.name() == c"CTFPlayer")
-		{
-			return Err(DeathHookError::NotTfPlayer);
-		}
-
-		// SAFETY: The player is a live TF2 player, whose vtable belongs to the
-		// server DLL, which outlives this plugin.
-		unsafe { self.install_killed(NonNull::new(player.as_ptr()).unwrap(), binding, callback) }
+		self.hook_player_death(player, binding, callback, HookTiming::Post)
 	}
 
-	/// Hooks `Event_Killed` on the class of `object`.
+	/// Hooks `Event_Killed` on the class of `object`, before the call or after
+	/// it, as `timing` says.
 	///
 	/// # Safety
 	///
 	/// `object` must be live, and its primary vtable must hold a function of
 	/// the signature [`EventKilled`] at [`EVENT_KILLED_SLOT`], and stay loaded
 	/// until Metamod unloads the plugin.
-	unsafe fn install_killed(
+	unsafe fn install_death(
 		self,
 		object: NonNull<sys::CBaseEntity>,
 		binding: ServerBinding,
 		callback: KilledFn,
+		timing: HookTiming,
 	) -> Result<HookId, DeathHookError> {
+		let routes = match timing {
+			HookTiming::Pre => &DYING_ROUTES,
+			HookTiming::Post => &KILLED_ROUTES,
+		};
+
 		// SAFETY: The object is live, and starts with its primary vtable
 		// pointer, of which only the address is used.
 		let vtable = unsafe { vtable_pointer::<c_void>(object.as_ptr()) }.addr();
-		if ROUTES.iter().any(|route| {
+		if routes.iter().any(|route| {
 			route
 				.state
 				.get()
@@ -162,7 +219,7 @@ impl MetamodApi<'_> {
 		}) {
 			return Err(HookError::AlreadyInstalled.into());
 		}
-		let route = ROUTES
+		let route = routes
 			.iter()
 			.find(|route| {
 				route
@@ -173,14 +230,8 @@ impl MetamodApi<'_> {
 			.ok_or(HookError::TooManyFunctions)?;
 		// SAFETY: As the caller promises, the object is live, and its vtable has
 		// `void (const CTakeDamageInfo &)` at the slot, and stays loaded.
-		let hook = unsafe {
-			self.add_hook(
-				EVENT_KILLED,
-				HookTarget::class_of(object),
-				HookTiming::Post,
-				route,
-			)
-		}?;
+		let hook =
+			unsafe { self.add_hook(EVENT_KILLED, HookTarget::class_of(object), timing, route) }?;
 		route.state.set(Some(RoutedDeath {
 			binding,
 			callback,
@@ -193,7 +244,8 @@ impl MetamodApi<'_> {
 
 /// # Safety
 /// The pointers must be the live arguments of a native `Event_Killed` call
-/// that has run, within the engine's invocation `server` is scoped to.
+/// that is about to run or has run, within the engine's invocation `server`
+/// is scoped to.
 unsafe fn dispatch(
 	server: Server<'_>,
 	callback: KilledFn,
