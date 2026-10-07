@@ -9,7 +9,7 @@ use crate::NotThreadSafe;
 use crate::interfaces::{
 	BotManager, Cvar, EngineSound, EngineTrace, GameEventManager, ModelInfo, NetworkStringTables,
 	PlayerInfoManager, PluginHelpers, ServerGameClients, ServerGameDll, ServerGameEnts,
-	ServerTools, ValveEngine, VoiceServer,
+	ServerGameTags, ServerTools, ValveEngine, VoiceServer,
 };
 
 use sdk_raw::entities::TeleportSlot;
@@ -345,6 +345,12 @@ impl<'s> Server<'s> {
 
 	/// `IServerGameEnts`, which converts between entities and edicts.
 	pub fn server_game_ents(&self) -> Result<ServerGameEnts<'s>, InterfaceError> {
+		self.interface()
+	}
+
+	/// `IServerGameTags`, the game's list of the console variables that tag
+	/// the server.
+	pub fn server_game_tags(&self) -> Result<ServerGameTags<'s>, InterfaceError> {
 		self.interface()
 	}
 

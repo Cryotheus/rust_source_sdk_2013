@@ -9,7 +9,7 @@ use sdk_raw::tf2::script_binding as raw;
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
-pub(crate) use raw::{BindingError, FLOAT, VOID, float, string};
+pub(crate) use raw::{BindingError, FLOAT, INT, VOID, float, string};
 
 /// Finds and invokes a native member on a named declaring class, as
 /// [`sdk_raw::tf2::script_binding::call`] does.

@@ -13,6 +13,7 @@ pub mod plugin_helpers;
 pub mod server_game_clients;
 pub mod server_game_dll;
 pub mod server_game_ents;
+pub mod server_game_tags;
 pub mod server_tools;
 pub mod temp_entities;
 pub mod valve_engine;

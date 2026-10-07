@@ -1,11 +1,13 @@
 //! TF2 sounds played to chosen clients without a position, as TF2's announcer
-//! plays its lines, and the precaching of sound script entries.
+//! plays its lines, sound script entries played from an entity, and the
+//! precaching of sound script entries.
 //!
 //! [`broadcast`] sends each recipient TF2's `teamplay_broadcast_audio` game
 //! event, which the client answers by playing the sound from its own view.
 //! The client resolves the name, so it can be a sound script entry, such as
-//! `Announcer.RoundBegins5Seconds`, or a sample path. For a sound positioned
-//! in the world or played from an entity, use
+//! `Announcer.RoundBegins5Seconds`, or a sample path. [`emit_script_sound`]
+//! plays a sound script entry from an entity, as the game plays its own. For
+//! a sample played from an entity or a point, to chosen recipients, use
 //! [`EngineSound::emit_sound`](crate::interfaces::EngineSound::emit_sound),
 //! which takes precached samples only. To make a player speak a voice line,
 //! use [`voice`](crate::tf2::voice).
@@ -102,6 +104,36 @@ pub enum BroadcastError {
 	/// The server does not run TF2.
 	#[error("broadcast sounds require a TF2 server")]
 	NotTf2,
+}
+
+/// Why [`emit_script_sound`] could not play a sound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum EmitError {
+	/// The entity is marked for deletion.
+	#[error("the entity is marked for deletion")]
+	MarkedForDeletion,
+
+	/// The server does not run TF2.
+	#[error("script sounds require a TF2 server")]
+	NotTf2,
+
+	/// The binding adapter of the entity's `EmitSound` reported failure.
+	#[error("the native EmitSound method rejected its arguments")]
+	Rejected,
+
+	/// The entity's script class descriptors lack `EmitSound`, or its
+	/// signature differs from the SDK's.
+	#[error("the game does not expose the expected native EmitSound method")]
+	UnsupportedMethod,
+}
+
+impl From<BindingError> for EmitError {
+	fn from(error: BindingError) -> Self {
+		match error {
+			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
+			BindingError::Rejected => Self::Rejected,
+		}
+	}
 }
 
 /// Why [`precache_script_sound`] could not precache a sound.
@@ -256,6 +288,52 @@ pub fn broadcast(
 		.into_iter()
 		.filter(|channel| channel.send_encoded(&message, reliability).is_ok())
 		.count())
+}
+
+/// Plays a sound script entry, such as `TFPlayer.Decapitated`, from `entity`,
+/// as the game's own `CBaseEntity::EmitSound` does: positioned at the entity,
+/// on the entry's channel, at its volume, pitch and sound level, to the
+/// clients that can hear the entity's origin (`CPASAttenuationFilter`).
+///
+/// This calls the `EmitSound` member that `CBaseEntity` exposes to VScript
+/// (`ScriptEmitSound`, `game/shared/SoundEmitterSystem.cpp`) on the entity,
+/// through its native binding, without a script VM. The member returns
+/// nothing, so an unknown entry is not reported as an error; the game plays
+/// nothing. The entry's samples must be precached, as TF2 precaches the
+/// sounds it plays itself, or as [`precache_script_sound`] does.
+///
+/// The game's filter does not use prediction rules, so unlike the game's
+/// predicted sounds, it reaches a player whose command the game is running.
+/// The engine's `EmitSound` runs before this returns, with any plugin hook
+/// on it.
+#[doc(alias("EmitSound", "ScriptEmitSound"))]
+pub fn emit_script_sound(
+	server: Server<'_>,
+	entity: Entity<'_>,
+	name: &CStr,
+) -> Result<(), EmitError> {
+	if server.game() != Game::TeamFortress2 {
+		return Err(EmitError::NotTf2);
+	}
+
+	if entity.is_marked_for_deletion() {
+		return Err(EmitError::MarkedForDeletion);
+	}
+
+	// SAFETY: The checked `CBaseEntity` member looks the entry up and sends
+	// the sound through the engine, which copies what it keeps. It creates and
+	// frees no entities, and reads the name only during the call.
+	unsafe {
+		binding::call(
+			entity,
+			c"CBaseEntity",
+			c"EmitSound",
+			&mut [binding::string(name)],
+			binding::VOID,
+		)?;
+	}
+
+	Ok(())
 }
 
 /// Precaches every sample of a sound script entry, such as `Scout.Thanks01`,

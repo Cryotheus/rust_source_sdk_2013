@@ -9,6 +9,7 @@
 pub mod achievements;
 pub mod airblast;
 pub mod ammo;
+pub mod animating;
 pub mod attributes;
 pub mod bosses;
 pub mod bots;
