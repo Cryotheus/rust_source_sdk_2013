@@ -309,6 +309,40 @@ impl<'s> SendTable<'s> {
 		false
 	}
 
+	/// Finds the first property named `name` in the table or the tables nested
+	/// within it, depth first, as [`NetProp`] lookups do, but wherever its data
+	/// lives: also in a table whose proxy relocates it, such as the game rules'
+	/// variables, which TF2 sends from `CTFGameRulesProxy`'s `tf_gamerules_data`.
+	///
+	/// Array element templates and exclude properties are skipped. Use it to
+	/// find a property to [override](crate::send_proxies::SendProxyOverride),
+	/// rather than one to read or write.
+	pub fn find_prop(self, name: &CStr) -> Option<SendProp<'s>> {
+		fn search<'s>(table: SendTable<'s>, name: &CStr, depth: usize) -> Option<SendProp<'s>> {
+			if depth > MAX_TABLE_DEPTH {
+				return None;
+			}
+
+			table.props().find_map(|prop| {
+				if prop.flags().contains(PropFlags::INSIDE_ARRAY)
+					|| prop.flags().contains(PropFlags::EXCLUDE)
+				{
+					return None;
+				}
+
+				if prop.name() == name {
+					return Some(prop);
+				}
+
+				prop.data_table()
+					.filter(|_| prop.kind() == PropKind::DataTable)
+					.and_then(|nested| search(nested, name, depth + 1))
+			})
+		}
+
+		search(self, name, 0)
+	}
+
 	/// Whether the table has no properties.
 	pub fn is_empty(self) -> bool {
 		self.len() == 0

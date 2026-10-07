@@ -44,9 +44,18 @@ pub const FL_EDICT_FREE: c_int = 1 << 1;
 /// entity.
 pub const FL_EDICT_FULL: c_int = 1 << 2;
 
+/// `FL_EDICT_FULLCHECK` from `public/edict.h`, the absence of the other
+/// transmit flags: the entity's `ShouldTransmit` decides for each client
+/// whether it is sent.
+pub const FL_EDICT_FULLCHECK: c_int = 0;
+
 /// `FL_EDICT_PVSCHECK` from `public/edict.h`: the entity is sent to the
 /// clients whose potentially visible set holds it.
 pub const FL_EDICT_PVSCHECK: c_int = 1 << 5;
+
+/// The flags of an edict that say which clients its entity is sent to, which
+/// `CBaseEdict::ClearTransmitState` clears.
+pub const FL_EDICT_TRANSMIT_STATE: c_int = FL_EDICT_ALWAYS | FL_EDICT_DONTSEND | FL_EDICT_PVSCHECK;
 
 /// `FL_FULL_EDICT_CHANGED` from `public/edict.h`, set when every networked
 /// variable must be compared rather than only the recorded offsets.

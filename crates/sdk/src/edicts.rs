@@ -7,7 +7,12 @@ mod tests;
 use crate::entities::Entity;
 use crate::interfaces::ValveEngine;
 use crate::{NotThreadSafe, Server};
-use sdk_raw::edicts::FL_EDICT_FREE;
+
+use sdk_raw::edicts::{
+	FL_EDICT_ALWAYS, FL_EDICT_DONTSEND, FL_EDICT_FREE, FL_EDICT_FULLCHECK, FL_EDICT_PVSCHECK,
+	FL_EDICT_TRANSMIT_STATE,
+};
+
 use sdk_raw::util::cstr::borrow_cstr;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
@@ -136,6 +141,35 @@ impl<'s> Edict<'s> {
 		self.state_flags() & FL_EDICT_FREE != 0
 	}
 
+	/// Sets which clients the engine sends the slot's entity to, as
+	/// `CBaseEntity::SetTransmitState` does. Does nothing to a
+	/// [free](Self::is_free) slot.
+	///
+	/// The game sets the state anew whenever the entity's own calls for
+	/// another (`CBaseEntity::DispatchUpdateTransmitState`): as it spawns, as
+	/// its effects (such as `EF_NODRAW`), model or move parent change, and
+	/// as the game's rules for its class say, such as for a building being
+	/// carried. Set it again after those, or decide for each client with the
+	/// entity's `ShouldTransmit` and `SetTransmit`, which
+	/// `metamod_source`'s `transmit_hooks` hook.
+	#[doc(alias("SetTransmitState"))]
+	pub fn set_transmit_state(self, engine: ValveEngine<'_>, state: TransmitState) {
+		if self.is_free() {
+			return;
+		}
+
+		let flags = self.state_flags();
+		let changed = (flags & !FL_EDICT_TRANSMIT_STATE) | state.flag();
+
+		// SAFETY: As for `index`. The engine reads the flags as it builds
+		// snapshots, while this thread waits for it.
+		unsafe { (&raw mut (*self.as_ptr())._base.m_fStateFlags).write(changed) };
+
+		if (flags ^ changed) & FL_EDICT_DONTSEND != 0 {
+			engine.notify_edict_flags_change(self);
+		}
+	}
+
 	/// Records that the networked variable at `offset` bytes into the entity
 	/// changed, so the engine sends it to clients.
 	///
@@ -160,5 +194,136 @@ impl<'s> Edict<'s> {
 	fn state_flags(self) -> c_int {
 		// SAFETY: As for `index`.
 		unsafe { (&raw const (*self.as_ptr())._base.m_fStateFlags).read() }
+	}
+
+	/// Which clients the engine sends the slot's entity to, from its transmit
+	/// flags.
+	#[doc(alias("m_fStateFlags"))]
+	pub fn transmit_state(self) -> TransmitState {
+		TransmitState::from_flags(self.state_flags())
+	}
+}
+
+/// What the engine sends one client in a snapshot, as the game decides it
+/// (`CCheckTransmitInfo`): the client, and the edicts marked as sent to it so
+/// far.
+///
+/// The game's `CheckTransmit` passes it to the `ShouldTransmit` and
+/// `SetTransmit` of the entities it checks for the client, on the main
+/// thread, in the order [`sdk_raw::transmit`] describes.
+#[doc(alias("CCheckTransmitInfo"))]
+#[derive(Debug, Clone, Copy)]
+pub struct TransmitCheck<'s> {
+	pointer: NonNull<sys::CCheckTransmitInfo>,
+	_scope: PhantomData<&'s ()>,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl<'s> TransmitCheck<'s> {
+	/// Wraps the record the engine passed to a callback, such as a hooked
+	/// `ShouldTransmit`, for the callback's scope.
+	///
+	/// # Safety
+	///
+	/// `pointer` must point to the engine's record of the client whose
+	/// snapshot is being built, which stays allocated for `'s`, and the call
+	/// must obey [`Server::new`]'s main-thread and reentrancy contract.
+	pub unsafe fn from_live(
+		_server: Server<'s>,
+		pointer: NonNull<sys::CCheckTransmitInfo>,
+	) -> Self {
+		Self {
+			pointer,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// Returns the native pointer for low-level interop.
+	pub const fn as_ptr(self) -> *mut sys::CCheckTransmitInfo {
+		self.pointer.as_ptr()
+	}
+
+	/// The edict of the client's player, whose snapshot is being built.
+	#[doc(alias("m_pClientEnt"))]
+	pub fn client(self) -> Option<Edict<'s>> {
+		// SAFETY: The record is live for `'s`, and its field is read without
+		// forming a reference, as the engine writes to it through its own
+		// pointers.
+		let client = unsafe { (&raw const (*self.as_ptr()).m_pClientEnt).read() };
+
+		// SAFETY: The engine's edict table outlives `'s`.
+		NonNull::new(client).map(|client| unsafe { Edict::from_raw(client) })
+	}
+
+	/// Whether the edict `index` is marked as sent to the client so far.
+	///
+	/// An edict marked before its own check is skipped by it, as one sent with
+	/// the entity it moves with is.
+	#[doc(alias("m_pTransmitEdict"))]
+	pub fn is_sent(self, index: c_int) -> bool {
+		// SAFETY: As for `client`.
+		let sent = unsafe { (&raw const (*self.as_ptr()).m_pTransmitEdict).read() };
+
+		// SAFETY: The engine points the record to its set of `MAX_EDICTS` bits
+		// for the client, which it fills on this thread.
+		unsafe { sdk_raw::transmit::has_edict_bit(sent, index) }
+	}
+}
+
+/// Which clients the engine sends an edict's entity to, as the edict's
+/// transmit flags say. The game gives an entity the flags its state calls
+/// for (`CBaseEntity::UpdateTransmitState`).
+#[doc(alias(
+	"FL_EDICT_ALWAYS",
+	"FL_EDICT_DONTSEND",
+	"FL_EDICT_FULLCHECK",
+	"FL_EDICT_PVSCHECK"
+))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransmitState {
+	/// Sent to every client wherever it is, with the entities it moves with
+	/// (`FL_EDICT_ALWAYS`), such as the game rules, teams and objective
+	/// resources. Its `SetTransmit` is not called.
+	Always,
+
+	/// Sent to no client (`FL_EDICT_DONTSEND`), such as an entity without a
+	/// model, or drawn with `EF_NODRAW` while nothing moves with it.
+	DontSend,
+
+	/// Its `ShouldTransmit` decides for each client (`FL_EDICT_FULLCHECK`), as
+	/// for players, and for entities only their team is sent.
+	FullCheck,
+
+	/// Sent to the clients whose potentially visible set or 3D skybox holds
+	/// it (`FL_EDICT_PVSCHECK`), as most entities with a model are.
+	PvsCheck,
+}
+
+impl TransmitState {
+	/// The state an edict's flags (`m_fStateFlags`) give, as the game's
+	/// `CheckTransmit` reads them: [`FL_EDICT_DONTSEND`] first, then
+	/// [`FL_EDICT_ALWAYS`] and [`FL_EDICT_PVSCHECK`], and a full check without
+	/// any of them.
+	pub const fn from_flags(flags: c_int) -> Self {
+		if flags & FL_EDICT_DONTSEND != 0 {
+			Self::DontSend
+		} else if flags & FL_EDICT_ALWAYS != 0 {
+			Self::Always
+		} else if flags & FL_EDICT_PVSCHECK != 0 {
+			Self::PvsCheck
+		} else {
+			Self::FullCheck
+		}
+	}
+
+	/// The state's transmit flag, of [`FL_EDICT_TRANSMIT_STATE`].
+	pub const fn flag(self) -> c_int {
+		match self {
+			Self::Always => FL_EDICT_ALWAYS,
+			Self::DontSend => FL_EDICT_DONTSEND,
+			Self::FullCheck => FL_EDICT_FULLCHECK,
+			Self::PvsCheck => FL_EDICT_PVSCHECK,
+		}
 	}
 }
