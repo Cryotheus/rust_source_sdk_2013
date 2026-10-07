@@ -218,7 +218,7 @@ bitflags::bitflags! {
 	}
 }
 
-use sdk_raw::tf2::objects::ObjectVtables;
+use crate::tf2::class_targets::{ClassTarget, ClassTargetError, ClassTargets};
 use sdk_raw::util;
 use std::ffi::c_void;
 use std::marker::PhantomData;
@@ -722,10 +722,22 @@ pub struct BuildingVtables<'s> {
 	_scope: PhantomData<&'s Server<'s>>,
 }
 
-impl BuildingVtables<'_> {
+impl<'s> BuildingVtables<'s> {
 	/// The vtables of the classes of [`BuildingClass::ALL`], in its order.
 	pub const fn all(self) -> [NonNull<*mut c_void>; 7] {
 		self.vtables
+	}
+
+	/// Finds the primary vtable of every building class in `targets`, a
+	/// snapshot of the game module other searches can share, as
+	/// [`building_vtables`] finds them in a snapshot of its own.
+	pub fn find(targets: &ClassTargets<'s>) -> Result<Self, BuildingVtableError> {
+		let objects = targets.objects().map_err(vtable_error)?;
+
+		Ok(Self {
+			vtables: objects.map(ClassTarget::as_ptr),
+			_scope: PhantomData,
+		})
 	}
 
 	/// The vtable of `class`.
@@ -1240,30 +1252,32 @@ impl TeleporterState {
 /// Finds the primary vtable of every building class in the game server
 /// module, before any hook is installed, from the classes' run-time type
 /// information. Missing or ambiguous information is an error: no class is
-/// left out. Call once, such as while loading: it reads the whole module, a
-/// few times, however many classes there are.
+/// left out. Call once, such as while loading: it snapshots the whole module,
+/// and reads it a few times, however many classes there are.
+/// [`BuildingVtables::find`] finds them in a snapshot other searches share.
 ///
-/// The search only checks that each vtable holds code at
-/// [`IS_PLACEMENT_POS_VALID_SLOT`](sdk_raw::tf2::objects::IS_PLACEMENT_POS_VALID_SLOT),
-/// which every building class has.
+/// The search only checks that each vtable holds code at the last slot of
+/// `CBaseObject`'s vtable, which every building class has.
 pub fn building_vtables(server: Server<'_>) -> Result<BuildingVtables<'_>, BuildingVtableError> {
-	if server.game() != Game::TeamFortress2 {
-		return Err(BuildingVtableError::WrongGame);
+	let targets = ClassTargets::load(server).map_err(vtable_error)?;
+
+	BuildingVtables::find(&targets)
+}
+
+/// The error of a search for the building classes, which can only miss
+/// [`BuildingClass::ALL`]'s.
+fn vtable_error(error: ClassTargetError) -> BuildingVtableError {
+	match error {
+		ClassTargetError::Image(error) => BuildingVtableError::Image(error),
+		ClassTargetError::InvalidImage => BuildingVtableError::InvalidImage,
+
+		ClassTargetError::NotFound(name) => BuildingVtableError::NotFound(
+			BuildingClass::ALL
+				.into_iter()
+				.find(|class| class.name() == name)
+				.expect("the SDK's object classes are the building classes"),
+		),
+
+		ClassTargetError::WrongGame => BuildingVtableError::WrongGame,
 	}
-
-	// SAFETY: The game server factory is the game module's `CreateInterface`,
-	// and the Server's callback scope keeps the module loaded while its
-	// sections are inspected (`Server::new` condition 1).
-	let search = unsafe { ObjectVtables::load(server.game_server_factory().as_raw()) }?;
-	let found = search.find_all(&BuildingClass::ALL.map(BuildingClass::name));
-	let mut vtables = [NonNull::dangling(); 7];
-
-	for ((vtable, class), pointer) in vtables.iter_mut().zip(BuildingClass::ALL).zip(found) {
-		*vtable = pointer.ok_or(BuildingVtableError::NotFound(class))?;
-	}
-
-	Ok(BuildingVtables {
-		vtables,
-		_scope: PhantomData,
-	})
 }

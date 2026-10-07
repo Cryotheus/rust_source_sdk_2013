@@ -675,6 +675,14 @@ fn building_vtables_are_only_searched_for_on_tf2() {
 		building_vtables(mock_server(&scope)),
 		Err(BuildingVtableError::NotFound(BuildingClass::CartDispenser))
 	));
+
+	// Nor in a snapshot other searches share.
+	let targets = ClassTargets::load(mock_server(&scope)).unwrap();
+
+	assert!(matches!(
+		BuildingVtables::find(&targets),
+		Err(BuildingVtableError::NotFound(BuildingClass::CartDispenser))
+	));
 }
 
 #[test]
