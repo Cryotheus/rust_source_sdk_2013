@@ -6,8 +6,13 @@
 //! With `mp_autoteambalance` on, TF2 moves players from a team with more of
 //! them to the other, choosing among those its method allows: it refuses
 //! bots, coaches and their students, and players in a duel, a kart or ghost
-//! mode. The hooks cover classes as [`crate::class_hooks`] describes: cover
-//! the players' classes, those of
+//! mode. Its balancing under `mp_autoteambalance 1`, which
+//! [`RulesCallbacks::balance_teams`](crate::rules_hooks::RulesCallbacks::balance_teams)
+//! can keep from running, and its newer one under `mp_autoteambalance 2`
+//! both ask the method.
+//!
+//! The hooks cover classes as [`crate::class_hooks`] describes: cover the
+//! players' classes, those of
 //! [`ClassTargets::players`](source_sdk_2013::tf2::class_targets::ClassTargets::players),
 //! to hook every player's.
 //!
