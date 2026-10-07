@@ -1,5 +1,10 @@
 //! `IEngineTrace`, which traces rays and queries what the world contains.
 
+#[cfg(test)]
+#[path = "../../tests/interfaces/engine_trace.rs"]
+mod tests;
+
+use crate::entities::Entity;
 use crate::math::Vector;
 use sdk_raw::vcall;
 use std::ffi::{c_int, c_uint};
@@ -33,6 +38,10 @@ pub const CONTENTS_SOLID: c_uint = 0x1;
 
 /// `CONTENTS_WINDOW`: translucent brushes, such as glass.
 pub const CONTENTS_WINDOW: c_uint = 0x2;
+
+/// `MASK_ALL`: every contents flag, so that a trace stops at whatever it
+/// meets, the brushes of triggers included.
+pub const MASK_ALL: c_uint = 0xFFFF_FFFF;
 
 /// `MASK_SOLID_BRUSHONLY`: every brush a solid collides with.
 pub const MASK_SOLID_BRUSHONLY: c_uint =
@@ -92,6 +101,64 @@ interface! {
 }
 
 impl<'s> EngineTrace<'s> {
+	/// Whether the box from `mins` to `maxs` around `position` overlaps
+	/// `entity`'s collision model where its contents are in `mask`: whether
+	/// the engine's `ClipRayToEntity`, with the box held still at `position`,
+	/// starts solid. Only the entity is tested, not the world nor any other
+	/// entity, and a trigger is tested like any other entity, though other
+	/// traces pass through it.
+	///
+	/// With `mins` and `maxs` at the origin, the box is a point, and this is
+	/// whether `position` lies within the entity, as the game's
+	/// `CBaseTrigger::PointIsWithin` asks of a trigger with [`MASK_ALL`]. The
+	/// engine asks the entity's own `TestCollision` instead if the entity is
+	/// flagged to test points
+	/// ([`SolidFlags::CUSTOM_RAY_TEST`](crate::entities::solid::SolidFlags::CUSTOM_RAY_TEST))
+	/// or boxes (`CUSTOM_BOX_TEST`) itself.
+	#[doc(alias("ClipRayToEntity", "PointIsWithin"))]
+	pub fn box_overlaps_entity(
+		self,
+		entity: Entity<'_>,
+		position: Vector,
+		mins: Vector,
+		maxs: Vector,
+		mask: c_uint,
+	) -> bool {
+		let aligned = |vector: Vector| sys::VectorAligned {
+			_base: sys::Vector::from(vector),
+		};
+		let extents = Vector((*maxs - *mins) * 0.5);
+		let center = Vector((*mins + *maxs) * 0.5);
+
+		// As `Ray_t::Init` makes a box that does not move: it starts at the box's
+		// center, from which the start offset leads back to `position`, and is a
+		// ray if the box has no size.
+		let ray = sys::Ray_t {
+			m_Start: aligned(Vector(*position + *center)),
+			m_Delta: aligned(Vector::new(0.0, 0.0, 0.0)),
+			m_StartOffset: aligned(Vector(-*center)),
+			m_Extents: aligned(extents),
+			m_IsRay: extents.length_squared() < 1e-6,
+			m_IsSwept: false,
+		};
+
+		// `CBaseEntity`'s primary base derives from `IHandleEntity`, so the
+		// pointers coincide.
+		let handle = entity.as_ptr().cast::<sys::IHandleEntity>();
+		let mut trace = MaybeUninit::<sys::trace_t>::zeroed();
+
+		// SAFETY: `Server::new` guarantees the interface is live, and the entity
+		// is live. The ray and the trace are locals that outlive the call, which
+		// is the only time the engine uses them, and the engine fills the trace,
+		// which starts zeroed, as `CGameTrace`'s constructor leaves it.
+		unsafe {
+			vcall!(self.as_ptr() => IEngineTrace_ClipRayToEntity(&ray, mask, handle, trace.as_mut_ptr()))
+		};
+
+		// SAFETY: As for `trace_world_line`.
+		unsafe { trace.assume_init() }._base.startsolid
+	}
+
 	/// The `CONTENTS_*` flags of the world and entities at a point, as defined
 	/// in `public/bspflags.h`.
 	#[doc(alias("GetPointContents"))]
