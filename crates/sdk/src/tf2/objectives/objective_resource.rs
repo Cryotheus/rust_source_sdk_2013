@@ -138,8 +138,9 @@ impl<'s> ObjectiveResource<'s> {
 		self.0.flag_element(c"m_bCPLocked", point_index(point)?)
 	}
 
-	/// Whether the HUD shows `point` (`m_bCPIsVisible`), unless the point has
-	/// the spawn flag [`SF_CAP_POINT_HIDE_FLAG`].
+	/// Whether the HUD shows `point` (`m_bCPIsVisible`), which the point
+	/// master sets when it finds its points, unless the point has the spawn
+	/// flag [`SF_CAP_POINT_HIDE_FLAG`].
 	///
 	/// [`SF_CAP_POINT_HIDE_FLAG`]: sdk_raw::tf2::objectives::SF_CAP_POINT_HIDE_FLAG
 	#[doc(alias("m_bCPIsVisible", "IsCPVisible"))]

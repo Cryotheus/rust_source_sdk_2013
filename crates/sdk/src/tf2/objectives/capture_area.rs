@@ -66,11 +66,20 @@ impl<'s> CaptureArea<'s> {
 		self.0.string_key(c"CTriggerAreaCapture", c"area_cap_point")
 	}
 
-	/// Disables the area: it stops being a trigger, so the players in it
-	/// leave it, and no player captures in it until it is enabled.
+	/// Disables the area: it stops being a trigger, and no player captures in
+	/// it until it is enabled. The players in it leave it once the game next
+	/// checks what entities touch, after they think in this frame or the
+	/// next; [`Self::disable_and_end_touch`] has them leave at once.
 	#[doc(alias("Disable"))]
 	pub fn disable(self) -> Result<(), ObjectiveError> {
 		self.0.input(c"Disable", InputValue::Void)
+	}
+
+	/// Has the players in the area leave it at once, as when they step out,
+	/// and then [disables](Self::disable) it.
+	#[doc(alias("DisableAndEndTouch", "EndTouch"))]
+	pub fn disable_and_end_touch(self) -> Result<(), ObjectiveError> {
+		self.0.input(c"DisableAndEndTouch", InputValue::Void)
 	}
 
 	/// Enables the area.
