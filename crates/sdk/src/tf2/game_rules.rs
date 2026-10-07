@@ -24,10 +24,12 @@ use crate::datatables::{
 };
 
 use crate::edicts::Edict;
-use crate::entities::Entity;
+use crate::entities::{Entity, EntityHandle};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
 use crate::interfaces::ValveEngine;
+use crate::tf2::ammo::AmmoType;
+use crate::tf2::player::TfPlayer;
 use crate::tf2::scoreboard::ScoringTeam;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::datatables::call_table_proxy;
@@ -35,7 +37,7 @@ use sdk_raw::datatables::call_table_proxy;
 use sdk_raw::tf2::game_rules::{
 	GR_STATE_BETWEEN_RNDS, GR_STATE_BONUS, GR_STATE_GAME_OVER, GR_STATE_INIT, GR_STATE_PREGAME,
 	GR_STATE_PREROUND, GR_STATE_RESTART, GR_STATE_RND_RUNNING, GR_STATE_STALEMATE,
-	GR_STATE_STARTGAME, GR_STATE_TEAM_WIN, find_game_rules_vtable,
+	GR_STATE_STARTGAME, GR_STATE_TEAM_WIN, can_have_ammo, find_game_rules_vtable,
 };
 
 use sdk_raw::tf2::game_rules::{TEAM_ROLE_ATTACKERS, TEAM_ROLE_DEFENDERS, TEAM_ROLE_NONE};
@@ -333,6 +335,11 @@ impl<'s> GameRules<'s> {
 		self.rules.as_ptr()
 	}
 
+	/// The game rules object, as [`Self::as_ptr`] gives it.
+	pub(crate) const fn as_non_null(self) -> NonNull<c_void> {
+		self.rules
+	}
+
 	/// Whether the round is in its setup time, before attackers may leave
 	/// their spawn.
 	#[doc(alias("m_bInSetup"))]
@@ -382,6 +389,22 @@ impl<'s> GameRules<'s> {
 		// shuts down, after `'s`. The game initializes the variables it
 		// networks, which the engine reads to send them.
 		Ok(unsafe { prop.get_at(object) }?)
+	}
+
+	/// Reads an entity handle variable of the game rules by name, as stored,
+	/// such as `m_hRedKothTimer`, found as [`Self::read`] finds variables, or
+	/// `None` for an invalid handle.
+	///
+	/// Fails as [`Self::read`] does, or with [`NetPropError::NotAHandle`] if the
+	/// variable is not declared as `SendPropEHandle` declares handles.
+	#[doc(alias("SendPropEHandle", "CHandle", "EHANDLE"))]
+	pub fn read_handle(self, name: &CStr) -> Result<Option<EntityHandle>, GameRulesError> {
+		let (prop, object) = self.variable(name)?;
+
+		// SAFETY: As for `read`.
+		let handle = unsafe { prop.get_handle_at(object) }?;
+
+		Ok(handle.is_valid().then_some(handle))
 	}
 
 	/// The state of the round (`m_iRoundState`).
@@ -453,6 +476,24 @@ impl<'s> GameRules<'s> {
 		// SAFETY: As for `read`, and the game accepts the value, as the caller
 		// promises.
 		Ok(unsafe { prop.set_at(object, value) }?)
+	}
+}
+
+/// What the game rules decide for players.
+impl GameRules<'_> {
+	/// Whether `player` holds less reserve ammo of `ammo_type` than their max,
+	/// as their class and items make it (`CanHaveAmmo`), which pickups,
+	/// dispensers and resupply cabinets ask before giving any.
+	#[doc(alias("CanHaveAmmo", "GetMaxAmmo"))]
+	pub fn can_have_ammo(self, player: TfPlayer<'_>, ammo_type: AmmoType) -> bool {
+		// SAFETY: An entity's pointer is never null.
+		let player = unsafe { NonNull::new_unchecked(player.player().as_ptr()) };
+
+		// SAFETY: The game rules are TF2's live `CTFGameRules`, as `GameRules::get`
+		// checks the game, and the player is a live `CTFPlayer`, as `TfPlayer`
+		// checks, whose `CBaseCombatCharacter` base is at its address. Both are
+		// only used on the main thread.
+		unsafe { can_have_ammo(self.rules, player.cast(), ammo_type.to_raw()) }
 	}
 }
 

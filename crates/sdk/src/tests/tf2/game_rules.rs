@@ -14,11 +14,15 @@ use crate::test_support::tf2::game_rules::{
 };
 
 use crate::test_support::tf2::game_rules::{ROUND_FLAGS, ROUNDS_PLAYED, WINNING_TEAM};
+use crate::test_support::tf2::player::FakePlayer;
 use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_FULL_EDICT_CHANGED};
 use sdk_raw::entities::EFL_KILLME;
 use sdk_raw::entities::datamap::FTYPEDESC_INPUT;
 use sdk_raw::test_support::entities::data_map;
+use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use sdk_raw::tf2::scoreboard::{TF_TEAM_BLUE, TF_TEAM_RED};
+use std::cell::Cell;
+use std::ffi::c_int;
 use std::ptr::null_mut;
 
 #[test]
@@ -410,4 +414,47 @@ fn the_proxy_entity_a_maps_own_replaces_is_skipped() {
 		PROXY_CALLS.take(),
 		[(entity, entity, 7, true), (entity, entity, 7, true)]
 	);
+}
+
+#[test]
+fn ammo_room_is_asked_of_the_game_rules() {
+	thread_local! {
+		/// The player and ammo type `CanHaveAmmo` was asked about.
+		static ASKED: Cell<Option<(*mut sys::CBaseCombatCharacter, c_int)>> = const { Cell::new(None) };
+	}
+
+	/// `CTFGameRules::CanHaveAmmo`, for which only metal has room.
+	unsafe extern "C" fn can_have_ammo(
+		_: *mut sys::CTFGameRules,
+		player: *mut sys::CBaseCombatCharacter,
+		ammo_type: c_int,
+	) -> bool {
+		ASKED.set(Some((player, ammo_type)));
+		ammo_type == AmmoType::Metal.to_raw()
+	}
+
+	let player = FakePlayer::new(&[], &[]);
+	let world = World::new(Some(round_rules_proxy));
+	let scope = ();
+	let server = mock_server(&scope);
+	let rules = GameRules::get(server).unwrap();
+	let player = TfPlayer::new(server, player.entity()).unwrap();
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes a slot of the vtable
+	// being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::CTFGameRules__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).CTFGameRules_CanHaveAmmo).write(can_have_ammo);
+		})
+	};
+
+	world.set_vtable(Box::leak(vtable));
+
+	assert!(rules.can_have_ammo(player, AmmoType::Metal));
+	assert_eq!(
+		ASKED.take(),
+		Some((player.player().as_ptr().cast(), AmmoType::Metal.to_raw()))
+	);
+	assert!(!rules.can_have_ammo(player, AmmoType::Primary));
 }

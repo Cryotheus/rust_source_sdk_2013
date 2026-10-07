@@ -1,5 +1,11 @@
 //! TF2 round hooks: the map cleanup of a round's restart, which they run
-//! before the game's `CTFGameRules::CleanUpMap` and may skip.
+//! before the game's `CTFGameRules::CleanUpMap` and may skip, and the rest of
+//! a round's life, as [`MetamodApi::hook_rounds`] hooks it: its end with a
+//! win or in sudden death, which they may refuse, its setup and its start,
+//! and the game's questions whether control points may be captured, which
+//! they may answer no.
+//!
+//! # Map cleanup
 //!
 //! TF2 cleans up the map as a round restarts in full:
 //! `CTeamplayRoundBasedRules::RoundRespawn` calls `CleanUpMap` through the
@@ -12,14 +18,55 @@
 //! buildings, sending every entity `RoundSpawn` and `RoundActivate`, and
 //! respawning players.
 //!
-//! The hook patches `CleanUpMap` in the primary vtable of `CTFGameRules`,
-//! which [`game_rules_vtable`] finds in the game server module without any
-//! game rules object. The game creates one game rules object as each level
-//! loads and deletes it as the level shuts down, all of the same class, so
-//! one hook covers every level's: install it once, such as while loading. It
-//! lasts until removed or the plugin unloads. As with other Metamod hooks, it
-//! stops calling back while the plugin is paused, so the game cleans up the
-//! map as usual then.
+//! # What runs the round hooks
+//!
+//! - [`RoundCallbacks::win`] runs before `CTFGameRules::SetWinningTeam`,
+//!   which ends the round as objectives, timers, a level's `game_round_win`,
+//!   [`GameRules::set_winning_team`], the win and time limits, and the end of
+//!   sudden death end it, with a win or without a winner. Refusing the win
+//!   skips all of it, TF2's crit boosts and progress included, so the round
+//!   goes on: the game may try again, as it does at each check of a time
+//!   limit that ran out, or not, as a capture's win is not.
+//! - [`RoundCallbacks::stalemate`] runs before `CTFGameRules::SetStalemate`,
+//!   which starts sudden death as a control point master's round timer or
+//!   the level's time limit runs out, or as a `game_round_win` without a
+//!   team is sent `RoundWin`, and which ends the round without a winner
+//!   instead while `mp_stalemate_enable` is off. Refusing it lets the round go
+//!   on.
+//! - [`RoundCallbacks::setup`] runs after `CTFGameRules::SetupOnRoundStart`,
+//!   as a round or a mini-round is set up, at the start of the pre-round:
+//!   after the map was cleaned up, if it was, and every entity was sent
+//!   `RoundSpawn` and `RoundActivate`, before the teams switch or scramble and
+//!   players respawn.
+//! - [`RoundCallbacks::running`] runs after
+//!   `CTFGameRules::SetupOnRoundRunning`, as the pre-round ends and players
+//!   may move: after control point masters were sent `RoundStart`, before the
+//!   game fires `teamplay_round_active`.
+//! - [`RoundCallbacks::points_capturable`] runs before
+//!   `CTFGameRules::PointsMayBeCaptured`, which control points, capture areas
+//!   and control point masters ask before any capture, and which the game
+//!   answers no during setup.
+//! - [`RoundCallbacks::team_capture`] and [`RoundCallbacks::player_capture`]
+//!   run before `CTFGameRules::TeamMayCapturePoint` and
+//!   `PlayerMayCapturePoint`, which capture areas ask for the teams and players
+//!   in them, and TF2 as it credits players for defending and capturing
+//!   points.
+//!
+//! Clients ask their own game rules whether points may be captured, so their
+//! HUD can show a capture the server refuses.
+//!
+//! # Installing
+//!
+//! The hooks patch the methods in the primary vtable of `CTFGameRules`, which
+//! [`game_rules_vtable`] finds in the game server module without any game
+//! rules object. The game creates one game rules object as each level loads
+//! and deletes it as the level shuts down, all of the same class, so one hook
+//! covers every level's: install them once, such as while loading. They last
+//! until removed or the plugin unloads. As with other Metamod hooks, they stop
+//! calling back while the plugin is paused, so the game runs its rounds as
+//! usual then.
+//!
+//! [`GameRules::set_winning_team`]: source_sdk_2013::tf2::game_rules::GameRules::set_winning_team
 
 #[cfg(test)]
 #[path = "tests/round_hooks.rs"]
@@ -28,25 +75,120 @@ mod tests;
 use crate::MetamodApi;
 
 use crate::hook::{
-	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
+	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, Signature,
+	VirtualFunction,
 };
 
-use source_sdk_2013::raw::tf2::game_rules::{CLEAN_UP_MAP_SLOT, CleanUpMapFn as CleanUpMap};
+use source_sdk_2013::entities::Entity;
+use source_sdk_2013::raw::players::TEAM_UNASSIGNED;
+
+use source_sdk_2013::raw::tf2::game_rules::{
+	CLEAN_UP_MAP_SLOT, CleanUpMapFn as CleanUpMap, PLAYER_MAY_CAPTURE_POINT_SLOT,
+	POINTS_MAY_BE_CAPTURED_SLOT, PlayerMayCapturePointFn as PlayerMayCapturePoint,
+	PointsMayBeCapturedFn as PointsMayBeCaptured, RoundSetupFn as RoundSetup, SET_STALEMATE_SLOT,
+	SET_WINNING_TEAM_SLOT, SETUP_ON_ROUND_RUNNING_SLOT, SETUP_ON_ROUND_START_SLOT,
+	SetStalemateFn as SetStalemate, SetWinningTeamFn as SetWinningTeam,
+	TEAM_MAY_CAPTURE_POINT_SLOT, TeamMayCapturePointFn as TeamMayCapturePoint,
+};
+
 use source_sdk_2013::tf2::game_rules::{GameRulesVtableError, game_rules_vtable};
+use source_sdk_2013::tf2::objectives::WinReason;
+use source_sdk_2013::tf2::round_end::{StalemateOptions, StalemateReason, WinOptions};
+use source_sdk_2013::tf2::scoreboard::ScoringTeam;
+use source_sdk_2013::tf2::teams::Team;
 use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
-use std::ffi::c_void;
+use std::ffi::{c_int, c_void};
+use std::marker::PhantomData;
 use std::ptr::NonNull;
+use std::rc::Rc;
 
 /// A callback-scoped server whose map is about to be cleaned up, which
 /// decides whether it is. A panic is contained by the hook dispatcher, and
 /// lets the cleanup run.
 pub type MapCleanupFn = for<'s> fn(Server<'s>) -> MapCleanupAction;
 
+/// A callback-scoped server, and a player a capture area or TF2 asks about,
+/// which decides whether the player may capture the point. A panic is
+/// contained by the hook dispatcher, and lets the game decide.
+pub type PlayerCaptureFn = for<'s> fn(Server<'s>, PlayerCaptureCheck<'s>) -> CaptureAction;
+
+/// A callback-scoped server whose control points are asked about, which
+/// decides whether any may be captured. A panic is contained by the hook
+/// dispatcher, and lets the game decide.
+pub type PointsCapturableFn = for<'s> fn(Server<'s>) -> CaptureAction;
+
+/// A callback-scoped server whose round was just set up, or just started
+/// running. A panic is contained by the hook dispatcher.
+pub type RoundFn = for<'s> fn(Server<'s>);
+
+/// A callback-scoped server, and a round's end with a win, or without a
+/// winner, which decides whether the round ends. A panic is contained by the
+/// hook dispatcher, and lets the round end.
+pub type RoundWinFn = for<'s> fn(Server<'s>, RoundWinEvent) -> RoundEndAction;
+
+/// A callback-scoped server, and a round's sudden death, which decides
+/// whether it starts. A panic is contained by the hook dispatcher, and lets
+/// it start.
+pub type StalemateFn = for<'s> fn(Server<'s>, StalemateEvent) -> RoundEndAction;
+
+/// A callback-scoped server, and a team a capture area or TF2 asks about,
+/// which decides whether the team may capture the point. A panic is
+/// contained by the hook dispatcher, and lets the game decide.
+pub type TeamCaptureFn = for<'s> fn(Server<'s>, TeamCaptureCheck) -> CaptureAction;
+
 /// `CleanUpMap` in TF2's game rules' primary vtable.
 const CLEAN_UP_MAP: VirtualFunction<CleanUpMap> = VirtualFunction::new(CLEAN_UP_MAP_SLOT);
 
+/// `PlayerMayCapturePoint` in TF2's game rules' primary vtable.
+const PLAYER_MAY_CAPTURE_POINT: VirtualFunction<PlayerMayCapturePoint> =
+	VirtualFunction::new(PLAYER_MAY_CAPTURE_POINT_SLOT);
+
+/// `PointsMayBeCaptured` in TF2's game rules' primary vtable.
+const POINTS_MAY_BE_CAPTURED: VirtualFunction<PointsMayBeCaptured> =
+	VirtualFunction::new(POINTS_MAY_BE_CAPTURED_SLOT);
+
+/// `SetStalemate` in TF2's game rules' primary vtable.
+const SET_STALEMATE: VirtualFunction<SetStalemate> = VirtualFunction::new(SET_STALEMATE_SLOT);
+
+/// `SetWinningTeam` in TF2's game rules' primary vtable.
+const SET_WINNING_TEAM: VirtualFunction<SetWinningTeam> =
+	VirtualFunction::new(SET_WINNING_TEAM_SLOT);
+
+/// `SetupOnRoundRunning` in TF2's game rules' primary vtable.
+const SETUP_ON_ROUND_RUNNING: VirtualFunction<RoundSetup> =
+	VirtualFunction::new(SETUP_ON_ROUND_RUNNING_SLOT);
+
+/// `SetupOnRoundStart` in TF2's game rules' primary vtable.
+const SETUP_ON_ROUND_START: VirtualFunction<RoundSetup> =
+	VirtualFunction::new(SETUP_ON_ROUND_START_SLOT);
+
+/// `TeamMayCapturePoint` in TF2's game rules' primary vtable.
+const TEAM_MAY_CAPTURE_POINT: VirtualFunction<TeamMayCapturePoint> =
+	VirtualFunction::new(TEAM_MAY_CAPTURE_POINT_SLOT);
+
 static ROUTE: CleanupRoute = CleanupRoute::new();
+
+static PLAYER_CAPTURE_ROUTE: RoundRoute<PlayerCaptureFn> = RoundRoute::new();
+static POINTS_ROUTE: RoundRoute<PointsCapturableFn> = RoundRoute::new();
+static RUNNING_ROUTE: RoundRoute<RoundFn> = RoundRoute::new();
+static SETUP_ROUTE: RoundRoute<RoundFn> = RoundRoute::new();
+static STALEMATE_ROUTE: RoundRoute<StalemateFn> = RoundRoute::new();
+static TEAM_CAPTURE_ROUTE: RoundRoute<TeamCaptureFn> = RoundRoute::new();
+static WIN_ROUTE: RoundRoute<RoundWinFn> = RoundRoute::new();
+
+/// What a capture hook does with the game's question whether a capture may
+/// happen.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CaptureAction {
+	/// Lets the game decide, through the other plugins' hooks.
+	#[default]
+	Allow,
+
+	/// Answers that the capture may not happen, without asking the game.
+	Refuse,
+}
 
 /// What a map cleanup hook does with a cleanup.
 #[must_use]
@@ -121,6 +263,345 @@ struct RoutedCleanup {
 	callback: MapCleanupFn,
 	hook: HookId,
 	vtable: usize,
+}
+
+/// A player a capture area or TF2 asks about.
+#[derive(Debug, Clone, Copy)]
+pub struct PlayerCaptureCheck<'s> {
+	/// The player.
+	pub player: Entity<'s>,
+
+	/// The control point's index, as its `point_index` key sets it.
+	pub point: c_int,
+}
+
+/// The callbacks of the round hooks, each of which hooks its method of TF2's
+/// game rules; see the [module documentation](crate::round_hooks).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RoundCallbacks {
+	/// Runs before a capture area or TF2 asks whether a player may capture a
+	/// control point, and decides whether the player may.
+	pub player_capture: Option<PlayerCaptureFn>,
+
+	/// Runs before a control point, a capture area, or a control point master
+	/// asks whether any point may be captured, and decides whether any may.
+	pub points_capturable: Option<PointsCapturableFn>,
+
+	/// Runs after the pre-round ends and the round starts running.
+	pub running: Option<RoundFn>,
+
+	/// Runs after a round, or a mini-round, is set up, before players
+	/// respawn.
+	pub setup: Option<RoundFn>,
+
+	/// Runs before a round goes to sudden death, and decides whether it does.
+	pub stalemate: Option<StalemateFn>,
+
+	/// Runs before a capture area or TF2 asks whether a team may capture a
+	/// control point, and decides whether the team may.
+	pub team_capture: Option<TeamCaptureFn>,
+
+	/// Runs before a round ends with a win, or without a winner, and decides
+	/// whether it ends.
+	pub win: Option<RoundWinFn>,
+}
+
+/// What a round win or stalemate hook does with a round's end.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RoundEndAction {
+	/// Lets the round end, through the other plugins' hooks.
+	#[default]
+	Allow,
+
+	/// Refuses the round's end: the method is skipped, so the round goes on
+	/// as if nothing had ended it, and TF2 neither crit boosts the winners
+	/// nor counts the teams' progress.
+	Refuse,
+}
+
+/// Why the round hooks could not be installed.
+#[derive(Debug, thiserror::Error)]
+pub enum RoundHookError {
+	/// The server does not run TF2, or the game rules class's vtable could
+	/// not be found.
+	#[error(transparent)]
+	Target(#[from] GameRulesVtableError),
+
+	/// Metamod refused a hook. [`HookError::AlreadyInstalled`] means the
+	/// rounds are already hooked.
+	#[error(transparent)]
+	Hook(#[from] HookError),
+}
+
+/// Handles for the round hooks installed by one call.
+///
+/// Metamod disables them while paused and removes them before unloading the
+/// plugin. [`Self::remove`] disables them earlier. No game rules object is
+/// retained, so the hooks last through level changes.
+#[must_use = "retain round hooks to support explicitly removing them"]
+#[derive(Debug)]
+pub struct RoundHooks {
+	hooks: Vec<HookId>,
+	_not_thread_safe: PhantomData<Rc<()>>,
+}
+
+impl RoundHooks {
+	pub fn remove(self, api: MetamodApi<'_>) {
+		for hook in self.hooks {
+			api.remove_hook(hook);
+			PLAYER_CAPTURE_ROUTE.clear(hook);
+			POINTS_ROUTE.clear(hook);
+			RUNNING_ROUTE.clear(hook);
+			SETUP_ROUTE.clear(hook);
+			STALEMATE_ROUTE.clear(hook);
+			TEAM_CAPTURE_ROUTE.clear(hook);
+			WIN_ROUTE.clear(hook);
+		}
+	}
+}
+
+struct RoundRoute<C: 'static> {
+	state: Cell<Option<RoutedRound<C>>>,
+}
+
+impl<C: Copy> RoundRoute<C> {
+	const fn new() -> Self {
+		Self {
+			state: Cell::new(None),
+		}
+	}
+
+	/// Forgets `hook`, if the route was installed with it.
+	fn clear(&self, hook: HookId) {
+		if self.state.get().is_some_and(|state| state.hook == hook) {
+			self.state.set(None);
+		}
+	}
+
+	/// The route's callback and server, unless the route is not installed.
+	fn enter<'s>(&self, scope: &'s ()) -> Option<(C, Server<'s>)> {
+		let route = self.state.get()?;
+		// SAFETY: The hook dispatcher runs on the main thread during one live
+		// engine invocation. Binding was supplied during plugin integration.
+		let server = unsafe { route.binding.server(scope) };
+
+		Some((route.callback, server))
+	}
+
+	/// Whether the route has a hook installed, for this load of the plugin.
+	fn is_routed(&self, api: MetamodApi<'_>) -> bool {
+		self.state
+			.get()
+			.is_some_and(|state| api.has_hook(state.hook))
+	}
+}
+
+impl Handler<PlayerMayCapturePoint> for RoundRoute<PlayerCaptureFn> {
+	fn call(&self, call: &HookCall<'_, PlayerMayCapturePoint>) -> HookAction<bool> {
+		// An earlier hook already answered.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let (player, point, reason, reason_size) = call.args();
+		let Some(player) = NonNull::new(player) else {
+			return HookAction::Ignore;
+		};
+		// SAFETY: The game passes a live player, which stays in the entity list
+		// through the call, and whose `CBaseEntity` base is at its address.
+		let player = unsafe { Entity::from_live(server, player.cast()) };
+
+		match callback(server, PlayerCaptureCheck { player, point }) {
+			CaptureAction::Allow => HookAction::Ignore,
+
+			CaptureAction::Refuse => {
+				// The game writes the reason it refuses for into the caller's
+				// buffer, if given one: this refusal gives none.
+				if !reason.is_null() && reason_size > 0 {
+					// SAFETY: The caller passes a writable buffer of the size.
+					unsafe { reason.write(0) };
+				}
+
+				HookAction::Supersede(false)
+			}
+		}
+	}
+}
+
+impl Handler<PointsMayBeCaptured> for RoundRoute<PointsCapturableFn> {
+	fn call(&self, call: &HookCall<'_, PointsMayBeCaptured>) -> HookAction<bool> {
+		// An earlier hook already answered.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+
+		match callback(server) {
+			CaptureAction::Allow => HookAction::Ignore,
+			CaptureAction::Refuse => HookAction::Supersede(false),
+		}
+	}
+}
+
+impl Handler<RoundSetup> for RoundRoute<RoundFn> {
+	fn call(&self, _call: &HookCall<'_, RoundSetup>) -> HookAction<()> {
+		let scope = ();
+
+		if let Some((callback, server)) = self.enter(&scope) {
+			callback(server);
+		}
+
+		HookAction::Ignore
+	}
+}
+
+impl Handler<SetStalemate> for RoundRoute<StalemateFn> {
+	fn call(&self, call: &HookCall<'_, SetStalemate>) -> HookAction<()> {
+		// An earlier hook already skipped the stalemate.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let (reason, reset_map, switch_teams) = call.args();
+		let event = StalemateEvent {
+			reason: StalemateReason::from_raw(reason),
+			options: StalemateOptions {
+				reset_map,
+				switch_teams,
+			},
+		};
+
+		match callback(server, event) {
+			RoundEndAction::Allow => HookAction::Ignore,
+			RoundEndAction::Refuse => HookAction::Supersede(()),
+		}
+	}
+}
+
+impl Handler<SetWinningTeam> for RoundRoute<RoundWinFn> {
+	fn call(&self, call: &HookCall<'_, SetWinningTeam>) -> HookAction<()> {
+		// An earlier hook already skipped the win.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let (team, reason, reset_map, switch_teams, dont_add_score, final_round) = call.args();
+
+		// The game refuses other teams.
+		let winner = match team {
+			TEAM_UNASSIGNED => None,
+
+			team => match ScoringTeam::from_raw(team) {
+				Some(team) => Some(team),
+				None => return HookAction::Ignore,
+			},
+		};
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let event = RoundWinEvent {
+			winner,
+			reason: WinReason::from_raw(reason),
+			options: WinOptions {
+				reset_map,
+				switch_teams,
+				add_score: !dont_add_score,
+				final_round,
+			},
+		};
+
+		match callback(server, event) {
+			RoundEndAction::Allow => HookAction::Ignore,
+			RoundEndAction::Refuse => HookAction::Supersede(()),
+		}
+	}
+}
+
+impl Handler<TeamMayCapturePoint> for RoundRoute<TeamCaptureFn> {
+	fn call(&self, call: &HookCall<'_, TeamMayCapturePoint>) -> HookAction<bool> {
+		// An earlier hook already answered.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let (team, point) = call.args();
+		let Some(team) = Team::from_raw(team) else {
+			return HookAction::Ignore;
+		};
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+
+		match callback(server, TeamCaptureCheck { team, point }) {
+			CaptureAction::Allow => HookAction::Ignore,
+			CaptureAction::Refuse => HookAction::Supersede(false),
+		}
+	}
+}
+
+// SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
+// calls handlers only on that thread. Cell borrows are never held over calls.
+unsafe impl<C> Sync for RoundRoute<C> {}
+
+/// A round's end with a win, or without a winner, about to happen, as TF2's
+/// game rules are told to end it (`SetWinningTeam`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoundWinEvent {
+	/// The winning team, or `None` for a round's end without a winner, as
+	/// after a stalemate.
+	pub winner: Option<ScoringTeam>,
+
+	/// Why the round ends, or `None` for a reason this crate does not know.
+	pub reason: Option<WinReason>,
+
+	/// What follows the round's end.
+	pub options: WinOptions,
+}
+
+#[derive(Clone, Copy)]
+struct RoutedRound<C> {
+	binding: ServerBinding,
+	callback: C,
+	hook: HookId,
+}
+
+/// A round's sudden death about to start, as TF2's game rules are told to
+/// start it (`SetStalemate`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StalemateEvent {
+	/// Why the round goes to sudden death, or `None` for a reason this crate
+	/// does not know.
+	pub reason: Option<StalemateReason>,
+
+	/// What follows the stalemate.
+	pub options: StalemateOptions,
+}
+
+/// A team a capture area or TF2 asks about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeamCaptureCheck {
+	/// The team.
+	pub team: Team,
+
+	/// The control point's index, as its `point_index` key sets it.
+	pub point: c_int,
 }
 
 impl MetamodApi<'_> {
@@ -215,5 +696,255 @@ impl MetamodApi<'_> {
 			vtable: address,
 		}));
 		Ok(hook)
+	}
+}
+
+impl MetamodApi<'_> {
+	/// Runs `callbacks` as TF2's rounds end, go to sudden death, are set up
+	/// and start running, and as the game asks whether control points may be
+	/// captured, hooking only the methods `callbacks` names a callback for; see
+	/// the [module documentation](crate::round_hooks).
+	///
+	/// `binding` must describe the same running server as `server`. Finds the
+	/// game rules class in the game server module, as
+	/// [`Self::hook_map_cleanup`] does, which needs no level to be loaded, and
+	/// snapshots the module to do so: install once, such as while loading. A
+	/// refused hook rolls back the others. Installing again while any of the
+	/// hooks is installed returns [`HookError::AlreadyInstalled`] without
+	/// searching the module again; removing them allows replacement. Without
+	/// any callback, nothing is searched for or hooked.
+	///
+	/// The callbacks run as the game runs, inside its round's logic: they must
+	/// not restart the round or delete entities immediately, as
+	/// [`Server::new`] requires, and the win and stalemate callbacks must not
+	/// end the round themselves.
+	///
+	/// With Metamod 2.0, KHook can queue native activation on its worker when
+	/// the vtable slot already has a detour, including just after a reload. A
+	/// returned handle means registration was accepted, not that the next call
+	/// will be intercepted.
+	pub fn hook_rounds(
+		self,
+		server: Server<'_>,
+		binding: ServerBinding,
+		callbacks: RoundCallbacks,
+	) -> Result<RoundHooks, RoundHookError> {
+		if binding.game() != Game::TeamFortress2 {
+			return Err(GameRulesVtableError::WrongGame.into());
+		}
+
+		// The class's vtable is the same for the whole load.
+		if self.rounds_hooked() {
+			return Err(HookError::AlreadyInstalled.into());
+		}
+
+		let none = callbacks.player_capture.is_none()
+			&& callbacks.points_capturable.is_none()
+			&& callbacks.running.is_none()
+			&& callbacks.setup.is_none()
+			&& callbacks.stalemate.is_none()
+			&& callbacks.team_capture.is_none()
+			&& callbacks.win.is_none();
+
+		if none {
+			return Ok(RoundHooks {
+				hooks: Vec::new(),
+				_not_thread_safe: PhantomData,
+			});
+		}
+
+		let vtable = game_rules_vtable(server)?;
+
+		// SAFETY: Run-time type information identified `CTFGameRules`' primary
+		// vtable in the game module, which holds the methods at the generated
+		// binding's slots, and outlives the plugin.
+		Ok(unsafe { self.install_rounds(vtable.as_ptr(), binding, callbacks) }?)
+	}
+
+	/// Hooks the methods `callbacks` names a callback for on the class whose
+	/// primary vtable is `vtable`, all or none.
+	///
+	/// # Safety
+	///
+	/// `vtable` must be live, hold functions of the signatures
+	/// [`PlayerMayCapturePoint`], [`PointsMayBeCaptured`], [`RoundSetup`],
+	/// [`SetStalemate`], [`SetWinningTeam`] and [`TeamMayCapturePoint`] at the
+	/// slots of `CTFGameRules`' methods of those names, called on game rules
+	/// objects, and stay loaded until Metamod unloads the plugin.
+	unsafe fn install_rounds(
+		self,
+		vtable: NonNull<*mut c_void>,
+		binding: ServerBinding,
+		callbacks: RoundCallbacks,
+	) -> Result<RoundHooks, HookError> {
+		if self.rounds_hooked() {
+			return Err(HookError::AlreadyInstalled);
+		}
+
+		let mut installed = RoundHooks {
+			hooks: Vec::new(),
+			_not_thread_safe: PhantomData,
+		};
+
+		// SAFETY: As the caller promises.
+		match unsafe { self.route_rounds(vtable, binding, callbacks, &mut installed.hooks) } {
+			Ok(()) => Ok(installed),
+
+			Err(error) => {
+				installed.remove(self);
+				Err(error)
+			}
+		}
+	}
+
+	/// Hooks `function` on the class whose primary vtable is `vtable`, through
+	/// `route`, and adds the hook to `hooks`.
+	///
+	/// # Safety
+	///
+	/// `vtable` must be live, hold a function of the signature `S` at the
+	/// function's slot, called on game rules objects, and stay loaded until
+	/// Metamod unloads the plugin.
+	unsafe fn route_round<S: Signature, C: Copy>(
+		self,
+		function: VirtualFunction<S>,
+		timing: HookTiming,
+		route: &'static RoundRoute<C>,
+		vtable: NonNull<*mut c_void>,
+		(binding, callback): (ServerBinding, C),
+		hooks: &mut Vec<HookId>,
+	) -> Result<(), HookError>
+	where
+		RoundRoute<C>: Handler<S>,
+	{
+		// SAFETY: As the caller promises.
+		let hook = unsafe { self.add_hook(function, HookTarget::vtable(vtable), timing, route) }?;
+
+		route.state.set(Some(RoutedRound {
+			binding,
+			callback,
+			hook,
+		}));
+		hooks.push(hook);
+		Ok(())
+	}
+
+	/// Hooks the methods `callbacks` names a callback for on the class whose
+	/// primary vtable is `vtable`, and adds the hooks to `hooks`, as far as
+	/// Metamod accepts them.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::install_rounds`].
+	unsafe fn route_rounds(
+		self,
+		vtable: NonNull<*mut c_void>,
+		binding: ServerBinding,
+		callbacks: RoundCallbacks,
+		hooks: &mut Vec<HookId>,
+	) -> Result<(), HookError> {
+		let RoundCallbacks {
+			player_capture,
+			points_capturable,
+			running,
+			setup,
+			stalemate,
+			team_capture,
+			win,
+		} = callbacks;
+
+		// SAFETY: As the caller promises, the vtable has each method at its
+		// slot, called on game rules objects, and stays loaded.
+		unsafe {
+			if let Some(callback) = player_capture {
+				self.route_round(
+					PLAYER_MAY_CAPTURE_POINT,
+					HookTiming::Pre,
+					&PLAYER_CAPTURE_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = points_capturable {
+				self.route_round(
+					POINTS_MAY_BE_CAPTURED,
+					HookTiming::Pre,
+					&POINTS_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = running {
+				self.route_round(
+					SETUP_ON_ROUND_RUNNING,
+					HookTiming::Post,
+					&RUNNING_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = setup {
+				self.route_round(
+					SETUP_ON_ROUND_START,
+					HookTiming::Post,
+					&SETUP_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = stalemate {
+				self.route_round(
+					SET_STALEMATE,
+					HookTiming::Pre,
+					&STALEMATE_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = team_capture {
+				self.route_round(
+					TEAM_MAY_CAPTURE_POINT,
+					HookTiming::Pre,
+					&TEAM_CAPTURE_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = win {
+				self.route_round(
+					SET_WINNING_TEAM,
+					HookTiming::Pre,
+					&WIN_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Whether any round hook is installed, for this load of the plugin.
+	fn rounds_hooked(self) -> bool {
+		PLAYER_CAPTURE_ROUTE.is_routed(self)
+			|| POINTS_ROUTE.is_routed(self)
+			|| RUNNING_ROUTE.is_routed(self)
+			|| SETUP_ROUTE.is_routed(self)
+			|| STALEMATE_ROUTE.is_routed(self)
+			|| TEAM_CAPTURE_ROUTE.is_routed(self)
+			|| WIN_ROUTE.is_routed(self)
 	}
 }
