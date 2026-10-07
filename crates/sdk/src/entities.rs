@@ -10,7 +10,7 @@
 //! [`fields`], and an entity's identity, movement and rendering in
 //! [`identity`], [`movement`] and [`render`]. Entities are created in
 //! [`spawn`], found in [`search`], parented in [`hierarchy`], and dissolved
-//! in [`dissolve`].
+//! in [`dissolve`]. Animated props are spawned and controlled in [`props`].
 
 pub mod dissolve;
 pub mod factory;
@@ -20,6 +20,7 @@ pub mod hierarchy;
 pub mod identity;
 pub mod movement;
 pub mod outputs;
+pub mod props;
 pub mod render;
 pub mod search;
 pub mod solid;

@@ -7,6 +7,8 @@
 //! it, and sends it the inputs maps send. [`Sentry`], [`Dispenser`] and
 //! [`Teleporter`] read what their kinds add. [`PlayerBuildings`] finds a
 //! player's buildings and the one an engineer carries, and removes them.
+//! [`BuildingSpawn`] creates buildings as maps place them, owned by no one
+//! until [`Building::set_builder`] gives them to a player.
 //!
 //! A building's health is an entity's: [`Entity::health`] reads it, and
 //! [`ServerTools::send_health_input`] sends the `SetHealth`, `AddHealth` and
@@ -33,14 +35,17 @@ mod tests;
 
 use crate::datatables::{NetProp, NetPropError, NetVar};
 use crate::entities::Entity;
+use crate::entities::spawn::{EntitySpawn, SpawnError};
 use crate::inputs::{InputError, InputValue};
+use crate::math::{QAngle, Vector};
 use crate::tf2::objects::ObjectKind;
 use crate::tf2::script_binding::{self as binding, BindingError};
+use crate::tf2::teams::Team;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::buildings as raw;
 use sdk_raw::tf2::script_binding::{BOOL, boolean};
 use sdk_raw::vcall;
-use std::ffi::{CStr, c_int};
+use std::ffi::{CStr, CString, c_int};
 
 /// The classes of buildings, as patterns
 /// [`ServerTools::find_by_class_name`](crate::interfaces::ServerTools::find_by_class_name)
@@ -73,6 +78,11 @@ pub enum BuildingError {
 	#[error("the building is being destroyed")]
 	Dying,
 
+	/// The building already has a builder, which the game gives it to no one
+	/// else from.
+	#[error("the building already has a builder")]
+	HasBuilder,
+
 	/// An input could not be sent.
 	#[error(transparent)]
 	Input(#[from] InputError),
@@ -80,6 +90,10 @@ pub enum BuildingError {
 	/// A required engine interface is unavailable.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
+
+	/// The level asked for is not one of 1 to 3, those of TF2's buildings.
+	#[error("buildings have levels 1 to 3, not {0}")]
+	InvalidLevel(u8),
 
 	/// The building, or player, is already marked for deletion.
 	#[error("the entity is marked for deletion")]
@@ -100,6 +114,10 @@ pub enum BuildingError {
 	/// The entity is not a TF2 player.
 	#[error("the entity is not a TF2 player")]
 	NotTfPlayer,
+
+	/// The building could not be created.
+	#[error(transparent)]
+	Spawn(#[from] SpawnError),
 
 	/// The building's `m_iObjectType` is not one of TF2's building types.
 	#[error("the building's type {0} is not one of TF2's")]
@@ -570,6 +588,45 @@ impl<'s> Building<'s> {
 		Ok(None)
 	}
 
+	/// Gives a building without a builder, such as one a map placed or
+	/// [`BuildingSpawn`] created, to `player`, as its `SetBuilder` input does
+	/// with the player as its activator: the building joins the player's
+	/// team, whichever it is, and counts among their buildings, which the game
+	/// removes as they leave or change team or class, as it does those they
+	/// built. A teleporter pairs with the other end the player has.
+	///
+	/// Fails with [`BuildingError::NotTfPlayer`] unless `player`'s datamaps
+	/// include `CTFPlayer`, with [`BuildingError::HasBuilder`] for a building
+	/// that already has a builder, which the input would ignore, and with
+	/// [`BuildingError::MarkedForDeletion`] or [`BuildingError::Dying`] for a
+	/// building, or player, being removed.
+	#[doc(alias("SetBuilder", "InputSetBuilder", "AddObject"))]
+	pub fn set_builder(self, player: Entity<'s>) -> Result<(), BuildingError> {
+		if !player.has_data_map_class(c"CTFPlayer") {
+			return Err(BuildingError::NotTfPlayer);
+		}
+
+		if self.entity.is_marked_for_deletion() || player.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		if self.is_dying() {
+			return Err(BuildingError::Dying);
+		}
+
+		if self.builder()?.is_some() {
+			return Err(BuildingError::HasBuilder);
+		}
+
+		Ok(self.server.server_tools()?.accept_input(
+			self.entity,
+			c"SetBuilder",
+			InputValue::Void,
+			player,
+			self.entity,
+		)?)
+	}
+
 	/// Sets how solid the building is to players, as its `SetSolidToPlayer`
 	/// input does, which moves it into the collision group that makes it so.
 	#[doc(alias("SetSolidToPlayer", "InputSetSolidToPlayer", "SetSolidToPlayers"))]
@@ -681,6 +738,236 @@ impl BuildingClass {
 			Self::Sapper => "CObjectSapper",
 			Self::Sentry => "CObjectSentrygun",
 			Self::Teleporter => "CObjectTeleporter",
+		}
+	}
+}
+
+/// A building to create as a map places one: built at once, at the level it
+/// is given, and owned by no one until [`Building::set_builder`] gives it to
+/// a player.
+///
+/// ```no_run
+/// # use source_sdk_2013::Server;
+/// # use source_sdk_2013::entities::Entity;
+/// # use source_sdk_2013::math::Vector;
+/// # use source_sdk_2013::tf2::buildings::{BuildingError, BuildingSpawn};
+/// # use source_sdk_2013::tf2::objects::ObjectKind;
+/// # use source_sdk_2013::tf2::teams::Team;
+/// # fn example(server: Server<'_>, engineer: Entity<'_>) -> Result<(), BuildingError> {
+/// let spawn = BuildingSpawn::new(ObjectKind::Sentry)
+///     .origin(Vector::new(0.0, 0.0, 64.0))
+///     .team(Team::Blue)
+///     .level(3);
+///
+/// // SAFETY: Neither a sentry's constructor, nor its `Spawn` or `Activate`,
+/// // frees entities other than through deferred deletion.
+/// let sentry = unsafe { spawn.spawn(server) }?;
+///
+/// sentry.set_builder(engineer)?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// A map's buildings differ from built ones in a few ways the game decides:
+/// they are built and upgraded at once, without metal, and a sentry cannot
+/// be upgraded further unless [`Self::upgradable`] says so. A teleporter
+/// finds its other end among its builder's buildings, so an entrance and an
+/// exit given to the same player pair as built ones do.
+#[doc(alias("obj_sentrygun", "obj_dispenser", "obj_teleporter"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildingSpawn {
+	flags: c_int,
+	kind: ObjectKind,
+	level: Option<u8>,
+	spawn: EntitySpawn,
+}
+
+impl BuildingSpawn {
+	/// A building of the kind, with the key values of none, which a map's
+	/// buildings start with.
+	pub fn new(kind: ObjectKind) -> Self {
+		let class = match kind {
+			ObjectKind::Dispenser => c"obj_dispenser",
+			ObjectKind::Sentry => c"obj_sentrygun",
+			ObjectKind::Teleporter => c"obj_teleporter",
+		};
+
+		Self {
+			flags: 0,
+			kind,
+			level: None,
+			spawn: EntitySpawn::new(class),
+		}
+	}
+
+	/// Its angles, as [`EntitySpawn::angles`] sets them.
+	pub fn angles(self, angles: QAngle) -> Self {
+		Self {
+			spawn: self.spawn.angles(angles),
+			..self
+		}
+	}
+
+	/// The entity to create, with the level and spawn flags as key values, or
+	/// [`BuildingError::InvalidLevel`] for a level other than 1 to 3.
+	fn entity_spawn(&self) -> Result<EntitySpawn, BuildingError> {
+		let mut spawn = self.spawn.clone();
+
+		if let Some(level) = self.level {
+			if !(1..=3).contains(&level) {
+				return Err(BuildingError::InvalidLevel(level));
+			}
+
+			spawn = spawn.key(c"defaultupgrade", number(c_int::from(level) - 1).as_c_str());
+		}
+
+		if self.flags != 0 {
+			spawn = spawn.key(c"spawnflags", number(self.flags).as_c_str());
+		}
+
+		Ok(spawn)
+	}
+
+	/// Sets or clears one of its spawn flags.
+	fn flag(self, flag: c_int, set: bool) -> Self {
+		Self {
+			flags: if set {
+				self.flags | flag
+			} else {
+				self.flags & !flag
+			},
+			..self
+		}
+	}
+
+	/// Whether a sentry has unlimited shells and rockets
+	/// (`SF_SENTRY_INFINITE_AMMO`). Off by default, and ignored for other
+	/// kinds.
+	#[doc(alias("SF_SENTRY_INFINITE_AMMO"))]
+	pub fn infinite_ammo(self, infinite: bool) -> Self {
+		if self.kind == ObjectKind::Sentry {
+			self.flag(raw::SF_SENTRY_INFINITE_AMMO, infinite)
+		} else {
+			self
+		}
+	}
+
+	/// Whether it ignores damage (`SF_BASEOBJ_INVULN`). Off by default.
+	#[doc(alias("SF_BASEOBJ_INVULN"))]
+	pub fn invulnerable(self, invulnerable: bool) -> Self {
+		self.flag(raw::SF_BASEOBJ_INVULN, invulnerable)
+	}
+
+	/// The kind of building.
+	pub const fn kind(&self) -> ObjectKind {
+		self.kind
+	}
+
+	/// The level it starts at, from 1 to 3 (the `defaultupgrade` key value,
+	/// one less). The game upgrades it to that level as it activates. Level 1
+	/// by default.
+	#[doc(alias("defaultupgrade", "m_nDefaultUpgradeLevel"))]
+	pub fn level(self, level: u8) -> Self {
+		Self {
+			level: Some(level),
+			..self
+		}
+	}
+
+	/// Its name (the `targetname` key value), as [`EntitySpawn::name`] sets
+	/// it, by which a map's inputs and outputs find it.
+	pub fn name(self, name: &CStr) -> Self {
+		Self {
+			spawn: self.spawn.name(name),
+			..self
+		}
+	}
+
+	/// Its origin, as [`EntitySpawn::origin`] sets it.
+	pub fn origin(self, origin: Vector) -> Self {
+		Self {
+			spawn: self.spawn.origin(origin),
+			..self
+		}
+	}
+
+	/// How solid it is to players' movement (the `SolidToPlayer` key value).
+	/// [`SolidToPlayers::Default`] by default.
+	#[doc(alias("SolidToPlayer"))]
+	pub fn solid_to_players(self, solid: SolidToPlayers) -> Self {
+		Self {
+			spawn: self
+				.spawn
+				.key(c"SolidToPlayer", number(solid.to_raw()).as_c_str()),
+			..self
+		}
+	}
+
+	/// Creates the building, as [`EntitySpawn::spawn`] does.
+	///
+	/// Fails with [`BuildingError::WrongGame`] unless the server runs TF2,
+	/// and with [`BuildingError::InvalidLevel`] for a level other than 1 to 3,
+	/// without creating anything; and with [`BuildingError::Spawn`] as
+	/// [`EntitySpawn::spawn`] fails.
+	///
+	/// # Safety
+	///
+	/// As for [`EntitySpawn::spawn`]: the building's constructor, `Spawn` and
+	/// `Activate`, which builds and upgrades it, must free entities only
+	/// through Source's deferred deletion (condition 4 of [`Server::new`]).
+	pub unsafe fn spawn<'s>(&self, server: Server<'s>) -> Result<Building<'s>, BuildingError> {
+		if server.game() != Game::TeamFortress2 {
+			return Err(BuildingError::WrongGame);
+		}
+
+		let spawn = self.entity_spawn()?;
+
+		// SAFETY: The caller vouches for the building's constructor, `Spawn` and
+		// `Activate`.
+		let entity = unsafe { spawn.spawn(server.server_tools()?) }?;
+
+		Building::new(server, entity)
+	}
+
+	/// The team it is on (the `TeamNum` key value), which it joins as it
+	/// activates. [`Team::Unassigned`] by default, as a map's buildings
+	/// without the key are.
+	#[doc(alias("TeamNum"))]
+	pub fn team(self, team: Team) -> Self {
+		Self {
+			spawn: self.spawn.key(c"TeamNum", number(team.to_raw()).as_c_str()),
+			..self
+		}
+	}
+
+	/// Which end of a teleporter it is (the `teleporterType` key value).
+	/// Ignored for other kinds. An exit by default.
+	#[doc(alias("teleporterType", "TTYPE_ENTRANCE", "TTYPE_EXIT"))]
+	pub fn teleporter_end(self, end: TeleporterEnd) -> Self {
+		if self.kind != ObjectKind::Teleporter {
+			return self;
+		}
+
+		let value = match end {
+			TeleporterEnd::Entrance => raw::TTYPE_ENTRANCE,
+			TeleporterEnd::Exit => raw::TTYPE_EXIT,
+		};
+
+		Self {
+			spawn: self.spawn.key(c"teleporterType", number(value).as_c_str()),
+			..self
+		}
+	}
+
+	/// Whether a sentry can be upgraded (`SF_SENTRY_UPGRADEABLE`), which a
+	/// map's sentries cannot unless it says so. Off by default, and ignored
+	/// for other kinds, which can be upgraded anyway.
+	#[doc(alias("SF_SENTRY_UPGRADEABLE"))]
+	pub fn upgradable(self, upgradable: bool) -> Self {
+		if self.kind == ObjectKind::Sentry {
+			self.flag(raw::SF_SENTRY_UPGRADEABLE, upgradable)
+		} else {
+			self
 		}
 	}
 }
@@ -1262,6 +1549,11 @@ pub fn building_vtables(server: Server<'_>) -> Result<BuildingVtables<'_>, Build
 	let targets = ClassTargets::load(server).map_err(vtable_error)?;
 
 	BuildingVtables::find(&targets)
+}
+
+/// A number as a key value.
+fn number(number: c_int) -> CString {
+	CString::new(number.to_string()).expect("numbers have no NUL")
 }
 
 /// The error of a search for the building classes, which can only miss
