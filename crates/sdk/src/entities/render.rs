@@ -12,7 +12,7 @@ mod tests;
 
 use crate::entities::Entity;
 use crate::entities::fields::{BaseField, FieldError, PooledString};
-use crate::interfaces::ValveEngine;
+use crate::interfaces::{ModelInfo, ValveEngine};
 use crate::math::Color32;
 use sdk_raw::edicts::FL_EDICT_DIRTY_PVS_INFORMATION;
 
@@ -22,7 +22,7 @@ use sdk_raw::entities::{
 };
 
 use sdk_raw::util::cstr::borrow_cstr;
-use std::ffi::{CStr, c_int};
+use std::ffi::{CStr, CString, c_int};
 
 /// `m_fEffects`, the `effects` key value.
 static EFFECTS: BaseField<c_int> = BaseField::new(c"m_fEffects", sys::_fieldtypes_FIELD_INTEGER);
@@ -160,6 +160,17 @@ pub enum RenderMode {
 	/// `kRenderNone`: not drawn at all, though still sent to clients.
 	#[doc(alias("kRenderNone"))]
 	None,
+}
+
+/// Why [`Entity::set_model`] set no model.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SetModelError {
+	/// The server has not precached the model, or it is a dynamic model.
+	#[error("the model {model:?} is not precached")]
+	NotPrecached {
+		/// The model asked for.
+		model: CString,
+	},
 }
 
 impl RenderMode {
@@ -302,6 +313,29 @@ impl<'s> Entity<'s> {
 	#[doc(alias("m_flFadeScale"))]
 	pub fn set_fade_scale(self, engine: ValveEngine<'_>, scale: f32) -> Result<(), FieldError> {
 		self.set_data_field(engine, c"m_flFadeScale", scale)
+	}
+
+	/// Gives the entity a precached model, such as `models/props_farm/box.mdl`,
+	/// with its index, and the collision bounds it gives, through the entity's
+	/// `SetModel`, which classes extend: `CBaseAnimating`'s also resets the
+	/// entity's animation state, for instance.
+	///
+	/// Fails with [`SetModelError::NotPrecached`] if the server has not
+	/// precached the model, for which the game's own `SetModel` would stop the
+	/// server with an error, or if it is a dynamic model, which this does not
+	/// set.
+	#[doc(alias("SetModel", "SetEntityModel"))]
+	pub fn set_model(self, models: ModelInfo<'_>, model: &CStr) -> Result<(), SetModelError> {
+		if models.model_index(model).is_none() {
+			return Err(SetModelError::NotPrecached {
+				model: model.to_owned(),
+			});
+		}
+
+		// SAFETY: The entity is live on the main thread, and the model is
+		// precached, as `UTIL_SetModel` requires.
+		unsafe { sdk_raw::entities::spawn::set_model(self.as_ptr(), model.as_ptr()) };
+		Ok(())
 	}
 
 	/// Sets the color clients tint the entity with (`m_clrRender`), as

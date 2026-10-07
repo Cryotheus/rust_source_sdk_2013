@@ -11,10 +11,13 @@
 #[path = "../../tests/tf2/weapons.rs"]
 mod tests;
 
+pub mod identity;
+
 use crate::datatables::NetPropError;
 use crate::entities::{Entity, EntityHandle};
 use crate::math::Vector;
 use crate::tf2::attributes::{self, AttributeError, AttributeSet, ItemAttributes, SchemaToken};
+use crate::tf2::item_schema::{ItemLevel, ItemQuality};
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::item_generation::ItemGeneration;
 use sdk_raw::tf2::weapons::INVALID_ITEM_DEF_INDEX;
@@ -234,7 +237,8 @@ impl<'s> PlayerWeapons<'s> {
 
 	/// Creates and equips a weapon from its economy item definition, with its
 	/// schema attributes and models initialized before spawning. Uses Unique
-	/// quality and level 1. Existing weapons are not replaced.
+	/// quality and level 1, as [`Self::give_item_with_quality`] does with
+	/// others. Existing weapons are not replaced.
 	///
 	/// Definitions whose schema uses a generic classname such as
 	/// `tf_weapon_shotgun` need [`Self::give_item_as`] with a concrete classname.
@@ -252,7 +256,25 @@ impl<'s> PlayerWeapons<'s> {
 		definition: ItemDefinitionIndex,
 	) -> Result<Weapon<'s>, WeaponError> {
 		// SAFETY: The caller supplies the native creation guarantees.
-		unsafe { self.spawn_item(definition, None, |_| Ok(())) }
+		unsafe { self.give_item_with_quality(definition, ItemQuality::Unique, ItemLevel::DEFAULT) }
+	}
+
+	/// As [`Self::give_item`], but creates the weapon at `level` and with
+	/// `quality`, which clients show in its description and color its name
+	/// by, such as a level 100 Strange weapon. Neither changes how the weapon
+	/// plays, as [`ItemQuality`] describes.
+	///
+	/// # Safety
+	/// The guarantees of `give_item` apply.
+	#[doc(alias("SpawnItem"))]
+	pub unsafe fn give_item_with_quality(
+		self,
+		definition: ItemDefinitionIndex,
+		quality: ItemQuality,
+		level: ItemLevel,
+	) -> Result<Weapon<'s>, WeaponError> {
+		// SAFETY: The caller supplies the native creation guarantees.
+		unsafe { self.spawn_item(definition, None, quality, level, |_| Ok(())) }
 	}
 
 	/// As [`Self::give_item`], using an exact classname instead of the schema's
@@ -269,7 +291,15 @@ impl<'s> PlayerWeapons<'s> {
 		classname: &CStr,
 	) -> Result<Weapon<'s>, WeaponError> {
 		// SAFETY: The caller supplies the native creation/class guarantees.
-		unsafe { self.spawn_item(definition, Some(classname), |_| Ok(())) }
+		unsafe {
+			self.spawn_item(
+				definition,
+				Some(classname),
+				ItemQuality::Unique,
+				ItemLevel::DEFAULT,
+				|_| Ok(()),
+			)
+		}
 	}
 
 	/// As [`Self::give_item`], then sets `attributes` on the equipped weapon
@@ -300,9 +330,13 @@ impl<'s> PlayerWeapons<'s> {
 	) -> Result<Weapon<'s>, WeaponError> {
 		// SAFETY: The caller supplies the native creation guarantees.
 		unsafe {
-			self.spawn_item(definition, None, |weapon| {
-				apply_attributes(token, weapon, attributes)
-			})
+			self.spawn_item(
+				definition,
+				None,
+				ItemQuality::Unique,
+				ItemLevel::DEFAULT,
+				|weapon| apply_attributes(token, weapon, attributes),
+			)
 		}
 	}
 
@@ -482,8 +516,9 @@ impl<'s> PlayerWeapons<'s> {
 		}
 	}
 
-	/// Creates an economy item through native item generation, then equips it
-	/// and runs `finish` as [`Self::give_with`] does.
+	/// Creates an economy item through native item generation, at `level` and
+	/// with `quality`, then equips it and runs `finish` as
+	/// [`Self::give_with`] does.
 	///
 	/// # Safety
 	/// The guarantees of `give_item`, or of `give_item_as` with a classname.
@@ -491,6 +526,8 @@ impl<'s> PlayerWeapons<'s> {
 		self,
 		definition: ItemDefinitionIndex,
 		classname: Option<&CStr>,
+		quality: ItemQuality,
+		level: ItemLevel,
 		finish: impl FnOnce(Weapon<'s>) -> Result<(), WeaponError>,
 	) -> Result<Weapon<'s>, WeaponError> {
 		check_live(self.player)?;
@@ -505,8 +542,15 @@ impl<'s> PlayerWeapons<'s> {
 			self.give_with(
 				classname,
 				|| {
-					generate_item(self.server, definition, origin, classname)
-						.map_err(WeaponError::CreationFailedNative)
+					generate_quality_item(
+						self.server,
+						definition,
+						origin,
+						classname,
+						quality,
+						level,
+					)
+					.map_err(WeaponError::CreationFailedNative)
 				},
 				finish,
 			)
@@ -987,8 +1031,34 @@ fn check_live(entity: Entity<'_>) -> Result<(), WeaponError> {
 
 /// Creates the economy item `definition` at `origin` through native item
 /// generation, at level 1 and with Unique quality, optionally as the entity
-/// class `classname`, as [`ItemGeneration::spawn`] describes. The entity is
-/// newly created and spawned, and must not be spawned again.
+/// class `classname`, as [`generate_quality_item`] does.
+///
+/// # Safety
+///
+/// As for [`generate_quality_item`].
+pub(crate) unsafe fn generate_item(
+	server: Server<'_>,
+	definition: ItemDefinitionIndex,
+	origin: Vector,
+	classname: Option<&CStr>,
+) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
+	// SAFETY: The caller upholds the same guarantees.
+	unsafe {
+		generate_quality_item(
+			server,
+			definition,
+			origin,
+			classname,
+			ItemQuality::Unique,
+			ItemLevel::DEFAULT,
+		)
+	}
+}
+
+/// Creates the economy item `definition` at `origin` through native item
+/// generation, at `level` and with `quality`, optionally as the entity class
+/// `classname`, as [`ItemGeneration::spawn_with_quality`] describes. The
+/// entity is newly created and spawned, and must not be spawned again.
 ///
 /// Once a call has resolved item generation in the game server module, later
 /// calls reuse it without inspecting the module again, as
@@ -1001,11 +1071,13 @@ fn check_live(entity: Entity<'_>) -> Result<(), WeaponError> {
 /// The item's constructor, spawn and activation, and everything they reach,
 /// must uphold [`Server::new`]'s no-immediate-deletion contract. `classname`,
 /// if given, must name an entity class compatible with `definition`.
-pub(crate) unsafe fn generate_item(
+pub(crate) unsafe fn generate_quality_item(
 	server: Server<'_>,
 	definition: ItemDefinitionIndex,
 	origin: Vector,
 	classname: Option<&CStr>,
+	quality: ItemQuality,
+	level: ItemLevel,
 ) -> Result<NonNull<sys::CBaseEntity>, ItemGenerationError> {
 	// SAFETY: `Server::new` guarantees that the game server module, whose
 	// factory this is, stays loaded through the callback. A cached resolution
@@ -1018,7 +1090,15 @@ pub(crate) unsafe fn generate_item(
 	// SAFETY: As above, the module stays loaded, and this runs on the main
 	// thread, inside the engine's callback. The caller vouches for the game
 	// code the generation runs, and for the classname.
-	unsafe { generation.spawn(definition.get(), origin.into(), classname) }
+	unsafe {
+		generation.spawn_with_quality(
+			definition.get(),
+			origin.into(),
+			classname,
+			c_int::from(level.get()),
+			quality.to_raw(),
+		)
+	}
 }
 
 /// Wraps `entity` as a weapon, or returns `None` if it is no TF2 combat

@@ -1073,12 +1073,6 @@ pub struct CBaseCombatCharacter_NetworkVar_m_iAmmo {
 }
 
 #[repr(C)]
-#[derive(Debug)]
-pub struct CNavArea {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
 pub struct Relationship_t {
 	pub entity: EHANDLE,
 	pub classType: Class_T,

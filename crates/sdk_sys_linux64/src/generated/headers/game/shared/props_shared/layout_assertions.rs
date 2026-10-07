@@ -3,6 +3,15 @@
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
+    [
+        "Size of IBreakableWithPropData",
+    ][::std::mem::size_of::<IBreakableWithPropData>() - 8usize];
+    [
+        "Alignment of IBreakableWithPropData",
+    ][::std::mem::align_of::<IBreakableWithPropData>() - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
     ["Size of breakmodel_t"][::std::mem::size_of::<breakmodel_t>() - 1080usize];
     ["Alignment of breakmodel_t"][::std::mem::align_of::<breakmodel_t>() - 4usize];
     [

@@ -1,9 +1,11 @@
 //! Tests of how entities move: their flags, move types, velocities, gravity,
-//! friction and move parents, read from the members their datamaps declare.
+//! friction and move parents, read from the members their datamaps declare,
+//! and the move types the game sets.
 
 use super::*;
 use crate::test_support::entities::{MockEntity, set_datamap, state_maps};
 use crate::test_support::sdk_core::change_tracking_engine;
+use crate::test_support::server_tools::MockTools;
 
 #[test]
 fn absolute_velocities_are_only_read_once_computed() {
@@ -80,6 +82,33 @@ fn gravity_and_friction_are_read_and_written() {
 }
 
 #[test]
+fn move_collide_types_are_read_and_convert_both_ways() {
+	let mut mock = MockEntity::new(5);
+
+	set_datamap(state_maps(vec![]));
+	mock.state().move_collide = sys::MoveCollide_t_MOVECOLLIDE_FLY_BOUNCE as u8;
+	assert_eq!(
+		mock.entity().move_collide(),
+		Ok(Some(MoveCollide::FlyBounce))
+	);
+
+	mock.state().move_collide = sys::MoveCollide_t_MOVECOLLIDE_COUNT as u8;
+	assert_eq!(mock.entity().move_collide(), Ok(None));
+
+	for raw in 0..=u8::MAX {
+		if let Some(collide) = MoveCollide::from_raw(raw) {
+			assert_eq!(collide.to_raw(), raw);
+		}
+	}
+
+	assert_eq!(MoveCollide::default().to_raw(), 0);
+	assert_eq!(
+		MoveCollide::from_raw(sys::MoveCollide_t_MOVECOLLIDE_FLY_SLIDE as u8),
+		Some(MoveCollide::FlySlide)
+	);
+}
+
+#[test]
 fn move_parents_are_valid_handles() {
 	let mut mock = MockEntity::new(5);
 
@@ -91,6 +120,29 @@ fn move_parents_are_valid_handles() {
 	assert_eq!(
 		mock.entity().move_parent(),
 		Ok(Some(EntityHandle::from_raw(9 | 3 << 16)))
+	);
+}
+
+#[test]
+fn move_types_are_set_through_the_game() {
+	let mut world = MockEntity::new(0);
+	let mut mock = MockEntity::new(5);
+	let mocks = MockTools::new(world.as_ptr());
+	let tools = mocks.tools();
+
+	tools.set_move_type(mock.entity(), MoveType::Fly);
+	tools.set_move_type_and_collide(mock.entity(), MoveType::FlyGravity, MoveCollide::FlyCustom);
+
+	assert_eq!(
+		mocks.take_move_types(),
+		[
+			(mock.as_ptr(), sys::MoveType_t_MOVETYPE_FLY as c_int, None),
+			(
+				mock.as_ptr(),
+				sys::MoveType_t_MOVETYPE_FLYGRAVITY as c_int,
+				Some(sys::MoveCollide_t_MOVECOLLIDE_FLY_CUSTOM as c_int)
+			),
+		]
 	);
 }
 

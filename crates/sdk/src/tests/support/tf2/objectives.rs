@@ -3,7 +3,7 @@
 //! and the mock interfaces its wrappers reach.
 
 use super::super::datatables::{
-	direct_table, int8_proxy, int32_proxy, prop, table, table_prop, vector_proxy,
+	custom_proxy, direct_table, int8_proxy, int32_proxy, prop, table, table_prop, vector_proxy,
 };
 
 use super::super::entities::{
@@ -17,6 +17,7 @@ use super::super::server::export;
 use crate::datatables::PropFlags;
 use crate::interfaces::{PlayerInfoManager, ServerTools};
 use crate::server::Module;
+use sdk_raw::entities::NUM_NETWORKED_EHANDLE_BITS;
 use sdk_raw::entities::datamap::{FTYPEDESC_INPUT, FTYPEDESC_KEY};
 use sdk_raw::test_support::edicts::mock_edict;
 use sdk_raw::test_support::entities::{data_map, field};
@@ -39,6 +40,9 @@ thread_local! {
 
 	/// The entities `FindEntityByName` finds, in order, with their names.
 	static NAMED: RefCell<Vec<(*mut sys::CBaseEntity, CString)>> = const { RefCell::new(Vec::new()) };
+
+	/// The entity list `GetEntityList` gives, which [`list_entity`] fills.
+	static ENTITY_LIST: Cell<*mut sys::CGlobalEntityList> = const { Cell::new(null_mut()) };
 
 	/// The entities `FindEntityByClassname` finds, in order, with their class
 	/// names.
@@ -393,6 +397,11 @@ unsafe extern "C" fn entity_by_index(
 	}
 }
 
+/// `IServerTools::GetEntityList`, which gives the list [`list_entity`] fills.
+unsafe extern "C" fn entity_list(_: *mut sys::IServerTools) -> *mut sys::CGlobalEntityList {
+	ENTITY_LIST.get()
+}
+
 /// `inputs` with owned names, as [`received`] gives them.
 pub fn expected(inputs: &[(&CStr, c_int)]) -> Vec<(CString, c_int)> {
 	inputs
@@ -403,9 +412,11 @@ pub fn expected(inputs: &[(&CStr, c_int)]) -> Vec<(CString, c_int)> {
 
 /// Exports a mock `IServerTools`, which finds the world at index 0 and the
 /// networked objective at index 5, finds [registered](register_name) names
-/// and [class names](register_class_name), and sets key values with
-/// [`set_key_value`].
+/// and [class names](register_class_name), sets key values with
+/// [`set_key_value`], and gives a new, empty entity list.
 fn export_tools() {
+	ENTITY_LIST.set(Box::leak(Box::<sys::CGlobalEntityList>::new_zeroed()).as_mut_ptr());
+
 	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
 	// whichever slot reaches it, and the patch only writes slots of the vtable
 	// being built.
@@ -415,6 +426,7 @@ fn export_tools() {
 			(&raw mut (*vtable).IServerTools_SetKeyValue).write(set_key_value);
 			(&raw mut (*vtable).IServerTools_FindEntityByName).write(find_by_name);
 			(&raw mut (*vtable).IServerTools_FindEntityByClassname).write(find_by_class_name);
+			(&raw mut (*vtable).IServerTools_GetEntityList).write(entity_list);
 		})
 	});
 
@@ -486,6 +498,21 @@ pub fn float_prop(name: &'static CStr, offset: usize) -> sys::SendProp {
 	)
 }
 
+/// A networked entity handle, as `SendPropEHandle` declares one: an unsigned
+/// integer of `NUM_NETWORKED_EHANDLE_BITS` sent through its own proxy.
+pub fn handle_prop(name: &'static CStr, offset: usize) -> sys::SendProp {
+	let mut handle = prop(
+		name,
+		sys::SendPropType_DPT_Int,
+		c_int::try_from(offset).unwrap(),
+		PropFlags::UNSIGNED,
+		Some(custom_proxy),
+	);
+
+	handle.m_nBits = c_int::try_from(NUM_NETWORKED_EHANDLE_BITS).unwrap();
+	handle
+}
+
 /// An input of `field_type`, named `name`.
 pub fn input(name: &'static CStr, field_type: sys::fieldtype_t) -> sys::typedescription_t {
 	// SAFETY: Zero is valid for every field of `typedescription_t`.
@@ -522,6 +549,20 @@ pub fn key_field(
 	field.externalName = key.as_ptr();
 	field.flags = FTYPEDESC_KEY;
 	field
+}
+
+/// Puts `entity` in the slot `index` of the entity list, with `serial`, so
+/// that handles of that index and serial number refer to it.
+pub fn list_entity(entity: *mut sys::CBaseEntity, index: usize, serial: c_int) {
+	// SAFETY: The list is a leaked, zeroed `CGlobalEntityList`, and the slot is
+	// within its `m_EntPtrArray`, as indexing it checks.
+	unsafe {
+		let slots = &raw mut (*ENTITY_LIST.get())._base.m_EntPtrArray;
+		let info = (&raw mut (*slots)[index]).cast::<sys::CEntInfo>();
+
+		(&raw mut (*info).m_pEntity).write(entity.cast());
+		(&raw mut (*info).m_SerialNumber).write(serial);
+	}
 }
 
 /// The name of each input received since the last call, with its integer, or
