@@ -14,20 +14,69 @@
 //! declares the method, so that plugins hooking a method with the same
 //! signature type share its hooks.
 
+use super::player::WEAPON_SWITCH_SLOT;
 use crate::abi::CppDestructors;
 use crate::vtable_slot;
-use std::ffi::c_int;
+use std::ffi::{c_char, c_int};
 
 /// The signature of an entity's virtual methods that take and return nothing,
 /// `void ()`: those of [`PRE_THINK_SLOT`], [`POST_THINK_SLOT`],
 /// [`PHYSICS_SIMULATE_SLOT`] and [`UPDATE_ON_REMOVE_SLOT`].
 pub type EntityFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
 
+/// The signature of `CTFPlayer::GiveNamedItem`,
+/// `CBaseEntity *(const char *name, int subType, const CEconItemView *item, bool force)`.
+#[doc(alias("GiveNamedItem"))]
+pub type GiveNamedItemFn = unsafe extern "C" fn(
+	this: *mut sys::CBaseEntity,
+	name: *const c_char,
+	subtype: c_int,
+	item: *const sys::CEconItemView,
+	force: bool,
+) -> *mut sys::CBaseEntity;
+
+/// The signature of an entity's virtual methods that take nothing and return
+/// a `bool`, `bool ()`: those of [`RELOAD_SLOT`],
+/// [`CALC_IS_ATTACK_CRITICAL_HELPER_SLOT`] and
+/// [`CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT`].
+pub type PredicateFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> bool;
+
+/// The signature of `CBasePlayer::PlayerRunCommand`,
+/// `void (CUserCmd *command, IMoveHelper *helper)`.
+#[doc(alias("PlayerRunCommand"))]
+pub type RunCommandFn = unsafe extern "C" fn(
+	this: *mut sys::CBaseEntity,
+	command: *mut sys::CUserCmd,
+	helper: *mut sys::IMoveHelper,
+);
+
 /// The signature of `CBaseEntity::ShouldCollide`,
 /// `bool (int collisionGroup, int contentsMask) const`.
 #[doc(alias("ShouldCollide"))]
 pub type ShouldCollideFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, group: c_int, contents: c_int) -> bool;
+
+/// The signature of a character's virtual methods that take a weapon and
+/// return nothing, `void (CBaseCombatWeapon *weapon)`: that of
+/// [`WEAPON_EQUIP_SLOT`].
+pub type WeaponFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, weapon: *mut sys::CBaseCombatWeapon);
+
+/// The signature of a character's virtual methods that take a weapon and
+/// return a `bool`, `bool (CBaseCombatWeapon *weapon)`: that of
+/// [`WEAPON_CAN_SWITCH_TO_SLOT`].
+pub type WeaponPredicateFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, weapon: *mut sys::CBaseCombatWeapon) -> bool;
+
+/// The signature of `CBaseCombatCharacter::Weapon_Switch`,
+/// `bool (CBaseCombatWeapon *weapon, int viewModelIndex)`, at
+/// [`WEAPON_SWITCH_SLOT`].
+#[doc(alias("Weapon_Switch"))]
+pub type WeaponSwitchFn = unsafe extern "C" fn(
+	this: *mut sys::CBaseEntity,
+	weapon: *mut sys::CBaseCombatWeapon,
+	view_model: c_int,
+) -> bool;
 
 // SourceMod's slots on Windows: `ShouldCollide` at 17, `Blocked` at 108, which
 // `EndBlocked` follows before `PhysicsSimulate`, and `PreThink` and
@@ -79,6 +128,174 @@ const _: () = {
 // `game/server/baseentity.h` declares no virtual method between
 // `PhysicsSimulate` and `UpdateOnRemove`.
 const _: () = assert!(UPDATE_ON_REMOVE_SLOT == PHYSICS_SIMULATE_SLOT + 1);
+
+// SourceMod's slots on Windows: `PlayerRunCmd` at 431 in
+// `gamedata/sdktools.games/game.tf.txt`, `Reload` at 284 in
+// `gamedata/sdkhooks.games/engine.ep2v.txt`, which is 290 on Linux, and
+// `CalcIsAttackCriticalHelper` and `CalcIsAttackCriticalHelperNoCrits` at 401
+// and 402 in `gamedata/sm-tf2.games.txt`, which are 408 and 409 on Linux. The
+// generated binding places `GiveNamedItem` at 487 on Windows and 494 on Linux.
+const _: () = {
+	assert!(PLAYER_RUN_COMMAND_SLOT == 430 + CppDestructors::VTABLE_SLOTS);
+
+	assert!(
+		RELOAD_SLOT
+			== cfg_select! {
+				target_os = "windows" => 284,
+				target_os = "linux" => 290,
+			}
+	);
+
+	assert!(
+		CALC_IS_ATTACK_CRITICAL_HELPER_SLOT
+			== cfg_select! {
+				target_os = "windows" => 401,
+				target_os = "linux" => 408,
+			}
+	);
+
+	assert!(
+		CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT == CALC_IS_ATTACK_CRITICAL_HELPER_SLOT + 1
+	);
+
+	assert!(
+		GIVE_NAMED_ITEM_SLOT
+			== cfg_select! {
+				target_os = "windows" => 487,
+				target_os = "linux" => 494,
+			}
+	);
+};
+
+// `Reload` is the 11th virtual method the server's `CBaseCombatWeapon`
+// declares after `ItemPostFrame`. `game/server/basecombatcharacter.h` declares
+// `Weapon_Equip`, `Weapon_EquipAmmoOnly` and `Weapon_Drop` before
+// `Weapon_Switch`, and `Weapon_ShootPosition` and `Weapon_CanSwitchTo` after
+// it.
+const _: () = {
+	assert!(RELOAD_SLOT == ITEM_POST_FRAME_SLOT + 11);
+	assert!(WEAPON_EQUIP_SLOT + 3 == WEAPON_SWITCH_SLOT);
+	assert!(WEAPON_CAN_SWITCH_TO_SLOT == WEAPON_SWITCH_SLOT + 2);
+};
+
+// The generated weapon methods have these signatures, but for their
+// receivers, and TF2's weapons override them in the same slots.
+const _: () = {
+	use sys::{
+		CBaseCombatWeapon__bindgen_vtable as CombatWeapon, CTFPlayer__bindgen_vtable as Player,
+		CTFWeaponBase__bindgen_vtable as Weapon,
+	};
+
+	let _: fn(&CombatWeapon) -> unsafe extern "C" fn(*mut sys::CBaseCombatWeapon) =
+		|vtable| vtable.CBaseCombatWeapon_ItemPostFrame;
+
+	let _: fn(&CombatWeapon) -> unsafe extern "C" fn(*mut sys::CBaseCombatWeapon) -> bool =
+		|vtable| vtable.CBaseCombatWeapon_Reload;
+
+	let _: fn(&Weapon) -> unsafe extern "C" fn(*mut sys::CTFWeaponBase) -> bool =
+		|vtable| vtable.CTFWeaponBase_CalcIsAttackCriticalHelper;
+
+	let _: fn(&Weapon) -> unsafe extern "C" fn(*mut sys::CTFWeaponBase) -> bool =
+		|vtable| vtable.CTFWeaponBase_CalcIsAttackCriticalHelperNoCrits;
+
+	let _: fn(
+		&Player,
+	) -> unsafe extern "C" fn(
+		*mut sys::CTFPlayer,
+		*mut sys::CUserCmd,
+		*mut sys::IMoveHelper,
+	) = |vtable| vtable.CTFPlayer_PlayerRunCommand;
+
+	let _: fn(&Player) -> unsafe extern "C" fn(*mut sys::CTFPlayer, *mut sys::CBaseCombatWeapon) =
+		|vtable| vtable.CTFPlayer_Weapon_Equip;
+
+	let _: fn(
+		&Player,
+	)
+		-> unsafe extern "C" fn(*mut sys::CTFPlayer, *mut sys::CBaseCombatWeapon) -> bool =
+		|vtable| vtable.CTFPlayer_Weapon_CanSwitchTo;
+
+	let _: fn(
+		&Player,
+	) -> unsafe extern "C" fn(
+		*mut sys::CTFPlayer,
+		*const c_char,
+		c_int,
+		*const sys::CEconItemView,
+		bool,
+	) -> *mut sys::CBaseEntity = |vtable| vtable.CTFPlayer_GiveNamedItem1;
+
+	assert!(ITEM_POST_FRAME_SLOT == vtable_slot!(Weapon, CTFWeaponBase_ItemPostFrame));
+	assert!(RELOAD_SLOT == vtable_slot!(Weapon, CTFWeaponBase_Reload));
+};
+
+/// The slot of `CTFWeaponBase::CalcIsAttackCriticalHelper` in a TF2 weapon's
+/// primary vtable, from the generated binding: the method that decides
+/// whether an attack of the weapon crits while random crits are on, rolling
+/// for a random crit unless a crit boost or the weapon's own rules decide.
+#[doc(alias("CalcIsAttackCriticalHelper"))]
+pub const CALC_IS_ATTACK_CRITICAL_HELPER_SLOT: usize = vtable_slot!(
+	sys::CTFWeaponBase__bindgen_vtable,
+	CTFWeaponBase_CalcIsAttackCriticalHelper
+);
+
+/// The slot of `CTFWeaponBase::CalcIsAttackCriticalHelperNoCrits` in a TF2
+/// weapon's primary vtable, from the generated binding: the method that
+/// decides whether an attack of the weapon crits while random crits are off,
+/// from crit boosts and the weapon's own rules.
+#[doc(alias("CalcIsAttackCriticalHelperNoCrits"))]
+pub const CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT: usize = vtable_slot!(
+	sys::CTFWeaponBase__bindgen_vtable,
+	CTFWeaponBase_CalcIsAttackCriticalHelperNoCrits
+);
+
+/// The slot of `CTFPlayer::GiveNamedItem` in a TF2 player's primary vtable,
+/// from the generated binding: the method that creates an item of a
+/// classname for the player, from an economy item or else the classname's
+/// stock item, and has the player pick it up.
+#[doc(alias("GiveNamedItem"))]
+pub const GIVE_NAMED_ITEM_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_GiveNamedItem1);
+
+/// The slot of `CBaseCombatWeapon::ItemPostFrame` in a weapon's primary
+/// vtable, from the generated binding: the method in which a player's active
+/// weapon runs its attacks and reloads, after the movement of each of the
+/// player's commands, unless the player cannot attack yet.
+#[doc(alias("ItemPostFrame"))]
+pub const ITEM_POST_FRAME_SLOT: usize = vtable_slot!(
+	sys::CBaseCombatWeapon__bindgen_vtable,
+	CBaseCombatWeapon_ItemPostFrame
+);
+
+/// The slot of `CTFPlayer::PlayerRunCommand` in a TF2 player's primary vtable,
+/// from the generated binding: the method that runs one of the commands the
+/// player's client sent, its movement and its weapons' attacks.
+#[doc(alias("PlayerRunCommand"))]
+pub const PLAYER_RUN_COMMAND_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PlayerRunCommand);
+
+/// The slot of `CBaseCombatWeapon::Reload` in a weapon's primary vtable, from
+/// the generated binding: the method that starts or continues the weapon's
+/// reload, and returns whether it does.
+#[doc(alias("Reload"))]
+pub const RELOAD_SLOT: usize = vtable_slot!(
+	sys::CBaseCombatWeapon__bindgen_vtable,
+	CBaseCombatWeapon_Reload
+);
+
+/// The slot of `CTFPlayer::Weapon_CanSwitchTo` in a TF2 player's primary
+/// vtable, from the generated binding: the method that decides whether the
+/// player may switch to a weapon they carry.
+#[doc(alias("Weapon_CanSwitchTo"))]
+pub const WEAPON_CAN_SWITCH_TO_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_CanSwitchTo);
+
+/// The slot of `CTFPlayer::Weapon_Equip` in a TF2 player's primary vtable,
+/// from the generated binding: the method that adds a weapon to those the
+/// player carries.
+#[doc(alias("Weapon_Equip"))]
+pub const WEAPON_EQUIP_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_Equip);
 
 /// The slot of `CBaseEntity::PhysicsSimulate` in an entity's primary vtable,
 /// from the generated binding: the method that runs an entity's movement and
