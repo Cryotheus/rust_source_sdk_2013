@@ -43,6 +43,11 @@ pub type PlayerMayCapturePointFn = unsafe extern "C" fn(
 	reason_size: c_int,
 ) -> bool;
 
+/// The signature of `CTFGameRules::PointsMayBeCaptured`, `bool ()`, with the
+/// game rules as its receiver: whether any control point may be captured.
+#[doc(alias("PointsMayBeCaptured"))]
+pub type PointsMayBeCapturedFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
+
 /// The signature of `CTFGameRules::SetupOnRoundStart` and
 /// `CTFGameRules::SetupOnRoundRunning`, `void ()`, with the game rules as
 /// their receiver.
@@ -103,6 +108,11 @@ const _: fn(
 	*mut c_char,
 	c_int,
 ) -> bool = |vtable| vtable.CTFGameRules_PlayerMayCapturePoint;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_PointsMayBeCaptured;
 
 const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
 	|vtable| vtable.CTFGameRules_SetupOnRoundRunning;
@@ -221,6 +231,14 @@ pub const IS_HOLIDAY_ACTIVE_SLOT: usize = vtable_slot!(
 pub const PLAYER_MAY_CAPTURE_POINT_SLOT: usize = vtable_slot!(
 	sys::CTFGameRules__bindgen_vtable,
 	CTFGameRules_PlayerMayCapturePoint
+);
+
+/// The slot of `PointsMayBeCaptured` in `CTFGameRules`' primary vtable, from
+/// the generated binding.
+#[doc(alias("PointsMayBeCaptured"))]
+pub const POINTS_MAY_BE_CAPTURED_SLOT: usize = vtable_slot!(
+	sys::CTFGameRules__bindgen_vtable,
+	CTFGameRules_PointsMayBeCaptured
 );
 
 /// The slot of `SetStalemate` in `CTFGameRules`' primary vtable, from the
