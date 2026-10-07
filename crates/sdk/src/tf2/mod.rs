@@ -10,6 +10,7 @@ pub mod achievements;
 pub mod airblast;
 pub mod ammo;
 pub mod attributes;
+pub mod buildings;
 mod class;
 pub mod collision;
 pub mod conditions;
