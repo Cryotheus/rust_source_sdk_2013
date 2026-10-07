@@ -303,21 +303,25 @@ impl<'s> ControlPointMaster<'s> {
 	/// a stalemate with `None`, and fires the master's `OnWonByTeam1` or
 	/// `OnWonByTeam2` output for a win.
 	///
-	/// The game rules ignore it while a round is already won.
+	/// Fails with [`ObjectiveError::RoundEnd`], without sending the input, as
+	/// [`RoundWin::win`](super::RoundWin::win) does.
 	#[doc(alias("SetWinner"))]
 	pub fn set_winner(self, winner: Option<ScoringTeam>) -> Result<(), ObjectiveError> {
+		self.0.check_round_end()?;
 		self.0
 			.input(c"SetWinner", InputValue::Int(team_number(winner)))
 	}
 
 	/// Gives every point of the round, or of the mini-round, to `winner`, or
 	/// to no team with `None`, without crediting anyone, then ends the round
-	/// as [`Self::set_winner`] does.
+	/// as [`Self::set_winner`] does, and fails as it does, before giving any
+	/// point away.
 	#[doc(alias("SetWinnerAndForceCaps"))]
 	pub fn set_winner_and_force_caps(
 		self,
 		winner: Option<ScoringTeam>,
 	) -> Result<(), ObjectiveError> {
+		self.0.check_round_end()?;
 		self.0.input(
 			c"SetWinnerAndForceCaps",
 			InputValue::Int(team_number(winner)),
