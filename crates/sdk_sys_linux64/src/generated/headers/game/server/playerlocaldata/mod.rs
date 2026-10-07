@@ -62,9 +62,29 @@ pub struct CPlayerLocalData_NetworkVar_m_PlayerFog {
 }
 
 #[repr(C)]
+pub struct CPlayerLocalData_NetworkVar_m_PlayerFog__bindgen_vtable {
+	pub CPlayerLocalData_NetworkVar_m_PlayerFog_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CPlayerLocalData_NetworkVar_m_PlayerFog),
+	pub CPlayerLocalData_NetworkVar_m_PlayerFog_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CPlayerLocalData_NetworkVar_m_PlayerFog,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CPlayerLocalData_NetworkVar_m_audio {
 	pub _base: audioparams_t,
+}
+
+#[repr(C)]
+pub struct CPlayerLocalData_NetworkVar_m_audio__bindgen_vtable {
+	pub CPlayerLocalData_NetworkVar_m_audio_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CPlayerLocalData_NetworkVar_m_audio),
+	pub CPlayerLocalData_NetworkVar_m_audio_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CPlayerLocalData_NetworkVar_m_audio,
+		arg2: *mut ::std::os::raw::c_void,
+	),
 }
 
 #[repr(C)]
@@ -179,6 +199,16 @@ pub struct CPlayerLocalData_NetworkVar_m_iHideHUD {
 #[derive(Debug, Copy, Clone)]
 pub struct CPlayerLocalData_NetworkVar_m_skybox3d {
 	pub _base: sky3dparams_t,
+}
+
+#[repr(C)]
+pub struct CPlayerLocalData_NetworkVar_m_skybox3d__bindgen_vtable {
+	pub CPlayerLocalData_NetworkVar_m_skybox3d_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CPlayerLocalData_NetworkVar_m_skybox3d),
+	pub CPlayerLocalData_NetworkVar_m_skybox3d_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CPlayerLocalData_NetworkVar_m_skybox3d,
+		arg2: *mut ::std::os::raw::c_void,
+	),
 }
 
 #[repr(C)]

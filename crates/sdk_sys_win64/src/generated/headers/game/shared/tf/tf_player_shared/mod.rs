@@ -22,8 +22,8 @@ pub type CTraceFilterIgnoreTeammatesAndTeamObjects_BaseClass = CTraceFilterSimpl
 pub type TFCYOAPDAAnimState_t = ::std::os::raw::c_int;
 pub type TFPassTimeThrowAnimState_t = ::std::os::raw::c_int;
 pub type TFStunAnimState_t = ::std::os::raw::c_int;
-pub type _bindgen_ty_161 = ::std::os::raw::c_int;
-pub type _bindgen_ty_162 = ::std::os::raw::c_int;
+pub type _bindgen_ty_169 = ::std::os::raw::c_int;
+pub type _bindgen_ty_170 = ::std::os::raw::c_int;
 
 pub const CTFPlayerShared_EKartStateFlags_kKartState_Braking: CTFPlayerShared_EKartStateFlags = 2;
 pub const CTFPlayerShared_EKartStateFlags_kKartState_Driving: CTFPlayerShared_EKartStateFlags = 1;
@@ -271,15 +271,45 @@ pub struct CTFPlayerShared_NetworkVar_m_ConditionList {
 }
 
 #[repr(C)]
+pub struct CTFPlayerShared_NetworkVar_m_ConditionList__bindgen_vtable {
+	pub CTFPlayerShared_NetworkVar_m_ConditionList_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CTFPlayerShared_NetworkVar_m_ConditionList,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CTFPlayerShared_NetworkVar_m_ConditionList_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CTFPlayerShared_NetworkVar_m_ConditionList),
+}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CTFPlayerShared_NetworkVar_m_RoundScoreData {
 	pub _base: localplayerscoring_t,
 }
 
 #[repr(C)]
+pub struct CTFPlayerShared_NetworkVar_m_RoundScoreData__bindgen_vtable {
+	pub CTFPlayerShared_NetworkVar_m_RoundScoreData_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CTFPlayerShared_NetworkVar_m_RoundScoreData,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CTFPlayerShared_NetworkVar_m_RoundScoreData_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CTFPlayerShared_NetworkVar_m_RoundScoreData),
+}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CTFPlayerShared_NetworkVar_m_ScoreData {
 	pub _base: localplayerscoring_t,
+}
+
+#[repr(C)]
+pub struct CTFPlayerShared_NetworkVar_m_ScoreData__bindgen_vtable {
+	pub CTFPlayerShared_NetworkVar_m_ScoreData_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CTFPlayerShared_NetworkVar_m_ScoreData,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CTFPlayerShared_NetworkVar_m_ScoreData_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CTFPlayerShared_NetworkVar_m_ScoreData),
 }
 
 #[repr(C)]
@@ -845,18 +875,6 @@ pub struct CUpgradeInfo {
 	pub m_itemDefIndex: item_definition_index_t,
 	pub m_upgrade: ::std::os::raw::c_int,
 	pub m_nCost: ::std::os::raw::c_int,
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct MedigunEffects_t {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct RoundStats_t {
-	_unused: [u8; 0],
 }
 
 #[repr(C)]

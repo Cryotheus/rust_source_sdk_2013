@@ -58,3 +58,4 @@ pub mod vcollide;
 pub mod vphysics;
 pub mod vphysics_interface;
 pub mod vscript;
+pub mod vstdlib;
