@@ -166,6 +166,8 @@ impl MockEntity {
 				|vtable| {
 					(&raw mut (*vtable).ICollideable_GetCollisionOrigin).write(get_origin);
 					(&raw mut (*vtable).ICollideable_GetCollisionGroup).write(get_collision_group);
+					(&raw mut (*vtable).ICollideable_WorldSpaceSurroundingBounds)
+						.write(get_surrounding_bounds);
 				},
 			)
 		};
@@ -434,6 +436,30 @@ unsafe extern "C" fn get_networkable(_: *mut sys::IServerEntity) -> *mut sys::IS
 
 unsafe extern "C" fn get_origin(_: *const sys::ICollideable) -> *const sys::Vector {
 	ORIGIN.with(Cell::as_ptr).cast_const()
+}
+
+/// Writes a box reaching one unit from the origin each way.
+unsafe extern "C" fn get_surrounding_bounds(
+	_: *mut sys::ICollideable,
+	mins: *mut sys::Vector,
+	maxs: *mut sys::Vector,
+) {
+	let origin = ORIGIN.get();
+
+	// SAFETY: The caller passes two writable vectors.
+	unsafe {
+		mins.write(sys::Vector {
+			x: origin.x - 1.0,
+			y: origin.y - 1.0,
+			z: origin.z - 1.0,
+		});
+
+		maxs.write(sys::Vector {
+			x: origin.x + 1.0,
+			y: origin.y + 1.0,
+			z: origin.z + 1.0,
+		});
+	}
 }
 
 unsafe extern "C" fn get_server_class(_: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {

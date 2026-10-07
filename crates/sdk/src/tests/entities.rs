@@ -33,6 +33,10 @@ fn entities_read_native_properties_and_teleport() {
 
 	assert_eq!(entity.class_name(), c"tf_player");
 	assert_eq!(entity.position(), Some(Vector::new(1.0, 2.0, 3.0)));
+	assert_eq!(
+		entity.bounds(),
+		Some((Vector::new(0.0, 1.0, 2.0), Vector::new(2.0, 3.0, 4.0)))
+	);
 	assert_eq!(entity.handle(), EntityHandle::from_raw(5 | 7 << 16));
 	assert_eq!(entity.index(), Some(5));
 	assert!(!entity.is_marked_for_deletion());
