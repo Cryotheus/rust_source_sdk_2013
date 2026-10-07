@@ -47,14 +47,29 @@ fn deaths_reach_each_class_hook_after_the_game() {
 		for object in [player.ptr(), bot.ptr()] {
 			// SAFETY: The mock classes have `Event_Killed` at the slot, and are
 			// leaked.
-			unsafe { api.install_killed(object, tf2_binding(no_interfaces), on_killed) }.unwrap();
+			unsafe {
+				api.install_death(
+					object,
+					tf2_binding(no_interfaces),
+					on_killed,
+					HookTiming::Post,
+				)
+			}
+			.unwrap();
 		}
 
 		// A second hook of a class is refused, so that each death is reported
 		// once.
 		assert!(matches!(
 			// SAFETY: As above.
-			unsafe { api.install_killed(player.ptr(), tf2_binding(no_interfaces), on_killed) },
+			unsafe {
+				api.install_death(
+					player.ptr(),
+					tf2_binding(no_interfaces),
+					on_killed,
+					HookTiming::Post,
+				)
+			},
 			Err(DeathHookError::Hook(HookError::AlreadyInstalled))
 		));
 
@@ -65,6 +80,69 @@ fn deaths_reach_each_class_hook_after_the_game() {
 		assert_eq!(
 			kill(harness, &mut bot),
 			[("game", bot_address), ("killed", bot_address)]
+		);
+	});
+}
+
+#[test]
+fn dying_hooks_run_before_the_game_and_beside_killed_hooks() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut player = Player::of_new_class(game_killed);
+		let mut bot = Player::of_new_class(game_killed);
+		let (player_address, bot_address) = (player.ptr().addr().get(), bot.ptr().addr().get());
+
+		// SAFETY: The mock classes have `Event_Killed` at the slot, and are
+		// leaked.
+		unsafe {
+			api.install_death(
+				player.ptr(),
+				tf2_binding(no_interfaces),
+				on_dying,
+				HookTiming::Pre,
+			)
+			.unwrap();
+			api.install_death(
+				player.ptr(),
+				tf2_binding(no_interfaces),
+				on_killed,
+				HookTiming::Post,
+			)
+			.unwrap();
+			api.install_death(
+				bot.ptr(),
+				tf2_binding(no_interfaces),
+				on_dying,
+				HookTiming::Pre,
+			)
+			.unwrap();
+		}
+
+		// Each timing refuses a second hook of a class on its own.
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe {
+				api.install_death(
+					player.ptr(),
+					tf2_binding(no_interfaces),
+					on_dying,
+					HookTiming::Pre,
+				)
+			},
+			Err(DeathHookError::Hook(HookError::AlreadyInstalled))
+		));
+
+		assert_eq!(
+			kill(harness, &mut player),
+			[
+				("dying", player_address),
+				("game", player_address),
+				("killed", player_address)
+			]
+		);
+		assert_eq!(
+			kill(harness, &mut bot),
+			[("dying", bot_address), ("game", bot_address)]
 		);
 	});
 }
@@ -91,6 +169,16 @@ fn kill(harness: &Harness, player: &mut Player) -> Vec<(&'static str, usize)> {
 		"a const source record must never be overwritten"
 	);
 	CALLS.take()
+}
+
+/// The callback before the game, which checks the copy it was given and
+/// notes the player.
+fn on_dying(_server: Server<'_>, victim: Entity<'_>, info: &DamageInfo) {
+	expect(
+		info.amount() == 11.0,
+		"the callback saw another damage record",
+	);
+	CALLS.with_borrow_mut(|calls| calls.push(("dying", victim.as_ptr().addr())));
 }
 
 /// The callback, which checks the copy it was given and notes the player.
