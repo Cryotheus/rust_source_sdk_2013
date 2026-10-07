@@ -5,6 +5,7 @@
 //! not change.
 
 pub use crate::vcall;
+pub use crate::vcall_by_value;
 
 /// Reads the pointer to the primary vtable of the polymorphic object `this`
 /// points to, as a `*const V`.
@@ -54,5 +55,53 @@ macro_rules! vcall {
 		let vtable = (&raw const (*this).vtable_).read();
 
 		((*vtable).$method)(this $(, $argument)*)
+	}};
+}
+
+/// Calls a virtual method that returns a class such as `Vector` or `QAngle`
+/// by value, as [`vcall!`] does, on either ABI.
+///
+/// `vcall_by_value!(this => Method(arguments...) -> Type)` and
+/// `vcall_by_value!(this as Vtable => Method(arguments...) -> Type)` take the
+/// receiver as [`vcall!`]'s two forms do, and evaluate to the `Type` the
+/// method returns. Under the MSVC ABI, the generated signature of such a
+/// method takes a hidden result pointer after `this`, which this passes local,
+/// uninitialized storage through, for the method to construct its result in.
+/// Under the Itanium ABI, the generated signature returns a trivially
+/// copyable `Type` in registers, which this returns as is.
+///
+/// It must be used inside `unsafe`, as [`vcall!`] must, and only for methods
+/// whose generated signatures have these two shapes, as the bindings of
+/// `CBaseEntity::EyePosition` and `IPlayerInfo::GetAbsOrigin` do.
+#[macro_export]
+macro_rules! vcall_by_value {
+	($this:ident as $Vtable:ty => $method:ident($($argument:expr),* $(,)?) -> $Type:ty) => {{
+		#[cfg(target_os = "windows")]
+		let result = {
+			let mut result = ::core::mem::MaybeUninit::<$Type>::uninit();
+
+			$crate::vcall!($this as $Vtable => $method(result.as_mut_ptr() $(, $argument)*));
+			result.assume_init()
+		};
+
+		#[cfg(not(target_os = "windows"))]
+		let result: $Type = $crate::vcall!($this as $Vtable => $method($($argument),*));
+
+		result
+	}};
+
+	($this:expr => $method:ident($($argument:expr),* $(,)?) -> $Type:ty) => {{
+		#[cfg(target_os = "windows")]
+		let result = {
+			let mut result = ::core::mem::MaybeUninit::<$Type>::uninit();
+
+			$crate::vcall!($this => $method(result.as_mut_ptr() $(, $argument)*));
+			result.assume_init()
+		};
+
+		#[cfg(not(target_os = "windows"))]
+		let result: $Type = $crate::vcall!($this => $method($($argument),*));
+
+		result
 	}};
 }
