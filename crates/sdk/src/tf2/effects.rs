@@ -5,6 +5,10 @@
 //! Effects are applied through the game's native script methods, which run
 //! its own effect code, and read from the player's networked variables.
 
+#[cfg(test)]
+#[path = "../tests/tf2/effects.rs"]
+mod tests;
+
 use crate::datatables::NetProp;
 use crate::datatables::NetPropError;
 use crate::entities::{Entity, EntityHandle};
@@ -136,9 +140,10 @@ pub struct Disguise {
 /// Why an effect, meter or taunt operation failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EffectError {
-	/// The server is not running TF2, or the entity's class name is not
-	/// `player`.
-	#[error("effects require a TF2 player")]
+	/// The server is not running TF2, or the entity is not what the wrapper
+	/// takes: a player, of class name `player`, or for a
+	/// [`Medigun`](crate::tf2::meters::Medigun), a `tf_weapon_medigun`.
+	#[error("the wrapper requires a TF2 player, or a TF2 medigun")]
 	NotTfPlayer,
 
 	/// The player's script class descriptors lack the native method, or its
