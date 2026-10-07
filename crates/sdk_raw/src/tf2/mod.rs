@@ -11,6 +11,7 @@
 
 pub mod ammo;
 pub mod attributes;
+pub mod chat;
 pub mod class;
 pub mod conditions;
 pub mod damage;
