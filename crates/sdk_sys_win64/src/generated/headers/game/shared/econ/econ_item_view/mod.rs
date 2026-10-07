@@ -142,9 +142,38 @@ pub struct CEconItemView_NetworkVar_m_AttributeList {
 }
 
 #[repr(C)]
+pub struct CEconItemView_NetworkVar_m_AttributeList__bindgen_vtable {
+	pub CEconItemView_NetworkVar_m_AttributeList_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CEconItemView_NetworkVar_m_AttributeList,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+	pub CEconItemView_NetworkVar_m_AttributeList_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CEconItemView_NetworkVar_m_AttributeList),
+	pub CEconItemView_NetworkVar_m_AttributeList_GetDataDescMap:
+		unsafe extern "C" fn(arg1: *mut CEconItemView_NetworkVar_m_AttributeList) -> *mut datamap_t,
+}
+
+#[repr(C)]
 #[derive(Debug)]
 pub struct CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos {
 	pub _base: CAttributeList,
+}
+
+#[repr(C)]
+pub struct CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos__bindgen_vtable {
+	pub CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos_NetworkStateChanged1:
+		unsafe extern "C" fn(
+			arg1: *mut CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos,
+			arg2: *mut ::std::os::raw::c_void,
+		),
+	pub CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos_NetworkStateChanged:
+		unsafe extern "C" fn(
+			arg1: *mut CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos,
+		),
+	pub CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos_GetDataDescMap:
+		unsafe extern "C" fn(
+			arg1: *mut CEconItemView_NetworkVar_m_NetworkedDynamicAttributesForDemos,
+		) -> *mut datamap_t,
 }
 
 #[repr(C)]
