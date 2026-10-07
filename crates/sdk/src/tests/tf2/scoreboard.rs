@@ -16,7 +16,7 @@ use sdk_raw::test_support::tf2::scoreboard::game_stats;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 
 use sdk_raw::tf2::scoreboard::{
-	PLAYER_STATS_SIZE, STATS_ACCUMULATED, STATS_CURRENT_ROUND, STREAKS_PER_SLOT,
+	PLAYER_STATS_SIZE, STATS_ACCUMULATED, STATS_CURRENT_ROUND, STATS_KILLS, STREAKS_PER_SLOT,
 };
 
 use std::cell::{Cell, RefCell};
@@ -1261,6 +1261,65 @@ fn int_prop(name: &'static CStr, offset: usize, bits: c_int, flags: PropFlags) -
 
 	prop.m_nBits = bits;
 	prop
+}
+
+#[test]
+fn kill_records_are_read_and_unanswered_kills_reset_alone() {
+	let world = World::new(8, None);
+	let scope = ();
+	let server = mock_server(&scope);
+	let record = |slot: usize, field: usize, index: usize| {
+		ARRAY + slot * PLAYER_STATS_SIZE + STATS_KILLS + field + index * ELEMENT_SIZE
+	};
+	let fields = [
+		offset_of!(KillStats, killed),
+		offset_of!(KillStats, killed_by),
+		offset_of!(KillStats, killed_by_unanswered),
+	];
+
+	// The game's own counts, in the blocks of players 2 and 3.
+	for slot in [2, 3] {
+		for (field, base) in fields.into_iter().zip([10, 20, 30]) {
+			for index in 0..MAX_PLAYERS_ARRAY_SAFE {
+				let count = base + index as i32 + slot as i32;
+
+				// SAFETY: The singleton is leaked, the count lies within it, and no
+				// reference to it is live.
+				unsafe {
+					world
+						.singleton
+						.byte_add(record(slot, field, index))
+						.cast::<i32>()
+						.write_unaligned(count);
+				}
+			}
+		}
+	}
+
+	let score = world.score(server, 2);
+	let kills = score.kill_stats();
+
+	assert_eq!(kills.killed[0], 12);
+	assert_eq!(kills.killed[MAX_PLAYERS_ARRAY_SAFE - 1], 113);
+	assert_eq!(kills.killed_by[5], 27);
+	assert_eq!(kills.killed_by_unanswered[3], 35);
+
+	score.reset_unanswered_kills();
+
+	let after = score.kill_stats();
+
+	assert_eq!(after.killed_by_unanswered, [0; MAX_PLAYERS_ARRAY_SAFE]);
+	assert_eq!(
+		(after.killed, after.killed_by),
+		(kills.killed, kills.killed_by)
+	);
+
+	// The next player's block, which follows, keeps its counts.
+	let next = world.score(server, 3).kill_stats();
+
+	assert_eq!(next.killed[0], 13);
+	assert_eq!(next.killed_by_unanswered[0], 33);
+	assert_eq!(next.killed_by_unanswered[MAX_PLAYERS_ARRAY_SAFE - 1], 134);
 }
 
 #[test]

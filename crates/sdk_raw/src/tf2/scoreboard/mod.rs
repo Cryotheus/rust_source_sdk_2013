@@ -56,7 +56,7 @@ use crate::players::FIRST_GAME_TEAM;
 use crate::util::{ModuleCache, ModuleKey};
 use crate::vtable_slot;
 use std::ffi::{c_int, c_void};
-use std::mem::transmute;
+use std::mem::{offset_of, transmute};
 use std::num::NonZeroUsize;
 use std::ptr::{self, NonNull};
 
@@ -108,6 +108,24 @@ const _: () = {
 	assert!(STATS_ACCUMULATED + size_of::<RoundStats>() <= PLAYER_STATS_SIZE);
 	assert!(PLAYER_STATS_SIZE.is_multiple_of(align_of::<c_int>()));
 	assert!(stat::FLAGRETURNS + 1 == TFSTAT_TOTAL);
+};
+
+// `KillStats_t` follows the three `RoundMapStats_t`, each `TFMAPSTAT_TOTAL`
+// `int`s, and is made of `int`s only. The loadout's indices, qualities, and
+// styles, of `CLASS_LOADOUT_POSITION_COUNT`, 19, `uint16`s, `int`s, and
+// `uint8`s, its start time and class, then the connect and disconnect times
+// fill the block's remaining 152 bytes.
+const _: () = {
+	assert!(
+		STATS_KILLS
+			== STATS_ACCUMULATED
+				+ size_of::<RoundStats>()
+				+ 3 * TFMAPSTAT_TOTAL * size_of::<c_int>()
+	);
+	assert!(size_of::<KillStats>() == 3 * MAX_PLAYERS_ARRAY_SAFE * size_of::<c_int>());
+	assert!(align_of::<KillStats>() == align_of::<c_int>());
+	assert!(PLAYER_STATS_SIZE - STATS_KILLS - size_of::<KillStats>() == 152);
+	assert!(STATS_KILLS + offset_of!(KillStats, killed_by_unanswered) == 0x564);
 };
 
 // `GameStats` is a plain bundle of addresses, which only its unsafe methods
@@ -189,6 +207,15 @@ pub const STATS_CURRENT_LIFE: usize = 0;
 #[doc(alias("statsCurrentRound"))]
 pub const STATS_CURRENT_ROUND: usize = 0xb4;
 
+/// Where a [`PlayerStats`] block holds its [`KillStats`], `statsKills`: after
+/// its three [`RoundStats`] and three `RoundMapStats_t` of
+/// [`TFMAPSTAT_TOTAL`] `int`s each.
+///
+/// Inferred from `game/shared/tf/tf_gamestats_shared.h`, whose `int`s leave
+/// no padding before it. Neither resolver checks it.
+#[doc(alias("statsKills"))]
+pub const STATS_KILLS: usize = 0x234;
+
 /// `m_iStreaks` elements per player slot: `CTFPlayerShared::kTFStreak_COUNT`.
 ///
 /// `CTFPlayerResource` keeps each slot's streaks together, the slot's group
@@ -264,6 +291,10 @@ pub const TF_TEAM_BLUE: c_int = TF_TEAM_RED + 1;
 ///
 /// This is `TF_TEAM_RED` from `game/shared/tf/tf_shareddefs.h`.
 pub const TF_TEAM_RED: c_int = FIRST_GAME_TEAM;
+
+/// The number of statistics a `RoundMapStats_t` counts, `TFMAPSTAT_TOTAL`
+/// from `game/shared/tf/tf_gamestats_shared.h`.
+pub const TFMAPSTAT_TOTAL: usize = 2;
 
 /// The number of statistics a [`RoundStats`] counts, `TFSTAT_TOTAL` from
 /// `game/shared/tf/tf_gamestats_shared.h`.
@@ -512,11 +543,40 @@ pub enum GameStatsError {
 	Unresolved,
 }
 
+/// How often a player killed each other player, and was killed by them,
+/// `KillStats_t` from `game/shared/tf/tf_gamestats_shared.h`, indexed by the
+/// other player's entity index.
+///
+/// `CTFGameStats::TrackKillStats` counts each kill and kill assist as the
+/// game handles the death, after `CTFGameRules::CalcDominationAndRevenge`
+/// read [`Self::killed_by_unanswered`]. The game resets the block with the
+/// rest of the player's [`PlayerStats`].
+#[doc(alias("KillStats_t"))]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct KillStats {
+	/// The kills of each player by this one, `iNumKilled`.
+	#[doc(alias("iNumKilled"))]
+	pub killed: [c_int; MAX_PLAYERS_ARRAY_SAFE],
+
+	/// The kills of this player by each other, `iNumKilledBy`.
+	#[doc(alias("iNumKilledBy"))]
+	pub killed_by: [c_int; MAX_PLAYERS_ARRAY_SAFE],
+
+	/// The kills of this player by each other since this player last killed
+	/// them, `iNumKilledByUnanswered`. A kill that makes the count
+	/// [`TF_KILLS_DOMINATION`](crate::tf2::dominations::TF_KILLS_DOMINATION)
+	/// starts a domination.
+	#[doc(alias("iNumKilledByUnanswered"))]
+	pub killed_by_unanswered: [c_int; MAX_PLAYERS_ARRAY_SAFE],
+}
+
 /// A player's statistics, `PlayerStats_t` from
 /// `game/shared/tf/tf_gamestats_shared.h`: its current life's, current
 /// round's, and session's [`RoundStats`], at [`STATS_CURRENT_LIFE`],
 /// [`STATS_CURRENT_ROUND`], and [`STATS_ACCUMULATED`], then statistics the
-/// scoreboard does not show, [`PLAYER_STATS_SIZE`] bytes in all.
+/// scoreboard does not show, its [`KillStats`] at [`STATS_KILLS`] among them,
+/// [`PLAYER_STATS_SIZE`] bytes in all.
 ///
 /// Only pointers to it are used; the game owns every block.
 #[doc(alias("PlayerStats_t"))]
@@ -549,6 +609,14 @@ impl PlayerStats {
 	#[doc(alias("statsCurrentRound"))]
 	pub fn current_round(this: *mut Self) -> *mut RoundStats {
 		this.wrapping_byte_add(STATS_CURRENT_ROUND).cast()
+	}
+
+	/// The [`KillStats`] of the block `this` points to.
+	///
+	/// The address is computed without being dereferenced.
+	#[doc(alias("statsKills"))]
+	pub fn kills(this: *mut Self) -> *mut KillStats {
+		this.wrapping_byte_add(STATS_KILLS).cast()
 	}
 }
 

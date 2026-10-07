@@ -211,8 +211,8 @@ use crate::{Game, InterfaceError, Server};
 use sdk_raw::edicts::MAX_CHANGE_OFFSETS;
 
 use sdk_raw::tf2::scoreboard::{
-	ELEMENT_SIZE, GameStats, GameStatsError, KILL_STREAK, MAX_PLAYERS_ARRAY_SAFE, PlayerStats,
-	RoundStats, TF_TEAM_BLUE, TF_TEAM_RED, stat,
+	ELEMENT_SIZE, GameStats, GameStatsError, KILL_STREAK, KillStats, MAX_PLAYERS_ARRAY_SAFE,
+	PlayerStats, RoundStats, TF_TEAM_BLUE, TF_TEAM_RED, stat,
 };
 
 use sdk_raw::vcall;
@@ -775,6 +775,20 @@ impl<'s> PlayerScore<'s> {
 		self.index
 	}
 
+	/// A copy of the game's record of the player's kills of each other player,
+	/// and theirs of the player, by entity index, since the player connected or
+	/// had their scores reset.
+	///
+	/// The record's place in the player's statistics is inferred from the SDK's
+	/// header, as [`KillStats`] describes.
+	#[doc(alias("statsKills", "KillStats_t"))]
+	pub fn kill_stats(self) -> KillStats {
+		// SAFETY: As for `read_block`: the record lies within the player's block,
+		// as `sdk_raw` asserts, which `GameStats::player_stats` found within the
+		// singleton, aligned for `int`s, of which the record is made.
+		unsafe { PlayerStats::kills(self.stats.as_ptr()).read() }
+	}
+
 	/// The player's kill streak, `m_nStreaks[kTFStreak_Kills]`, which clients
 	/// show on the scoreboard and use for kill streak effects.
 	///
@@ -865,6 +879,29 @@ impl<'s> PlayerScore<'s> {
 				points: IntField::new(self.player, self.layout.points),
 				round_points: IntField::new(self.player, self.layout.round_points),
 			}
+		}
+	}
+
+	/// Resets the player's unanswered deaths to every other player: the kills of
+	/// the player by each since the player last killed them, which the game
+	/// resets for one killer as the player kills them back.
+	///
+	/// The game starts a domination as a kill makes the victim's count for the
+	/// killer, or the assister,
+	/// [`TF_KILLS_DOMINATION`](sdk_raw::tf2::dominations::TF_KILLS_DOMINATION),
+	/// before it counts the kill, so a reset before each of the player's deaths
+	/// is handled keeps every one of them from starting a domination, as
+	/// [`tf2::dominations`](crate::tf2::dominations) describes. Nothing else
+	/// reads the counts. The rest of [`Self::kill_stats`] is left alone.
+	#[doc(alias("iNumKilledByUnanswered"))]
+	pub fn reset_unanswered_kills(self) {
+		let kills = PlayerStats::kills(self.stats.as_ptr());
+
+		// SAFETY: As for `kill_stats`. The counts are written without forming a
+		// reference, as the game writes them through its own pointers, on this
+		// thread.
+		unsafe {
+			(&raw mut (*kills).killed_by_unanswered).write([0; MAX_PLAYERS_ARRAY_SAFE]);
 		}
 	}
 

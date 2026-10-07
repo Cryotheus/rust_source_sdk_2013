@@ -14,6 +14,7 @@ pub mod attributes;
 pub mod class;
 pub mod conditions;
 pub mod damage;
+pub mod dominations;
 pub mod game_events;
 pub mod game_rules;
 pub mod gc;
