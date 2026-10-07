@@ -23,6 +23,7 @@ pub mod host_timescale;
 pub mod item_generation;
 pub mod objects;
 pub mod observer;
+pub mod player;
 pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
