@@ -1116,6 +1116,36 @@ impl<'s> NetProp<'s> {
 		Ok(unsafe { T::read(base.as_ptr().cast::<u8>().add(self.offset)) })
 	}
 
+	/// Reads an entity handle variable (`CHandle`), as stored, from the
+	/// structure at `base`, as [`get_handle`](Self::get_handle) reads one from an
+	/// entity.
+	///
+	/// Fails with [`NetPropError::NotAHandle`] as [`get_handle`](Self::get_handle)
+	/// does.
+	///
+	/// # Safety
+	///
+	/// As for [`get_at`](Self::get_at).
+	#[cfg(feature = "tf2")]
+	pub(crate) unsafe fn get_handle_at(
+		self,
+		base: NonNull<c_void>,
+	) -> Result<EntityHandle, NetPropError> {
+		self.check_handle()?;
+
+		// SAFETY: The structure is laid out as the variable's table describes, as
+		// the caller promises, and the variable is a handle, whose `CBaseHandle`
+		// holds only its raw value, read without forming a reference or assuming
+		// alignment.
+		Ok(EntityHandle::from_raw(unsafe {
+			base.as_ptr()
+				.cast::<u8>()
+				.add(self.offset)
+				.cast::<u32>()
+				.read_unaligned()
+		}))
+	}
+
 	/// Reads an entity handle variable (`CHandle`) from an entity, as stored,
 	/// with its full serial number, unlike the value clients receive, which
 	/// [`value`](Self::value) reads.

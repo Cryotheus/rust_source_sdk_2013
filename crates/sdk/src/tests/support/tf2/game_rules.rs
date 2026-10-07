@@ -13,6 +13,7 @@ use crate::test_support::datatables::{
 use crate::test_support::entities::{MockEntity, set_networking};
 use crate::test_support::leak;
 use crate::test_support::server::export;
+use crate::test_support::tf2::objectives::handle_prop;
 use sdk_raw::test_support::edicts::mock_edict;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
@@ -57,6 +58,10 @@ pub const HALLOWEEN_SCENARIO: usize = 32;
 
 /// Where the fake TF2 rules keep `m_nHudType`.
 pub const HUD_TYPE: usize = 24;
+
+/// Where the fake TF2 rules keep `m_hRedKothTimer`, and `m_hBlueKothTimer` in
+/// the 4 bytes after, past the 8 bytes their vtable pointer takes.
+pub const KOTH_TIMERS: usize = 8;
 
 /// Where the fake TF2 rules keep `m_nMapHolidayType`.
 pub const MAP_HOLIDAY: usize = 28;
@@ -208,6 +213,8 @@ impl World {
 			int(c"m_halloweenScenario", HALLOWEEN_SCENARIO),
 			int(c"m_nForceUpgrades", FORCE_UPGRADES),
 			int(c"m_nForceEscortPushLogic", FORCE_ESCORT_PUSH),
+			handle_prop(c"m_hRedKothTimer", KOTH_TIMERS),
+			handle_prop(c"m_hBlueKothTimer", KOTH_TIMERS + 4),
 		];
 
 		rules_props.extend(
@@ -323,6 +330,21 @@ impl World {
 	pub fn round_bytes(&self) -> [u8; RULES_SIZE] {
 		// SAFETY: The rules are leaked.
 		unsafe { *self.round_rules }
+	}
+
+	/// Makes the fake TF2 rules start with `vtable`, as a `CTFGameRules` starts
+	/// with its primary vtable.
+	pub fn set_vtable(&self, vtable: &'static sys::CTFGameRules__bindgen_vtable) {
+		let slot = self
+			.rules
+			.cast::<*const sys::CTFGameRules__bindgen_vtable>();
+
+		// The allocator aligns the leaked rules for any pointer.
+		assert!(slot.is_aligned());
+
+		// SAFETY: The rules are leaked, aligned for a pointer, as checked, and
+		// their first 8 bytes hold no variable.
+		unsafe { slot.write(vtable) };
 	}
 
 	/// The `m_fStateFlags` of the proxy entity's edict.

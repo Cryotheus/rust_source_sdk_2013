@@ -38,6 +38,7 @@ mod player_methods;
 pub mod projectiles;
 pub mod ragdolls;
 pub mod respawn;
+pub mod round_end;
 pub mod scoreboard;
 mod script_binding;
 pub mod script_instances;

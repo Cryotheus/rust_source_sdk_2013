@@ -24,7 +24,7 @@ use crate::datatables::{
 };
 
 use crate::edicts::Edict;
-use crate::entities::Entity;
+use crate::entities::{Entity, EntityHandle};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
 use crate::interfaces::ValveEngine;
@@ -333,6 +333,11 @@ impl<'s> GameRules<'s> {
 		self.rules.as_ptr()
 	}
 
+	/// The game rules object, as [`Self::as_ptr`] gives it.
+	pub(crate) const fn as_non_null(self) -> NonNull<c_void> {
+		self.rules
+	}
+
 	/// Whether the round is in its setup time, before attackers may leave
 	/// their spawn.
 	#[doc(alias("m_bInSetup"))]
@@ -382,6 +387,22 @@ impl<'s> GameRules<'s> {
 		// shuts down, after `'s`. The game initializes the variables it
 		// networks, which the engine reads to send them.
 		Ok(unsafe { prop.get_at(object) }?)
+	}
+
+	/// Reads an entity handle variable of the game rules by name, as stored,
+	/// such as `m_hRedKothTimer`, found as [`Self::read`] finds variables, or
+	/// `None` for an invalid handle.
+	///
+	/// Fails as [`Self::read`] does, or with [`NetPropError::NotAHandle`] if the
+	/// variable is not declared as `SendPropEHandle` declares handles.
+	#[doc(alias("SendPropEHandle", "CHandle", "EHANDLE"))]
+	pub fn read_handle(self, name: &CStr) -> Result<Option<EntityHandle>, GameRulesError> {
+		let (prop, object) = self.variable(name)?;
+
+		// SAFETY: As for `read`.
+		let handle = unsafe { prop.get_handle_at(object) }?;
+
+		Ok(handle.is_valid().then_some(handle))
 	}
 
 	/// The state of the round (`m_iRoundState`).

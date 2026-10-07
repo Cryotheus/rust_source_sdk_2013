@@ -34,6 +34,7 @@ use sdk_raw::tf2::game_mode::{
 	TF_HUDTYPE_CTF, TF_HUDTYPE_ESCORT, TF_HUDTYPE_TRAINING, TF_HUDTYPE_UNDEFINED,
 };
 
+use sdk_raw::tf2::game_rules::is_holiday_active;
 use std::ffi::{CStr, c_int};
 
 /// The `m_nGameType` of the game rules.
@@ -537,6 +538,21 @@ impl GameRules<'_> {
 
 			scenario => Ok(scenario),
 		}
+	}
+
+	/// Whether `holiday` is active, as the game rules decide
+	/// (`IsHolidayActive`): never while `tf_force_holidays_off` is set, and
+	/// otherwise while `tf_forced_holiday` or an item forces it, while the level
+	/// is made for it, as [`Self::map_holiday`] tells, or while the item schema's
+	/// calendar has it, and as hooks of the method change it.
+	///
+	/// Much of the game asks `TF_IsHolidayActive` directly instead, which hooks
+	/// of the method do not change.
+	#[doc(alias("IsHolidayActive", "TF_IsHolidayActive"))]
+	pub fn is_holiday_active(self, holiday: Holiday) -> bool {
+		// SAFETY: The game rules are TF2's live `CTFGameRules`, as `GameRules::get`
+		// checks the game, and they are only used on the main thread.
+		unsafe { is_holiday_active(self.as_non_null(), holiday.to_raw()) }
 	}
 
 	/// Whether the game is a matchmade competitive or casual match
