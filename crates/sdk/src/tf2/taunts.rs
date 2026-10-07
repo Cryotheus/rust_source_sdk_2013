@@ -1,5 +1,8 @@
 //! TF2's taunts: starting, stopping and reading a player's taunt, through
 //! the game's native script methods and the player's networked variables.
+//!
+//! [`TfPlayer::set_forced_taunt_cam`](crate::tf2::player::TfPlayer::set_forced_taunt_cam)
+//! forces a player's view into third person, as taunts do.
 
 #[cfg(test)]
 #[path = "../tests/tf2/taunts.rs"]
@@ -144,15 +147,6 @@ impl<'s> PlayerTaunts<'s> {
 	pub fn remove_time(self) -> Result<f32, EffectError> {
 		// SAFETY: As for `call`. The method reads a member.
 		Ok(unsafe { player_methods::call_float(self.player, c"GetTauntRemoveTime", &mut []) }?)
-	}
-
-	/// Keeps the player's camera in third person, as while taunting, or lets
-	/// it return (`m_nForceTauntCam`).
-	#[doc(alias("SetForcedTauntCam", "m_nForceTauntCam"))]
-	pub fn set_forced_third_person(self, forced: bool) -> Result<(), EffectError> {
-		// SAFETY: As for `call`. The method writes a member, which clients read
-		// as off or on.
-		unsafe { self.call(c"SetForcedTauntCam", &mut [int(c_int::from(forced))]) }
 	}
 
 	/// Sets how fast the player's taunt moves them, for a taunt that lets them

@@ -24,7 +24,6 @@ const METHODS: &[Method] = &[
 	Method::new(c"IsAllowedToTaunt", BOOL, &[]),
 	Method::new(c"IsTaunting", BOOL, &[]),
 	Method::new(c"SetCurrentTauntMoveSpeed", VOID, &[FLOAT]),
-	Method::new(c"SetForcedTauntCam", VOID, &[INT]),
 	Method::new(c"StopTaunt", VOID, &[BOOL]),
 	Method::new(c"Taunt", VOID, &[INT, INT]),
 ];
@@ -123,8 +122,6 @@ fn taunt_settings_and_reads_are_passed_on() {
 
 	assert!(fake.take_calls().is_empty());
 
-	taunts.set_forced_third_person(true).unwrap();
-	taunts.set_forced_third_person(false).unwrap();
 	taunts.set_move_speed(250.0).unwrap();
 	taunts.stop(true).unwrap();
 	taunts.cancel().unwrap();
@@ -135,8 +132,6 @@ fn taunt_settings_and_reads_are_passed_on() {
 	assert_eq!(
 		fake.take_calls(),
 		[
-			(c"SetForcedTauntCam", vec![Value::Int(1)]),
-			(c"SetForcedTauntCam", vec![Value::Int(0)]),
 			(c"SetCurrentTauntMoveSpeed", vec![Value::Float(250.0)]),
 			(c"StopTaunt", vec![Value::Bool(true)]),
 			(c"CancelTaunt", vec![]),
