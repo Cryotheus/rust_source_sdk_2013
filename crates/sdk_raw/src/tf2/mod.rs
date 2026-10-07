@@ -27,6 +27,7 @@ pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
 pub mod script_binding;
+pub mod scripts;
 pub mod spawn;
 pub mod teams;
 pub mod touch;
