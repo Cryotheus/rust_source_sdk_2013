@@ -8,6 +8,9 @@
 //! building: engineers' sentry guns, dispensers and teleporters, spies'
 //! sappers, and the dispensers of payload carts, Player Destruction and Robot
 //! Destruction. Each callback is told the building and its class.
+//! [`MetamodApi::hook_building_classes`] finds the classes in a snapshot of
+//! the module that other hooks share, such as
+//! [`ClassHooks`](crate::class_hooks::ClassHooks).
 //!
 //! # What runs them
 //!
@@ -69,7 +72,11 @@ use source_sdk_2013::raw::tf2::buildings::{
 	StartUpgradingFn as StartUpgrading,
 };
 
-use source_sdk_2013::tf2::buildings::{BuildingClass, BuildingVtableError, building_vtables};
+use source_sdk_2013::tf2::buildings::{
+	BuildingClass, BuildingVtableError, BuildingVtables, building_vtables,
+};
+
+use source_sdk_2013::tf2::class_targets::ClassTargets;
 use source_sdk_2013::tf2::damage::DamageInfo;
 use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
@@ -447,9 +454,10 @@ impl MetamodApi<'_> {
 	/// `binding` must describe the same running server as `server`. Finds every
 	/// building class in the game server module, which needs no level to be
 	/// loaded, and snapshots the module to do so: install once, such as while
-	/// loading. Before hooking, checks that their vtables are laid out as the
-	/// building classes' (see [`BuildingHookError::UnexpectedLayout`]), and a
-	/// refused hook rolls back the others. Installing again while any of the
+	/// loading. [`Self::hook_building_classes`] finds them in a snapshot other
+	/// hooks share. Before hooking, checks that their vtables are laid out as
+	/// the building classes' (see [`BuildingHookError::UnexpectedLayout`]), and
+	/// a refused hook rolls back the others. Installing again while any of the
 	/// hooks is installed returns [`HookError::AlreadyInstalled`] without
 	/// searching the module again; removing them allows replacement. Without
 	/// any callback, nothing is searched for or hooked.
@@ -481,6 +489,44 @@ impl MetamodApi<'_> {
 		binding: ServerBinding,
 		callbacks: BuildingCallbacks,
 	) -> Result<BuildingHooks, BuildingHookError> {
+		// SAFETY: As the caller promises.
+		unsafe { self.hook_found_buildings(binding, callbacks, || building_vtables(server)) }
+	}
+
+	/// As [`Self::hook_buildings`], with the building classes found in
+	/// `targets`, a snapshot of the game module that other hooks, such as
+	/// [`ClassHooks`](crate::class_hooks::ClassHooks), can share.
+	///
+	/// `targets` must come from the server `binding` describes. Installing again
+	/// while any of the hooks is installed returns [`HookError::AlreadyInstalled`]
+	/// without searching `targets`.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::hook_buildings`].
+	pub unsafe fn hook_building_classes(
+		self,
+		targets: &ClassTargets<'_>,
+		binding: ServerBinding,
+		callbacks: BuildingCallbacks,
+	) -> Result<BuildingHooks, BuildingHookError> {
+		// SAFETY: As the caller promises.
+		unsafe { self.hook_found_buildings(binding, callbacks, || BuildingVtables::find(targets)) }
+	}
+
+	/// Hooks the methods `callbacks` names a callback for through the vtables
+	/// `find` finds, unless the buildings are already hooked, or `callbacks`
+	/// names none.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::hook_buildings`], for the classes `find` finds.
+	unsafe fn hook_found_buildings<'s>(
+		self,
+		binding: ServerBinding,
+		callbacks: BuildingCallbacks,
+		find: impl FnOnce() -> Result<BuildingVtables<'s>, BuildingVtableError>,
+	) -> Result<BuildingHooks, BuildingHookError> {
 		if binding.game() != Game::TeamFortress2 {
 			return Err(BuildingVtableError::WrongGame.into());
 		}
@@ -502,7 +548,7 @@ impl MetamodApi<'_> {
 			});
 		}
 
-		let vtables = building_vtables(server)?;
+		let vtables = find()?;
 
 		// SAFETY: The caller promises that the classes found are TF2's
 		// buildings, whose vtables hold the methods at their slots. The game

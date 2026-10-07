@@ -1,5 +1,6 @@
 //! Gameplay attributes vetted against the item schema TF2 ships, for the safe
-//! setters of [`ItemAttributes`](super::ItemAttributes).
+//! setters of [`ItemAttributes`](super::ItemAttributes) and
+//! [`PlayerAttributes`](super::PlayerAttributes).
 //!
 //! Each definition was checked against `scripts/items/items_game.txt`: TF2's
 //! legacy default type (no `attribute_type`), stored as a float (no
@@ -12,11 +13,13 @@
 //! description format the shipped schema gives each attribute, which
 //! [`trust_shipped_schema`](super::trust_shipped_schema) has its caller vouch
 //! the running schema keeps. A "bonus" or "increased" multiplier only raises
-//! the hooked value, a "penalty", "decreased" or "reduced" one only lowers
-//! it, matching how the game describes them to clients. Timing and
+//! the hooked value, a "penalty", "decreased", "reduced" or "reduction" one
+//! only lowers it, as does a vulnerability multiplier the schema marks
+//! positive, matching how the game describes them to clients. Timing and
 //! ammunition multipliers stay above zero, and amounts within a few hundred
-//! points. Bounds apply to one item: the game combines the values of all the
-//! items providing to a player.
+//! points. Bounds apply to one item, or to a player's own attributes: the
+//! game combines the values of all the items providing to a player with the
+//! player's own.
 //!
 //! The game decides some effects only at certain moments. Movement speed
 //! applies after the owner switches weapons or gains or loses a condition,
@@ -36,6 +39,20 @@ pub const AIRBLAST_DISABLED: AttributeDef<Flag> = AttributeDef::new(
 	c"airblast disabled",
 	c"airblast_disabled",
 	DescriptionFormat::Additive,
+	0.0,
+	1.0,
+);
+
+/// `airblast vulnerability multiplier` (329,
+/// `airblast_vulnerability_multiplier`): scales the push the bearer takes from
+/// airblasts and other pushback, from 0 to 1. The game reads it on the player
+/// who is pushed.
+#[doc(alias("airblast vulnerability multiplier"))]
+pub const AIRBLAST_VULNERABILITY_MULTIPLIER: AttributeDef<Multiplier> = AttributeDef::new(
+	329,
+	c"airblast vulnerability multiplier",
+	c"airblast_vulnerability_multiplier",
+	DescriptionFormat::Percentage,
 	0.0,
 	1.0,
 );
@@ -134,6 +151,20 @@ pub const DAMAGE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	DescriptionFormat::Percentage,
 	1.0,
 	10.0,
+);
+
+/// `damage force reduction` (252, `damage_force_reduction`): scales the
+/// knockback the bearer takes from damage others deal, from 0 to 1. Pushes
+/// from the bearer's own damage, such as rocket jumps, are unaffected. The
+/// game reads it on the player who is damaged.
+#[doc(alias("damage force reduction"))]
+pub const DAMAGE_FORCE_REDUCTION: AttributeDef<Multiplier> = AttributeDef::new(
+	252,
+	c"damage force reduction",
+	c"damage_force_reduction",
+	DescriptionFormat::Percentage,
+	0.0,
+	1.0,
 );
 
 /// `damage penalty` (1, `mult_dmg`): scales the weapon's damage, from 0 to 1.
