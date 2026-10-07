@@ -23,6 +23,7 @@ pub mod game_rules;
 pub mod gc;
 pub mod host_timescale;
 pub mod item_schema;
+pub mod objectives;
 pub mod objects;
 pub mod observer;
 pub mod overlays;
