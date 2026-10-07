@@ -13,6 +13,7 @@ pub mod datamap;
 pub mod factory;
 pub mod flags;
 pub mod health;
+pub mod spawn;
 pub mod think;
 
 use crate::edicts::MAX_EDICT_BITS;
