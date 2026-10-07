@@ -3,12 +3,12 @@
 
 use super::*;
 use crate::Game;
-use crate::test_support::entities::{ReceivedInput, take_inputs};
+use crate::test_support::entities::take_inputs;
 use crate::test_support::server::{mock_server, null_server};
 
 use crate::test_support::tf2::objectives::{
-	FIELDS_OFFSET, FakeClass, FakeObjective, bool_prop, float_prop, input, int_prop, key_field,
-	register_name, take_key_values,
+	FIELDS_OFFSET, FakeClass, FakeObjective, bool_prop, expected, float_prop, input, int_prop,
+	key_field, received, register_name, take_key_values,
 };
 
 use std::ffi::CStr;
@@ -34,12 +34,6 @@ const TEAM_NUMBER: usize = FIELDS_OFFSET + 104;
 const TIME_REMAINING: usize = FIELDS_OFFSET + 4;
 const TOTAL_TIME: usize = FIELDS_OFFSET + 40;
 const WIN_REASON: usize = FIELDS_OFFSET + 100;
-
-/// The `int` an input received.
-fn int_value(input: &ReceivedInput) -> c_int {
-	assert_eq!(input.field_type, sys::_fieldtypes_FIELD_INTEGER);
-	c_int::from_ne_bytes(input.payload[..4].try_into().unwrap())
-}
 
 #[test]
 fn koth_logic_sets_each_teams_timer_and_finds_it() {
@@ -92,17 +86,15 @@ fn koth_logic_sets_each_teams_timer_and_finds_it() {
 	logic.add_timer(ScoringTeam::Red, 5).unwrap();
 	logic.add_timer(ScoringTeam::Blue, -5).unwrap();
 
-	let expected: Vec<(CString, c_int)> = [
-		(c"SetRedTimer", 90),
-		(c"SetBlueTimer", 80),
-		(c"AddRedTimer", 5),
-		(c"AddBlueTimer", -5),
-	]
-	.into_iter()
-	.map(|(name, value)| (name.to_owned(), value))
-	.collect();
-
-	assert_eq!(received(), expected);
+	assert_eq!(
+		received(),
+		expected(&[
+			(c"SetRedTimer", 90),
+			(c"SetBlueTimer", 80),
+			(c"AddRedTimer", 5),
+			(c"AddBlueTimer", -5),
+		])
+	);
 
 	// The timers are found by the names the logic gives them.
 	assert!(logic.timer(ScoringTeam::Red).unwrap().is_none());
@@ -147,22 +139,6 @@ fn objectives_need_their_class_in_tf2() {
 			crate::inputs::InputError::MarkedForDeletion
 		))
 	));
-}
-
-/// The name of each input received, and its integer, or 0 for another type.
-fn received() -> Vec<(CString, c_int)> {
-	take_inputs()
-		.iter()
-		.map(|input| {
-			let value = if input.field_type == sys::_fieldtypes_FIELD_INTEGER {
-				int_value(input)
-			} else {
-				0
-			};
-
-			(input.name.clone(), value)
-		})
-		.collect()
 }
 
 #[test]
@@ -229,12 +205,10 @@ fn round_wins_read_and_set_their_win() {
 	win.set_team(None).unwrap();
 	win.win().unwrap();
 
-	let expected: Vec<(CString, c_int)> = [(c"SetTeam", 3), (c"SetTeam", 0), (c"RoundWin", 0)]
-		.into_iter()
-		.map(|(name, value)| (name.to_owned(), value))
-		.collect();
-
-	assert_eq!(received(), expected);
+	assert_eq!(
+		received(),
+		expected(&[(c"SetTeam", 3), (c"SetTeam", 0), (c"RoundWin", 0)])
+	);
 
 	win.set_win_reason(WinReason::PlayerDestructionPoints)
 		.unwrap();
@@ -370,26 +344,24 @@ fn timers_are_controlled_through_their_inputs() {
 	timer.set_announces_countdown(false).unwrap();
 	timer.set_setup_length(45).unwrap();
 
-	let expected: Vec<(CString, c_int)> = [
-		(c"Enable", 0),
-		(c"Disable", 0),
-		(c"Pause", 0),
-		(c"Resume", 0),
-		(c"Restart", 0),
-		(c"SetTime", 120),
-		(c"AddTime", -30),
-		(c"ShowInHUD", 1),
-		(c"SetMaxTime", 600),
-		(c"SetMaxTime", 0),
-		(c"SetMaxTime", 0),
-		(c"AutoCountdown", 0),
-		(c"SetSetupTime", 45),
-	]
-	.into_iter()
-	.map(|(name, value)| (name.to_owned(), value))
-	.collect();
-
-	assert_eq!(received(), expected);
+	assert_eq!(
+		received(),
+		expected(&[
+			(c"Enable", 0),
+			(c"Disable", 0),
+			(c"Pause", 0),
+			(c"Resume", 0),
+			(c"Restart", 0),
+			(c"SetTime", 120),
+			(c"AddTime", -30),
+			(c"ShowInHUD", 1),
+			(c"SetMaxTime", 600),
+			(c"SetMaxTime", 0),
+			(c"SetMaxTime", 0),
+			(c"AutoCountdown", 0),
+			(c"SetSetupTime", 45),
+		])
+	);
 
 	// The team and the seconds are sent as one string, which is pooled.
 	timer.add_team_time(ScoringTeam::Blue, -20).unwrap();

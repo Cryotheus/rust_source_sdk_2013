@@ -2,10 +2,12 @@
 //! data description fields, inputs and networked variables a test gives it,
 //! and the mock interfaces its wrappers reach.
 
-use super::super::datatables::{int8_proxy, int32_proxy, prop, table, vector_proxy};
+use super::super::datatables::{
+	direct_table, int8_proxy, int32_proxy, prop, table, table_prop, vector_proxy,
+};
 
 use super::super::entities::{
-	MOCK_NAME_OFFSET, MockEntity, base_entity_fields, set_datamap, set_networking,
+	MOCK_NAME_OFFSET, MockEntity, base_entity_fields, set_datamap, set_networking, take_inputs,
 };
 
 use super::super::interfaces::player_info_manager::{global_vars, serve_global_vars};
@@ -37,6 +39,13 @@ thread_local! {
 
 	/// The entities `FindEntityByName` finds, in order, with their names.
 	static NAMED: RefCell<Vec<(*mut sys::CBaseEntity, CString)>> = const { RefCell::new(Vec::new()) };
+
+	/// The entities `FindEntityByClassname` finds, in order, with their class
+	/// names.
+	static CLASS_NAMES: RefCell<Vec<(*mut sys::CBaseEntity, CString)>> = const { RefCell::new(Vec::new()) };
+
+	/// The networked objective, at index 5, or null.
+	static NETWORKED: Cell<*mut sys::CBaseEntity> = const { Cell::new(null_mut()) };
 
 	/// Strings pooled into the world's name.
 	static POOL: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
@@ -85,6 +94,10 @@ impl FakeObjective {
 	/// standard send proxies, and a mock `IPlayerInfoManager` with zeroed
 	/// globals. Strings sent to its inputs are pooled into the world's name,
 	/// and other key values are recorded for [`take_key_values`].
+	///
+	/// The tools find the world at index 0 and a networked objective at its
+	/// index, 5. Each array property of the send table is linked to the
+	/// element property before it, as [`array_props`] lays them out.
 	pub fn new(class: FakeClass) -> Self {
 		let mut world = MockEntity::new(0);
 		let mut mock = MockEntity::with_layout(5 | 1 << 16, Layout::new::<[usize; 512]>());
@@ -104,6 +117,17 @@ impl FakeObjective {
 		let edict = match class.table {
 			Some((name, props)) => {
 				let props = props.leak();
+
+				for index in 1..props.len() {
+					if props[index].m_Type == sys::SendPropType_DPT_Array
+						&& props[index].m_pArrayProp.is_null()
+					{
+						let element = &raw mut props[index - 1];
+
+						props[index].m_pArrayProp = element;
+					}
+				}
+
 				let class = leak(sys::ServerClass {
 					m_pNetworkName: name.as_ptr(),
 					m_pTable: leak(table(name, props)),
@@ -114,14 +138,19 @@ impl FakeObjective {
 				let edict = leak(mock_edict(5, false));
 
 				set_networking(class, edict);
+				NETWORKED.set(address);
 				edict
 			}
 
-			None => null_mut(),
+			None => {
+				NETWORKED.set(null_mut());
+				null_mut()
+			}
 		};
 
 		WORLD.set(world.as_ptr());
 		NAMED.take();
+		CLASS_NAMES.take();
 		KEY_VALUES.take();
 		export_tools();
 		export_standard_proxies();
@@ -219,10 +248,29 @@ impl FakeObjective {
 		self.write(offset, value);
 	}
 
+	/// Writes `value` as the `string_t` at `offset` into the objective.
+	pub fn set_string(&mut self, offset: usize, value: &'static CStr) {
+		self.write(
+			offset,
+			sys::string_t {
+				pszValue: value.as_ptr(),
+			},
+		);
+	}
+
 	/// Sets the game time.
 	pub fn set_time(&mut self, time: f32) {
 		// SAFETY: The globals are leaked, and only this thread uses them.
 		unsafe { (&raw mut (*self.globals)._base.curtime).write(time) };
+	}
+
+	/// A handle to the world, which the leaked mock outlives.
+	#[cfg(test)]
+	pub(crate) fn world_entity(&self) -> crate::entities::Entity<'static> {
+		let world = std::ptr::NonNull::new(WORLD.get()).unwrap();
+
+		// SAFETY: As for `entity`.
+		unsafe { crate::entities::Entity::from_raw(world) }
 	}
 
 	/// Writes `value` at `offset` into the objective.
@@ -237,6 +285,73 @@ impl FakeObjective {
 		// SAFETY: As for `read`.
 		unsafe { self.mock.as_ptr().byte_add(offset).cast::<T>().write(value) };
 	}
+}
+
+/// A field of `count` elements of `field_type`, each `size` bytes, at
+/// `offset`, as `DEFINE_ARRAY` declares one.
+pub fn array_field(
+	name: &'static CStr,
+	field_type: sys::fieldtype_t,
+	offset: usize,
+	count: usize,
+	size: usize,
+) -> sys::typedescription_t {
+	let mut field = data_field(name, field_type, offset, count * size);
+
+	field.fieldSize = u16::try_from(count).unwrap();
+	field
+}
+
+/// A networked array as `SendPropArray` declares one: the element property
+/// `element` builds at `offset`, followed by the array of `count` elements
+/// `stride` bytes apart, which [`FakeObjective::new`] links to it.
+pub fn array_props(
+	name: &'static CStr,
+	offset: usize,
+	count: usize,
+	stride: usize,
+	element: fn(&'static CStr, usize) -> sys::SendProp,
+) -> [sys::SendProp; 2] {
+	let mut element = element(name, offset);
+	let mut array = prop(
+		name,
+		sys::SendPropType_DPT_Array,
+		c_int::try_from(offset).unwrap(),
+		PropFlags::default(),
+		None,
+	);
+
+	element.m_Flags |= PropFlags::INSIDE_ARRAY.bits();
+	array.m_nElements = c_int::try_from(count).unwrap();
+	array.m_ElementStride = c_int::try_from(stride).unwrap();
+	[element, array]
+}
+
+/// A networked array as `SendPropArray3` declares one: a table of `count`
+/// properties `element` builds `stride` bytes apart from `offset`, named
+/// `000`, `001` and so on, nested through a proxy that passes the data
+/// through, as `SendProxy_DataTableToDataTable` does.
+pub fn array3_prop(
+	name: &'static CStr,
+	offset: usize,
+	count: usize,
+	stride: usize,
+	element: fn(&'static CStr, usize) -> sys::SendProp,
+) -> sys::SendProp {
+	let props: Vec<sys::SendProp> = (0..count)
+		.map(|index| {
+			let name = CString::new(format!("{index:03}")).unwrap();
+
+			element(Box::leak(name.into_boxed_c_str()), index * stride)
+		})
+		.collect();
+
+	table_prop(
+		name,
+		c_int::try_from(offset).unwrap(),
+		leak(table(name, props.leak())),
+		Some(direct_table),
+	)
 }
 
 /// A networked `bool`, as `SendPropBool` declares one: an unsigned integer
@@ -265,17 +380,30 @@ pub fn data_field(
 	field
 }
 
-/// `IServerTools::GetBaseEntityByEntIndex`, which finds only the world, at
-/// index 0.
+/// `IServerTools::GetBaseEntityByEntIndex`, which finds the world at index
+/// 0 and the networked objective at index 5.
 unsafe extern "C" fn entity_by_index(
 	_: *mut sys::IServerTools,
 	index: c_int,
 ) -> *mut sys::CBaseEntity {
-	if index == 0 { WORLD.get() } else { null_mut() }
+	match index {
+		0 => WORLD.get(),
+		5 => NETWORKED.get(),
+		_ => null_mut(),
+	}
 }
 
-/// Exports a mock `IServerTools`, which finds the world at index 0, finds
-/// [registered](register_name) names, and sets key values with
+/// `inputs` with owned names, as [`received`] gives them.
+pub fn expected(inputs: &[(&CStr, c_int)]) -> Vec<(CString, c_int)> {
+	inputs
+		.iter()
+		.map(|(name, value)| ((*name).to_owned(), *value))
+		.collect()
+}
+
+/// Exports a mock `IServerTools`, which finds the world at index 0 and the
+/// networked objective at index 5, finds [registered](register_name) names
+/// and [class names](register_class_name), and sets key values with
 /// [`set_key_value`].
 fn export_tools() {
 	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
@@ -286,6 +414,7 @@ fn export_tools() {
 			(&raw mut (*vtable).IServerTools_GetBaseEntityByEntIndex).write(entity_by_index);
 			(&raw mut (*vtable).IServerTools_SetKeyValue).write(set_key_value);
 			(&raw mut (*vtable).IServerTools_FindEntityByName).write(find_by_name);
+			(&raw mut (*vtable).IServerTools_FindEntityByClassname).write(find_by_class_name);
 		})
 	});
 
@@ -294,6 +423,38 @@ fn export_tools() {
 		ServerTools::VERSION,
 		leak(sys::IServerTools { vtable_: vtable }),
 	);
+}
+
+/// The first entity of `named` after `after`, or from the start for null,
+/// whose name is `name`, ignoring ASCII case, or null if there is none.
+fn find_after(
+	named: &[(*mut sys::CBaseEntity, CString)],
+	after: *mut sys::CBaseEntity,
+	name: &CStr,
+) -> *mut sys::CBaseEntity {
+	let start = named
+		.iter()
+		.position(|(entity, _)| *entity == after)
+		.map_or(0, |index| index + 1);
+
+	named[start.min(named.len())..]
+		.iter()
+		.find(|(_, entity_name)| entity_name.to_bytes().eq_ignore_ascii_case(name.to_bytes()))
+		.map_or(null_mut(), |(entity, _)| *entity)
+}
+
+/// `IServerTools::FindEntityByClassname`, which finds the entities
+/// [`register_class_name`] registered, in order, comparing names ignoring
+/// ASCII case.
+unsafe extern "C" fn find_by_class_name(
+	_: *mut sys::IServerTools,
+	after: *mut sys::CBaseEntity,
+	name: *const c_char,
+) -> *mut sys::CBaseEntity {
+	// SAFETY: The wrappers pass a NUL-terminated name.
+	let name = unsafe { CStr::from_ptr(name) };
+
+	CLASS_NAMES.with_borrow(|named| find_after(named, after, name))
 }
 
 /// `IServerTools::FindEntityByName`, which finds the entities
@@ -309,19 +470,9 @@ unsafe extern "C" fn find_by_name(
 	_: *mut sys::IEntityFindFilter,
 ) -> *mut sys::CBaseEntity {
 	// SAFETY: The wrappers pass a NUL-terminated name.
-	let name = unsafe { CStr::from_ptr(name) }.to_bytes();
+	let name = unsafe { CStr::from_ptr(name) };
 
-	NAMED.with_borrow(|named| {
-		let start = named
-			.iter()
-			.position(|(entity, _)| *entity == after)
-			.map_or(0, |index| index + 1);
-
-		named[start.min(named.len())..]
-			.iter()
-			.find(|(_, entity_name)| entity_name.to_bytes().eq_ignore_ascii_case(name))
-			.map_or(null_mut(), |(entity, _)| *entity)
-	})
+	NAMED.with_borrow(|named| find_after(named, after, name))
 }
 
 /// A networked `float`, stored as one.
@@ -371,6 +522,29 @@ pub fn key_field(
 	field.externalName = key.as_ptr();
 	field.flags = FTYPEDESC_KEY;
 	field
+}
+
+/// The name of each input received since the last call, with its integer, or
+/// 0 for an input of another type.
+pub fn received() -> Vec<(CString, c_int)> {
+	take_inputs()
+		.iter()
+		.map(|input| {
+			let value = if input.field_type == sys::_fieldtypes_FIELD_INTEGER {
+				c_int::from_ne_bytes(input.payload[..4].try_into().unwrap())
+			} else {
+				0
+			};
+
+			(input.name.clone(), value)
+		})
+		.collect()
+}
+
+/// Makes the mock `FindEntityByClassname` find `entity` by `class_name`,
+/// after the entities registered before it.
+pub fn register_class_name(entity: *mut sys::CBaseEntity, class_name: &CStr) {
+	CLASS_NAMES.with_borrow_mut(|named| named.push((entity, class_name.to_owned())));
 }
 
 /// Makes the mock `FindEntityByName` find `entity` by `name`, after the

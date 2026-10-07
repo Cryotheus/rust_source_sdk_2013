@@ -81,19 +81,7 @@ impl<'s> KothLogic<'s> {
 			ScoringTeam::Blue => raw::KOTH_BLUE_TIMER_NAME,
 		};
 
-		let server = self.0.server();
-		let tools = server.server_tools()?;
-		let mut found = tools.find_by_name(None, name);
-
-		while let Some(entity) = found {
-			if let Ok(timer) = RoundTimer::new(server, entity) {
-				return Ok(Some(timer));
-			}
-
-			found = tools.find_by_name(Some(entity), name);
-		}
-
-		Ok(None)
+		super::find_by_name(self.0.server(), name, RoundTimer::new)
 	}
 
 	/// The seconds after the round starts that the point unlocks, or 0 if it

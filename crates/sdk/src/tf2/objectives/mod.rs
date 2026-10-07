@@ -10,18 +10,29 @@
 //! returning, so the change is in effect when the method returns, as far as
 //! the handler makes it: handlers ignore some inputs in some states, as each
 //! method documents. The wrapper is both the activator and the caller of
-//! the inputs it sends.
+//! the inputs it sends, unless a method takes them.
 //!
 //! - Rounds: [`RoundTimer`] (`team_round_timer`), [`KothLogic`]
 //!   (`tf_logic_koth`), whose timers are round timers too, and [`RoundWin`]
 //!   (`game_round_win`).
+//! - Control points: [`ControlPoint`] (`team_control_point`), the
+//!   [`CaptureArea`] (`trigger_capture_area`) players capture it in, the
+//!   [`ControlPointMaster`] (`team_control_point_master`) that wins rounds
+//!   with the points, its mini-rounds, [`ControlPointRound`]
+//!   (`team_control_point_round`), and the [`ObjectiveResource`]
+//!   (`tf_objective_resource`) that networks the points' state.
 //!
 //! Map logic, other plugins and the game's own code send the same inputs
 //! and change the same variables, so what a wrapper reads can change after
-//! any call into the game.
+//! any call into the game. A round reset that resets the map, as most do,
+//! removes the map's objective entities and spawns them again from the map,
+//! so what a wrapper changes lasts until then.
 //!
 //! [`ServerTools::accept_input`]: crate::interfaces::ServerTools::accept_input
 
+mod capture_area;
+mod control_points;
+mod objective_resource;
 mod round_timer;
 
 use crate::datatables::{NetProp, NetPropError, NetVar, Storage};
@@ -30,6 +41,9 @@ use crate::inputs::{InputError, InputValue};
 use crate::{Game, InterfaceError, Server};
 use std::ffi::{CStr, CString, c_int};
 
+pub use capture_area::CaptureArea;
+pub use control_points::{CaptureWins, ControlPoint, ControlPointMaster, ControlPointRound};
+pub use objective_resource::ObjectiveResource;
 pub use round_timer::{KothLogic, RoundTimer, RoundTimerOutput, RoundWin, TimerState, WinReason};
 
 /// An entity of one of the objective classes, which the wrappers read and
@@ -63,7 +77,7 @@ impl<'s> Objective<'s> {
 		class: &'static CStr,
 		field: &'static CStr,
 	) -> Result<bool, ObjectiveError> {
-		let offset = self.field_offset(class, field, &[sys::_fieldtypes_FIELD_BOOLEAN], 1)?;
+		let offset = self.field_offset(class, field, &[sys::_fieldtypes_FIELD_BOOLEAN], 1, 0)?;
 
 		// SAFETY: `field_offset` found a `bool` field of the class at the offset,
 		// in the live entity, which is read without forming a reference, as the
@@ -90,20 +104,27 @@ impl<'s> Objective<'s> {
 			.ok_or(ObjectiveError::NoGlobals)
 	}
 
+	/// Reads element `index` of the networked array `name`.
+	pub(crate) fn element<T: NetVar>(self, name: &CStr, index: usize) -> Result<T, ObjectiveError> {
+		Ok(self.net_prop(name)?.element(index)?.get(self.entity)?)
+	}
+
 	/// The entity.
 	pub(crate) const fn entity(self) -> Entity<'s> {
 		self.entity
 	}
 
-	/// The offset of the field named `field` of one of `types` that `class`'s
-	/// own data description declares, aligned to `align` and within the 64
-	/// KiB the game's entities fit in.
+	/// The offset of element `index` of the field named `field`, of one of
+	/// `types`, that `class`'s own data description declares with elements of
+	/// `size` bytes, aligned to `size` and within the 64 KiB the game's
+	/// entities fit in. A field that is not an array has one element.
 	fn field_offset(
 		self,
 		class: &'static CStr,
 		field: &'static CStr,
 		types: &[sys::fieldtype_t],
-		align: usize,
+		size: usize,
+		index: usize,
 	) -> Result<usize, ObjectiveError> {
 		self.check_live()?;
 
@@ -111,17 +132,53 @@ impl<'s> Objective<'s> {
 			.data_maps()
 			.find(|map| map.class_name() == Some(class))
 			.and_then(|map| {
-				types
-					.iter()
-					.find_map(|&field_type| map.field_offset(field, field_type))
+				map.fields().iter().find(|declared| {
+					declared.name() == Some(field) && types.contains(&declared.fieldType)
+				})
 			})
-			.filter(|offset| *offset < 65_536 && offset.is_multiple_of(align))
+			.filter(|declared| {
+				let count = usize::from(declared.fieldSize);
+
+				index < count
+					&& usize::try_from(declared.fieldSizeInBytes).ok() == size.checked_mul(count)
+			})
+			.and_then(|declared| declared.offset()?.checked_add(index.checked_mul(size)?))
+			.filter(|offset| {
+				offset.is_multiple_of(size)
+					&& offset.checked_add(size).is_some_and(|end| end <= 65_536)
+			})
 			.ok_or(ObjectiveError::UnsupportedLayout { class, field })
 	}
 
 	/// Reads the networked boolean `name`, stored as a `bool` or an `int`.
 	pub(crate) fn flag(self, name: &CStr) -> Result<bool, ObjectiveError> {
 		Ok(flag(self.net_prop(name)?, self.entity)?)
+	}
+
+	/// Reads element `index` of the networked array of booleans `name`, stored
+	/// as `bool`s or `int`s.
+	pub(crate) fn flag_element(self, name: &CStr, index: usize) -> Result<bool, ObjectiveError> {
+		Ok(flag(self.net_prop(name)?.element(index)?, self.entity)?)
+	}
+
+	/// Reads element `index` of a float array of `class`'s own data
+	/// description, as [`Self::float_field`] reads a float.
+	pub(crate) fn float_element(
+		self,
+		class: &'static CStr,
+		field: &'static CStr,
+		index: usize,
+	) -> Result<f32, ObjectiveError> {
+		let offset = self.field_offset(
+			class,
+			field,
+			&[sys::_fieldtypes_FIELD_FLOAT, sys::_fieldtypes_FIELD_TIME],
+			size_of::<f32>(),
+			index,
+		)?;
+
+		// SAFETY: As for `bool_field`, for a `float` field.
+		Ok(unsafe { self.entity.as_ptr().byte_add(offset).cast::<f32>().read() })
 	}
 
 	/// Reads a float field of `class`'s own data description, declared as a
@@ -131,15 +188,7 @@ impl<'s> Objective<'s> {
 		class: &'static CStr,
 		field: &'static CStr,
 	) -> Result<f32, ObjectiveError> {
-		let offset = self.field_offset(
-			class,
-			field,
-			&[sys::_fieldtypes_FIELD_FLOAT, sys::_fieldtypes_FIELD_TIME],
-			align_of::<f32>(),
-		)?;
-
-		// SAFETY: As for `bool_field`, for a `float` field.
-		Ok(unsafe { self.entity.as_ptr().byte_add(offset).cast::<f32>().read() })
+		self.float_element(class, field, 0)
 	}
 
 	/// Reads the networked variable `name`.
@@ -150,9 +199,20 @@ impl<'s> Objective<'s> {
 	/// Sends the input `name` with `value`, with the entity as its activator
 	/// and caller.
 	pub(crate) fn input(self, name: &CStr, value: InputValue<'_>) -> Result<(), ObjectiveError> {
+		self.input_from(name, value, self.entity, self.entity)
+	}
+
+	/// Sends the input `name` with `value`, from `activator` and `caller`.
+	pub(crate) fn input_from(
+		self,
+		name: &CStr,
+		value: InputValue<'_>,
+		activator: Entity<'_>,
+		caller: Entity<'_>,
+	) -> Result<(), ObjectiveError> {
 		let tools = self.server.server_tools()?;
 
-		Ok(tools.accept_input(self.entity, name, value, self.entity, self.entity)?)
+		Ok(tools.accept_input(self.entity, name, value, activator, caller)?)
 	}
 
 	/// Reads an integer field of `class`'s own data description.
@@ -165,7 +225,8 @@ impl<'s> Objective<'s> {
 			class,
 			field,
 			&[sys::_fieldtypes_FIELD_INTEGER],
-			align_of::<c_int>(),
+			size_of::<c_int>(),
+			0,
 		)?;
 
 		// SAFETY: As for `bool_field`, for an `int` field.
@@ -215,6 +276,18 @@ impl<'s> Objective<'s> {
 		} else {
 			Err(ObjectiveError::KeyValueRejected { key })
 		}
+	}
+
+	/// The text of the string key value `key`, which `class`'s own data
+	/// description declares, or [`ObjectiveError::UnsupportedLayout`] if the
+	/// entity has no such key.
+	pub(crate) fn string_key(
+		self,
+		class: &'static CStr,
+		key: &'static CStr,
+	) -> Result<CString, ObjectiveError> {
+		self.key_value(key)?
+			.ok_or(ObjectiveError::UnsupportedLayout { class, field: key })
 	}
 }
 
@@ -288,6 +361,54 @@ pub enum ObjectiveError {
 		/// The expected entity, by its class name in maps.
 		expected: &'static str,
 	},
+}
+
+/// The first entity of the class `class_name` in the entity list that `wrap`
+/// accepts, or `None` if there is none. Entities marked for deletion, which
+/// the wrappers neither read nor send inputs to, are skipped.
+pub(crate) fn find_by_class<'s, T>(
+	server: Server<'s>,
+	class_name: &CStr,
+	wrap: impl Fn(Server<'s>, Entity<'s>) -> Result<T, ObjectiveError>,
+) -> Result<Option<T>, ObjectiveError> {
+	let tools = server.server_tools()?;
+	let mut found = tools.find_by_class_name(None, class_name);
+
+	while let Some(entity) = found {
+		if !entity.is_marked_for_deletion()
+			&& let Ok(wrapped) = wrap(server, entity)
+		{
+			return Ok(Some(wrapped));
+		}
+
+		found = tools.find_by_class_name(Some(entity), class_name);
+	}
+
+	Ok(None)
+}
+
+/// The first entity named `name` in the entity list that `wrap` accepts, or
+/// `None` if there is none, skipping those marked for deletion as
+/// [`find_by_class`] does.
+pub(crate) fn find_by_name<'s, T>(
+	server: Server<'s>,
+	name: &CStr,
+	wrap: impl Fn(Server<'s>, Entity<'s>) -> Result<T, ObjectiveError>,
+) -> Result<Option<T>, ObjectiveError> {
+	let tools = server.server_tools()?;
+	let mut found = tools.find_by_name(None, name);
+
+	while let Some(entity) = found {
+		if !entity.is_marked_for_deletion()
+			&& let Ok(wrapped) = wrap(server, entity)
+		{
+			return Ok(Some(wrapped));
+		}
+
+		found = tools.find_by_name(Some(entity), name);
+	}
+
+	Ok(None)
 }
 
 /// Reads a networked boolean of `entity`, which the game declares as a `bool`
