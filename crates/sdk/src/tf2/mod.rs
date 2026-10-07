@@ -33,6 +33,7 @@ pub mod script_instances;
 pub mod scripts;
 pub mod sound;
 pub mod spawn;
+pub mod taunts;
 pub mod teams;
 pub mod touch;
 pub mod user_messages;
