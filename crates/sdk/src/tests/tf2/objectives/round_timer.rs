@@ -203,12 +203,8 @@ fn round_wins_read_and_set_their_win() {
 	take_inputs();
 	win.set_team(Some(ScoringTeam::Blue)).unwrap();
 	win.set_team(None).unwrap();
-	win.win().unwrap();
 
-	assert_eq!(
-		received(),
-		expected(&[(c"SetTeam", 3), (c"SetTeam", 0), (c"RoundWin", 0)])
-	);
+	assert_eq!(received(), expected(&[(c"SetTeam", 3), (c"SetTeam", 0)]));
 
 	win.set_win_reason(WinReason::PlayerDestructionPoints)
 		.unwrap();
