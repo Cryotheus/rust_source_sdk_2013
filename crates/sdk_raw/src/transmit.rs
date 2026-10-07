@@ -35,7 +35,7 @@ mod tests;
 
 use crate::edicts::MAX_EDICTS;
 use crate::entities::SPAWN_SLOT;
-use crate::vtable_slot;
+use crate::{vcall, vtable_slot};
 use std::ffi::c_int;
 
 /// The signature of `CBaseEntity::SetTransmit`,
@@ -128,4 +128,26 @@ pub unsafe fn has_edict_bit(bits: *const u8, index: c_int) -> bool {
 	let word = unsafe { bits.cast::<u32>().add(index / 32).read() };
 
 	word & (1 << (index % 32)) != 0
+}
+
+/// Calls `CBaseEntity::UpdateTransmitState`, through which the entity gives
+/// its edict the transmit flags its state calls for, and returns the edict's
+/// flags.
+///
+/// The game calls it through `CBaseEntity::DispatchUpdateTransmitState`,
+/// which skips it while another entity owns the entity's transmit state
+/// (`m_nTransmitStateOwnedCounter`), as a character does its weapons'.
+///
+/// # Safety
+///
+/// `entity` must point to a live `CBaseEntity` of the loaded game DLL, whose
+/// transmit state no other entity owns, and the call must be made on the
+/// server's main thread, outside of the engine's snapshots.
+#[doc(alias("UpdateTransmitState"))]
+pub unsafe fn update_transmit_state(entity: *mut sys::CBaseEntity) -> c_int {
+	// SAFETY: The entity is live, and every game DLL's vtable has
+	// `UpdateTransmitState` where the generated one does, as asserted above.
+	unsafe {
+		vcall!(entity as sys::CBaseEntity__bindgen_vtable => CBaseEntity_UpdateTransmitState())
+	}
 }
