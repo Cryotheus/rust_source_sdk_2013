@@ -39,6 +39,7 @@ mod tests;
 use crate::datatables::NetPropError;
 use crate::entities::Entity;
 use crate::entities::health::HealthError;
+use crate::entities::spawn::{EntitySpawn, SpawnError};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
 use crate::math::Vector;
@@ -86,27 +87,10 @@ pub enum BossError {
 
 	/// A `base_boss` model given is not precached. Precaching it while the
 	/// level runs could overflow the engine's model table, so it must be
-	/// precached already, as the level's own models are.
+	/// precached already, as the level's own models are, or with
+	/// [`Server::precache_model`] while the level loads.
 	#[error("the model is not precached")]
 	ModelNotPrecached,
-
-	/// The game created no entity of the class.
-	#[error("the game could not create a {class:?}")]
-	NotCreated {
-		/// The class name.
-		class: &'static CStr,
-	},
-
-	/// The new entity refused a key value. It was removed.
-	#[error("the entity refused the key value {key:?}")]
-	KeyValueRejected {
-		/// The key.
-		key: &'static CStr,
-	},
-
-	/// The entity marked itself for deletion as it spawned.
-	#[error("the entity removed itself as it spawned")]
-	SpawnFailed,
 
 	/// The script class descriptors lack a native method, or its signature
 	/// differs from the SDK's.
@@ -132,6 +116,11 @@ pub enum BossError {
 	/// A networked variable could not be read or written.
 	#[error(transparent)]
 	NetProp(#[from] NetPropError),
+
+	/// The game created no entity of the class, the entity refused a key
+	/// value and was removed, or it removed itself as it spawned.
+	#[error(transparent)]
+	Spawn(#[from] SpawnError),
 }
 
 impl From<BindingError> for BossError {
@@ -191,34 +180,24 @@ impl<'s> BaseBoss<'s> {
 			return Err(BossError::ModelNotPrecached);
 		}
 
-		let tools = server.server_tools()?;
-
-		// SAFETY: `CTFBaseBoss`'s constructor only sets its members and makes
-		// its NextBot components (`game/server/tf/player_vs_environment`).
-		let entity = unsafe { create(tools, raw::BASE_BOSS) }?;
-		let health = number_value(spawn.health);
-		let team = number_value(spawn.team.to_raw());
-
-		let mut keys = vec![
-			(c"origin", vector_value(spawn.origin)),
-			(c"model", spawn.model.to_owned()),
-			(c"health", health),
-			(c"teamnumber", team),
-			(c"start_disabled", flag_value(spawn.start_disabled)),
-		];
+		let mut boss = EntitySpawn::new(raw::BASE_BOSS)
+			.origin(spawn.origin)
+			.model(spawn.model)
+			.key(c"health", &number_value(spawn.health))
+			.key(c"teamnumber", &number_value(spawn.team.to_raw()))
+			.key(c"start_disabled", flag_value(spawn.start_disabled));
 
 		if let Some(speed) = spawn.speed {
-			keys.push((c"speed", number_value(speed)));
+			boss = boss.key(c"speed", &number_value(speed));
 		}
 
-		for (key, value) in &keys {
-			set_key(tools, entity, key, value)?;
-		}
-
-		// SAFETY: Its `Spawn` precaches its model, which the check above found
-		// precached, sets its model and health, adds it to the game rules'
-		// bosses, and starts it thinking.
-		unsafe { spawn_entity(tools, entity) }?;
+		// SAFETY: `CTFBaseBoss`'s constructor only sets its members and makes
+		// its NextBot components (`game/server/tf/player_vs_environment`). Its
+		// `Spawn` precaches its model, which the check above found precached,
+		// sets its model and health, adds it to the game rules' bosses, and
+		// starts it thinking. Its `Activate` is `CBaseAnimating`'s, which only
+		// finds entities by name.
+		let entity = unsafe { boss.spawn(server.server_tools()?) }?;
 
 		Ok(Self { server, entity })
 	}
@@ -596,12 +575,6 @@ impl<'s> SkeletonSpawner<'s> {
 			return Err(BossError::NonFinite);
 		}
 
-		let tools = server.server_tools()?;
-
-		// SAFETY: `CZombieSpawner`'s constructor only sets its members
-		// (`game/server/tf/halloween/zombie/zombie_spawner.cpp`).
-		let entity = unsafe { create(tools, raw::TF_ZOMBIE_SPAWNER) }?;
-
 		// The spawner gives its skeletons the Halloween team for any team
 		// other than RED and BLU.
 		let team = match spawn.team {
@@ -610,25 +583,22 @@ impl<'s> SkeletonSpawner<'s> {
 			BossTeam::Halloween => TEAM_UNASSIGNED,
 		};
 
-		let keys = [
-			(c"origin", vector_value(origin)),
-			(c"teamnumber", number_value(team)),
-			(c"zombie_type", number_value(spawn.kind.to_raw())),
-			(c"max_zombies", number_value(spawn.count)),
-			(c"infinite_zombies", flag_value(spawn.infinite)),
-			(
+		let spawner = EntitySpawn::new(raw::TF_ZOMBIE_SPAWNER)
+			.origin(origin)
+			.key(c"teamnumber", &number_value(team))
+			.key(c"zombie_type", &number_value(spawn.kind.to_raw()))
+			.key(c"max_zombies", &number_value(spawn.count))
+			.key(c"infinite_zombies", flag_value(spawn.infinite))
+			.key(
 				c"zombie_lifetime",
-				number_value(spawn.lifetime.unwrap_or(0.0)),
-			),
-		];
+				&number_value(spawn.lifetime.unwrap_or(0.0)),
+			);
 
-		for (key, value) in &keys {
-			set_key(tools, entity, key, value)?;
-		}
-
-		// SAFETY: Its `Spawn` only starts it thinking. It spawns skeletons from
-		// its thinks, while enabled.
-		unsafe { spawn_entity(tools, entity) }?;
+		// SAFETY: `CZombieSpawner`'s constructor only sets its members
+		// (`game/server/tf/halloween/zombie/zombie_spawner.cpp`), its `Spawn`
+		// only starts it thinking, and its `Activate` is `CBaseEntity`'s. It
+		// spawns skeletons from its thinks, while enabled.
+		let entity = unsafe { spawner.spawn(server.server_tools()?) }?;
 
 		Ok(Self { server, entity })
 	}
@@ -779,25 +749,15 @@ pub fn spawn_halloween_boss<'s>(
 		return Err(BossError::NonPositiveHealth(health));
 	}
 
-	let tools = server.server_tools()?;
-
 	// SAFETY: The bosses' constructors only set their members, make their
 	// NextBot components, and, for Merasmus, listen for game events
-	// (`game/server/tf/halloween`).
-	let entity = unsafe { create(tools, boss.class_name()) }?;
-
-	set_key(tools, entity, c"origin", &vector_value(origin))?;
-
-	// SAFETY: The game puts its own bosses on any of these teams before they
-	// spawn, through the same method.
-	unsafe { change_team(entity, team) };
-
-	// SAFETY: Their `Spawn`s precache what they use, set their models and
-	// health, create the Horsemann's axe as a prop, find the entities they
-	// work with by name, add them to the game rules' bosses, and fire
-	// `recalculate_truce` or `merasmus_summoned`, whose listeners `Server::new`
-	// condition 4 covers.
-	unsafe { spawn_entity(tools, entity) }?;
+	// (`game/server/tf/halloween`). The game puts its own bosses on any of
+	// these teams before they spawn, through the same method. Their `Spawn`s
+	// precache what they use, set their models and health, create the
+	// Horsemann's axe as a prop, find the entities they work with by name, add
+	// them to the game rules' bosses, and fire `recalculate_truce` or
+	// `merasmus_summoned`, whose listeners `Server::new` condition 4 covers.
+	let entity = unsafe { spawn_on_team(server.server_tools()?, boss.class_name(), origin, team) }?;
 
 	if let Some(health) = health {
 		entity.set_max_health(server, health)?;
@@ -830,24 +790,13 @@ pub fn spawn_skeleton<'s>(
 		return Err(BossError::NonFinite);
 	}
 
-	let tools = server.server_tools()?;
-
 	// SAFETY: `CZombie`'s constructor only sets its members and makes its
-	// NextBot components (`game/server/tf/halloween/zombie/zombie.cpp`).
-	let entity = unsafe { create(tools, raw::TF_ZOMBIE) }?;
-
-	set_key(tools, entity, c"origin", &vector_value(origin))?;
-
-	// SAFETY: As for the bosses: the game puts skeletons on any of these teams
-	// before they spawn.
-	unsafe { change_team(entity, team) };
-
-	// SAFETY: Its `Spawn` precaches what it uses, sets its model, health and
-	// skin, and marks the oldest skeletons beyond `tf_max_active_zombie` to
-	// kill themselves on their next update.
-	unsafe { spawn_entity(tools, entity) }?;
-
-	Ok(entity)
+	// NextBot components (`game/server/tf/halloween/zombie/zombie.cpp`). As
+	// for the bosses, the game puts skeletons on any of these teams before
+	// they spawn. Its `Spawn` precaches what it uses, sets its model, health
+	// and skin, and marks the oldest skeletons beyond `tf_max_active_zombie`
+	// to kill themselves on their next update.
+	unsafe { spawn_on_team(server.server_tools()?, raw::TF_ZOMBIE, origin, team) }
 }
 
 /// Fails with [`BossError::UnsupportedGame`] outside TF2, and with
@@ -904,58 +853,55 @@ unsafe fn change_team(entity: Entity<'_>, team: BossTeam) {
 	};
 }
 
-/// Creates an entity of `class`, without spawning it.
+/// Creates an entity of `class` at `origin` and puts it on `team` before
+/// spawning it, as the game spawns its own bosses and skeletons, which
+/// [`EntitySpawn`] cannot. It is not activated, as the game's are not.
 ///
 /// # Safety
 ///
-/// As for [`ServerTools::create_entity_by_name`].
-unsafe fn create<'s>(
+/// The class's constructor and `Spawn` must free entities only through
+/// Source's deferred deletion, as [`ServerTools::create_entity_by_name`] and
+/// [`ServerTools::dispatch_spawn`] require, and it must accept the team, as
+/// [`change_team`] requires.
+unsafe fn spawn_on_team<'s>(
 	tools: ServerTools<'s>,
-	class: &'static CStr,
+	class: &CStr,
+	origin: Vector,
+	team: BossTeam,
 ) -> Result<Entity<'s>, BossError> {
 	// SAFETY: As the caller promises.
-	unsafe { tools.create_entity_by_name(class) }.ok_or(BossError::NotCreated { class })
-}
+	let entity =
+		unsafe { tools.create_entity_by_name(class) }.ok_or_else(|| SpawnError::UnknownClass {
+			class: class.to_owned(),
+		})?;
 
-/// `1` or `0`, as boolean key values are given.
-fn flag_value(flag: bool) -> CString {
-	CString::from(if flag { c"1" } else { c"0" })
-}
+	if !tools.set_key_value(entity, c"origin", &vector_value(origin)) {
+		// No protected entity is new and unspawned.
+		let _ = tools.remove(entity);
 
-/// Sets a key value of an entity that has not spawned, or removes it and
-/// fails with [`BossError::KeyValueRejected`] if it is refused.
-fn set_key(
-	tools: ServerTools<'_>,
-	entity: Entity<'_>,
-	key: &'static CStr,
-	value: &CStr,
-) -> Result<(), BossError> {
-	if tools.set_key_value(entity, key, value) {
-		return Ok(());
+		return Err(SpawnError::KeyRejected {
+			key: c"origin".to_owned(),
+		}
+		.into());
 	}
 
-	// The entity is neither the world nor a player, so removal is allowed.
-	let _ = tools.remove(entity);
+	// SAFETY: The entity has not spawned, and the caller vouches for its
+	// class.
+	unsafe { change_team(entity, team) };
 
-	Err(BossError::KeyValueRejected { key })
-}
-
-/// Spawns an entity created with [`create`], and fails with
-/// [`BossError::SpawnFailed`] if it marked itself for deletion as it
-/// spawned.
-///
-/// # Safety
-///
-/// As for [`ServerTools::dispatch_spawn`].
-unsafe fn spawn_entity(tools: ServerTools<'_>, entity: Entity<'_>) -> Result<(), BossError> {
-	// SAFETY: As the caller promises.
+	// SAFETY: The entity is new, and the caller vouches for its `Spawn`.
 	unsafe { tools.dispatch_spawn(entity) };
 
 	if entity.is_marked_for_deletion() {
-		Err(BossError::SpawnFailed)
-	} else {
-		Ok(())
+		return Err(SpawnError::RemovedItself.into());
 	}
+
+	Ok(entity)
+}
+
+/// `1` or `0`, as boolean key values are given.
+fn flag_value(flag: bool) -> &'static CStr {
+	if flag { c"1" } else { c"0" }
 }
 
 /// A number as a key value, in decimal.

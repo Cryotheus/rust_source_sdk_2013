@@ -5,7 +5,9 @@
 use super::*;
 use crate::interfaces::ValveEngine;
 use crate::server::Module;
-use crate::test_support::entities::{MockEntity, base_entity_fields, set_datamap, take_inputs};
+use crate::test_support::entities::{
+	MockEntity, activations, base_entity_fields, set_datamap, take_inputs,
+};
 use crate::test_support::leak;
 use crate::test_support::server::{export, mock_server, null_server};
 
@@ -402,17 +404,20 @@ fn populators_are_spawned_where_the_level_has_none() {
 			SpawnEvent::Spawned
 		]
 	);
+	assert_eq!(activations(), [mock.as_ptr()]);
 
 	assert_eq!(
 		Populator::find_or_spawn(server).err(),
-		Some(MvmError::NotCreated)
+		Some(MvmError::Spawn(SpawnError::UnknownClass {
+			class: c"point_populator_interface".to_owned()
+		}))
 	);
 
 	remove_on_spawn(true);
 	set_created(mock.as_ptr());
 	assert_eq!(
 		Populator::find_or_spawn(server).err(),
-		Some(MvmError::SpawnFailed)
+		Some(MvmError::Spawn(SpawnError::RemovedItself))
 	);
 }
 

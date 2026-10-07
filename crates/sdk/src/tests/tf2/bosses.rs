@@ -6,8 +6,8 @@ use super::*;
 use crate::interfaces::{ModelInfo, ValveEngine};
 use crate::server::Module;
 use crate::test_support::entities::{
-	MOCK_HEALTH_OFFSET, MOCK_MAX_HEALTH_OFFSET, MockEntity, base_entity_fields, health_fields,
-	set_datamap, take_inputs,
+	MOCK_HEALTH_OFFSET, MOCK_MAX_HEALTH_OFFSET, MockEntity, activations, base_entity_fields,
+	health_fields, set_datamap, take_inputs,
 };
 use crate::test_support::leak;
 use crate::test_support::sdk_core::change_tracking_engine;
@@ -118,6 +118,9 @@ fn base_bosses_spawn_with_their_key_values_and_take_inputs() {
 		]
 	);
 
+	// It is activated, as the level's own are.
+	assert_eq!(activations(), [mock.as_ptr()]);
+
 	boss.enable().unwrap();
 	boss.disable().unwrap();
 	boss.set_speed(120.0).unwrap();
@@ -200,6 +203,9 @@ fn halloween_bosses_spawn_on_their_team_with_their_health() {
 			SpawnEvent::Spawned,
 		]
 	);
+
+	// It is not activated, as the game's own are not.
+	assert_eq!(activations(), []);
 	assert_eq!(mock.int(MOCK_HEALTH_OFFSET), 4000);
 	assert_eq!(mock.int(MOCK_MAX_HEALTH_OFFSET), 4000);
 
@@ -260,7 +266,9 @@ fn halloween_bosses_spawn_on_their_team_with_their_health() {
 			None
 		)
 		.err(),
-		Some(BossError::NotCreated { class: c"merasmus" })
+		Some(BossError::Spawn(SpawnError::UnknownClass {
+			class: c"merasmus".to_owned()
+		}))
 	);
 	assert_eq!(take_events(), [created(c"merasmus")]);
 
@@ -276,7 +284,9 @@ fn halloween_bosses_spawn_on_their_team_with_their_health() {
 			None
 		)
 		.err(),
-		Some(BossError::KeyValueRejected { key: c"origin" })
+		Some(BossError::Spawn(SpawnError::KeyRejected {
+			key: c"origin".to_owned()
+		}))
 	);
 	assert_eq!(take_events(), [created(c"merasmus"), SpawnEvent::Removed]);
 
@@ -324,6 +334,7 @@ fn skeletons_spawn_alone_or_from_spawners() {
 			SpawnEvent::Spawned,
 		]
 	);
+	assert_eq!(activations(), []);
 
 	let mut spawn = SkeletonSpawn::new(SkeletonType::King);
 
@@ -349,6 +360,7 @@ fn skeletons_spawn_alone_or_from_spawners() {
 			SpawnEvent::Spawned,
 		]
 	);
+	assert_eq!(activations(), [mock.as_ptr()]);
 
 	spawner.enable().unwrap();
 	spawner.set_count(5).unwrap();
@@ -397,7 +409,7 @@ fn skeletons_spawn_alone_or_from_spawners() {
 	set_created(mock.as_ptr());
 	assert_eq!(
 		spawn_skeleton(server, origin, BossTeam::Halloween).err(),
-		Some(BossError::SpawnFailed)
+		Some(BossError::Spawn(SpawnError::RemovedItself))
 	);
 	assert_eq!(
 		take_events(),

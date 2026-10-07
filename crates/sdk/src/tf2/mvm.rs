@@ -29,6 +29,7 @@ mod tests;
 
 use crate::datatables::{NetPropError, NetValue};
 use crate::entities::Entity;
+use crate::entities::spawn::{EntitySpawn, SpawnError};
 use crate::inputs::{InputError, InputValue};
 use crate::tf2::script_binding::{self as binding, BindingError, VOID};
 use crate::{Game, InterfaceError, Server};
@@ -86,15 +87,6 @@ pub enum MvmError {
 	#[error("the mission name cannot be passed to tf_mvm_popfile")]
 	InvalidPopfileName,
 
-	/// The game created no `point_populator_interface`.
-	#[error("the game could not create a point_populator_interface")]
-	NotCreated,
-
-	/// The new `point_populator_interface` marked itself for deletion as it
-	/// spawned.
-	#[error("the populator interface removed itself as it spawned")]
-	SpawnFailed,
-
 	/// A networked variable is not of the kind the SDK reads it as.
 	#[error("the networked variable {name:?} is not of the expected kind")]
 	UnsupportedLayout {
@@ -122,6 +114,11 @@ pub enum MvmError {
 	/// A networked variable could not be read.
 	#[error(transparent)]
 	NetProp(#[from] NetPropError),
+
+	/// The game created no `point_populator_interface`, or it removed itself
+	/// as it spawned.
+	#[error(transparent)]
+	Spawn(#[from] SpawnError),
 }
 
 impl From<BindingError> for MvmError {
@@ -451,19 +448,11 @@ impl<'s> Populator<'s> {
 			return Ok(populator);
 		}
 
-		let tools = server.server_tools()?;
-
 		// SAFETY: `CPointPopulatorInterface` declares no constructor, and
 		// `CPointEntity`'s sets nothing that frees entities.
-		let entity =
-			unsafe { tools.create_entity_by_name(POPULATOR) }.ok_or(MvmError::NotCreated)?;
-
-		// SAFETY: `CPointEntity::Spawn` only makes the entity non-solid.
-		unsafe { tools.dispatch_spawn(entity) };
-
-		if entity.is_marked_for_deletion() {
-			return Err(MvmError::SpawnFailed);
-		}
+		// `CPointEntity::Spawn` only makes the entity non-solid, and its
+		// `Activate` is `CBaseEntity`'s.
+		let entity = unsafe { EntitySpawn::new(POPULATOR).spawn(server.server_tools()?) }?;
 
 		Self::new(server, entity)
 	}
