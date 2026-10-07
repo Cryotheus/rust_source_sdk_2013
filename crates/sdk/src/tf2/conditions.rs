@@ -170,6 +170,23 @@ impl<'s> PlayerConditions<'s> {
 		self.in_cond(condition)
 	}
 
+	/// The time left of a condition: [`ConditionDuration::PERMANENT`] for one
+	/// that does not expire, and zero seconds for one the player does not have,
+	/// as for one expiring on the next game update.
+	#[doc(alias("GetCondDuration"))]
+	pub fn duration(self, condition: Condition) -> Result<ConditionDuration, ConditionError> {
+		// SAFETY: As for `add`. This is the native read-only query on a validated
+		// player and condition.
+		let seconds = unsafe { raw::get_cond_duration(self.raw_player(), condition.0) }?;
+
+		// TF2 counts finite durations down to zero, and keeps -1 for permanent ones.
+		if seconds < 0.0 {
+			Ok(ConditionDuration::PERMANENT)
+		} else {
+			ConditionDuration::seconds(seconds).ok_or(ConditionError::Rejected)
+		}
+	}
+
 	/// Checks both the object-backed condition list and all extended bitfields.
 	#[doc(alias("InCond"))]
 	pub fn in_cond(self, condition: Condition) -> Result<bool, ConditionError> {

@@ -50,6 +50,34 @@ pub unsafe fn add_cond_ex(
 	.map(drop)
 }
 
+/// The seconds left of `player`'s `condition`, through
+/// `CTFPlayer::GetCondDuration`: [`PERMANENT_CONDITION`] for one that does not
+/// expire, and 0 for one the player does not have.
+///
+/// # Safety
+///
+/// As for [`add_cond_ex`].
+#[doc(alias("GetCondDuration"))]
+pub unsafe fn get_cond_duration(
+	player: NonNull<sys::CBaseEntity>,
+	condition: sys::ETFCond,
+) -> Result<f32, BindingError> {
+	// SAFETY: As the caller promises; the read-only query takes the condition.
+	let result = unsafe {
+		binding::call(
+			player,
+			CLASS,
+			c"GetCondDuration",
+			&mut [binding::int(condition)],
+			binding::FLOAT,
+		)
+	}?;
+
+	// SAFETY: `call` checked that the method's adapter returned a
+	// `FIELD_FLOAT` variant, which it assigns through the float member.
+	Ok(unsafe { result.__bindgen_anon_1.m_float })
+}
+
 /// Whether `player` has `condition`, from both its object-backed conditions
 /// and all of its condition bits, through `CTFPlayer::InCond`.
 ///
