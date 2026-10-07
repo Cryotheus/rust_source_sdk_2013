@@ -16,6 +16,7 @@
 
 use super::player::WEAPON_SWITCH_SLOT;
 use crate::abi::CppDestructors;
+use crate::entities::health::TF2_GET_MAX_HEALTH_SLOT;
 use crate::vtable_slot;
 use std::ffi::{c_char, c_int};
 
@@ -35,10 +36,16 @@ pub type GiveNamedItemFn = unsafe extern "C" fn(
 	force: bool,
 ) -> *mut sys::CBaseEntity;
 
+/// The signature of `CBaseEntity::GetMaxHealth`, `int () const`, at
+/// [`TF2_GET_MAX_HEALTH_SLOT`].
+#[doc(alias("GetMaxHealth"))]
+pub type MaxHealthFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> c_int;
+
 /// The signature of an entity's virtual methods that take nothing and return
 /// a `bool`, `bool ()`: those of [`RELOAD_SLOT`],
-/// [`CALC_IS_ATTACK_CRITICAL_HELPER_SLOT`] and
-/// [`CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT`].
+/// [`CALC_IS_ATTACK_CRITICAL_HELPER_SLOT`],
+/// [`CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT`] and
+/// [`CAN_BE_AUTOBALANCED_SLOT`].
 pub type PredicateFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> bool;
 
 /// The signature of `CBasePlayer::PlayerRunCommand`,
@@ -228,6 +235,39 @@ const _: () = {
 	assert!(ITEM_POST_FRAME_SLOT == vtable_slot!(Weapon, CTFWeaponBase_ItemPostFrame));
 	assert!(RELOAD_SLOT == vtable_slot!(Weapon, CTFWeaponBase_Reload));
 };
+
+// SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `GetMaxHealth`
+// at 123 on Windows and 124 on Linux in its `tf` section, which TF2's players
+// override. The generated binding places `CanBeAutobalanced` at 474 on
+// Windows and 475 on Linux.
+const _: () = {
+	assert!(TF2_GET_MAX_HEALTH_SLOT == 122 + CppDestructors::VTABLE_SLOTS);
+	assert!(CAN_BE_AUTOBALANCED_SLOT == 473 + CppDestructors::VTABLE_SLOTS);
+
+	assert!(
+		TF2_GET_MAX_HEALTH_SLOT
+			== vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_GetMaxHealth)
+	);
+
+	let _: fn(
+		&sys::CBaseEntity__bindgen_vtable,
+	) -> unsafe extern "C" fn(*const sys::CBaseEntity) -> c_int =
+		|vtable| vtable.CBaseEntity_GetMaxHealth;
+
+	let _: fn(
+		&sys::CTFPlayer__bindgen_vtable,
+	) -> unsafe extern "C" fn(*mut sys::CTFPlayer) -> bool =
+		|vtable| vtable.CTFPlayer_CanBeAutobalanced;
+};
+
+/// The slot of `CTFPlayer::CanBeAutobalanced` in a TF2 player's primary
+/// vtable, from the generated binding: the method that decides whether the
+/// game's autobalance may move the player to the other team, which it refuses
+/// for bots, coaches and their students, and players in a duel, a kart or
+/// ghost mode.
+#[doc(alias("CanBeAutobalanced"))]
+pub const CAN_BE_AUTOBALANCED_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CanBeAutobalanced);
 
 /// The slot of `CTFWeaponBase::CalcIsAttackCriticalHelper` in a TF2 weapon's
 /// primary vtable, from the generated binding: the method that decides

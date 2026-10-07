@@ -11,6 +11,10 @@ pub mod airblast_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod autobalance_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod bot_hooks;
 
 #[cfg(feature = "tf2")]
@@ -81,6 +85,10 @@ pub mod key_values_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod max_health_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod observer_hooks;
 
 #[cfg(feature = "tf2")]
@@ -137,6 +145,10 @@ pub mod think_hooks;
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod user_cmd_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod voice_chat_hooks;
 
 #[cfg(feature = "tf2")]
 mod vote_hooks;
