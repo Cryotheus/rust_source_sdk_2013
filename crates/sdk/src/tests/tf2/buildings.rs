@@ -326,6 +326,7 @@ impl Maps {
 			c"CBaseObject",
 			vec![
 				input(c"SetSolidToPlayer", sys::_fieldtypes_FIELD_INTEGER),
+				input(c"SetBuilder", sys::_fieldtypes_FIELD_STRING),
 				input(c"Show", sys::_fieldtypes_FIELD_VOID),
 				input(c"Hide", sys::_fieldtypes_FIELD_VOID),
 				input(c"Enable", sys::_fieldtypes_FIELD_VOID),
@@ -804,6 +805,161 @@ fn buildings_read_their_networked_state() {
 		sentry.kind(),
 		Err(BuildingError::UnknownKind(raw::OBJ_LAST))
 	));
+}
+
+#[test]
+fn buildings_spawn_only_at_tf2s_levels() {
+	let scope = ();
+
+	for level in [0, 4, u8::MAX] {
+		assert!(matches!(
+			BuildingSpawn::new(ObjectKind::Sentry)
+				.level(level)
+				.entity_spawn(),
+			Err(BuildingError::InvalidLevel(invalid)) if invalid == level
+		));
+	}
+
+	let spawn = |spawn: BuildingSpawn, game| {
+		// SAFETY: The server exports no interfaces, so nothing is created.
+		unsafe { spawn.spawn(null_server(game, &scope)) }
+	};
+
+	assert!(matches!(
+		spawn(BuildingSpawn::new(ObjectKind::Sentry), Game::SourceSdk2013),
+		Err(BuildingError::WrongGame)
+	));
+	assert!(matches!(
+		spawn(
+			BuildingSpawn::new(ObjectKind::Sentry).level(4),
+			Game::TeamFortress2
+		),
+		Err(BuildingError::InvalidLevel(4))
+	));
+	assert!(matches!(
+		spawn(
+			BuildingSpawn::new(ObjectKind::Sentry).level(3),
+			Game::TeamFortress2
+		),
+		Err(BuildingError::Interface(_))
+	));
+}
+
+#[test]
+fn buildings_spawn_with_the_key_values_maps_give_them() {
+	let keys = |spawn: BuildingSpawn| -> Vec<String> {
+		spawn
+			.entity_spawn()
+			.unwrap()
+			.keys()
+			.map(|(key, value)| format!("{}={}", key.to_str().unwrap(), value.to_str().unwrap()))
+			.collect()
+	};
+
+	let dispenser = BuildingSpawn::new(ObjectKind::Dispenser);
+
+	assert_eq!(dispenser.kind(), ObjectKind::Dispenser);
+	assert_eq!(dispenser.entity_spawn().unwrap().class(), c"obj_dispenser");
+	assert!(keys(dispenser).is_empty());
+
+	let sentry = BuildingSpawn::new(ObjectKind::Sentry)
+		.team(Team::Red)
+		.solid_to_players(SolidToPlayers::No)
+		.name(c"guard")
+		.level(3)
+		.invulnerable(true)
+		.upgradable(true)
+		.infinite_ammo(true)
+		.infinite_ammo(false)
+		.teleporter_end(TeleporterEnd::Entrance);
+
+	assert_eq!(sentry.entity_spawn().unwrap().class(), c"obj_sentrygun");
+	assert_eq!(
+		keys(sentry),
+		[
+			"TeamNum=2".to_owned(),
+			format!("SolidToPlayer={}", raw::SOLID_TO_PLAYER_NO),
+			"targetname=guard".to_owned(),
+			"defaultupgrade=2".to_owned(),
+			format!(
+				"spawnflags={}",
+				raw::SF_BASEOBJ_INVULN | raw::SF_SENTRY_UPGRADEABLE
+			),
+		]
+	);
+
+	// Only sentries take their flags, and only teleporters their end.
+	let teleporter = BuildingSpawn::new(ObjectKind::Teleporter)
+		.teleporter_end(TeleporterEnd::Entrance)
+		.upgradable(true)
+		.infinite_ammo(true)
+		.level(1);
+
+	assert_eq!(
+		teleporter.entity_spawn().unwrap().class(),
+		c"obj_teleporter"
+	);
+	assert_eq!(
+		keys(teleporter),
+		[
+			format!("teleporterType={}", raw::TTYPE_ENTRANCE),
+			"defaultupgrade=0".to_owned(),
+		]
+	);
+	assert_eq!(
+		keys(BuildingSpawn::new(ObjectKind::Teleporter).teleporter_end(TeleporterEnd::Exit)),
+		[format!("teleporterType={}", raw::TTYPE_EXIT)]
+	);
+}
+
+#[test]
+fn buildings_without_a_builder_are_given_to_players() {
+	let world = World::new();
+	let scope = ();
+	let sentry = building(mock_server(&scope), world.sentry);
+	let engineer = entity(world.engineer);
+
+	assert!(matches!(
+		sentry.set_builder(engineer),
+		Err(BuildingError::HasBuilder)
+	));
+
+	world.set(world.sentry, |sentry| sentry.builder = NULL);
+
+	for fake in [world.prop, world.dispenser] {
+		assert!(matches!(
+			sentry.set_builder(entity(fake)),
+			Err(BuildingError::NotTfPlayer)
+		));
+	}
+
+	world.set(world.engineer, |engineer| engineer.flags |= EFL_KILLME);
+	assert!(matches!(
+		sentry.set_builder(engineer),
+		Err(BuildingError::MarkedForDeletion)
+	));
+
+	world.set(world.engineer, |engineer| engineer.flags &= !EFL_KILLME);
+	world.set(world.sentry, |sentry| sentry.dying = true);
+	assert!(matches!(
+		sentry.set_builder(engineer),
+		Err(BuildingError::Dying)
+	));
+	assert!(INPUTS.take().is_empty());
+
+	world.set(world.sentry, |sentry| sentry.dying = false);
+	sentry.set_builder(engineer).unwrap();
+
+	assert_eq!(
+		INPUTS.take(),
+		[(
+			world.sentry.addr(),
+			c"SetBuilder".to_owned(),
+			world.engineer.addr(),
+			world.sentry.addr(),
+			0
+		)]
+	);
 }
 
 unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const c_char {

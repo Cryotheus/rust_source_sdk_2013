@@ -1,9 +1,10 @@
 //! TF2's numbers for its buildings (`CBaseObject`): their types, modes,
 //! states and object flags from `game/shared/tf/tf_shareddefs.h`, and the
-//! spawn flags and solidity values of `game/server/tf/tf_obj*.h`. Also the
-//! signatures and vtable slots of the `CBaseObject` methods that run as a
-//! building dies, finishes being built, starts upgrading, and is hit by a
-//! wrench, which `metamod_source`'s building hooks hook.
+//! spawn flags, solidity values and teleporter types of
+//! `game/server/tf/tf_obj*.h`. Also the signatures and vtable slots of the
+//! `CBaseObject` methods that run as a building dies, finishes being built,
+//! starts upgrading, and is hit by a wrench, which `metamod_source`'s
+//! building hooks hook.
 //!
 //! [`objects`](super::objects) holds the ABI of where buildings may be
 //! placed, and the search for building classes' vtables.
@@ -239,3 +240,11 @@ pub const TELEPORTER_STATE_SENDING: c_int = 3;
 
 /// `TELEPORTER_STATE_UPGRADING`: a teleporter playing its upgrade animation.
 pub const TELEPORTER_STATE_UPGRADING: c_int = 7;
+
+/// `TTYPE_ENTRANCE`: the `teleporterType` key value of a teleporter entrance
+/// a map places.
+pub const TTYPE_ENTRANCE: c_int = 1;
+
+/// `TTYPE_EXIT`: the `teleporterType` key value of a teleporter exit a map
+/// places.
+pub const TTYPE_EXIT: c_int = 2;
