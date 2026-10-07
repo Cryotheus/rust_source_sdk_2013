@@ -114,8 +114,12 @@ fn stored_flags(mock: &mut MockEntity) -> u16 {
 	}
 }
 
-#[test]
-fn the_custom_ray_test_is_set_alone_and_networked() {
+/// Sets and clears the solid flag `flag` with `set`, which must change it
+/// alone, keep the others, and record each change for networking.
+fn assert_set_alone_and_networked(
+	flag: u16,
+	set: fn(Entity<'_>, Server<'_>, bool) -> Result<bool, SolidFlagsError>,
+) {
 	let mut mock = MockEntity::new(5);
 
 	set_datamap(solid_maps());
@@ -152,8 +156,8 @@ fn the_custom_ray_test_is_set_alone_and_networked() {
 	let server = mock_server(&scope);
 
 	// Setting the flag keeps the others, and reports it was clear.
-	assert_eq!(mock.entity().set_custom_ray_test(server, true), Ok(false));
-	assert_eq!(stored_flags(&mut mock), trigger | FSOLID_CUSTOMRAYTEST);
+	assert_eq!(set(mock.entity(), server, true), Ok(false));
+	assert_eq!(stored_flags(&mut mock), trigger | flag);
 	assert_ne!(edict._base.m_fStateFlags & FL_EDICT_CHANGED, 0);
 	assert_eq!(shared.m_ChangeInfos[0].m_nChangeOffsets, 1);
 	assert_eq!(
@@ -162,13 +166,27 @@ fn the_custom_ray_test_is_set_alone_and_networked() {
 	);
 
 	// Setting it again changes nothing, and records no change.
-	assert_eq!(mock.entity().set_custom_ray_test(server, true), Ok(true));
+	assert_eq!(set(mock.entity(), server, true), Ok(true));
 	assert_eq!(shared.m_ChangeInfos[0].m_nChangeOffsets, 1);
 
-	assert_eq!(mock.entity().set_custom_ray_test(server, false), Ok(true));
+	assert_eq!(set(mock.entity(), server, false), Ok(true));
 	assert_eq!(stored_flags(&mut mock), trigger);
 
 	set_change_accessor(null_mut());
 	set_shared_change_info(null_mut());
 	set_networking(null_mut(), null_mut());
+}
+
+#[test]
+fn the_custom_ray_test_is_set_alone_and_networked() {
+	assert_set_alone_and_networked(FSOLID_CUSTOMRAYTEST, |entity, server, enabled| {
+		entity.set_custom_ray_test(server, enabled)
+	});
+}
+
+#[test]
+fn debris_touches_are_set_alone_and_networked() {
+	assert_set_alone_and_networked(FSOLID_TRIGGER_TOUCH_DEBRIS, |entity, server, enabled| {
+		entity.set_trigger_touch_debris(server, enabled)
+	});
 }

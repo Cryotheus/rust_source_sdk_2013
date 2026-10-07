@@ -204,6 +204,30 @@ impl World {
 				.write_unaligned(value)
 		};
 	}
+
+	/// Reads an integer of the fake round-based rules, or of the TF2 rules.
+	fn int(&self, round_rules: bool, offset: usize) -> c_int {
+		let object = if round_rules {
+			self.round_rules
+		} else {
+			self.rules
+		};
+
+		// SAFETY: As for `put_round_byte`.
+		unsafe {
+			object
+				.cast::<u8>()
+				.add(offset)
+				.cast::<c_int>()
+				.read_unaligned()
+		}
+	}
+
+	/// The bytes of the fake round-based rules.
+	fn round_bytes(&self) -> [u8; 32] {
+		// SAFETY: The rules are leaked.
+		unsafe { *self.round_rules }
+	}
 }
 
 /// Exports a game DLL whose server classes are [`SERVER_CLASSES`] with
@@ -395,6 +419,49 @@ fn game_rules_are_read_from_the_objects_the_proxies_give() {
 		rules.read::<i16>(c"m_iRoundState"),
 		Err(GameRulesError::NetProp(NetPropError::TypeMismatch { .. }))
 	));
+}
+
+#[test]
+fn game_rules_are_written_where_they_are_read() {
+	let world = World::new(Some(round_rules_proxy));
+	let scope = ();
+	let rules = GameRules::get(mock_server(&scope)).unwrap();
+
+	// SAFETY: The fake game rules accept any value of their variables.
+	unsafe { rules.write(c"m_bInWaitingForPlayers", true) }.unwrap();
+
+	// The flag's byte alone changed, to the value the game stores for true.
+	let mut expected = [0; 32];
+	expected[WAITING] = 1;
+	assert_eq!(world.round_bytes(), expected);
+	assert_eq!(rules.is_waiting_for_players(), Ok(true));
+
+	// A name in both tables is the round-based rules' variable, and the TF2
+	// rules' own variables are written in the object their proxy gave.
+	// SAFETY: As above.
+	unsafe {
+		rules.write(c"m_iRoundState", GR_STATE_BONUS).unwrap();
+		rules.write(c"m_nGameType", 4).unwrap();
+		rules.write(c"m_bInWaitingForPlayers", false).unwrap();
+	}
+
+	assert_eq!(world.int(true, ROUND_STATE), GR_STATE_BONUS);
+	assert_eq!(world.int(false, SHADOWED), 0);
+	assert_eq!(world.int(false, GAME_TYPE), 4);
+	assert_eq!(rules.is_waiting_for_players(), Ok(false));
+
+	// Variables stored as another type, or in neither table, are not written.
+	assert!(matches!(
+		// SAFETY: As above.
+		unsafe { rules.write::<i16>(c"m_iRoundState", 1) },
+		Err(GameRulesError::NetProp(NetPropError::TypeMismatch { .. }))
+	));
+	assert!(matches!(
+		// SAFETY: As above.
+		unsafe { rules.write(c"m_bMissing", true) },
+		Err(GameRulesError::NetProp(NetPropError::NotFound { .. }))
+	));
+	assert_eq!(world.int(true, ROUND_STATE), GR_STATE_BONUS);
 }
 
 #[test]
