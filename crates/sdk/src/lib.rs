@@ -51,6 +51,7 @@ pub mod key_values;
 pub mod math;
 pub mod net;
 pub mod players;
+pub mod send_proxies;
 pub mod server;
 pub mod soundscapes;
 pub mod steam;

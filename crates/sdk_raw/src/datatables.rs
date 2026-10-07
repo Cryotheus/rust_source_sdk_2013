@@ -6,6 +6,7 @@
 //! Send proxies are compared by address only: a linker may fold proxies whose
 //! code is identical into one, so an address can stand for several of them.
 
+use crate::send_proxies::game_proxy;
 use std::ffi::{c_int, c_void};
 use std::mem::{offset_of, zeroed};
 use std::ptr::NonNull;
@@ -308,6 +309,10 @@ pub unsafe fn is_direct_table_proxy(
 /// (`m_ProxyFn`) is. A property without a proxy, or with another one, such
 /// as a custom or string proxy, is none of them.
 ///
+/// The proxy is the one the game gave the property, looking through the
+/// overrides of [`send_proxies`](crate::send_proxies), whose trampolines call
+/// it.
+///
 /// # Safety
 ///
 /// `proxies` must point to the game DLL's `g_StandardSendProxies`, or a copy,
@@ -316,9 +321,8 @@ pub unsafe fn standard_var_proxies(
 	proxies: *const sys::CStandardSendProxies,
 	prop: *const sys::SendProp,
 ) -> StandardVarProxies {
-	// SAFETY: The property is live, and its field is read without forming a
-	// reference.
-	let Some(proxy) = var_proxy_address(unsafe { (&raw const (*prop).m_ProxyFn).read() }) else {
+	// SAFETY: The property is live.
+	let Some(proxy) = var_proxy_address(unsafe { game_proxy(prop) }) else {
 		return StandardVarProxies::default();
 	};
 

@@ -9,8 +9,24 @@ mod plugin;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod airblast_hooks;
 
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod bot_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod building_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod class_hooks;
+
 #[cfg(feature = "sdk")]
 mod client_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod collision_hooks;
 
 #[cfg(feature = "sdk")]
 mod commands;
@@ -69,6 +85,10 @@ pub mod player_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod removal_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod respawn_hooks;
 
 #[cfg(feature = "tf2")]
@@ -97,6 +117,14 @@ pub mod touch_hooks;
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod team_hooks;
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod transmit_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod think_hooks;
 
 #[cfg(feature = "tf2")]
 mod vote_hooks;
