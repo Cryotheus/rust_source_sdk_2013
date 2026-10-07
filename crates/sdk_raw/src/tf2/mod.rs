@@ -13,6 +13,7 @@ pub mod airblast;
 pub mod ammo;
 pub mod attributes;
 pub mod class;
+pub mod class_targets;
 pub mod conditions;
 pub mod damage;
 pub mod duels;
