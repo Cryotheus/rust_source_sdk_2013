@@ -2,3 +2,4 @@
 
 pub mod objectives;
 pub mod script_binding;
+pub mod spawning;
