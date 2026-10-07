@@ -61,6 +61,20 @@ pub const vote_create_failed_t_VOTE_FAILED_WAITINGFORPLAYERS: vote_create_failed
 pub const vote_create_failed_t_VOTE_FAILED_YES_MUST_EXCEED_NO: vote_create_failed_t = 3;
 
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CViewVectors {
+	pub m_vView: Vector,
+	pub m_vHullMin: Vector,
+	pub m_vHullMax: Vector,
+	pub m_vDuckHullMin: Vector,
+	pub m_vDuckHullMax: Vector,
+	pub m_vDuckView: Vector,
+	pub m_vObsHullMin: Vector,
+	pub m_vObsHullMax: Vector,
+	pub m_vDeadViewHeight: Vector,
+}
+
+#[repr(C)]
 #[derive(Debug)]
 pub struct EmitSound_t {
 	pub m_nChannel: ::std::os::raw::c_int,

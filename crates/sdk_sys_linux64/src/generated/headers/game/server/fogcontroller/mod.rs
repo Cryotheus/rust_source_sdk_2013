@@ -518,4 +518,14 @@ pub struct CFogController_NetworkVar_m_fog {
 	pub _base: fogparams_t,
 }
 
+#[repr(C)]
+pub struct CFogController_NetworkVar_m_fog__bindgen_vtable {
+	pub CFogController_NetworkVar_m_fog_NetworkStateChanged:
+		unsafe extern "C" fn(arg1: *mut CFogController_NetworkVar_m_fog),
+	pub CFogController_NetworkVar_m_fog_NetworkStateChanged1: unsafe extern "C" fn(
+		arg1: *mut CFogController_NetworkVar_m_fog,
+		arg2: *mut ::std::os::raw::c_void,
+	),
+}
+
 include!("layout_assertions.rs");
