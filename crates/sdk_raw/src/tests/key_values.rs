@@ -197,6 +197,67 @@ unsafe extern "C" fn string_for_symbol(
 		.map_or(c"unknown".as_ptr(), |name| name.as_ptr())
 }
 
+#[test]
+fn sub_keys_are_listed_in_order_with_their_string_values() {
+	use crate::test_support::key_values::{MockKey, MockTree};
+
+	let tree = MockTree::new(&MockKey::Section(
+		c"GameTags",
+		vec![
+			MockKey::Section(
+				c"tag",
+				vec![
+					MockKey::String(c"convar", c"mp_friendlyfire"),
+					MockKey::String(c"tag", c"friendlyfire"),
+				],
+			),
+			MockKey::Section(c"empty", vec![]),
+		],
+	));
+
+	let name = |key: NonNull<sys::KeyValues>| {
+		// SAFETY: The mock key values keep their names in their own table.
+		unsafe { CStr::from_ptr(key_name(None, key)) }
+	};
+
+	let string = |key: NonNull<sys::KeyValues>| {
+		// SAFETY: The mock key values live as long as the tree, and their
+		// strings are NUL-terminated.
+		let string = unsafe { string_value(key) };
+
+		// SAFETY: As above.
+		(!string.is_null()).then(|| unsafe { CStr::from_ptr(string) })
+	};
+
+	// SAFETY: The tree lives through the test, and its key values are laid out
+	// as TF2's.
+	unsafe {
+		let root = tree.root();
+		let tag = NonNull::new(first_sub_key(root)).unwrap();
+		let empty = NonNull::new(next_key(tag)).unwrap();
+
+		assert_eq!(name(root), c"GameTags");
+		assert_eq!(string(root), None);
+		assert!(next_key(root).is_null());
+
+		assert_eq!(name(tag), c"tag");
+		assert_eq!(string(tag), None);
+
+		assert_eq!(name(empty), c"empty");
+		assert!(first_sub_key(empty).is_null());
+		assert!(next_key(empty).is_null());
+
+		let convar = NonNull::new(first_sub_key(tag)).unwrap();
+		let tag_name = NonNull::new(next_key(convar)).unwrap();
+
+		assert_eq!(name(convar), c"convar");
+		assert_eq!(string(convar), Some(c"mp_friendlyfire"));
+		assert_eq!(name(tag_name), c"tag");
+		assert_eq!(string(tag_name), Some(c"friendlyfire"));
+		assert!(next_key(tag_name).is_null());
+	}
+}
+
 /// The mock system's `GetSymbolForString`, which no test calls.
 unsafe extern "C" fn symbol_for_string(
 	_this: *mut IKeyValuesSystem,
