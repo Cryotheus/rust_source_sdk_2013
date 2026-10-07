@@ -8,16 +8,22 @@
 //! the actions of outputs in [`outputs`], solid flags in [`solid`], and think
 //! contexts in [`think`]. Members that datamaps declare are read by name in
 //! [`fields`], and an entity's identity, movement and rendering in
-//! [`identity`], [`movement`] and [`render`].
+//! [`identity`], [`movement`] and [`render`]. Entities are created in
+//! [`spawn`], found in [`search`], parented in [`hierarchy`], and dissolved
+//! in [`dissolve`].
 
+pub mod dissolve;
 pub mod factory;
 pub mod fields;
 pub mod health;
+pub mod hierarchy;
 pub mod identity;
 pub mod movement;
 pub mod outputs;
 pub mod render;
+pub mod search;
 pub mod solid;
+pub mod spawn;
 pub mod think;
 
 #[cfg(test)]
