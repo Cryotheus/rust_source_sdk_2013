@@ -100,6 +100,18 @@ class bf_read {};
 #include "game/shared/tf/tf_weapon_grenade_pipebomb.h"
 #include "game/server/tf/tf_projectile_arrow.h"
 #include "game/server/tf/nav_mesh/tf_nav_area.h"
+#include "game/server/NextBot/NextBotInterface.h"
+#include "game/server/NextBot/NextBotLocomotionInterface.h"
+#include "game/server/NextBot/NextBotBodyInterface.h"
+#include "game/server/NextBot/NextBotVisionInterface.h"
+#include "game/server/NextBot/NextBotIntentionInterface.h"
+#include "game/server/NextBot/NextBot.h"
+#include "game/server/NextBot/NextBotGroundLocomotion.h"
+#include "game/server/NextBot/Player/NextBotPlayerLocomotion.h"
+#include "game/server/NextBot/Player/NextBotPlayerBody.h"
+#include "game/server/tf/bot/tf_bot_locomotion.h"
+#include "game/server/tf/bot/tf_bot_body.h"
+#include "game/server/tf/bot/tf_bot_vision.h"
 
 #if defined(COMPILER_MSVC)
 #undef RESTRICT

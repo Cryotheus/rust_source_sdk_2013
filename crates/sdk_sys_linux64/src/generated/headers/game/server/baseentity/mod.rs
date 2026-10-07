@@ -2517,12 +2517,6 @@ pub struct IEntitySaveUtils {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct INextBot {
-	_unused: [u8; 0],
-}
-
-#[repr(C)]
-#[derive(Debug)]
 pub struct IServerVehicle {
 	_unused: [u8; 0],
 }
