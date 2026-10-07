@@ -26,9 +26,9 @@ use std::ffi::{c_int, c_uint};
 /// A callback-scoped server, the entity in the trace's way, the trace's
 /// collision group, and its contents mask, of
 /// [`engine_trace`](source_sdk_2013::interfaces::engine_trace)'s `CONTENTS_*`
-/// bits. [`CollisionGroup::from_raw`](source_sdk_2013::entities::CollisionGroup::from_raw)
-/// converts the groups the game shares with other Source games, but not TF2's
-/// own. A panic is contained by the hook dispatcher, and lets the game decide.
+/// bits. [`TfCollisionGroup::from_raw`](source_sdk_2013::tf2::collision::TfCollisionGroup::from_raw)
+/// converts the group, those TF2 shares with other Source games included. A
+/// panic is contained by the hook dispatcher, and lets the game decide.
 pub type ShouldCollideFn = for<'s> fn(Server<'s>, Entity<'s>, c_int, c_uint) -> CollideAction;
 
 /// `ShouldCollide` in an entity's primary vtable.

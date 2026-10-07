@@ -62,3 +62,10 @@ fn entities_of_other_games_have_no_classes() {
 
 	assert_eq!(ClassTarget::<BaseEntity>::of(server, weapon.entity()), None);
 }
+
+#[test]
+fn objects_are_the_building_classes() {
+	use crate::tf2::buildings::BuildingClass;
+
+	assert_eq!(OBJECT_CLASSES, BuildingClass::ALL.map(BuildingClass::name));
+}

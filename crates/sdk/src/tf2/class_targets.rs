@@ -343,8 +343,9 @@ impl<'s> ClassTargets<'s> {
 	}
 
 	/// The classes of TF2's buildings, those of
-	/// [`OBJECT_CLASSES`](sdk_raw::tf2::class_targets::OBJECT_CLASSES), in its
-	/// order. A class without a unique vtable is an error.
+	/// [`OBJECT_CLASSES`](sdk_raw::tf2::class_targets::OBJECT_CLASSES), in the
+	/// order of [`BuildingClass::ALL`](super::buildings::BuildingClass::ALL).
+	/// A class without a unique vtable is an error.
 	pub fn objects(
 		&self,
 	) -> Result<[ClassTarget<'s, BaseObject>; OBJECT_CLASSES.len()], ClassTargetError> {

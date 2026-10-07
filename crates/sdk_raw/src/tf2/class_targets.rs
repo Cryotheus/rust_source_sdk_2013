@@ -17,17 +17,23 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 
 /// The C++ classes of TF2's buildings (`CBaseObject`), whose entities
-/// Engineers build and Spies place: `obj_dispenser`, the payload carts'
-/// `mapobj_cart_dispenser`, `obj_sentrygun`, `obj_teleporter` and
-/// `obj_attachment_sapper` (`tf_obj_dispenser.h:87,215`,
-/// `tf_obj_sentrygun.h:42`, `tf_obj_teleporter.h:31`, `tf_obj_sapper.h:29`).
+/// Engineers build and Spies place, and maps and game modes give dispensers
+/// of: the payload carts' `mapobj_cart_dispenser`, `obj_dispenser`, the
+/// dispensers of Player Destruction's team leaders and of Robot Destruction's
+/// robots, `obj_attachment_sapper`, `obj_sentrygun` and `obj_teleporter`
+/// (`tf_obj_dispenser.h:87,215`, `tf_logic_player_destruction.h:113`,
+/// `tf_robot_destruction_robot.h:211`, `tf_obj_sapper.h:29`,
+/// `tf_obj_sentrygun.h:42`, `tf_obj_teleporter.h:31`), in the order of
+/// `source_sdk_2013`'s `BuildingClass::ALL`.
 #[doc(alias("CBaseObject"))]
-pub const OBJECT_CLASSES: [&str; 5] = [
-	"CObjectDispenser",
+pub const OBJECT_CLASSES: [&str; 7] = [
 	"CObjectCartDispenser",
+	"CObjectDispenser",
+	"CPlayerDestructionDispenser",
+	"CRobotDispenser",
+	"CObjectSapper",
 	"CObjectSentrygun",
 	"CObjectTeleporter",
-	"CObjectSapper",
 ];
 
 /// The C++ classes of TF2's players: `CTFPlayer`, the class of human players
