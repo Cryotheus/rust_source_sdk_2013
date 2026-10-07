@@ -1,17 +1,113 @@
 //! TF2's numbers for its buildings (`CBaseObject`): their types, modes,
 //! states and object flags from `game/shared/tf/tf_shareddefs.h`, and the
-//! spawn flags and solidity values of `game/server/tf/tf_obj*.h`.
+//! spawn flags and solidity values of `game/server/tf/tf_obj*.h`. Also the
+//! signatures and vtable slots of the `CBaseObject` methods that run as a
+//! building dies, finishes being built, starts upgrading, and is hit by a
+//! wrench, which `metamod_source`'s building hooks hook.
 //!
 //! [`objects`](super::objects) holds the ABI of where buildings may be
-//! placed.
+//! placed, and the search for building classes' vtables.
 
+use crate::vtable_slot;
 use std::ffi::c_int;
+
+/// The signature of `CBaseObject::FinishedBuilding`, `void ()`, with the
+/// building as its receiver, which the game calls as a building finishes
+/// being built, or redeployed after being carried.
+///
+/// The generated method takes a `CBaseObject` receiver. It is the building's
+/// primary base, `CBaseEntity`, at the same address, as
+/// [`entities::health`](crate::entities::health) asserts, so the method can
+/// be called and hooked with an entity receiver. The same goes for the other
+/// methods of this module.
+#[doc(alias("FinishedBuilding"))]
+pub type FinishedBuildingFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
+
+/// The signature of `CBaseObject::InputWrenchHit`,
+/// `bool (CTFPlayer *, CTFWrench *, Vector)`, with the building as its
+/// receiver, which runs as an Engineer's wrench hits a building of their team,
+/// and returns whether the hit did anything: removed a sapper, sped up
+/// construction, repaired, refilled or upgraded the building.
+///
+/// `player` is the Engineer's entity, and `wrench` their wrench's: TF2's
+/// `CTFWrench` derives from `CTFWeaponBase` through its primary bases, which
+/// [`weapons`](crate::tf2::weapons) asserts start at the entity. `position`
+/// is where the hit landed. `Vector` is trivially copyable, so both ABIs pass
+/// it as C passes the `#[repr(C)]` struct.
+#[doc(alias("InputWrenchHit"))]
+pub type InputWrenchHitFn = unsafe extern "C" fn(
+	this: *mut sys::CBaseEntity,
+	player: *mut sys::CBaseEntity,
+	wrench: *mut sys::CBaseEntity,
+	position: sys::Vector,
+) -> bool;
+
+/// The signature of `CBaseObject::Killed`, `void (const CTakeDamageInfo &)`,
+/// with the building as its receiver, which destroys the building with the
+/// damage that killed it: it fires the `object_destroyed` event, or
+/// `object_detonated` when the building is its own inflictor, explodes the
+/// building into gibs, and removes it.
+#[doc(alias("Killed"))]
+pub type KilledFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::CTakeDamageInfo);
+
+/// The signature of `CBaseObject::StartUpgrading`, `void ()`, with the
+/// building as its receiver, which raises the building's level by one and
+/// starts its upgrade animation. The game also calls it for each level a
+/// redeployed building gets back, and for those a map gives its own
+/// buildings.
+#[doc(alias("StartUpgrading"))]
+pub type StartUpgradingFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
+
+// The generated method takes the damage by reference and returns nothing.
+const _: fn(
+	&sys::CBaseObject__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CBaseObject, *const sys::CTakeDamageInfo) =
+	|vtable| vtable.CBaseObject_Killed;
+
+// The generated method takes the player, the wrench and the hit's position by
+// value, and returns a `bool`.
+const _: fn(
+	&sys::CBaseObject__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CBaseObject,
+	*mut sys::CTFPlayer,
+	*mut sys::CTFWrench,
+	sys::Vector,
+) -> bool = |vtable| vtable.CBaseObject_InputWrenchHit;
+
+// The generated method takes no argument and returns nothing.
+const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CBaseObject) =
+	|vtable| vtable.CBaseObject_FinishedBuilding;
+
+// The generated method takes no argument and returns nothing.
+const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CBaseObject) =
+	|vtable| vtable.CBaseObject_StartUpgrading;
 
 /// `DISPENSER_STATE_IDLE`: a dispenser that is not upgrading.
 pub const DISPENSER_STATE_IDLE: c_int = 0;
 
 /// `DISPENSER_STATE_UPGRADING`: a dispenser playing its upgrade animation.
 pub const DISPENSER_STATE_UPGRADING: c_int = 1;
+
+/// The slot of `CBaseObject::FinishedBuilding` in a TF2 building's primary
+/// vtable, from the generated binding.
+#[doc(alias("FinishedBuilding"))]
+pub const FINISHED_BUILDING_SLOT: usize = vtable_slot!(
+	sys::CBaseObject__bindgen_vtable,
+	CBaseObject_FinishedBuilding
+);
+
+/// The slot of `CBaseObject::InputWrenchHit` in a TF2 building's primary
+/// vtable, from the generated binding.
+#[doc(alias("InputWrenchHit"))]
+pub const INPUT_WRENCH_HIT_SLOT: usize =
+	vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_InputWrenchHit);
+
+/// The slot of `CBaseObject::Killed` in a TF2 building's primary vtable, from
+/// the generated binding.
+#[doc(alias("Killed"))]
+pub const KILLED_SLOT: usize = vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_Killed);
 
 /// `MODE_SAPPER_ANTI_ROBOT`: a sapper of Mann vs. Machine's anti-robot kind,
 /// placed on a robot.
@@ -111,6 +207,12 @@ pub const SOLID_TO_PLAYER_USE_DEFAULT: c_int = 0;
 /// `SOLID_TO_PLAYER_YES`: a building that blocks the movement of every
 /// player.
 pub const SOLID_TO_PLAYER_YES: c_int = 1;
+
+/// The slot of `CBaseObject::StartUpgrading` in a TF2 building's primary
+/// vtable, from the generated binding.
+#[doc(alias("StartUpgrading"))]
+pub const START_UPGRADING_SLOT: usize =
+	vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_StartUpgrading);
 
 /// `TELEPORTER_STATE_BUILDING`: a teleporter being built.
 pub const TELEPORTER_STATE_BUILDING: c_int = 0;

@@ -590,6 +590,30 @@ fn building<'s>(server: Server<'s>, fake: *mut FakeEntity) -> Building<'s> {
 }
 
 #[test]
+fn building_classes_are_listed_in_the_order_of_their_vtables() {
+	for (index, class) in BuildingClass::ALL.into_iter().enumerate() {
+		assert_eq!(class as usize, index);
+	}
+
+	let kinds = BuildingClass::ALL.map(BuildingClass::kind);
+
+	assert_eq!(
+		kinds,
+		[
+			BuildingKind::Dispenser,
+			BuildingKind::Dispenser,
+			BuildingKind::Dispenser,
+			BuildingKind::Dispenser,
+			BuildingKind::Sapper,
+			BuildingKind::Sentry,
+			BuildingKind::Teleporter,
+		]
+	);
+	assert_eq!(BuildingClass::Sentry.name(), "CObjectSentrygun");
+	assert_eq!(BuildingClass::RobotDispenser.name(), "CRobotDispenser");
+}
+
+#[test]
 fn building_inputs_are_sent_to_the_building() {
 	let world = World::new();
 	let scope = ();
@@ -635,6 +659,22 @@ fn building_inputs_are_sent_to_the_building() {
 		Err(BuildingError::Input(InputError::MarkedForDeletion))
 	));
 	assert!(INPUTS.take().is_empty());
+}
+
+#[test]
+fn building_vtables_are_only_searched_for_on_tf2() {
+	let scope = ();
+
+	assert!(matches!(
+		building_vtables(null_server(Game::SourceSdk2013, &scope)),
+		Err(BuildingVtableError::WrongGame)
+	));
+
+	// The tests' own executable has no building class.
+	assert!(matches!(
+		building_vtables(mock_server(&scope)),
+		Err(BuildingVtableError::NotFound(BuildingClass::CartDispenser))
+	));
 }
 
 #[test]
