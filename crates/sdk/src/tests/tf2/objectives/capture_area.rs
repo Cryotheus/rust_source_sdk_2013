@@ -45,6 +45,7 @@ fn area() -> FakeObjective {
 					key_field(c"m_bDisabled", c"StartDisabled", BOOLEAN, DISABLED, 1),
 					input(c"Enable", VOID),
 					input(c"Disable", VOID),
+					input(c"DisableAndEndTouch", VOID),
 					input(c"Toggle", VOID),
 				],
 			),
@@ -64,6 +65,7 @@ fn areas_are_controlled_through_their_inputs() {
 	take_inputs();
 	area.enable().unwrap();
 	area.disable().unwrap();
+	area.disable_and_end_touch().unwrap();
 	area.toggle().unwrap();
 	area.capture_current_point().unwrap();
 
@@ -72,6 +74,7 @@ fn areas_are_controlled_through_their_inputs() {
 		expected(&[
 			(c"Enable", 0),
 			(c"Disable", 0),
+			(c"DisableAndEndTouch", 0),
 			(c"Toggle", 0),
 			(c"CaptureCurrentCP", 0),
 		])

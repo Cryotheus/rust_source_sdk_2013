@@ -64,7 +64,9 @@ pub const RT_STATE_SETUP: c_int = 0;
 /// This is `SF_CAP_POINT_BOTS_IGNORE` from `game/server/team_control_point.h`.
 pub const SF_CAP_POINT_BOTS_IGNORE: c_int = 1 << 4;
 
-/// The `team_control_point` spawn flag that hides the point's flag model.
+/// The `team_control_point` spawn flag that hides the point from the HUD, as
+/// the point master tells the objective resource when it finds its points.
+/// [`SF_CAP_POINT_HIDE_MODEL`] hides the point's model.
 ///
 /// This is `SF_CAP_POINT_HIDEFLAG` from `game/server/team_control_point.h`.
 #[doc(alias("SF_CAP_POINT_HIDEFLAG"))]
