@@ -7,7 +7,7 @@
 //! class overrides it, as `func_regenerate`'s `CRegenerateZone` does.
 //!
 //! [`sdk_raw::tf2::touch`] holds the function's signature and its vtable slot,
-//! [`TOUCH_SLOT`](sdk_raw::tf2::touch::TOUCH_SLOT). [`TouchTargets`] finds the
+//! [`TOUCH_SLOT`]. [`TouchTargets`] finds the
 //! vtable of an entity class by its C++ name, which `metamod_source`'s
 //! `touch_hooks` hook, to see each touch of the class's entities before and
 //! after the game, and to block it.
