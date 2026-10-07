@@ -1153,6 +1153,34 @@ impl<'s> NetProp<'s> {
 		Ok(())
 	}
 
+	/// Writes the variable, as stored, to the structure at `base`, such as an
+	/// object a nested table's relocating proxy gave, without recording the
+	/// change for clients.
+	///
+	/// Fails, without writing, as [`get_at`](Self::get_at) does.
+	///
+	/// # Safety
+	///
+	/// `base` must point to a live structure laid out as the table the variable
+	/// was resolved in describes, and the game must accept `value` for the
+	/// variable, as for [`set`](Self::set).
+	#[cfg(feature = "tf2")]
+	pub(crate) unsafe fn set_at<T: NetVar>(
+		self,
+		base: NonNull<c_void>,
+		value: T,
+	) -> Result<(), NetPropError> {
+		self.check_storage::<T>()?;
+
+		// SAFETY: The structure is laid out as the variable's table describes, as
+		// the caller promises, and the variable's storage is compatible with `T`.
+		// The game writes its variables the same way, through its own pointers, on
+		// the main thread.
+		unsafe { value.write(base.as_ptr().cast::<u8>().add(self.offset)) };
+
+		Ok(())
+	}
+
 	/// Writes an entity handle variable (`CHandle`) of an entity, and records
 	/// the change so the engine sends it to clients.
 	///

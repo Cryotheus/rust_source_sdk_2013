@@ -5,7 +5,10 @@
 //! [`for_event_data`] walks an event's data with an `IGameEventVisitor2`
 //! implemented in Rust. [`VERSION`] is the version string of the game event
 //! manager, `IGameEventManager2`, and [`FireEventFn`] is the signature of its
-//! `FireEvent`, which hooks patch at [`FIRE_EVENT_SLOT`].
+//! `FireEvent`, which hooks patch at [`FIRE_EVENT_SLOT`]. [`FireGameEventFn`]
+//! is the signature of a listener's `FireGameEvent`, which hooks on the
+//! engine's own listeners, such as its clients, patch at
+//! [`FIRE_GAME_EVENT_SLOT`].
 
 use crate::abi::{CppDestructors, VTABLE_SLOT_SIZE, WChar};
 use crate::util::cstr::{borrow_cstr, borrow_wide_cstr};
@@ -27,7 +30,13 @@ pub type FireEventFn = unsafe extern "C" fn(
 ) -> bool;
 
 /// `void IGameEventListener2::FireGameEvent(IGameEvent *event)`.
-type FireGameEventFn =
+///
+/// The manager calls it on the listeners of each event it fires, with the
+/// event, which lasts for the call. The engine's clients listen too, for the
+/// events broadcast to them, and their `FireGameEvent` writes each to the
+/// client's channel.
+#[doc(alias("FireGameEvent"))]
+pub type FireGameEventFn =
 	unsafe extern "C" fn(this: *mut sys::IGameEventListener2, event: *mut sys::IGameEvent);
 
 // The listener's hand-written vtable lines up with the generated one under the
@@ -97,10 +106,23 @@ const _: fn(&sys::IGameEventListener2__bindgen_vtable) -> FireGameEventFn =
 const _: fn(&sys::IGameEventManager2__bindgen_vtable) -> FireEventFn =
 	|vtable| vtable.IGameEventManager2_FireEvent;
 
+// `IGameEventListener2` declares only a virtual destructor before
+// `FireGameEvent`, which takes one slot under MSVC and two under the Itanium
+// ABI.
+const _: () = assert!(FIRE_GAME_EVENT_SLOT == CppDestructors::VTABLE_SLOTS);
+
 /// The slot of [`FireEventFn`] in `IGameEventManager2`'s vtable.
 pub const FIRE_EVENT_SLOT: usize = vtable_slot!(
 	sys::IGameEventManager2__bindgen_vtable,
 	IGameEventManager2_FireEvent
+);
+
+/// The slot of [`FireGameEventFn`] in `IGameEventListener2`'s vtable, and in
+/// the primary vtable of a class deriving from it first, such as the engine's
+/// clients' `CGameClient`.
+pub const FIRE_GAME_EVENT_SLOT: usize = vtable_slot!(
+	sys::IGameEventListener2__bindgen_vtable,
+	IGameEventListener2_FireGameEvent
 );
 
 /// The most bytes the engine serializes of one event.

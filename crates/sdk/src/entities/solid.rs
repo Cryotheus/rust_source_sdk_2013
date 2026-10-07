@@ -6,9 +6,11 @@
 //! `CBaseEntity`'s embeds the collision property, whose own map declares the
 //! flags.
 //!
-//! [`Entity::solid_flags`] reads them all, but only the custom ray test can be
-//! changed here, by [`Entity::set_custom_ray_test`], which only decides what
-//! the engine's ray traces test against the entity. When most other flags
+//! [`Entity::solid_flags`] reads them all, but only two can be changed here:
+//! the custom ray test, by [`Entity::set_custom_ray_test`], which only decides
+//! what the engine's ray traces test against the entity, and a trigger's
+//! touches of debris, by [`Entity::set_trigger_touch_debris`], which only
+//! decides whether the engine pairs it with debris. When most other flags
 //! change, the game also updates the entity's collision rules, bounds, or
 //! touches (`CCollisionProperty::SetSolidFlags`), which writing the member
 //! would skip.
@@ -127,12 +129,23 @@ impl Entity<'_> {
 		server: Server<'_>,
 		enabled: bool,
 	) -> Result<bool, SolidFlagsError> {
+		self.set_solid_flag(server, SolidFlags::CUSTOM_RAY_TEST, enabled)
+	}
+
+	/// Sets or clears `flag` alone in the entity's solid flags, and records the
+	/// change for networking. Returns whether it was set.
+	fn set_solid_flag(
+		self,
+		server: Server<'_>,
+		flag: SolidFlags,
+		enabled: bool,
+	) -> Result<bool, SolidFlagsError> {
 		let offset = self.solid_flags_offset()?;
 		let engine = server.valve_engine()?;
 		let flags = self.solid_flags_at(offset);
 		let mut changed = flags;
 
-		changed.set(SolidFlags::CUSTOM_RAY_TEST, enabled);
+		changed.set(flag, enabled);
 
 		if changed != flags {
 			// SAFETY: The offset was validated against the entity's datamaps,
@@ -149,7 +162,32 @@ impl Entity<'_> {
 			self.network_state_changed(engine, offset);
 		}
 
-		Ok(flags.contains(SolidFlags::CUSTOM_RAY_TEST))
+		Ok(flags.contains(flag))
+	}
+
+	/// Sets or clears the entity's [`SolidFlags::TRIGGER_TOUCH_DEBRIS`], and
+	/// records the change for networking. Returns whether it was set.
+	///
+	/// Entities of
+	/// [`CollisionGroup::Debris`](crate::entities::CollisionGroup::Debris)
+	/// touch only the triggers that have it
+	/// (`CCollisionProperty::ShouldTouchTrigger`). While a trigger, an entity
+	/// with [`SolidFlags::TRIGGER`], has it, the engine also pairs the trigger
+	/// with the debris it overlaps, as either moves, and runs each one's
+	/// `Touch` with the other: whatever the trigger's class does to what
+	/// touches it, it does to debris too. Clearing it ends those touches as the
+	/// engine next checks them.
+	///
+	/// Nothing else changes: the trigger collides with nothing more, and the
+	/// game updates nothing else for the flag
+	/// (`CCollisionProperty::SetSolidFlags`).
+	#[doc(alias("FSOLID_TRIGGER_TOUCH_DEBRIS", "m_usSolidFlags"))]
+	pub fn set_trigger_touch_debris(
+		self,
+		server: Server<'_>,
+		enabled: bool,
+	) -> Result<bool, SolidFlagsError> {
+		self.set_solid_flag(server, SolidFlags::TRIGGER_TOUCH_DEBRIS, enabled)
 	}
 
 	/// The entity's solid flags (`m_usSolidFlags`), as
@@ -162,7 +200,7 @@ impl Entity<'_> {
 	/// Reads the solid flags at `offset`, which
 	/// [`solid_flags_offset`](Self::solid_flags_offset) found.
 	fn solid_flags_at(self, offset: usize) -> SolidFlags {
-		// SAFETY: As for the write in `set_custom_ray_test`.
+		// SAFETY: As for the write in `set_solid_flag`.
 		SolidFlags::from_bits_retain(unsafe { self.as_ptr().byte_add(offset).cast::<u16>().read() })
 	}
 

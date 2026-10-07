@@ -24,6 +24,11 @@ source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.7", optional = true 
 sys = { path = "../metamod_sys", version = "0.1.0-alpha.7", package = "metamod_source_sys" }
 thiserror.workspace = true
 
+[dev-dependencies]
+# Gives the hooks' tests the SDK's `_test-support` mocks, such as clients that
+# carry the engine's run-time type information.
+source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.7", features = ["_test-support"] }
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = [

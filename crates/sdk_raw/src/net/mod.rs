@@ -1,6 +1,7 @@
 //! Hand-written ABI of the engine's networking that the generated bindings do
 //! not describe.
 
+pub mod events;
 pub mod incoming;
 
 use std::ffi::c_int;
