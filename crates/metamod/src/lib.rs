@@ -108,6 +108,10 @@ pub mod placement_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod player_hooks;
 
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod recipients;
+
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod removal_hooks;
@@ -158,6 +162,10 @@ pub mod touch_hooks;
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod team_hooks;
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod temp_entity_hooks;
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
