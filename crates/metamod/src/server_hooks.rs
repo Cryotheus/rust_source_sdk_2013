@@ -155,7 +155,8 @@ impl Handler<ProcessMessage> for NetMessageKind {
 
 		// SAFETY: The hook runs before the engine's handler method at this kind's
 		// slot of the vtable `hook_target` found, on the main thread, with the
-		// engine's handler and message. Panics are caught inside.
+		// handler and message the engine, or `GameClient::process_string_command`,
+		// passed. Panics are caught inside.
 		match unsafe { route_incoming(&routed.binding, routed.target, self.0, handler, message) } {
 			// A blocked message counts as processed, as if its handler returned
 			// true.
@@ -297,7 +298,10 @@ impl MetamodApi<'_> {
 	}
 
 	/// Passes every message a client sends to `handler`, before the engine
-	/// processes it, and drops the ones it blocks.
+	/// processes it, and drops the ones it blocks. The commands plugins pass
+	/// clients' handlers with
+	/// [`GameClient::process_string_command`](source_sdk_2013::interfaces::GameClient::process_string_command)
+	/// reach it too.
 	///
 	/// This hooks each `Process*` method of the engine's client message
 	/// handler, which [`hook_target`] finds and checks. The hooks stop calling
