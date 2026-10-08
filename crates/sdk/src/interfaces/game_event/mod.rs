@@ -4,10 +4,11 @@ use crate::NotThreadSafe;
 use crate::bitbuf::BitWriter;
 use crate::players::UserId;
 use sdk_raw::abi::WChar;
-use sdk_raw::bitbuf::BfWrite;
+use sdk_raw::bitbuf::{BfRead, BfWrite};
 
 use sdk_raw::interfaces::game_event::{
-	EventValue, GameEventListenerObject, MAX_EVENT_BYTES, OnFireGameEvent, for_event_data,
+	EventValue, GameEventListenerObject, MAX_EVENT_BITS, MAX_EVENT_BYTES, OnFireGameEvent,
+	for_event_data,
 };
 
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
@@ -1081,5 +1082,34 @@ impl<'s> GameEventManager<'s> {
 			.then(|| unsafe { BfWrite::read_back(NonNull::from(&mut buffer)) })
 			.flatten()
 			.map(BitWriter::from)
+	}
+
+	/// Decodes an event as clients do, from its ID and then its fields as
+	/// [`Self::serialize_event`] encodes them, such as the payload of a
+	/// [`net::messages::GameEvent`](crate::net::messages::GameEvent).
+	///
+	/// Returns `None` if the manager has no description of the event's ID, or
+	/// the bits end before its fields do. The new event is freed when dropped,
+	/// unless fired.
+	#[doc(alias("UnserializeEvent"))]
+	pub fn unserialize_event(self, data: &BitWriter) -> Option<OwnedGameEvent<'s>> {
+		if data.len() < MAX_EVENT_BITS as usize {
+			return None;
+		}
+
+		let mut buffer = BfRead::new(data.as_words(), data.len());
+
+		// SAFETY: As for `add_listener`. The engine reads through the buffer,
+		// within the bits it describes, which `data` holds and outlives the call,
+		// and marks it overflowed rather than read past them.
+		let event = unsafe {
+			vcall!(self.as_ptr() => IGameEventManager2_UnserializeEvent(buffer.as_raw()))
+		};
+
+		let event = NonNull::new(event).map(|raw| OwnedGameEvent { raw, manager: self })?;
+
+		// If the bits ran out, the fields after them read as zero: the event is
+		// dropped, which frees it.
+		(buffer.overflow == 0).then_some(event)
 	}
 }

@@ -91,6 +91,27 @@ fn engine_buffers_take_bits_without_disturbing_their_contents() {
 }
 
 #[test]
+fn new_readers_read_the_bits_given_from_their_start() {
+	let words = [0xABCD_EF12, 0b101];
+	let reader = BfRead::new(&words, 35);
+
+	assert_eq!(reader.data.cast::<u32>(), words.as_ptr());
+	assert_eq!(reader.data_bytes, 8);
+	assert_eq!(reader.data_bits, 35);
+	assert_eq!(reader.cur_bit, 0);
+	assert_eq!(reader.overflow, 0);
+
+	// SAFETY: The reader describes `words`.
+	unsafe {
+		assert_eq!(reader.unread_bits(35).unwrap().as_words(), words);
+		assert!(reader.unread_bits(36).is_none());
+	}
+
+	// Nothing to read reads nothing.
+	assert_eq!(BfRead::new(&[], 0).data_bits, 0);
+}
+
+#[test]
 fn readers_copy_the_bits_after_their_position() {
 	let data = [0b1010_0000_u8, 0b0000_0111, 0xff];
 	let mut reader = BfRead {
