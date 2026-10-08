@@ -386,13 +386,26 @@ impl<'s> ConVarChange<'s> {
 /// A watch of every console variable's changes, which [`Cvar::watch_changes`]
 /// starts, until it is dropped.
 ///
-/// Drop it, or [stop](Self::stop) it, before the plugin's library unloads,
-/// such as as the plugin unloads: until then the engine keeps calling the
-/// function the watch installed, and would call into the unloaded library at
-/// the next change. Nothing stops it for the plugin, neither this crate nor
-/// Metamod:Source, which only removes the hooks it installed itself. A watch
-/// that is never dropped, such as one leaked or kept in a `static`, stays
-/// installed for as long as the process runs.
+/// Drop it, or [stop](Self::stop) it, before the plugin's library unloads:
+/// until then the engine keeps calling the function the watch installed, and
+/// would call into the unloaded library at the next change. Nothing stops it
+/// for the plugin, neither this crate nor Metamod:Source, which only removes
+/// the hooks it installed itself. A watch that is never dropped, such as one
+/// leaked or kept in a `static`, stays installed for as long as the process
+/// runs.
+///
+/// Under Metamod:Source, stop it in the plugin's `Unload` whatever `Unload`
+/// returns. A forced unload, such as `meta force_unload`, unloads the library
+/// even when `Unload` refuses, without calling the plugin again, so a plugin
+/// that refuses runs on without the watch, and may start another. A `Load`
+/// that started a watch and then refuses must stop it before returning, since
+/// Metamod unloads the library after a refused `Load` without calling
+/// `Unload`.
+///
+/// Do not unload the plugin from inside a variable's change either, such as
+/// from another module's change callback: a change that is already calling
+/// its callbacks may still call the function once after the watch stops, as
+/// [`Self::stop`] describes, and would find it gone.
 ///
 /// The watch stays on the server's main thread, where it started.
 #[must_use = "dropping the watch stops it"]
@@ -407,7 +420,11 @@ pub struct ConVarWatch {
 
 impl ConVarWatch {
 	/// Stops the watch, as dropping it does: the engine no longer calls the
-	/// function it installed.
+	/// function it installed, except perhaps once more during a change whose
+	/// callbacks it is calling already. `CCvar` counts them before calling the
+	/// first, and removing the function leaves it in the list's old last slot if
+	/// it was installed last, so the change still calls it there, though that
+	/// call no longer reaches this watch's callback.
 	#[doc(alias("RemoveGlobalChangeCallback"))]
 	pub fn stop(self) {
 		drop(self);
@@ -600,7 +617,11 @@ impl<'s> Cvar<'s> {
 	///
 	/// The engine calls the function until the watch stops, even while the
 	/// plugin is paused, so stop it before the plugin's library unloads, as
-	/// [`ConVarWatch`] describes.
+	/// [`ConVarWatch`] describes. Under Metamod:Source, that means in the
+	/// plugin's `Unload` whatever `Unload` returns, since a forced unload goes
+	/// on after a refusal without calling the plugin again, and before a `Load`
+	/// that refuses returns, since no `Unload` follows it. Do not unload the
+	/// plugin from inside a variable's change either.
 	///
 	/// # Threads
 	///
