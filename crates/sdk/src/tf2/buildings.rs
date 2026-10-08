@@ -8,7 +8,8 @@
 //! [`Teleporter`] read what their kinds add. [`PlayerBuildings`] finds a
 //! player's buildings and the one an engineer carries, and removes them.
 //! [`BuildingSpawn`] creates buildings as maps place them, owned by no one
-//! until [`Building::set_builder`] gives them to a player.
+//! until [`Building::set_builder`] gives them to a player, or as engineers
+//! build them, for a player.
 //!
 //! A building's health is an entity's: [`Entity::health`] reads it, and
 //! [`ServerTools::send_health_input`] sends the `SetHealth`, `AddHealth` and
@@ -641,6 +642,33 @@ impl<'s> Building<'s> {
 		self.input(c"Show", InputValue::Void)
 	}
 
+	/// Starts building a building that spawned without being activated, as an
+	/// engineer's blueprint is placed and then built
+	/// (`CBaseObject::StartPlacement`, then `StartBuilding`), for `builder`, and
+	/// returns whether it started. No builder is passed to `StartBuilding`, so
+	/// it takes no metal from anyone, which is the only way for it to fail.
+	///
+	/// # Safety
+	///
+	/// The building must have spawned without being activated, and not been
+	/// placed or built since. `builder` must be a live TF2 player. Both methods
+	/// must free entities only through Source's deferred deletion (condition 4
+	/// of [`Server::new`]).
+	#[doc(alias("StartPlacement", "StartBuilding"))]
+	unsafe fn start_construction(self, builder: Entity<'s>) -> bool {
+		let building = self.entity.as_ptr();
+
+		// SAFETY: `new` found `CBaseObject` in the building's datamaps, so it is
+		// one, whose entity base `sdk_raw::entities::health` asserts is at offset
+		// zero, as a player's entity base is at the start of `CTFPlayer`. The
+		// building is live during `'s`, on the main thread, and the caller vouches
+		// for the rest.
+		unsafe {
+			vcall!(building as sys::CBaseObject__bindgen_vtable => CBaseObject_StartPlacement(builder.as_ptr().cast()));
+			vcall!(building as sys::CBaseObject__bindgen_vtable => CBaseObject_StartBuilding(std::ptr::null_mut()))
+		}
+	}
+
 	/// The building's team (`m_iTeamNum`), which is its builder's.
 	#[doc(alias("m_iTeamNum", "GetTeamNumber"))]
 	pub fn team(self) -> Result<c_int, BuildingError> {
@@ -742,9 +770,10 @@ impl BuildingClass {
 	}
 }
 
-/// A building to create as a map places one: built at once, at the level it
-/// is given, and owned by no one until [`Building::set_builder`] gives it to
-/// a player.
+/// A building to create as a map places one, with [`Self::spawn`]: built at
+/// once, at the level it is given, and owned by no one until
+/// [`Building::set_builder`] gives it to a player. [`Self::build`] creates it
+/// as an engineer builds one instead, for a player, over its build time.
 ///
 /// ```no_run
 /// # use source_sdk_2013::Server;
@@ -806,6 +835,83 @@ impl BuildingSpawn {
 			spawn: self.spawn.angles(angles),
 			..self
 		}
+	}
+
+	/// Creates the building as an engineer builds theirs, for `builder`: it is
+	/// theirs as [`Building::set_builder`] makes a building, on their team
+	/// whatever [`Self::team`] says, and starts out being built, as a blueprint
+	/// they placed does (`StartPlacement`, then `StartBuilding`). It plays its
+	/// building animation, starting with little health, and is built over its
+	/// kind's build time, which the builder's attributes change and wrenches
+	/// shorten; then it upgrades at once to [`Self::level`].
+	///
+	/// Unlike [`Self::spawn`]'s, the building is not activated, so it is no
+	/// map's building ([`Building::was_map_placed`]). Its health ignores the
+	/// builder's attributes until it upgrades, as it spawns before it is
+	/// theirs. Building it takes no metal from the builder, and fires no
+	/// `player_builtobject` event.
+	///
+	/// Fails with [`BuildingError::WrongGame`] unless the server runs TF2, with
+	/// [`BuildingError::NotTfPlayer`] unless `builder`'s datamaps include
+	/// `CTFPlayer`, with [`BuildingError::MarkedForDeletion`] for a builder
+	/// being removed, and with [`BuildingError::InvalidLevel`] for a level other
+	/// than 1 to 3, without creating anything; with [`BuildingError::Spawn`] as
+	/// [`EntitySpawn::spawn`] fails, or if the building removed itself as it
+	/// started being built; and as [`Building::set_builder`] fails, after
+	/// removing the building.
+	///
+	/// # Safety
+	///
+	/// As for [`EntitySpawn::spawn`], without `Activate`: the building's
+	/// constructor, `Spawn`, `StartPlacement` and `StartBuilding` must free
+	/// entities only through Source's deferred deletion (condition 4 of
+	/// [`Server::new`]).
+	#[doc(alias("StartPlacement", "StartBuilding", "CTFWeaponBuilder"))]
+	pub unsafe fn build<'s>(
+		&self,
+		server: Server<'s>,
+		builder: Entity<'s>,
+	) -> Result<Building<'s>, BuildingError> {
+		if server.game() != Game::TeamFortress2 {
+			return Err(BuildingError::WrongGame);
+		}
+
+		if !builder.has_data_map_class(c"CTFPlayer") {
+			return Err(BuildingError::NotTfPlayer);
+		}
+
+		if builder.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		let spawn = self.entity_spawn()?.activate(false);
+		let tools = server.server_tools()?;
+
+		// SAFETY: The caller vouches for the building's constructor and `Spawn`.
+		let entity = unsafe { spawn.spawn(tools) }?;
+
+		let given = Building::new(server, entity)
+			.and_then(|building| building.set_builder(builder).map(|()| building));
+
+		let building = match given {
+			Ok(building) => building,
+
+			Err(error) => {
+				// No protected entity is a building that has just spawned.
+				let _ = tools.remove(entity);
+				return Err(error);
+			}
+		};
+
+		// SAFETY: The building has just spawned without being activated, and
+		// `builder` is a live TF2 player. The caller vouches for the methods.
+		let started = unsafe { building.start_construction(builder) };
+
+		if !started || entity.is_marked_for_deletion() {
+			return Err(BuildingError::Spawn(SpawnError::RemovedItself));
+		}
+
+		Ok(building)
 	}
 
 	/// The entity to create, with the level and spawn flags as key values, or
