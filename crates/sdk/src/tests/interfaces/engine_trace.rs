@@ -1,11 +1,11 @@
 //! Tests of `EngineTrace`: the boxes and points it clips to one entity, with
 //! the ray the engine receives, as `Ray_t::Init` makes it, and the answer it
-//! gives; and the lines it traces, with the ray, mask and kind of trace the
-//! engine receives, the entities the filters let a line hit, and what the
-//! traces report.
+//! gives; and the lines and hulls it traces, with the ray, mask and kind of
+//! trace the engine receives, the entities the filters let a ray hit, and
+//! what the traces report.
 
 use super::*;
-use crate::test_support::entities::MockEntity;
+use crate::test_support::entities::{MockEntity, set_datamap, state_maps};
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 
@@ -42,6 +42,8 @@ struct Clipped {
 struct Traced {
 	start: Vector,
 	delta: Vector,
+	start_offset: Vector,
+	extents: Vector,
 	is_ray: bool,
 	swept: bool,
 	mask: c_uint,
@@ -125,9 +127,11 @@ unsafe extern "C" fn clip_ray_to_entity(
 	CLIPPED.with_borrow_mut(|calls| calls.push(clipped));
 }
 
-/// `IEngineTrace::TraceRay`: offers the filter the entities along the line,
+/// `IEngineTrace::TraceRay`: offers the filter the entities along the ray,
 /// unless it asks for the world alone, and stops halfway at the first it lets
-/// the line hit, or reaches the line's end.
+/// the ray hit, on a surface facing back along the X axis, or reaches the
+/// ray's end. As the engine does, it moves the end by the ray's start offset,
+/// back to where a box's position is.
 unsafe extern "C" fn trace_ray(
 	_this: *mut sys::IEngineTrace,
 	ray: *const sys::Ray_t,
@@ -141,15 +145,18 @@ unsafe extern "C" fn trace_ray(
 
 	// SAFETY: The filter is the wrapper's own, live during the call.
 	let trace_type = unsafe { (methods.ITraceFilter_GetTraceType)(filter) };
-	let (start, delta) = (
+	let (start, delta, start_offset) = (
 		Vector::from(ray.m_Start._base),
 		Vector::from(ray.m_Delta._base),
+		Vector::from(ray.m_StartOffset._base),
 	);
 
 	TRACED.with_borrow_mut(|traced| {
 		traced.push(Traced {
 			start,
 			delta,
+			start_offset,
+			extents: ray.m_Extents._base.into(),
 			is_ray: ray.m_IsRay,
 			swept: ray.m_IsSwept,
 			mask,
@@ -169,7 +176,13 @@ unsafe extern "C" fn trace_ray(
 	let fraction = if hit.is_some() { 0.5 } else { 1.0 };
 
 	trace._base.fraction = fraction;
-	trace._base.endpos = Vector(*start + *delta * fraction).into();
+	trace._base.endpos = Vector(*start + *delta * fraction + *start_offset).into();
+
+	if hit.is_some() {
+		trace._base.plane.normal = Vector::new(-1.0, 0.0, 0.0).into();
+		trace._base.contents = CONTENTS_MONSTER.cast_signed();
+	}
+
 	trace.m_pEnt = hit.map_or(ptr::null_mut(), <*mut _>::cast);
 }
 
@@ -266,6 +279,8 @@ fn lines_hit_the_nearest_entity_but_the_skipped_one() {
 			[Traced {
 				start: LINE.0,
 				delta: LINE.1,
+				start_offset: Vector::new(0.0, 0.0, 0.0),
+				extents: Vector::new(0.0, 0.0, 0.0),
 				is_ray: true,
 				swept: true,
 				mask: MASK_SOLID,
@@ -318,4 +333,137 @@ fn world_lines_pass_through_every_entity() {
 		assert_eq!(traced[0].mask, MASK_SOLID_BRUSHONLY);
 		assert_eq!(traced[0].trace_type, sys::TraceType_t_TRACE_WORLD_ONLY);
 	});
+}
+
+#[test]
+fn hulls_start_at_their_center_and_end_at_their_position() {
+	let mut entity = MockEntity::new(1);
+	let mut mock = MockEngineTrace::new(&[entity.as_ptr().cast()]);
+	let (mins, maxs) = (
+		Vector::new(-24.0, -24.0, 0.0),
+		Vector::new(24.0, 24.0, 82.0),
+	);
+
+	let trace = mock.engine_trace().trace(
+		Ray::hull(LINE.0, LINE.1, mins, maxs),
+		MASK_PLAYERSOLID,
+		TraceFilter::Everything,
+	);
+
+	assert!(trace.hit());
+	assert_eq!(trace.end, Vector::new(50.0, 0.0, 0.0));
+	assert_eq!(trace.normal, Vector::new(-1.0, 0.0, 0.0));
+	assert_eq!(trace.contents, CONTENTS_MONSTER.cast_signed());
+	assert_eq!(trace.entity.map(Entity::as_ptr), Some(entity.as_ptr()));
+
+	TRACED.with_borrow(|traced| {
+		assert_eq!(
+			*traced,
+			[Traced {
+				start: Vector::new(0.0, 0.0, 41.0),
+				delta: LINE.1,
+				start_offset: Vector::new(0.0, 0.0, -41.0),
+				extents: Vector::new(24.0, 24.0, 41.0),
+				is_ray: false,
+				swept: true,
+				mask: MASK_PLAYERSOLID,
+				trace_type: sys::TraceType_t_TRACE_EVERYTHING,
+			}]
+		);
+	});
+
+	// A hull that does not move is tested where it is.
+	let still = mock.engine_trace().trace(
+		Ray::hull(LINE.1, LINE.1, mins, maxs),
+		MASK_PLAYERSOLID,
+		TraceFilter::WorldAndProps,
+	);
+
+	assert!(!still.hit());
+	assert_eq!(still.end, LINE.1);
+	assert_eq!(still.normal, Vector::new(0.0, 0.0, 0.0));
+	assert_eq!(still.entity, None);
+	TRACED.with_borrow(|traced| assert!(!traced[1].swept));
+}
+
+/// The entity a line along [`LINE`] traced through `filter` stopped at, and
+/// the kind of trace the filter asked the engine for.
+fn stopped_at(
+	engine: EngineTrace<'_>,
+	filter: TraceFilter<'_, '_>,
+) -> (Option<*mut sys::CBaseEntity>, sys::TraceType_t) {
+	let trace = engine.trace(Ray::line(LINE.0, LINE.1), MASK_SOLID, filter);
+	let trace_type = TRACED.with_borrow(|traced| traced.last().unwrap().trace_type);
+
+	(trace.entity.map(Entity::as_ptr), trace_type)
+}
+
+#[test]
+fn filters_choose_the_entities_a_ray_stops_at() {
+	let mut mocks = [1, 2, 3].map(MockEntity::new);
+	let [first, second, third] = mocks.each_mut().map(|entity| entity.entity());
+	let along = [first, second, third].map(|entity| entity.as_ptr().cast());
+	let mut mock = MockEngineTrace::new(&along);
+	let engine = mock.engine_trace();
+	let everything = sys::TraceType_t_TRACE_EVERYTHING;
+
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Everything),
+		(Some(first.as_ptr()), everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::EntitiesOnly),
+		(Some(first.as_ptr()), sys::TraceType_t_TRACE_ENTITIES_ONLY)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Skip(&[first, second])),
+		(Some(third.as_ptr()), everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Only(&[second])),
+		(Some(second.as_ptr()), everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Only(&[])),
+		(None, everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::WorldAndProps),
+		(None, everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::WorldOnly),
+		(None, sys::TraceType_t_TRACE_WORLD_ONLY)
+	);
+}
+
+#[test]
+fn team_filters_pass_through_the_teams_entities() {
+	let mut mocks = [1, 2, 3].map(MockEntity::new);
+
+	// Every mock entity reports this datamap chain, which declares
+	// `m_iTeamNum`.
+	set_datamap(state_maps(Vec::new()));
+
+	for (mock, team) in mocks.iter_mut().zip([2, 2, 3]) {
+		mock.state().team = team;
+	}
+
+	let [red, red_too, blue] = mocks.each_mut().map(|entity| entity.entity());
+	let along = [red, red_too, blue].map(|entity| entity.as_ptr().cast());
+	let mut mock = MockEngineTrace::new(&along);
+	let engine = mock.engine_trace();
+
+	assert_eq!(
+		stopped_at(engine, TraceFilter::SkipTeam(2)).0,
+		Some(blue.as_ptr())
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::SkipTeam(3)).0,
+		Some(red.as_ptr())
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::SkipTeam(0)).0,
+		Some(red.as_ptr())
+	);
 }
