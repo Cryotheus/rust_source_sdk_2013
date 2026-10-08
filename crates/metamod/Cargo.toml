@@ -1,0 +1,38 @@
+﻿[package]
+name = "metamod_source"
+version.workspace = true
+edition = "2024"
+rust-version = "1.99.0"
+
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "Higher-level bindings for Metamod:Source."
+categories = ["api-bindings"]
+keywords = ["gamedev", "source-engine", "metamod"]
+
+[features]
+## Console commands and hooks for `source_sdk_2013`.
+sdk = ["dep:source_sdk_2013"]
+## TF2's entity, player, weapon, round, game and chat hooks, through `source_sdk_2013`'s `tf2` module.
+tf2 = ["sdk", "source_sdk_2013/tf2"]
+
+[dependencies]
+crys_bricks.workspace = true
+source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.7", optional = true }
+sys = { path = "../metamod_sys", version = "0.1.0-alpha.7", package = "metamod_source_sys" }
+thiserror.workspace = true
+
+[dev-dependencies]
+# Gives the hooks' tests the SDK's `_test-support` mocks, such as clients that
+# carry the engine's run-time type information.
+source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.7", features = ["_test-support"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+	"-Zunstable-options",
+	"--generate-link-to-definition",
+	"--generate-macro-expansion",
+]

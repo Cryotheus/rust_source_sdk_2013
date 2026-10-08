@@ -1,0 +1,69 @@
+//! Team Fortress 2: the parts of its game and engine that other Source SDK 2013
+//! games do not share.
+//!
+//! Everything here assumes a server running TF2, whose game DLL is built with
+//! `TF_DLL` ([`Game::TeamFortress2`](crate::Game::TeamFortress2)). Most
+//! wrappers check the [`Game`](crate::Game) and the entity classes they are
+//! given, and return an error for anything else.
+
+pub mod achievements;
+pub mod airblast;
+pub mod ammo;
+pub mod animating;
+pub mod attributes;
+pub mod bosses;
+pub mod bots;
+pub mod buildings;
+mod class;
+pub mod class_targets;
+pub mod collision;
+pub mod conditions;
+pub mod custom_damage;
+pub mod custom_votes;
+pub mod damage;
+pub mod dominations;
+pub mod duels;
+pub mod effects;
+pub mod entity;
+pub mod game_events;
+pub mod game_mode;
+pub mod game_rules;
+pub mod gc;
+pub mod god;
+pub mod host_timescale;
+pub mod item_schema;
+pub mod meters;
+pub mod mvm;
+pub mod nav;
+pub mod next_bot;
+pub mod objectives;
+pub mod objects;
+pub mod observer;
+pub mod overlays;
+pub mod pickups;
+pub mod player;
+mod player_methods;
+pub mod projectiles;
+pub mod ragdolls;
+pub mod respawn;
+pub mod round_end;
+pub mod scoreboard;
+mod script_binding;
+pub mod script_instances;
+pub mod scripts;
+pub mod sound;
+pub mod spawn;
+pub mod taunts;
+pub mod teams;
+pub mod touch;
+pub mod user_messages;
+pub mod voice;
+pub mod voting;
+pub mod weapons;
+pub mod wearables;
+
+#[cfg(feature = "tf2_loadout")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2_loadout")))]
+pub mod loadout;
+
+pub use class::{PlayerClass, UnknownClassName};
