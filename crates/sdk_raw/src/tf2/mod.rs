@@ -38,6 +38,7 @@ pub mod objects;
 pub mod observer;
 pub mod player;
 pub mod projectiles;
+pub mod pve_mode;
 pub mod ragdolls;
 pub mod respawn;
 pub mod scoreboard;
