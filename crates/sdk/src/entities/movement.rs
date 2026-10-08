@@ -10,8 +10,19 @@ mod tests;
 use crate::entities::fields::{BaseField, FieldError};
 use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::{ServerTools, ValveEngine};
-use crate::math::Vector;
-use sdk_raw::entities::find_physics_object_field;
+use crate::math::{QAngle, Vector};
+use sdk_raw::entities::{
+	EFL_BOT_FROZEN, EFL_CHECK_UNTOUCH, EFL_DIRTY_ABSANGVELOCITY, EFL_DIRTY_ABSTRANSFORM,
+	EFL_DIRTY_ABSVELOCITY, EFL_DIRTY_SHADOWUPDATE, EFL_DIRTY_SPATIAL_PARTITION,
+	EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS, EFL_DONTBLOCKLOS, EFL_DONTWALKON, EFL_DORMANT,
+	EFL_FORCE_ALLOW_MOVEPARENT, EFL_FORCE_CHECK_TRANSMIT, EFL_HAS_PLAYER_CHILD, EFL_IN_SKYBOX,
+	EFL_IS_BEING_LIFTED_BY_BARNACLE, EFL_KEEP_ON_RECREATE_ENTITIES, EFL_KILLME,
+	EFL_NO_AUTO_EDICT_ATTACH, EFL_NO_DAMAGE_FORCES, EFL_NO_DISSOLVE,
+	EFL_NO_GAME_PHYSICS_SIMULATION, EFL_NO_MEGAPHYSCANNON_RAGDOLL, EFL_NO_PHYSCANNON_INTERACTION,
+	EFL_NO_ROTORWASH_PUSH, EFL_NO_THINK_FUNCTION, EFL_NO_WATER_VELOCITY_CHANGE, EFL_NOCLIP_ACTIVE,
+	EFL_NOTIFY, EFL_SERVER_ONLY, EFL_SETTING_UP_BONES, EFL_TOUCHING_FLUID,
+	EFL_USE_PARTITION_WHEN_NOT_SOLID, find_physics_object_field,
+};
 
 use sdk_raw::entities::flags::{
 	FL_AIMTARGET, FL_ANIMDUCKING, FL_ATCONTROLS, FL_BASEVELOCITY, FL_CLIENT, FL_CONVEYOR,
@@ -25,9 +36,9 @@ use sdk_raw::vcall;
 use std::ffi::{c_int, c_void};
 use std::sync::OnceLock;
 
-/// `EFL_DIRTY_ABSVELOCITY` from `game/shared/shareddefs.h`: the entity's
-/// velocity in the world is yet to be computed from its parent's.
-const EFL_DIRTY_ABSVELOCITY: c_int = 1 << 12;
+/// `m_angAbsRotation`.
+static ABS_ANGLES: BaseField<QAngle> =
+	BaseField::new(c"m_angAbsRotation", sys::_fieldtypes_FIELD_VECTOR);
 
 /// `m_vecAbsVelocity`.
 static ABS_VELOCITY: BaseField<Vector> =
@@ -46,6 +57,16 @@ static FRICTION: BaseField<f32> = BaseField::new(c"m_flFriction", sys::_fieldtyp
 /// `m_flGravity`, the `gravity` key value.
 static GRAVITY: BaseField<f32> = BaseField::new(c"m_flGravity", sys::_fieldtypes_FIELD_FLOAT);
 
+/// `m_angRotation`, which the `angles` key value sets while the entity has
+/// no parent.
+static LOCAL_ANGLES: BaseField<QAngle> =
+	BaseField::new(c"m_angRotation", sys::_fieldtypes_FIELD_VECTOR);
+
+/// `m_vecOrigin`, which the `origin` key value sets while the entity has no
+/// parent.
+static LOCAL_ORIGIN: BaseField<Vector> =
+	BaseField::new(c"m_vecOrigin", sys::_fieldtypes_FIELD_VECTOR);
+
 /// `m_vecVelocity`, the `velocity` key value.
 static LOCAL_VELOCITY: BaseField<Vector> =
 	BaseField::new(c"m_vecVelocity", sys::_fieldtypes_FIELD_VECTOR);
@@ -60,6 +81,178 @@ static MOVE_PARENT: BaseField<EntityHandle> =
 
 /// `m_MoveType`, the `MoveType` key value.
 static MOVE_TYPE: BaseField<u8> = BaseField::new(c"m_MoveType", sys::_fieldtypes_FIELD_CHARACTER);
+
+bitflags::bitflags! {
+	/// An entity's engine flags (`m_iEFlags`), the `EFL_*` values from
+	/// `game/shared/shareddefs.h`, which the game keeps of the entity's state
+	/// besides its [`EntityFlags`].
+	///
+	/// `EFL_HAS_PLAYER_CHILD` and `EFL_KEEP_ON_RECREATE_ENTITIES` share a bit,
+	/// so both constants here stand for it, and flags read from an entity show
+	/// it as [`HAS_PLAYER_CHILD`](Self::HAS_PLAYER_CHILD).
+	#[doc(alias("GetEFlags", "m_iEFlags"))]
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+	pub struct EngineFlags: c_int {
+		/// `EFL_BOT_FROZEN`: the bot is frozen in place.
+		#[doc(alias("EFL_BOT_FROZEN"))]
+		const BOT_FROZEN = EFL_BOT_FROZEN;
+
+		/// `EFL_CHECK_UNTOUCH`: the game is to check which of the entity's
+		/// touches have ended.
+		#[doc(alias("EFL_CHECK_UNTOUCH"))]
+		const CHECK_UNTOUCH = EFL_CHECK_UNTOUCH;
+
+		/// `EFL_DIRTY_ABSANGVELOCITY`: the entity's angular velocity in the
+		/// world is yet to be computed from its move parent's.
+		#[doc(alias("EFL_DIRTY_ABSANGVELOCITY"))]
+		const DIRTY_ABS_ANG_VELOCITY = EFL_DIRTY_ABSANGVELOCITY;
+
+		/// `EFL_DIRTY_ABSTRANSFORM`: the entity's origin and angles in the
+		/// world are yet to be computed from its move parent's.
+		#[doc(alias("EFL_DIRTY_ABSTRANSFORM"))]
+		const DIRTY_ABS_TRANSFORM = EFL_DIRTY_ABSTRANSFORM;
+
+		/// `EFL_DIRTY_ABSVELOCITY`: the entity's velocity in the world is yet
+		/// to be computed from its move parent's.
+		#[doc(alias("EFL_DIRTY_ABSVELOCITY"))]
+		const DIRTY_ABS_VELOCITY = EFL_DIRTY_ABSVELOCITY;
+
+		/// `EFL_DIRTY_SHADOWUPDATE`: only clients set it, for their shadow
+		/// manager to update the entity's shadow.
+		#[doc(alias("EFL_DIRTY_SHADOWUPDATE"))]
+		const DIRTY_SHADOW_UPDATE = EFL_DIRTY_SHADOWUPDATE;
+
+		/// `EFL_DIRTY_SPATIAL_PARTITION`: the entity's place in the spatial
+		/// partition is yet to be updated.
+		#[doc(alias("EFL_DIRTY_SPATIAL_PARTITION"))]
+		const DIRTY_SPATIAL_PARTITION = EFL_DIRTY_SPATIAL_PARTITION;
+
+		/// `EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS`: the box around the
+		/// entity's collision volume is yet to be computed again.
+		#[doc(alias("EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS"))]
+		const DIRTY_SURROUNDING_COLLISION_BOUNDS = EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS;
+
+		/// `EFL_DONTBLOCKLOS`: the entity does not block NPCs' line of sight.
+		#[doc(alias("EFL_DONTBLOCKLOS"))]
+		const DONT_BLOCK_LOS = EFL_DONTBLOCKLOS;
+
+		/// `EFL_DONTWALKON`: NPCs do not walk on the entity.
+		#[doc(alias("EFL_DONTWALKON"))]
+		const DONT_WALK_ON = EFL_DONTWALKON;
+
+		/// `EFL_DORMANT`: the entity is dormant, and sends clients no updates.
+		#[doc(alias("EFL_DORMANT"))]
+		const DORMANT = EFL_DORMANT;
+
+		/// `EFL_FORCE_ALLOW_MOVEPARENT`: the entity may move with a parent
+		/// even without an edict.
+		#[doc(alias("EFL_FORCE_ALLOW_MOVEPARENT"))]
+		const FORCE_ALLOW_MOVE_PARENT = EFL_FORCE_ALLOW_MOVEPARENT;
+
+		/// `EFL_FORCE_CHECK_TRANSMIT`: the entity is sent to clients even
+		/// without a model, as the entities the client draws by itself need.
+		#[doc(alias("EFL_FORCE_CHECK_TRANSMIT"))]
+		const FORCE_CHECK_TRANSMIT = EFL_FORCE_CHECK_TRANSMIT;
+
+		/// `EFL_HAS_PLAYER_CHILD`: the entity, or an entity moving with it, is
+		/// a player. [`KEEP_ON_RECREATE_ENTITIES`](Self::KEEP_ON_RECREATE_ENTITIES)
+		/// has the same bit.
+		#[doc(alias("EFL_HAS_PLAYER_CHILD"))]
+		const HAS_PLAYER_CHILD = EFL_HAS_PLAYER_CHILD;
+
+		/// `EFL_IN_SKYBOX`: the entity is in the 3D skybox, so is sent to
+		/// clients as if they could see it.
+		#[doc(alias("EFL_IN_SKYBOX"))]
+		const IN_SKYBOX = EFL_IN_SKYBOX;
+
+		/// `EFL_IS_BEING_LIFTED_BY_BARNACLE`: a Half-Life 2 barnacle lifts the
+		/// entity.
+		#[doc(alias("EFL_IS_BEING_LIFTED_BY_BARNACLE"))]
+		const IS_BEING_LIFTED_BY_BARNACLE = EFL_IS_BEING_LIFTED_BY_BARNACLE;
+
+		/// `EFL_KEEP_ON_RECREATE_ENTITIES`: the entity, such as the world, is
+		/// kept when the game removes and creates again only the map's
+		/// entities. [`HAS_PLAYER_CHILD`](Self::HAS_PLAYER_CHILD) has the same
+		/// bit.
+		#[doc(alias("EFL_KEEP_ON_RECREATE_ENTITIES"))]
+		const KEEP_ON_RECREATE_ENTITIES = EFL_KEEP_ON_RECREATE_ENTITIES;
+
+		/// `EFL_KILLME`: the entity is marked for deletion, which the game
+		/// does at a safe time.
+		#[doc(alias("EFL_KILLME"))]
+		const KILL_ME = EFL_KILLME;
+
+		/// `EFL_NO_AUTO_EDICT_ATTACH`: the entity attaches its edict itself,
+		/// as players and the world do, rather than as it is created.
+		#[doc(alias("EFL_NO_AUTO_EDICT_ATTACH"))]
+		const NO_AUTO_EDICT_ATTACH = EFL_NO_AUTO_EDICT_ATTACH;
+
+		/// `EFL_NO_DAMAGE_FORCES`: the entity takes no forces from physics
+		/// damage, as its `nodamageforces` key value sets.
+		#[doc(alias("EFL_NO_DAMAGE_FORCES"))]
+		const NO_DAMAGE_FORCES = EFL_NO_DAMAGE_FORCES;
+
+		/// `EFL_NO_DISSOLVE`: the entity is not dissolved.
+		#[doc(alias("EFL_NO_DISSOLVE"))]
+		const NO_DISSOLVE = EFL_NO_DISSOLVE;
+
+		/// `EFL_NO_GAME_PHYSICS_SIMULATION`: the game does not simulate the
+		/// entity's movement.
+		#[doc(alias("EFL_NO_GAME_PHYSICS_SIMULATION"))]
+		const NO_GAME_PHYSICS_SIMULATION = EFL_NO_GAME_PHYSICS_SIMULATION;
+
+		/// `EFL_NO_MEGAPHYSCANNON_RAGDOLL`: Half-Life 2's charged gravity gun
+		/// cannot turn the entity into a ragdoll.
+		#[doc(alias("EFL_NO_MEGAPHYSCANNON_RAGDOLL"))]
+		const NO_MEGA_PHYSCANNON_RAGDOLL = EFL_NO_MEGAPHYSCANNON_RAGDOLL;
+
+		/// `EFL_NO_PHYSCANNON_INTERACTION`: Half-Life 2's gravity gun cannot
+		/// pick up or punt the entity.
+		#[doc(alias("EFL_NO_PHYSCANNON_INTERACTION"))]
+		const NO_PHYSCANNON_INTERACTION = EFL_NO_PHYSCANNON_INTERACTION;
+
+		/// `EFL_NO_ROTORWASH_PUSH`: Half-Life 2's helicopters' rotor wash does
+		/// not push the entity.
+		#[doc(alias("EFL_NO_ROTORWASH_PUSH"))]
+		const NO_ROTOR_WASH_PUSH = EFL_NO_ROTORWASH_PUSH;
+
+		/// `EFL_NO_THINK_FUNCTION`: the entity has no think scheduled.
+		#[doc(alias("EFL_NO_THINK_FUNCTION"))]
+		const NO_THINK_FUNCTION = EFL_NO_THINK_FUNCTION;
+
+		/// `EFL_NO_WATER_VELOCITY_CHANGE`: the game does not change the
+		/// entity's velocity as it enters water.
+		#[doc(alias("EFL_NO_WATER_VELOCITY_CHANGE"))]
+		const NO_WATER_VELOCITY_CHANGE = EFL_NO_WATER_VELOCITY_CHANGE;
+
+		/// `EFL_NOCLIP_ACTIVE`: the `noclip` command is active for the player.
+		#[doc(alias("EFL_NOCLIP_ACTIVE"))]
+		const NO_CLIP_ACTIVE = EFL_NOCLIP_ACTIVE;
+
+		/// `EFL_NOTIFY`: another entity watches the entity's events, as the
+		/// game's teleporting does.
+		#[doc(alias("EFL_NOTIFY"))]
+		const NOTIFY = EFL_NOTIFY;
+
+		/// `EFL_SERVER_ONLY`: the entity is not networked, so has no edict.
+		#[doc(alias("EFL_SERVER_ONLY"))]
+		const SERVER_ONLY = EFL_SERVER_ONLY;
+
+		/// `EFL_SETTING_UP_BONES`: the entity's model is setting up its bones.
+		#[doc(alias("EFL_SETTING_UP_BONES"))]
+		const SETTING_UP_BONES = EFL_SETTING_UP_BONES;
+
+		/// `EFL_TOUCHING_FLUID`: the entity's VPhysics object touches a fluid,
+		/// which tells whether it floats.
+		#[doc(alias("EFL_TOUCHING_FLUID"))]
+		const TOUCHING_FLUID = EFL_TOUCHING_FLUID;
+
+		/// `EFL_USE_PARTITION_WHEN_NOT_SOLID`: the entity stays in the spatial
+		/// partition while it is not solid, as triggers need.
+		#[doc(alias("EFL_USE_PARTITION_WHEN_NOT_SOLID"))]
+		const USE_PARTITION_WHEN_NOT_SOLID = EFL_USE_PARTITION_WHEN_NOT_SOLID;
+	}
+}
 
 bitflags::bitflags! {
 	/// An entity's flags (`m_fFlags`), the `FL_*` values from
@@ -306,6 +499,22 @@ impl MoveType {
 }
 
 impl<'s> Entity<'s> {
+	/// The entity's angles in the world, in degrees (`GetAbsAngles`), or `None`
+	/// while the game has yet to compute them from the entity's move parent,
+	/// which it does as something asks for them.
+	#[doc(alias("GetAbsAngles", "m_angAbsRotation"))]
+	pub fn abs_angles(self) -> Result<Option<QAngle>, FieldError> {
+		if ENGINE_FLAGS.read(self)? & EFL_DIRTY_ABSTRANSFORM == 0 {
+			return ABS_ANGLES.read(self).map(Some);
+		}
+
+		// Without a parent, the game computes them as the local angles.
+		match self.move_parent()? {
+			Some(_) => Ok(None),
+			None => LOCAL_ANGLES.read(self).map(Some),
+		}
+	}
+
 	/// The entity's velocity in the world, in units per second
 	/// (`GetAbsVelocity`), or `None` while the game has yet to compute it from
 	/// the entity's move parent, which it does as something asks for it.
@@ -320,6 +529,12 @@ impl<'s> Entity<'s> {
 			Some(_) => Ok(None),
 			None => LOCAL_VELOCITY.read(self).map(Some),
 		}
+	}
+
+	/// The entity's engine flags (`m_iEFlags`).
+	#[doc(alias("GetEFlags", "m_iEFlags"))]
+	pub fn engine_flags(self) -> Result<EngineFlags, FieldError> {
+		ENGINE_FLAGS.read(self).map(EngineFlags::from_bits_retain)
 	}
 
 	/// The entity's flags (`m_fFlags`).
@@ -380,6 +595,22 @@ impl<'s> Entity<'s> {
 		};
 
 		Ok(!object.is_null())
+	}
+
+	/// The entity's angles relative to its move parent, or to the attachment it
+	/// follows, or in the world without one, in degrees (`m_angRotation`), which
+	/// the `angles` key value sets while it has no parent.
+	#[doc(alias("GetLocalAngles", "m_angRotation"))]
+	pub fn local_angles(self) -> Result<QAngle, FieldError> {
+		LOCAL_ANGLES.read(self)
+	}
+
+	/// The entity's origin relative to its move parent, or to the attachment it
+	/// follows, or in the world without one (`m_vecOrigin`), which the `origin`
+	/// key value sets while it has no parent.
+	#[doc(alias("GetLocalOrigin", "m_vecOrigin"))]
+	pub fn local_origin(self) -> Result<Vector, FieldError> {
+		LOCAL_ORIGIN.read(self)
 	}
 
 	/// The entity's velocity relative to its move parent, or in the world

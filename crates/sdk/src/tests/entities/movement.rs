@@ -8,6 +8,43 @@ use crate::test_support::sdk_core::change_tracking_engine;
 use crate::test_support::server_tools::MockTools;
 
 #[test]
+fn absolute_angles_are_only_read_once_computed() {
+	let mut mock = MockEntity::new(5);
+	let state = mock.state();
+
+	let abs = QAngle {
+		pitch: 10.0,
+		yaw: 90.0,
+		roll: 0.0,
+	};
+
+	let local = QAngle {
+		pitch: 0.0,
+		yaw: 45.0,
+		roll: 5.0,
+	};
+
+	set_datamap(state_maps(vec![]));
+	state.abs_rotation = abs.into();
+	state.rotation = local.into();
+	state.move_parent = EntityHandle::INVALID.to_raw();
+
+	assert_eq!(mock.entity().abs_angles(), Ok(Some(abs)));
+
+	// Without a parent, the game computes them as the local angles.
+	mock.set_eflags(EFL_DIRTY_ABSTRANSFORM);
+	assert_eq!(mock.entity().abs_angles(), Ok(Some(local)));
+
+	// With one, they are yet to be computed from the parent's.
+	mock.state().move_parent = 9 | 3 << 16;
+	assert_eq!(mock.entity().abs_angles(), Ok(None));
+
+	// The velocity's flag leaves them computed.
+	mock.set_eflags(EFL_DIRTY_ABSVELOCITY);
+	assert_eq!(mock.entity().abs_angles(), Ok(Some(abs)));
+}
+
+#[test]
 fn absolute_velocities_are_only_read_once_computed() {
 	let mut mock = MockEntity::new(5);
 	let state = mock.state();
@@ -45,6 +82,30 @@ fn absolute_velocities_are_only_read_once_computed() {
 }
 
 #[test]
+fn engine_flags_are_read() {
+	let mut mock = MockEntity::new(5);
+
+	set_datamap(state_maps(vec![]));
+	mock.set_eflags(EFL_KILLME | EFL_DIRTY_ABSTRANSFORM | EFL_NO_DAMAGE_FORCES);
+
+	assert_eq!(
+		mock.entity().engine_flags(),
+		Ok(EngineFlags::KILL_ME | EngineFlags::DIRTY_ABS_TRANSFORM | EngineFlags::NO_DAMAGE_FORCES)
+	);
+
+	// Two names share a bit, which shows as the first.
+	mock.set_eflags(EFL_KEEP_ON_RECREATE_ENTITIES);
+
+	let flags = mock.entity().engine_flags().unwrap();
+
+	assert_eq!(flags, EngineFlags::HAS_PLAYER_CHILD);
+	assert_eq!(format!("{flags:?}"), "EngineFlags(HAS_PLAYER_CHILD)");
+
+	// Every bit has a name.
+	assert_eq!(EngineFlags::all().bits(), !0);
+}
+
+#[test]
 fn flags_and_move_types_are_read() {
 	let mut mock = MockEntity::new(5);
 
@@ -79,6 +140,27 @@ fn gravity_and_friction_are_read_and_written() {
 
 	assert_eq!(mock.state().gravity, 2.0);
 	assert_eq!(mock.state().friction, 0.25);
+}
+
+#[test]
+fn local_origins_and_angles_are_read() {
+	let mut mock = MockEntity::new(5);
+
+	let angles = QAngle {
+		pitch: 0.0,
+		yaw: 180.0,
+		roll: 0.0,
+	};
+
+	set_datamap(state_maps(vec![]));
+	mock.state().origin = Vector::new(0.0, 0.0, 64.0).into();
+	mock.state().rotation = angles.into();
+
+	assert_eq!(
+		mock.entity().local_origin(),
+		Ok(Vector::new(0.0, 0.0, 64.0))
+	);
+	assert_eq!(mock.entity().local_angles(), Ok(angles));
 }
 
 #[test]

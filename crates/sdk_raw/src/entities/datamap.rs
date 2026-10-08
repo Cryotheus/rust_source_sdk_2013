@@ -256,6 +256,25 @@ impl<'a> DataMaps<'a> {
 
 		None
 	}
+
+	/// The [`FTYPEDESC_KEY`] fields of the object these maps describe, each with
+	/// its offset in that object, in the order [`Self::find_key_field`] searches
+	/// them: from the class's own map towards its bases', and through each
+	/// embedded object (a single `FIELD_EMBEDDED` field) before the fields after
+	/// it, nested at most [`Self::MAX_EMBEDDING_DEPTH`] deep.
+	///
+	/// The offset is `None` if the field's, or that of an object embedding it,
+	/// is negative, or they add up past `usize::MAX`.
+	pub fn key_fields(self) -> KeyFields<'a> {
+		KeyFields {
+			objects: vec![SearchedObject {
+				maps: self,
+				fields: [].iter(),
+				offset: Some(0),
+				embedding: None,
+			}],
+		}
+	}
 }
 
 impl<'a> Iterator for DataMaps<'a> {
@@ -268,5 +287,89 @@ impl<'a> Iterator for DataMaps<'a> {
 
 		self.next = map.base();
 		Some(map)
+	}
+}
+
+/// The key fields of an object, with their offsets in it, as
+/// [`DataMaps::key_fields`] gives them.
+#[derive(Debug, Clone)]
+pub struct KeyFields<'a> {
+	/// The objects being searched, from the outermost to the most deeply
+	/// embedded one.
+	objects: Vec<SearchedObject<'a>>,
+}
+
+impl<'a> Iterator for KeyFields<'a> {
+	type Item = (&'a DataField, Option<usize>);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		loop {
+			let depth = self.objects.len().checked_sub(1)?;
+			let object = self.objects.last_mut()?;
+
+			let Some(field) = object.next_field() else {
+				// An embedded object is searched before the field embedding it.
+				let object = self.objects.pop()?;
+
+				match object.embedding {
+					Some(field) if field.flags & FTYPEDESC_KEY != 0 => {
+						return Some((field, object.offset));
+					}
+
+					_ => continue,
+				}
+			};
+
+			let offset = object
+				.offset
+				.zip(field.offset())
+				.and_then(|(object, field)| object.checked_add(field));
+
+			// Embedded objects are searched before the field itself, but not
+			// arrays of them.
+			if field.fieldType == sys::_fieldtypes_FIELD_EMBEDDED
+				&& field.fieldSize == 1
+				&& depth < DataMaps::MAX_EMBEDDING_DEPTH
+			{
+				self.objects.push(SearchedObject {
+					maps: field.embedded(),
+					fields: [].iter(),
+					offset,
+					embedding: Some(field),
+				});
+			} else if field.flags & FTYPEDESC_KEY != 0 {
+				return Some((field, offset));
+			}
+		}
+	}
+}
+
+/// An object [`KeyFields`] searches.
+#[derive(Debug, Clone)]
+struct SearchedObject<'a> {
+	/// The object's maps left to search.
+	maps: DataMaps<'a>,
+
+	/// The fields left to search of the map being searched.
+	fields: std::slice::Iter<'a, DataField>,
+
+	/// The object's offset in the outermost object, or `None` if it is
+	/// negative or past `usize::MAX`.
+	offset: Option<usize>,
+
+	/// The field embedding the object, or `None` for the outermost object.
+	embedding: Option<&'a DataField>,
+}
+
+impl<'a> SearchedObject<'a> {
+	/// The object's next field, from its class's own map towards its bases'.
+	fn next_field(&mut self) -> Option<&'a DataField> {
+		loop {
+			if let Some(field) = self.fields.next() {
+				return Some(field);
+			}
+
+			self.fields = self.maps.next()?.fields().iter();
+		}
 	}
 }

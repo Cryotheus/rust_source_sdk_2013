@@ -255,9 +255,162 @@ pub const EF_NOSHADOW: c_int = 0x010;
 /// entity's parent is always assumed to animate.
 pub const EF_PARENT_ANIMATES: c_int = 0x200;
 
+/// `EFL_BOT_FROZEN` from `game/shared/shareddefs.h`: the bit of `m_iEFlags`
+/// set on a bot that is frozen in place.
+pub const EFL_BOT_FROZEN: c_int = 1 << 8;
+
+/// `EFL_CHECK_UNTOUCH` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the game is to check which of the entity's touches
+/// have ended (`SetCheckUntouch`).
+pub const EFL_CHECK_UNTOUCH: c_int = 1 << 24;
+
+/// `EFL_DIRTY_ABSANGVELOCITY` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity's angular velocity in the world is yet to
+/// be computed from its move parent's.
+pub const EFL_DIRTY_ABSANGVELOCITY: c_int = 1 << 13;
+
+/// `EFL_DIRTY_ABSTRANSFORM` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity's origin and angles in the world are yet
+/// to be computed from its move parent's (`CalcAbsolutePosition`).
+pub const EFL_DIRTY_ABSTRANSFORM: c_int = 1 << 11;
+
+/// `EFL_DIRTY_ABSVELOCITY` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity's velocity in the world is yet to be
+/// computed from its move parent's.
+pub const EFL_DIRTY_ABSVELOCITY: c_int = 1 << 12;
+
+/// `EFL_DIRTY_SHADOWUPDATE` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` that only clients set, for their shadow manager to update the
+/// entity's shadow.
+pub const EFL_DIRTY_SHADOWUPDATE: c_int = 1 << 5;
+
+/// `EFL_DIRTY_SPATIAL_PARTITION` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity's place in the spatial partition is yet
+/// to be updated.
+pub const EFL_DIRTY_SPATIAL_PARTITION: c_int = 1 << 15;
+
+/// `EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS` from `game/shared/shareddefs.h`:
+/// the bit of `m_iEFlags` set while the box around the entity's collision
+/// volume is yet to be computed again.
+pub const EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS: c_int = 1 << 14;
+
+/// `EFL_DONTBLOCKLOS` from `game/shared/shareddefs.h`: the bit of `m_iEFlags`
+/// set on an entity that does not block NPCs' line of sight.
+pub const EFL_DONTBLOCKLOS: c_int = 1 << 25;
+
+/// `EFL_DONTWALKON` from `game/shared/shareddefs.h`: the bit of `m_iEFlags`
+/// set on an entity NPCs do not walk on.
+pub const EFL_DONTWALKON: c_int = 1 << 26;
+
+/// `EFL_DORMANT` from `game/shared/shareddefs.h`: the bit of `m_iEFlags` set
+/// while the entity is dormant, and sends clients no updates.
+pub const EFL_DORMANT: c_int = 1 << 1;
+
+/// `EFL_FORCE_ALLOW_MOVEPARENT` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` that lets an entity without an edict move with a parent.
+pub const EFL_FORCE_ALLOW_MOVEPARENT: c_int = 1 << 16;
+
+/// `EFL_FORCE_CHECK_TRANSMIT` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` that has the entity sent to clients even without a model, as
+/// the entities the client draws by itself need.
+pub const EFL_FORCE_CHECK_TRANSMIT: c_int = 1 << 7;
+
+/// `EFL_HAS_PLAYER_CHILD` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity, or an entity moving with it, is a player
+/// (`RecalcHasPlayerChildBit`). [`EFL_KEEP_ON_RECREATE_ENTITIES`] has the same
+/// value.
+pub const EFL_HAS_PLAYER_CHILD: c_int = 1 << 4;
+
+/// `EFL_IN_SKYBOX` from `game/shared/shareddefs.h`: the bit of `m_iEFlags` set
+/// on an entity in the 3D skybox, which is then sent to clients as if they
+/// could see it.
+pub const EFL_IN_SKYBOX: c_int = 1 << 17;
+
+/// `EFL_IS_BEING_LIFTED_BY_BARNACLE` from `game/shared/shareddefs.h`: the bit
+/// of `m_iEFlags` set while a Half-Life 2 barnacle lifts the entity.
+pub const EFL_IS_BEING_LIFTED_BY_BARNACLE: c_int = 1 << 20;
+
+/// `EFL_KEEP_ON_RECREATE_ENTITIES` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` that keeps the entity, such as the world, when the game removes
+/// and creates again only the map's entities. [`EFL_HAS_PLAYER_CHILD`] has the
+/// same value.
+pub const EFL_KEEP_ON_RECREATE_ENTITIES: c_int = 1 << 4;
+
 /// `EFL_KILLME` from `game/shared/shareddefs.h`: the bit of `m_iEFlags` set
 /// while the entity is marked for deferred deletion.
 pub const EFL_KILLME: c_int = 1 << 0;
+
+/// `EFL_NO_AUTO_EDICT_ATTACH` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set on an entity that attaches its edict itself, as players
+/// and the world do, rather than as it is created.
+pub const EFL_NO_AUTO_EDICT_ATTACH: c_int = 1 << 10;
+
+/// `EFL_NO_DAMAGE_FORCES` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set on an entity that takes no forces from physics damage, as
+/// its `nodamageforces` key value sets.
+pub const EFL_NO_DAMAGE_FORCES: c_int = 1 << 31;
+
+/// `EFL_NO_DISSOLVE` from `game/shared/shareddefs.h`: the bit of `m_iEFlags`
+/// set on an entity that is not dissolved.
+pub const EFL_NO_DISSOLVE: c_int = 1 << 27;
+
+/// `EFL_NO_GAME_PHYSICS_SIMULATION` from `game/shared/shareddefs.h`: the bit
+/// of `m_iEFlags` set while the game does not simulate the entity's movement.
+/// With [`EFL_NO_THINK_FUNCTION`], the entity leaves the list of those the
+/// game runs each frame.
+pub const EFL_NO_GAME_PHYSICS_SIMULATION: c_int = 1 << 23;
+
+/// `EFL_NO_MEGAPHYSCANNON_RAGDOLL` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set on an entity Half-Life 2's charged gravity gun cannot turn
+/// into a ragdoll.
+pub const EFL_NO_MEGAPHYSCANNON_RAGDOLL: c_int = 1 << 28;
+
+/// `EFL_NO_PHYSCANNON_INTERACTION` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set on an entity Half-Life 2's gravity gun cannot pick up or
+/// punt.
+pub const EFL_NO_PHYSCANNON_INTERACTION: c_int = 1 << 30;
+
+/// `EFL_NO_ROTORWASH_PUSH` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set on an entity Half-Life 2's helicopters' rotor wash does not
+/// push.
+pub const EFL_NO_ROTORWASH_PUSH: c_int = 1 << 21;
+
+/// `EFL_NO_THINK_FUNCTION` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity has no think scheduled, as [`think`]
+/// describes.
+pub const EFL_NO_THINK_FUNCTION: c_int = 1 << 22;
+
+/// `EFL_NO_WATER_VELOCITY_CHANGE` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set on an entity whose velocity the game does not change as it
+/// enters water.
+pub const EFL_NO_WATER_VELOCITY_CHANGE: c_int = 1 << 29;
+
+/// `EFL_NOCLIP_ACTIVE` from `game/shared/shareddefs.h`: the bit of `m_iEFlags`
+/// set while the `noclip` command is active for the player.
+pub const EFL_NOCLIP_ACTIVE: c_int = 1 << 2;
+
+/// `EFL_NOTIFY` from `game/shared/shareddefs.h`: the bit of `m_iEFlags` set
+/// while another entity watches the entity's events, as the game's
+/// teleporting does.
+pub const EFL_NOTIFY: c_int = 1 << 6;
+
+/// `EFL_SERVER_ONLY` from `game/shared/shareddefs.h`: the bit of `m_iEFlags`
+/// set on an entity that is not networked, so has no edict.
+pub const EFL_SERVER_ONLY: c_int = 1 << 9;
+
+/// `EFL_SETTING_UP_BONES` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity's model sets up its bones.
+pub const EFL_SETTING_UP_BONES: c_int = 1 << 3;
+
+/// `EFL_TOUCHING_FLUID` from `game/shared/shareddefs.h`: the bit of
+/// `m_iEFlags` set while the entity's VPhysics object touches a fluid, which
+/// tells whether it floats.
+pub const EFL_TOUCHING_FLUID: c_int = 1 << 19;
+
+/// `EFL_USE_PARTITION_WHEN_NOT_SOLID` from `game/shared/shareddefs.h`: the bit
+/// of `m_iEFlags` that keeps the entity in the spatial partition while it is
+/// not solid, as triggers need.
+pub const EFL_USE_PARTITION_WHEN_NOT_SOLID: c_int = 1 << 18;
 
 /// `ENT_ENTRY_MASK` from `public/const.h`: the bits of a `CBaseHandle`'s raw
 /// value holding the entity's slot in the entity list.

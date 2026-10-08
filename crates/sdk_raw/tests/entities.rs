@@ -132,6 +132,113 @@ fn key_fields_are_found_as_extract_keyvalue_does() {
 	assert_eq!(find(b"missing"), None);
 }
 
+#[test]
+fn key_fields_are_walked_as_find_key_field_searches() {
+	let inner = data_map(c"CInner", vec![key(c"m_iszInner", c"inner", 8)], null_mut());
+
+	let mut embedded = field(c"m_Inner", sys::_fieldtypes_FIELD_EMBEDDED, 64);
+	embedded.fieldSize = 1;
+	embedded.td = inner;
+
+	let mut array = embedded;
+	array.fieldName = c"m_Inners".as_ptr();
+	array.fieldSize = 2;
+	array.fieldOffset[TD_OFFSET_NORMAL] = 128;
+
+	let mut negative = key(c"m_iszNegative", c"negative", 0);
+	negative.fieldOffset[TD_OFFSET_NORMAL] = -1;
+
+	let base = data_map(
+		c"CBaseEntity",
+		vec![
+			key(c"m_iName", c"targetname", 24),
+			key(c"m_iszShadowed", c"shadowed", 32),
+			negative,
+		],
+		null_mut(),
+	);
+	let derived = data_map(
+		c"CDerived",
+		vec![
+			array,
+			embedded,
+			key(c"m_iszOwn", c"Shadowed", 40),
+			field(c"m_iNotKey", sys::_fieldtypes_FIELD_INTEGER, 48),
+		],
+		base,
+	);
+	let walked = maps(derived)
+		.key_fields()
+		.map(|(field, offset)| (field.name().unwrap(), offset))
+		.collect::<Vec<_>>();
+
+	// Through the single embedded object, but not the array of them, and the
+	// derived class's keys before its base's.
+	assert_eq!(
+		walked,
+		[
+			(c"m_iszInner", Some(72)),
+			(c"m_iszOwn", Some(40)),
+			(c"m_iName", Some(24)),
+			(c"m_iszShadowed", Some(32)),
+			(c"m_iszNegative", None),
+		]
+	);
+
+	// `find_key_field` finds the first field of each external name.
+	for (field, _) in maps(derived).key_fields() {
+		let name = field.external_name().unwrap().to_bytes();
+		let (first, offset) = maps(derived)
+			.key_fields()
+			.find(|(other, _)| {
+				other
+					.external_name()
+					.is_some_and(|other| other.to_bytes().eq_ignore_ascii_case(name))
+			})
+			.unwrap();
+
+		assert_eq!(
+			maps(derived)
+				.find_key_field(name)
+				.map(|(found, offset)| (std::ptr::from_ref(found), offset)),
+			offset.map(|offset| (std::ptr::from_ref(first), offset))
+		);
+	}
+
+	// An object embedding itself is searched only as deep as `find_key_field`
+	// searches it.
+	let mut itself = field(c"m_Itself", sys::_fieldtypes_FIELD_EMBEDDED, 4);
+	itself.fieldSize = 1;
+
+	let looping = data_map(
+		c"CLooping",
+		vec![itself, key(c"m_iszLoop", c"loop", 0)],
+		null_mut(),
+	);
+
+	// SAFETY: The map is leaked, and only changed before it is read.
+	unsafe { (*(*looping).dataDesc).td = looping };
+
+	let depths = 0..=DataMaps::MAX_EMBEDDING_DEPTH;
+
+	assert_eq!(
+		maps(looping)
+			.key_fields()
+			.map(|(_, offset)| offset)
+			.collect::<Vec<_>>(),
+		depths
+			.rev()
+			.map(|depth| Some(4 * depth))
+			.collect::<Vec<_>>()
+	);
+	assert_eq!(
+		maps(looping)
+			.find_key_field(b"loop")
+			.map(|(_, offset)| offset),
+		Some(4 * DataMaps::MAX_EMBEDDING_DEPTH)
+	);
+}
+
 /// The maps from `first`, which the tests leak.
 fn maps(first: *mut sys::datamap_t) -> DataMaps<'static> {
 	// SAFETY: The tests' maps are leaked and never changed.

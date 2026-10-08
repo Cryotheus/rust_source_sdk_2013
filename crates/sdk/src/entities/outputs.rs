@@ -13,13 +13,31 @@
 mod tests;
 
 use crate::entities::Entity;
-use sdk_raw::entities::datamap::FTYPEDESC_OUTPUT;
+use sdk_raw::entities::datamap::{DataField, FTYPEDESC_OUTPUT};
 use sdk_raw::util::cstr::copy_cstr;
+use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
 /// The most actions [`Entity::output_actions`] reads of one output.
 pub const MAX_ACTIONS: usize = 4096;
+
+/// The most outputs [`Entity::outputs`] lists of one entity.
+pub const MAX_OUTPUTS: usize = 1024;
+
+/// An output of an entity, by the name a map's connections give it, with the
+/// actions it takes as it fires, as [`Entity::outputs`] lists them.
+#[doc(alias("CBaseEntityOutput"))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct Output<'s> {
+	/// The output's name, such as `OnTrigger`, as the data description map of
+	/// the entity's class or a base declares it. Connections and the
+	/// `AddOutput` input name it ignoring ASCII case.
+	pub name: &'s CStr,
+
+	/// The actions the output takes as it fires, in order.
+	pub actions: Vec<OutputAction>,
+}
 
 /// An action an output takes as it fires: sending an input to the entities a
 /// target names (`CEventAction`).
@@ -47,7 +65,7 @@ pub struct OutputAction {
 	pub times_to_fire: Option<u32>,
 }
 
-impl Entity<'_> {
+impl<'s> Entity<'s> {
 	/// The actions of the entity's output named `name`, such as `OnTrigger`, in
 	/// the order the output takes them. Returns `None` if the entity has no
 	/// output of that name.
@@ -60,6 +78,26 @@ impl Entity<'_> {
 	pub fn output_actions(self, name: &CStr) -> Option<Vec<OutputAction>> {
 		let (field, offset) = self.data_maps().find_key_field(name.to_bytes())?;
 
+		// SAFETY: The field and its offset were found in the entity's own
+		// datamaps.
+		unsafe { self.output_actions_at(field, offset) }
+	}
+
+	/// Copies the actions of the output `field` declares at `offset`, or
+	/// returns `None` unless it declares one there, as `DEFINE_OUTPUT` does: a
+	/// `FIELD_CUSTOM` field flagged [`FTYPEDESC_OUTPUT`], at an offset aligned
+	/// for a `CBaseEntityOutput`. At most [`MAX_ACTIONS`] are read.
+	///
+	/// # Safety
+	///
+	/// `field` must be declared by the entity's own datamaps, and `offset` be
+	/// its offset in the entity, as `DataMaps::find_key_field` and
+	/// `DataMaps::key_fields` give them.
+	unsafe fn output_actions_at(
+		self,
+		field: &DataField,
+		offset: usize,
+	) -> Option<Vec<OutputAction>> {
 		let is_output = field.flags & FTYPEDESC_OUTPUT != 0
 			&& field.fieldType == sys::_fieldtypes_FIELD_CUSTOM
 			&& offset.is_multiple_of(align_of::<sys::CBaseEntityOutput>());
@@ -69,9 +107,9 @@ impl Entity<'_> {
 		}
 
 		// SAFETY: The entity is live during `'s`, on the main thread, and its own
-		// datamaps declare an output at the offset, which `DEFINE_OUTPUT` only
-		// declares for a `CBaseEntityOutput`. The member is read without forming
-		// a reference, as the game writes it too.
+		// datamaps declare an output at the offset, as the caller promises, which
+		// `DEFINE_OUTPUT` only declares for a `CBaseEntityOutput`. The member is
+		// read without forming a reference, as the game writes it too.
 		let mut next = unsafe {
 			let output = self
 				.as_ptr()
@@ -111,6 +149,53 @@ impl Entity<'_> {
 		}
 
 		Some(actions)
+	}
+
+	/// Every output of the entity, such as a trigger's `OnStartTouch`, each with
+	/// its actions in the order it takes them.
+	///
+	/// The outputs are the fields the entity's data description maps declare as
+	/// outputs, in the order `KeyValue` searches them for the output a map's
+	/// connection adds its action to: from its class's own map towards its
+	/// bases', and through each embedded object before the fields after it, as
+	/// [`DataMaps::key_fields`] gives them. A name is listed once, ignoring
+	/// ASCII case, for the first field of that name, which is the one
+	/// [`Self::output_actions`] reads: the game reaches no other. At most
+	/// [`MAX_OUTPUTS`] are listed, each with at most [`MAX_ACTIONS`] actions.
+	///
+	/// [`DataMaps::key_fields`]: sdk_raw::entities::datamap::DataMaps::key_fields
+	#[doc(alias("CBaseEntityOutput", "m_ActionList"))]
+	pub fn outputs(self) -> Vec<Output<'s>> {
+		let mut names = HashSet::new();
+		let mut outputs = Vec::new();
+
+		for (field, offset) in self.data_maps().key_fields() {
+			let Some(name) = field.external_name() else {
+				continue;
+			};
+
+			// The first field of a name hides the others, which may not even be
+			// outputs.
+			if !names.insert(name.to_bytes().to_ascii_lowercase()) {
+				continue;
+			}
+
+			let Some(offset) = offset else {
+				continue;
+			};
+
+			// SAFETY: The field and its offset were found in the entity's own
+			// datamaps.
+			if let Some(actions) = unsafe { self.output_actions_at(field, offset) } {
+				outputs.push(Output { name, actions });
+
+				if outputs.len() == MAX_OUTPUTS {
+					break;
+				}
+			}
+		}
+
+		outputs
 	}
 }
 

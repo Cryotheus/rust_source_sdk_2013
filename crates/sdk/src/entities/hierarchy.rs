@@ -7,17 +7,30 @@
 #[path = "../tests/entities/hierarchy.rs"]
 mod tests;
 
-use crate::entities::Entity;
 use crate::entities::fields::{BaseField, FieldError};
+use crate::entities::{Entity, EntityHandle};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
 use std::ffi::CStr;
 use std::num::NonZeroU8;
 
+/// The most move children [`ServerTools::move_children`] lists of one entity:
+/// as many as the entity list holds, so a longer chain of peers repeats an
+/// entity, and has a cycle, which the game does not make.
+const MAX_MOVE_CHILDREN: usize = sdk_raw::entities::NUM_ENT_ENTRIES;
+
 /// The longest chain of move parents [`ServerTools::set_parent`] climbs to
 /// look for the child: one longer than the entity list repeats an entity, so
 /// has a cycle already.
 const MAX_PARENT_DEPTH: usize = sdk_raw::entities::NUM_ENT_ENTRIES;
+
+/// `m_hMoveChild`.
+static MOVE_CHILD: BaseField<EntityHandle> =
+	BaseField::new(c"m_hMoveChild", sys::_fieldtypes_FIELD_EHANDLE);
+
+/// `m_hMovePeer`.
+static MOVE_PEER: BaseField<EntityHandle> =
+	BaseField::new(c"m_hMovePeer", sys::_fieldtypes_FIELD_EHANDLE);
 
 /// `m_iParentAttachment`.
 static PARENT_ATTACHMENT: BaseField<u8> =
@@ -46,6 +59,27 @@ pub enum ParentError {
 }
 
 impl<'s> Entity<'s> {
+	/// The first of the entities that move with the entity (`m_hMoveChild`),
+	/// which is the one parented to it last, or `None` if none does. Each
+	/// child's [`move_peer`](Self::move_peer) leads to the next, as
+	/// [`ServerTools::move_children`] follows.
+	#[doc(alias("FirstMoveChild", "m_hMoveChild"))]
+	pub fn move_child(self) -> Result<Option<EntityHandle>, FieldError> {
+		let child = MOVE_CHILD.read(self)?;
+
+		Ok(child.is_valid().then_some(child))
+	}
+
+	/// The next of the entities that move with the entity's move parent
+	/// (`m_hMovePeer`), which was parented to it before the entity, or `None` if
+	/// the entity is the last, or has no parent.
+	#[doc(alias("NextMovePeer", "m_hMovePeer"))]
+	pub fn move_peer(self) -> Result<Option<EntityHandle>, FieldError> {
+		let peer = MOVE_PEER.read(self)?;
+
+		Ok(peer.is_valid().then_some(peer))
+	}
+
 	/// The attachment of its move parent's model the entity follows
 	/// (`m_iParentAttachment`), or `None` if it follows the parent's origin,
 	/// or has no parent.
@@ -61,6 +95,31 @@ impl<'s> ServerTools<'s> {
 	#[doc(alias("ClearParent", "AcceptEntityInput"))]
 	pub fn clear_parent(self, child: Entity<'_>) -> Result<(), InputError> {
 		self.accept_input(child, c"ClearParent", InputValue::Void, child, child)
+	}
+
+	/// The entities that move with `entity`, its move children, from the one
+	/// parented to it last to the first, as the game walks them from its
+	/// [`Entity::move_child`] through each child's [`Entity::move_peer`]
+	/// (`FirstMoveChild` and `NextMovePeer`). A handle to an entity that no
+	/// longer exists ends the list, as it ends the game's walk. As many are
+	/// listed at most as the entity list holds.
+	#[doc(alias("FirstMoveChild", "NextMovePeer"))]
+	pub fn move_children(self, entity: Entity<'_>) -> Result<Vec<Entity<'s>>, FieldError> {
+		let mut children = Vec::new();
+		let mut next = entity.move_child()?;
+
+		while let Some(handle) = next
+			&& children.len() < MAX_MOVE_CHILDREN
+		{
+			let Some(child) = self.entity_by_handle(handle) else {
+				break;
+			};
+
+			next = child.move_peer()?;
+			children.push(child);
+		}
+
+		Ok(children)
 	}
 
 	/// Parents `child` to `parent`, so that it moves with it, keeping where
