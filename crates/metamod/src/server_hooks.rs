@@ -189,6 +189,22 @@ impl<T: Copy, const HOOKS: usize> Route<T, HOOKS> {
 		})
 	}
 
+	/// Removes the route's hooks and forgets its callback. Returns whether a
+	/// hook was installed, for this load of the plugin.
+	fn remove(&self, api: MetamodApi<'_>) -> bool {
+		let Some(routed) = self.0.take() else {
+			return false;
+		};
+
+		let mut removed = false;
+
+		for hook in routed.hooks.into_iter().flatten() {
+			removed |= api.remove_hook(hook);
+		}
+
+		removed
+	}
+
 	fn set(&self, hooks: [Option<HookId>; HOOKS], binding: ServerBinding, target: T) {
 		self.0.set(Some(Routed {
 			hooks,
@@ -417,6 +433,37 @@ impl MetamodApi<'_> {
 			HookStatus::INVALID_ARGUMENT => Err(HookError::InvalidArgument),
 			_ => Err(HookError::Unsupported),
 		}
+	}
+
+	/// Stops the callback [`Self::hook_game_frame`] installed, so that another
+	/// can be installed. Returns whether it was installed, for this load of the
+	/// plugin.
+	///
+	/// As with [`Self::remove_hook`], only the callback stops: the hook stays
+	/// until Metamod unloads the plugin. A refused load stops its callbacks as
+	/// well, but Metamod 2.0 keeps the hooks of a plugin that refused to load
+	/// until that plugin is unloaded, and for as long as the server runs if the
+	/// same file is loaded again first.
+	pub fn unhook_game_frame(self) -> bool {
+		GAME_FRAMES.remove(self)
+	}
+
+	/// Stops the callback [`Self::hook_game_frame_post`] installed, as
+	/// [`Self::unhook_game_frame`] does.
+	pub fn unhook_game_frame_post(self) -> bool {
+		GAME_FRAMES_POST.remove(self)
+	}
+
+	/// Stops the callback [`Self::hook_server_hibernation`] installed, as
+	/// [`Self::unhook_game_frame`] does.
+	pub fn unhook_server_hibernation(self) -> bool {
+		HIBERNATION.remove(self)
+	}
+
+	/// Stops the callback [`Self::hook_server_think`] installed, as
+	/// [`Self::unhook_game_frame`] does.
+	pub fn unhook_server_think(self) -> bool {
+		SERVER_THINKS.remove(self)
 	}
 }
 

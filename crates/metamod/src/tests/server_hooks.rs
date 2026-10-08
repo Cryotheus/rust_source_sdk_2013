@@ -238,3 +238,84 @@ fn think_hooks_run_before_think() {
 		assert_eq!(run_frame(harness, game_dll, true), [("game", true)]);
 	});
 }
+
+#[test]
+fn unhooked_callbacks_stop_and_can_be_hooked_again() {
+	on_both(|harness| {
+		let api = harness.api();
+		let scope = ();
+		let game_dll = game_dll(&scope);
+
+		api.hook_game_frame(game_dll, binding(), before_frame)
+			.unwrap();
+		api.hook_game_frame_post(game_dll, binding(), after_frame)
+			.unwrap();
+		api.hook_server_think(game_dll, binding(), before_think)
+			.unwrap();
+		api.hook_server_hibernation(game_dll, binding(), after_hibernation)
+			.unwrap();
+
+		assert!(api.unhook_game_frame());
+		assert!(api.unhook_game_frame_post());
+		assert!(api.unhook_server_think());
+		assert!(api.unhook_server_hibernation());
+
+		assert_eq!(run_frame(harness, game_dll, true), [("game", true)]);
+		assert_eq!(run(harness, game_dll, THINK, true), [("game", true)]);
+		assert_eq!(
+			run(harness, game_dll, SET_SERVER_HIBERNATION, true),
+			[("game", true)]
+		);
+
+		// Each was installed once.
+		assert!(!api.unhook_game_frame());
+		assert!(!api.unhook_game_frame_post());
+		assert!(!api.unhook_server_think());
+		assert!(!api.unhook_server_hibernation());
+
+		api.hook_game_frame(game_dll, binding(), before_frame)
+			.unwrap();
+		api.hook_server_think(game_dll, binding(), before_think)
+			.unwrap();
+
+		assert_eq!(
+			run_frame(harness, game_dll, false),
+			[("before", false), ("game", false)]
+		);
+		assert_eq!(
+			run(harness, game_dll, THINK, false),
+			[("think", false), ("game", false)]
+		);
+	});
+}
+
+#[test]
+fn unhooking_finds_only_this_loads_hooks() {
+	on_both(|harness| {
+		let api = harness.api();
+		let scope = ();
+		let game_dll = game_dll(&scope);
+
+		api.hook_server_hibernation(game_dll, binding(), after_hibernation)
+			.unwrap();
+
+		// A later load, which has not installed its own hooks yet. Its
+		// generation is one no later harness takes, as it installs hooks.
+		harness.set_status(true, false, harness.generation | 1 << 63);
+		assert!(!api.unhook_server_hibernation());
+
+		api.hook_server_hibernation(game_dll, binding(), after_hibernation)
+			.unwrap();
+
+		// Only the later load's hook calls back.
+		assert_eq!(
+			run(harness, game_dll, SET_SERVER_HIBERNATION, true),
+			[("game", true), ("hibernation", true)]
+		);
+		assert!(api.unhook_server_hibernation());
+		assert_eq!(
+			run(harness, game_dll, SET_SERVER_HIBERNATION, false),
+			[("game", false)]
+		);
+	});
+}
