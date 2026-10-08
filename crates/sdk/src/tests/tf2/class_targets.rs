@@ -51,6 +51,31 @@ fn entities_have_the_classes_of_the_kinds_their_maps_chain() {
 	// Maps not in the chain are other kinds'.
 	assert_eq!(ClassTarget::<TfPlayer>::of(server, entity), None);
 	assert_eq!(ClassTarget::<CombatCharacter>::of(server, entity), None);
+	assert_eq!(ClassTarget::<TfMeleeWeapon>::of(server, entity), None);
+}
+
+#[test]
+fn melee_weapons_are_weapons() {
+	let scope = ();
+	let server = mock_server(&scope);
+	let mut weapon = MockEntity::new(1);
+	let base = data_map(c"CBaseEntity", Vec::from(base_entity_fields()), null_mut());
+	let combat = data_map(c"CBaseCombatWeapon", vec![], base);
+	let tf = data_map(c"CTFWeaponBase", vec![], combat);
+
+	set_datamap(data_map(c"CTFWeaponBaseMelee", vec![], tf));
+
+	let entity = weapon.entity();
+	let target = ClassTarget::<TfMeleeWeapon>::of(server, entity).unwrap();
+
+	assert_eq!(
+		ClassTarget::<TfWeapon>::of(server, entity),
+		Some(target.upcast())
+	);
+	assert_eq!(
+		ClassTarget::<CombatWeapon>::of(server, entity),
+		Some(target.upcast())
+	);
 }
 
 #[test]
