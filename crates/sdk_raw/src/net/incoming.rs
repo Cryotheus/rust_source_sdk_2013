@@ -10,6 +10,11 @@
 //! [`read_message`] only copies them once the engine's reported sizes, and
 //! pointers the engine keeps into its own messages, confirm where they lie.
 //!
+//! [`StringCmdMessage`] builds a `NET_StringCmd` laid out as [`read_message`]
+//! reads one, with the engine's own vtable for the class, which
+//! [`find_string_cmd_vtable`] finds through its run-time type information, to
+//! pass a client's handler a command as though the client sent it.
+//!
 //! The engine's clients are `CGameClient`s, whose base `CBaseClient` derives
 //! from `IGameEventListener2`, `IClient`, then `IClientMessageHandler`, each
 //! only a vtable pointer. [`handler_of_client`] confirms that layout through
@@ -17,11 +22,13 @@
 //! on it.
 
 use crate::bitbuf::{BfRead, BfWrite, Bits};
+use crate::interfaces::CreateInterfaceFn;
 use crate::tier0::MAX_PATH;
-use crate::util::rtti;
+use crate::util::cstr::buffer_from_cstr;
+use crate::util::{self, Image, ModuleCache, ModuleKey, rtti};
 use crate::{vcall, vtable_slot};
-use std::ffi::{c_char, c_int};
-use std::mem::offset_of;
+use std::ffi::{CStr, c_char, c_int, c_void};
+use std::mem::{self, offset_of};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -130,6 +137,10 @@ const CLIENT_TO_HANDLER: usize = size_of::<sys::IClient>();
 /// The class whose objects are the engine's clients.
 pub(super) const GAME_CLIENT: &str = "CGameClient";
 
+/// The vtable slot of `INetMessage::GetSize`, the last method of the
+/// engine's message classes.
+const GET_SIZE_SLOT: usize = vtable_slot!(sys::INetMessage__bindgen_vtable, INetMessage_GetSize);
+
 /// The largest size of `CNetMessage` [`read_message`] accepts. A larger one
 /// is taken as a layout this module does not know.
 const LARGEST_MESSAGE_BASE: usize = 256;
@@ -158,10 +169,28 @@ const MAX_PLAYER_NAME_LENGTH: usize = 32;
 /// their count as a byte.
 pub const MAX_SET_CONVARS: usize = 255;
 
+/// The longest command a `NET_StringCmd` holds, less its terminator: what
+/// its buffer, [`StringCmdFields::command_buffer`], holds.
+pub const MAX_STRING_CMD_LEN: usize =
+	size_of::<StringCmdFields>() - offset_of!(StringCmdFields, command_buffer) - 1;
+
+/// The type `INetMessage::GetType` reports for the commands clients send
+/// (`net_StringCmd`).
+const NET_STRING_CMD: c_int = 4;
+
 /// The size of `CNetMessage` in the SDK's 2013 release: a vtable pointer, a
 /// flag, and a channel pointer. The TF2 engine may add fields after them, so
 /// [`read_message`] accepts larger sizes too.
 pub const SMALLEST_MESSAGE_BASE: usize = 24;
+
+/// The class of the messages that carry the commands clients send.
+const STRING_CMD_CLASS: &str = "NET_StringCmd";
+
+/// The size of a [`StringCmdMessage`]'s storage, in words: room for the
+/// largest `CNetMessage` [`read_message`] accepts, then `NET_StringCmd`'s
+/// fields.
+const STRING_CMD_WORDS: usize =
+	(LARGEST_MESSAGE_BASE + size_of::<StringCmdFields>()).div_ceil(size_of::<u64>());
 
 /// How far a client's `IClientMessageHandler` base lies past its `IClient`
 /// base, once [`handler_of_client`] has confirmed it, or zero before.
@@ -171,6 +200,11 @@ static HANDLER_OFFSET: AtomicUsize = AtomicUsize::new(0);
 /// It is learned from the first message whose fields confirm where they
 /// start.
 static MESSAGE_BASE: AtomicUsize = AtomicUsize::new(0);
+
+/// What [`cached_string_cmd_vtable`] found in the last module it searched:
+/// the address of `NET_StringCmd`'s vtable, or `None` if the module has no
+/// unique one.
+static STRING_CMD_VTABLE: ModuleCache<Option<usize>> = ModuleCache::new();
 
 /// The fields `CLC_BaselineAck` declares.
 #[doc(alias("CLC_BaselineAck"))]
@@ -625,6 +659,21 @@ pub struct SignonStateFields {
 	pub spawn_count: c_int,
 }
 
+/// Why [`StringCmdMessage::new`] built no message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum StringCmdError {
+	/// The command is longer than [`MAX_STRING_CMD_LEN`] bytes, so it does
+	/// not fit the message's buffer with its terminator.
+	#[error("the command is longer than {MAX_STRING_CMD_LEN} bytes")]
+	TooLong,
+
+	/// The class's methods report another type of message than a string
+	/// command, or a size that leaves no `CNetMessage` [`read_message`] reads
+	/// messages with before the fields.
+	#[error("the engine's string commands are not laid out as expected")]
+	UnexpectedLayout,
+}
+
 /// The fields `NET_StringCmd` declares.
 #[doc(alias("NET_StringCmd"))]
 #[derive(Debug, Clone, Copy)]
@@ -640,6 +689,186 @@ pub struct StringCmdFields {
 
 	/// The storage of the command and its arguments (`m_szCommandBuffer`).
 	pub command_buffer: [c_char; 1024],
+}
+
+/// A `NET_StringCmd` built in place, as though the engine had read it from a
+/// client's packet, to pass to the client's handler with [`Self::process`].
+///
+/// The engine's channel for each client registers a message of each class,
+/// naming the client's handler (`m_pMessageHandler`), and reads every command
+/// the client sends into its `NET_StringCmd`. This builds another such
+/// message. Its vtable is the engine's own for the class, which
+/// [`find_string_cmd_vtable`] finds, and its fields lie where
+/// [`read_message`] reads them, past the `CNetMessage` whose size the class's
+/// `GetSize` implies. They name the client's handler, and point the command
+/// (`m_szCommand`) at the message's own copy of it (`m_szCommandBuffer`), as
+/// the engine does as it reads a message. The class's own `SetNetChannel` and
+/// `SetReliable` name the client's channel and mark the message reliable, as
+/// the engine's constructor and channel do for the messages the channel
+/// registers. Anything else the engine's `CNetMessage` holds is zero.
+///
+/// The message lives on the heap, so it stays in place however this value
+/// moves, until this value drops and frees it. The engine never frees it: a
+/// handler only reads the message it is passed, as it does those the channel
+/// owns, and nothing here calls the class's destructors.
+#[doc(alias("NET_StringCmd"))]
+#[derive(Debug)]
+pub struct StringCmdMessage {
+	/// The message, which [`Self::new`] leaked from a box, and which this
+	/// value frees as it drops.
+	object: NonNull<[u64; STRING_CMD_WORDS]>,
+
+	/// The handler the message names, which the class's `Process` passes it
+	/// to.
+	handler: NonNull<sys::IClientMessageHandler>,
+}
+
+impl StringCmdMessage {
+	/// The message, as the `INetMessage` its class derives from, for calls
+	/// this module does not wrap.
+	pub const fn as_ptr(&self) -> NonNull<sys::INetMessage> {
+		self.object.cast()
+	}
+
+	/// The handler the message names, which the class's `Process` passes it
+	/// to.
+	pub const fn handler(&self) -> NonNull<sys::IClientMessageHandler> {
+		self.handler
+	}
+
+	/// Builds a message holding `command`, for `handler`, a client's handler,
+	/// to process as though the client sent it through `channel`, the client's
+	/// channel.
+	///
+	/// Fails if the command does not fit, if the class's `GetType` reports
+	/// another type than a string command's, or if its `GetSize` reports a
+	/// size [`read_message`] would not read the message with: one that leaves
+	/// a `CNetMessage` of [`SMALLEST_MESSAGE_BASE`] to 256 bytes, aligned for
+	/// pointers, before the fields, and, once [`read_message`] has learned the
+	/// size of `CNetMessage` from the engine's own messages, that size.
+	///
+	/// # Safety
+	///
+	/// `vtable` must be the engine's primary vtable of `NET_StringCmd`, as
+	/// [`find_string_cmd_vtable`] finds it, in a module that stays loaded while
+	/// the message lives. Its `GetType` and `GetSize` must read no field, its
+	/// `SetReliable` and `SetNetChannel` must only store their argument in
+	/// `CNetMessage`, and its `Process` must pass the message to the
+	/// `ProcessStringCmd` method of the handler its fields name, and return
+	/// what that returns, as the engine's do. `handler` must be a client's
+	/// handler, as [`handler_of_client`] returns it, and `channel` that
+	/// client's channel.
+	pub unsafe fn new(
+		vtable: NonNull<sys::INetMessage__bindgen_vtable>,
+		handler: NonNull<sys::IClientMessageHandler>,
+		channel: NonNull<sys::INetChannel>,
+		command: &CStr,
+	) -> Result<Self, StringCmdError> {
+		let command_buffer = buffer_from_cstr(command).ok_or(StringCmdError::TooLong)?;
+
+		// Freed as it drops, on every return but the last.
+		let message = Self {
+			object: NonNull::from(Box::leak(Box::new([0_u64; STRING_CMD_WORDS]))),
+			handler,
+		};
+
+		let this = message.as_ptr().as_ptr();
+
+		// SAFETY: The object is zeroed, aligned for pointers, and larger than a
+		// vtable pointer.
+		unsafe {
+			this.write(sys::INetMessage {
+				vtable_: vtable.as_ptr(),
+			});
+		}
+
+		// SAFETY: The object holds the engine's vtable of the class, whose
+		// `GetType` and `GetSize` read no field, as the caller promises.
+		let (id, size) = unsafe {
+			(
+				vcall!(this.cast_const() => INetMessage_GetType()),
+				vcall!(this.cast_const() => INetMessage_GetSize()),
+			)
+		};
+
+		let known = MESSAGE_BASE.load(Ordering::Relaxed);
+
+		let Some(base) = size
+			.checked_sub(size_of::<StringCmdFields>())
+			.filter(|&base| accepts_base(base) && (known == 0 || known == base))
+		else {
+			return Err(StringCmdError::UnexpectedLayout);
+		};
+
+		if id != NET_STRING_CMD {
+			return Err(StringCmdError::UnexpectedLayout);
+		}
+
+		// SAFETY: As above. The setters store their argument in `CNetMessage`,
+		// whose `base` bytes lie within the object, before the fields.
+		unsafe {
+			vcall!(this => INetMessage_SetReliable(true));
+			vcall!(this => INetMessage_SetNetChannel(channel.as_ptr()));
+		}
+
+		// SAFETY: The object holds the largest `CNetMessage` `accepts_base`
+		// allows, then the fields, so they lie within it at `base`, which
+		// aligns them.
+		unsafe {
+			let fields = this.byte_add(base).cast::<StringCmdFields>();
+
+			fields.write(StringCmdFields {
+				// `INetMessageHandler` is the primary base of
+				// `IClientMessageHandler`, at its address.
+				handler: handler.as_ptr().cast(),
+				command: (&raw const (*fields).command_buffer).cast(),
+				command_buffer,
+			});
+		}
+
+		Ok(message)
+	}
+
+	/// Processes the message as the engine processes one a client sent: calls
+	/// the class's `Process`, which passes the message to the
+	/// `ProcessStringCmd` method of the handler it names. Both methods are
+	/// called through their vtables, so hooks on either run, then the engine's
+	/// handler runs the command as the client's, through
+	/// `IClient::ExecuteStringCommand`. Returns what `Process` returned, which
+	/// is `true` for every command the engine runs, or what a hook that
+	/// blocked it decided.
+	///
+	/// The message does not come through the client's channel, so hooks on the
+	/// channel do not see it, and the engine's checks of the packets it reads
+	/// do not apply.
+	///
+	/// # Safety
+	///
+	/// Call it on the server's main thread, while the client, its channel, and
+	/// the module of the message's vtable stay live. Neither the command nor
+	/// what hooks on either method do with it may disconnect the client:
+	/// outside the engine's processing of the client's packets, the engine
+	/// frees its channel at once as it disconnects, while the message still
+	/// names it.
+	#[doc(alias("Process", "ProcessStringCmd"))]
+	pub unsafe fn process(&mut self) -> bool {
+		let this = self.as_ptr().as_ptr();
+
+		// SAFETY: The message holds the class's vtable, in a module the caller
+		// keeps loaded, whose `Process` passes the message to the handler it
+		// names, a live client's, as `new`'s caller promised. The vtables are
+		// read here, so hooks that patched their slots run. The message is laid
+		// out as the engine's methods read one, and stays in place and alive for
+		// the call.
+		unsafe { vcall!(this => INetMessage_Process()) }
+	}
+}
+
+impl Drop for StringCmdMessage {
+	fn drop(&mut self) {
+		// SAFETY: `new` leaked the object from a box, which nothing else frees.
+		drop(unsafe { Box::from_raw(self.object.as_ptr()) });
+	}
 }
 
 /// The fields `NET_Tick` declares.
@@ -683,6 +912,45 @@ pub struct VoiceDataFields {
 	/// The bytes the engine's class holds after its buffers, which this
 	/// module does not interpret.
 	pub rest: [u8; 8],
+}
+
+/// Whether a message whose fields start `base` bytes in has a `CNetMessage`
+/// [`read_message`] reads messages with: of [`SMALLEST_MESSAGE_BASE`] to
+/// [`LARGEST_MESSAGE_BASE`] bytes, and aligned for the pointer every class's
+/// fields start with.
+const fn accepts_base(base: usize) -> bool {
+	SMALLEST_MESSAGE_BASE <= base
+		&& base <= LARGEST_MESSAGE_BASE
+		&& base.is_multiple_of(align_of::<*const ()>())
+}
+
+/// Finds `NET_StringCmd`'s vtable as [`find_string_cmd_vtable`] does, but
+/// inspects each module once: a later call for the same module, mapped at the
+/// same base with its `CreateInterface` at the same address, returns what the
+/// first found, including `None`. A failure is not kept.
+///
+/// # Safety
+///
+/// - `factory` must be the `CreateInterface` export of a module that stays
+///   loaded throughout this call.
+/// - If an earlier call inspected a module mapped at the same base, with its
+///   `CreateInterface` at the same address, the module containing `factory`
+///   must be that same image, as [`ModuleCache`] assumes.
+pub unsafe fn cached_string_cmd_vtable(
+	factory: CreateInterfaceFn,
+) -> Result<Option<NonNull<sys::INetMessage__bindgen_vtable>>, util::Error> {
+	// SAFETY: The caller keeps the factory's module loaded for this call.
+	let key = unsafe { ModuleKey::of(factory as usize) }?;
+
+	let address = STRING_CMD_VTABLE.get_or_resolve(key, || {
+		// SAFETY: As the caller promises.
+		unsafe { find_string_cmd_vtable(factory) }
+			.map(|vtable| vtable.map(|vtable| vtable.as_ptr() as usize))
+	})?;
+
+	// The address came from a search of this module, in this call or, on a
+	// cache hit, in an earlier one, of the same image, as the caller promises.
+	Ok(address.and_then(|address| NonNull::new(address as *mut _)))
 }
 
 /// The client whose `IClientMessageHandler` base `handler` points to, or
@@ -803,6 +1071,65 @@ unsafe fn copy<T>(fields: *const u8) -> T {
 	unsafe { fields.cast::<T>().read_unaligned() }
 }
 
+/// The `CreateInterface` export of the engine module, found from `client`,
+/// one of the engine's clients, whose vtable the engine module emitted. Fails
+/// if no loaded module contains the vtable, or that module exports no
+/// `CreateInterface`.
+///
+/// The factory the engine passes plugins answers for the engine's interfaces,
+/// but need not lie in the engine module itself, so this finds the module
+/// through an address that does.
+///
+/// # Safety
+///
+/// `client` must point to the `IClient` base of a live client the engine
+/// made, as [`handler_of_client`] confirms, in a module that stays loaded for
+/// the call.
+#[doc(alias("CreateInterface"))]
+pub unsafe fn engine_factory_of_client(
+	client: NonNull<sys::IClient>,
+) -> Result<CreateInterfaceFn, util::Error> {
+	// SAFETY: As the caller promises, the client is live, and a polymorphic
+	// subobject, which starts with its vtable pointer.
+	let vtable = unsafe { (*client.as_ptr()).vtable_ };
+
+	// SAFETY: The client's vtable lies in the module that emitted it, the
+	// engine module, which the caller keeps loaded.
+	let export = unsafe { util::module_symbol(vtable as usize, c"CreateInterface") }
+		.ok_or(util::Error::InvalidImage)?;
+
+	// SAFETY: Every Source module exports `CreateInterface` with this
+	// signature.
+	Ok(unsafe { mem::transmute::<*mut c_void, CreateInterfaceFn>(export.as_ptr()) })
+}
+
+/// Finds the unique primary vtable of `NET_StringCmd` whose
+/// `INetMessage::GetSize` entry is executable, from the run-time type
+/// information of the module whose `CreateInterface` export is `factory`, the
+/// engine module. Returns `Ok(None)` if there is no such table, or more than
+/// one.
+///
+/// The address is metadata from a snapshot of the module: it does not keep
+/// the module loaded, and the table is the class's only while the module
+/// stays loaded.
+///
+/// # Safety
+///
+/// `factory` must be the `CreateInterface` export of a module that stays
+/// loaded throughout this call.
+#[doc(alias("NET_StringCmd"))]
+pub unsafe fn find_string_cmd_vtable(
+	factory: CreateInterfaceFn,
+) -> Result<Option<NonNull<sys::INetMessage__bindgen_vtable>>, util::Error> {
+	// SAFETY: The factory is an executable address in its module, which the
+	// caller keeps loaded while it is inspected.
+	let image = unsafe { Image::load(factory as usize) }?;
+
+	Ok(image
+		.primary_vtable(STRING_CMD_CLASS, GET_SIZE_SLOT)
+		.and_then(|vtable| NonNull::new(vtable as *mut _)))
+}
+
 /// Finds the `IClientMessageHandler` base of one of the engine's clients,
 /// after checking through run-time type information that the client is a
 /// `CGameClient`, with its bases where this module expects. Records that the
@@ -879,9 +1206,10 @@ unsafe fn names_handler(fields: *const u8, handler: NonNull<sys::IClientMessageH
 ///
 /// # Safety
 ///
-/// `message` must point to a live message of `class` that the engine passed
-/// to `handler`'s method for `class`, and that nothing changes during the
-/// call, in a module that stays loaded for the call.
+/// `message` must point to a live message of `class` passed to `handler`'s
+/// method for `class`, by the engine or through
+/// [`StringCmdMessage::process`], and that nothing changes during the call,
+/// in a module that stays loaded for the call.
 pub unsafe fn read_message(
 	class: MessageClass,
 	handler: NonNull<sys::IClientMessageHandler>,
@@ -893,10 +1221,7 @@ pub unsafe fn read_message(
 	let size = unsafe { vcall!(this => INetMessage_GetSize()) };
 	let base = size.checked_sub(class.fields_size())?;
 
-	// Every class's fields start with a pointer, so must be aligned for one.
-	if !(SMALLEST_MESSAGE_BASE..=LARGEST_MESSAGE_BASE).contains(&base)
-		|| !base.is_multiple_of(align_of::<*const ()>())
-	{
+	if !accepts_base(base) {
 		return None;
 	}
 
