@@ -10,8 +10,10 @@
 //! [`fields`], and an entity's identity, movement and rendering in
 //! [`identity`], [`movement`] and [`render`]. Entities are created in
 //! [`spawn`], found in [`search`], parented in [`hierarchy`], and dissolved
-//! in [`dissolve`]. Animated props are spawned and controlled in [`props`].
+//! in [`dissolve`]. Animated props are spawned and controlled in [`props`],
+//! and the debug overlays and buddha mode are in [`debug_overlays`].
 
+pub mod debug_overlays;
 pub mod dissolve;
 pub mod factory;
 pub mod fields;

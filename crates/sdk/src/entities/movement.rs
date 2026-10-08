@@ -643,6 +643,21 @@ impl<'s> Entity<'s> {
 		MOVE_TYPE.read(self).map(MoveType::from_raw)
 	}
 
+	/// Sets the entity's flags (`m_fFlags`), as `CBaseEntity::AddFlag` and
+	/// `RemoveFlag` do, and records the change for networking.
+	///
+	/// The game runs no code of its own as flags change, and reads them where it
+	/// needs them: [`FROZEN`](EntityFlags::FROZEN) holds a player in place,
+	/// [`GOD_MODE`](EntityFlags::GOD_MODE) keeps a player from taking damage, and
+	/// [`NO_TARGET`](EntityFlags::NO_TARGET) hides one from sentries. Leave the
+	/// flags the game keeps up to date, such as
+	/// [`ON_GROUND`](EntityFlags::ON_GROUND) and
+	/// [`DUCKING`](EntityFlags::DUCKING), as they were read.
+	#[doc(alias("AddFlag", "RemoveFlag", "m_fFlags"))]
+	pub fn set_flags(self, engine: ValveEngine<'_>, flags: EntityFlags) -> Result<(), FieldError> {
+		FLAGS.write(engine, self, flags.bits())
+	}
+
 	/// Sets the friction the entity moves with (`m_flFriction`), as
 	/// `CBaseEntity::SetFriction` does.
 	#[doc(alias("SetFriction", "m_flFriction"))]

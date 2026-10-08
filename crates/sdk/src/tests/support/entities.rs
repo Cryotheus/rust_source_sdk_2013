@@ -108,6 +108,9 @@ pub struct MockEntity {
 /// For tests only.
 #[repr(C)]
 pub struct MockState {
+	/// `m_debugOverlays`.
+	pub debug_overlays: c_int,
+
 	/// `m_fEffects`.
 	pub effects: c_int,
 
@@ -800,7 +803,7 @@ pub fn set_solid_type(solid: sys::SolidType_t) {
 ///
 /// For tests only. They are kept apart from [`base_entity_fields`], as
 /// [`health_fields`] are.
-pub fn state_fields() -> [sys::typedescription_t; 24] {
+pub fn state_fields() -> [sys::typedescription_t; 25] {
 	let member = |name, field_type, offset: usize, size: usize| {
 		let mut member = field(name, field_type, MOCK_STATE_OFFSET + offset);
 
@@ -814,6 +817,12 @@ pub fn state_fields() -> [sys::typedescription_t; 24] {
 	let vector = size_of::<sys::Vector>();
 
 	[
+		member(
+			c"m_debugOverlays",
+			sys::_fieldtypes_FIELD_INTEGER,
+			offset_of!(MockState, debug_overlays),
+			int,
+		),
 		member(
 			c"m_fEffects",
 			sys::_fieldtypes_FIELD_INTEGER,

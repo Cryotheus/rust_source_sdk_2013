@@ -124,6 +124,31 @@ fn flags_and_move_types_are_read() {
 }
 
 #[test]
+fn flags_are_written() {
+	let mut mock = MockEntity::new(5);
+	let engine = change_tracking_engine();
+
+	set_datamap(state_maps(vec![]));
+	mock.state().flags = FL_ONGROUND | FL_CLIENT;
+
+	let flags = mock.entity().flags().unwrap() | EntityFlags::FROZEN | EntityFlags::GOD_MODE;
+
+	mock.entity().set_flags(engine, flags).unwrap();
+	assert_eq!(
+		mock.state().flags,
+		FL_ONGROUND | FL_CLIENT | FL_FROZEN | FL_GODMODE
+	);
+
+	mock.entity()
+		.set_flags(engine, flags - EntityFlags::GOD_MODE)
+		.unwrap();
+	assert_eq!(
+		mock.entity().flags(),
+		Ok(EntityFlags::ON_GROUND | EntityFlags::CLIENT | EntityFlags::FROZEN)
+	);
+}
+
+#[test]
 fn gravity_and_friction_are_read_and_written() {
 	let mut mock = MockEntity::new(5);
 	let engine = change_tracking_engine();
