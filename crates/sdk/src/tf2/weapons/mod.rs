@@ -167,6 +167,147 @@ impl<'s> PlayerWeapons<'s> {
 		Ok(())
 	}
 
+	/// As [`Self::give_item_with`], but exchanging the weapon the new one's
+	/// native slot holds, if any, for it, as [`Self::replace_item`] does,
+	/// without the slot being named first. With `classname`, the item is created
+	/// as that class instead of the schema's, as for [`Self::give_item_as`],
+	/// such as the class [`ItemDefinition::item_class_for`] gives for the
+	/// player's class.
+	///
+	/// The new weapon is created first. Then the old one is detached, the new
+	/// one equipped and given `attributes`, and only then the old one deleted.
+	/// If equipping the new weapon or setting its attributes fails, it is
+	/// deleted, and the old one equipped again.
+	///
+	/// Detaching the weapon in the player's hands leaves them holding nothing
+	/// until they switch weapons, as [`Self::switch_to`] makes them.
+	///
+	/// # Safety
+	/// The guarantees of `give_item` apply, and with `classname`, those of
+	/// `give_item_as`.
+	///
+	/// [`ItemDefinition::item_class_for`]: crate::tf2::item_schema::ItemDefinition::item_class_for
+	#[doc(alias("SpawnItem", "AddAttribute"))]
+	pub unsafe fn exchange_item_with(
+		self,
+		token: SchemaToken<'s>,
+		definition: ItemDefinitionIndex,
+		classname: Option<&CStr>,
+		attributes: &AttributeSet,
+	) -> Result<Weapon<'s>, WeaponError> {
+		check_live(self.player)?;
+
+		let origin = self.player.position().ok_or(WeaponError::MissingOrigin)?;
+
+		// SAFETY: As for `spawn_item`: the caller vouches for the native creation
+		// path and the classname, and the generator returns a fresh callback-live
+		// entity, initialized before Spawn/Activate.
+		unsafe {
+			self.exchange_with(
+				classname,
+				|| {
+					generate_quality_item(
+						self.server,
+						definition,
+						origin,
+						classname,
+						ItemQuality::Unique,
+						ItemLevel::DEFAULT,
+					)
+					.map_err(WeaponError::CreationFailedNative)
+				},
+				|weapon| apply_attributes(token, weapon, attributes),
+			)
+		}
+	}
+
+	/// Creates a weapon with `create`, then exchanges it for the weapon its
+	/// native slot holds, if any, as [`Self::exchange_item_with`] describes,
+	/// running `finish` once it is equipped.
+	///
+	/// # Safety
+	/// `create` must return a newly created entity, live through this callback,
+	/// as for [`Self::give_with`].
+	unsafe fn exchange_with(
+		self,
+		expected_classname: Option<&CStr>,
+		create: impl FnOnce() -> Result<NonNull<sys::CBaseEntity>, WeaponError>,
+		finish: impl FnOnce(Weapon<'s>) -> Result<(), WeaponError>,
+	) -> Result<Weapon<'s>, WeaponError> {
+		check_live(self.player)?;
+		let tools = self.server.server_tools()?;
+		let raw = create()?;
+
+		// SAFETY: The caller guarantees a newly created callback-live entity.
+		let entity = unsafe { Entity::from_raw(raw) };
+
+		check_live(entity)?;
+
+		if expected_classname.is_some_and(|expected| entity.class_name() != expected) {
+			// As in `give_with`: item generation falls back to the schema's
+			// classname when an override has no factory.
+			let _ = tools.remove(entity);
+
+			return Err(WeaponError::CreationFailed);
+		}
+
+		let weapon = match Weapon::new(self.server, entity) {
+			Ok(weapon) => weapon,
+
+			Err(error) => {
+				let _ = tools.remove(entity);
+				return Err(error);
+			}
+		};
+
+		// A weapon the game already equipped holds its own slot, and is not
+		// exchanged for itself.
+		let old = match weapon.slot_raw().and_then(|slot| self.get_slot(slot)) {
+			Ok(old) => old.filter(|old| old.entity != entity),
+
+			Err(error) => {
+				let _ = tools.remove(entity);
+				return Err(error);
+			}
+		};
+
+		if let Some(old) = old
+			&& let Err(error) = self.detach(old)
+		{
+			let _ = tools.remove(entity);
+			return Err(error);
+		}
+
+		if let Err(error) = self.equip(weapon).and_then(|()| finish(weapon)) {
+			// As in `give_with`: a refused equip can still have set the owner, and
+			// another player's weapon is never deleted.
+			match weapon.owner() {
+				Ok(Some(owner)) if owner == self.player.handle() => {
+					let _ = self.detach(weapon);
+					let _ = tools.remove(entity);
+				}
+
+				Ok(None) => {
+					let _ = tools.remove(entity);
+				}
+
+				Ok(Some(_)) | Err(_) => {}
+			}
+
+			if let Some(old) = old {
+				self.equip(old)?;
+			}
+
+			return Err(error);
+		}
+
+		if let Some(old) = old {
+			let _ = tools.remove(old.entity);
+		}
+
+		Ok(weapon)
+	}
+
 	/// A weapon in this player's inventory whose native slot matches, or
 	/// `None` when none does.
 	#[doc(alias("Weapon_GetSlot"))]

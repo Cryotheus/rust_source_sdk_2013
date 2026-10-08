@@ -72,3 +72,50 @@ fn loadout_positions_keep_tf2s_numbers() {
 		assert_eq!(LoadoutPosition::from_raw(number), None);
 	}
 }
+
+#[test]
+fn shared_item_classes_are_translated_for_each_class() {
+	let class = |item_class: &'static CStr, class| class_item_class(item_class, class);
+
+	assert_eq!(
+		class(c"tf_weapon_shotgun", PlayerClass::Soldier),
+		Some(c"tf_weapon_shotgun_soldier")
+	);
+	assert_eq!(
+		class(c"TF_WEAPON_SHOTGUN", PlayerClass::Engineer),
+		Some(c"tf_weapon_shotgun_primary")
+	);
+	assert_eq!(class(c"tf_weapon_shotgun", PlayerClass::Scout), None);
+	assert_eq!(
+		class(c"saxxy", PlayerClass::Heavy),
+		Some(c"tf_weapon_fireaxe")
+	);
+	assert_eq!(
+		class(c"tf_weapon_parachute", PlayerClass::Demoman),
+		Some(c"tf_weapon_parachute_primary")
+	);
+	assert_eq!(
+		class(c"tf_weapon_revolver", PlayerClass::Engineer),
+		Some(c"tf_weapon_revolver_secondary")
+	);
+	assert_eq!(
+		class(c"tf_weapon_rocketlauncher", PlayerClass::Pyro),
+		Some(c"tf_weapon_rocketlauncher")
+	);
+
+	// The table is lowercase, as the game's is, and names a weapon class for
+	// at least one player class of each item class it translates.
+	for (generic, classes) in CLASS_ITEM_CLASSES {
+		assert!(
+			generic
+				.to_bytes()
+				.iter()
+				.all(|&byte| byte.is_ascii_lowercase() || byte == b'_')
+		);
+		assert!(classes.iter().any(Option::is_some));
+
+		for translated in classes.into_iter().flatten() {
+			assert!(translated.to_bytes().starts_with(b"tf_weapon_"));
+		}
+	}
+}

@@ -311,37 +311,52 @@ pub unsafe fn is_direct_table_proxy(
 ///
 /// The proxy is the one the game gave the property, looking through the
 /// overrides of [`send_proxies`](crate::send_proxies), whose trampolines call
-/// it.
+/// it, as [`game_proxy`] does: those of every loaded copy of this crate,
+/// such as other plugins'. A property whose proxy is a standard one already
+/// is told without looking.
 ///
 /// # Safety
 ///
 /// `proxies` must point to the game DLL's `g_StandardSendProxies`, or a copy,
-/// and `prop` to a live `SendProp`.
+/// and `prop` to a live `SendProp`. No library may unload during the call, as
+/// none does while the server's main thread makes it.
 pub unsafe fn standard_var_proxies(
 	proxies: *const sys::CStandardSendProxies,
 	prop: *const sys::SendProp,
 ) -> StandardVarProxies {
-	// SAFETY: The property is live.
-	let Some(proxy) = var_proxy_address(unsafe { game_proxy(prop) }) else {
-		return StandardVarProxies::default();
-	};
-
 	// SAFETY: The proxies are live, and copied without forming a reference.
 	let standard = unsafe { proxies.read() }._base;
 
-	let is = |candidates: &[sys::SendVarProxyFn]| {
-		candidates
-			.iter()
-			.any(|&candidate| var_proxy_address(candidate) == Some(proxy))
+	let of = |proxy: usize| {
+		let is = |candidates: &[sys::SendVarProxyFn]| {
+			candidates
+				.iter()
+				.any(|&candidate| var_proxy_address(candidate) == Some(proxy))
+		};
+
+		StandardVarProxies {
+			int8: is(&[standard.m_Int8ToInt32, standard.m_UInt8ToInt32]),
+			int16: is(&[standard.m_Int16ToInt32, standard.m_UInt16ToInt32]),
+			int32: is(&[standard.m_Int32ToInt32, standard.m_UInt32ToInt32]),
+			float: is(&[standard.m_FloatToFloat]),
+			vector: is(&[standard.m_VectorToVector]),
+		}
 	};
 
-	StandardVarProxies {
-		int8: is(&[standard.m_Int8ToInt32, standard.m_UInt8ToInt32]),
-		int16: is(&[standard.m_Int16ToInt32, standard.m_UInt16ToInt32]),
-		int32: is(&[standard.m_Int32ToInt32, standard.m_UInt32ToInt32]),
-		float: is(&[standard.m_FloatToFloat]),
-		vector: is(&[standard.m_VectorToVector]),
+	// SAFETY: The property is live, and its field is read without forming a
+	// reference.
+	let Some(proxy) = var_proxy_address(unsafe { (&raw const (*prop).m_ProxyFn).read() }) else {
+		return StandardVarProxies::default();
+	};
+
+	let found = of(proxy);
+
+	if found != StandardVarProxies::default() {
+		return found;
 	}
+
+	// SAFETY: The property is live, and the caller keeps every library loaded.
+	var_proxy_address(unsafe { game_proxy(prop) }).map_or_else(StandardVarProxies::default, of)
 }
 
 /// The address of a table proxy, for comparing proxies.

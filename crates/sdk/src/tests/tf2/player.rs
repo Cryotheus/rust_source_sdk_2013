@@ -38,7 +38,7 @@ const _: () = assert!(offset_of!(FakeEntity, flags) == MOCK_EFLAGS_OFFSET);
 
 /// The native members the fake player declares on `CTFPlayer`: each one's
 /// name, return type and parameter types. Others are missing.
-const MEMBERS: [(&CStr, sys::ScriptDataType_t, &[sys::ScriptDataType_t]); 13] = [
+const MEMBERS: [(&CStr, sys::ScriptDataType_t, &[sys::ScriptDataType_t]); 14] = [
 	(c"SetPlayerClass", binding::VOID, &[INT]),
 	(c"ForceChangeTeam", binding::VOID, &[INT, BOOL]),
 	(c"AddHudHideFlags", binding::VOID, &[INT]),
@@ -52,7 +52,12 @@ const MEMBERS: [(&CStr, sys::ScriptDataType_t, &[sys::ScriptDataType_t]); 13] = 
 	(c"GetNextChangeClassTime", FLOAT, &[]),
 	(c"Regenerate", binding::VOID, &[BOOL]),
 	(c"IsCallingForMedic", BOOL, &[]),
+	(c"SnapEyeAngles", binding::VOID, &[QANGLE]),
 ];
+
+/// The members of [`MEMBERS`] that `CBasePlayer` declares rather than
+/// `CTFPlayer`.
+const BASE_MEMBERS: &[&CStr] = &[c"SnapEyeAngles"];
 
 /// A null handle, in a fake entity's fields.
 const NULL: u32 = u32::MAX;
@@ -917,6 +922,11 @@ unsafe extern "C" fn member(
 			None
 		}
 
+		(b"SnapEyeAngles", &[Argument::Angles([x, y, z])]) => {
+			object.eye_angles = sys::QAngle { x, y, z };
+			None
+		}
+
 		(b"GetHudHideFlags", []) => Some(int(object.hud)),
 		(b"GetNextChangeClassTime", []) => Some(float(object.next_class_time)),
 		(b"IsCallingForMedic", []) => Some(boolean(true)),
@@ -1099,20 +1109,31 @@ fn only_tf2_players_are_wrapped() {
 /// The descriptors of a TF2 player's script class, declaring [`MEMBERS`],
 /// leaked.
 fn player_description() -> *mut sys::ScriptClassDesc_t {
-	let bindings: Vec<_> = MEMBERS
-		.iter()
-		.enumerate()
-		.map(|(index, &(name, returns, parameters))| {
-			let parameters = Vec::from(parameters).leak();
-			let mut binding = member_binding(name, returns, parameters, Some(member));
+	let bindings = |base: bool| -> Vec<_> {
+		MEMBERS
+			.iter()
+			.enumerate()
+			.filter(|(_, (name, ..))| BASE_MEMBERS.contains(name) == base)
+			.map(|(index, &(name, returns, parameters))| {
+				let parameters = Vec::from(parameters).leak();
+				let mut binding = member_binding(name, returns, parameters, Some(member));
 
-			binding.m_pFunction.val_0 = index as isize;
-			binding
-		})
-		.collect();
-	let base = leak(class_description(c"CBasePlayer", &mut [], null_mut()));
+				binding.m_pFunction.val_0 = index as isize;
+				binding
+			})
+			.collect()
+	};
+	let base = leak(class_description(
+		c"CBasePlayer",
+		bindings(true).leak(),
+		null_mut(),
+	));
 
-	leak(class_description(c"CTFPlayer", bindings.leak(), base))
+	leak(class_description(
+		c"CTFPlayer",
+		bindings(false).leak(),
+		base,
+	))
 }
 
 #[test]
@@ -1286,6 +1307,32 @@ fn view_methods_read_the_player_and_suicide_kills_the_living() {
 		player.eye_position().unwrap(),
 		Vector::new(100.0, 200.0, 68.0)
 	);
+
+	// Snapping turns the eyes through the base player's member.
+	let turned = QAngle {
+		pitch: -20.0,
+		yaw: 180.0,
+		roll: 0.0,
+	};
+
+	player.snap_eye_angles(turned).unwrap();
+	assert_eq!(player.eye_angles().unwrap(), turned);
+	assert_eq!(
+		calls(),
+		[(
+			c"SnapEyeAngles",
+			vec![Argument::Angles([-20.0, 180.0, 0.0])]
+		)]
+	);
+	assert!(matches!(
+		player.snap_eye_angles(QAngle {
+			pitch: f32::NAN,
+			yaw: 0.0,
+			roll: 0.0,
+		}),
+		Err(PlayerError::NonFinite)
+	));
+	assert!(calls().is_empty());
 
 	assert!(player.commit_suicide(true, false).unwrap());
 	assert_eq!(

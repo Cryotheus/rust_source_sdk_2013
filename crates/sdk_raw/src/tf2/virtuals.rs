@@ -25,6 +25,12 @@ use std::ffi::{c_char, c_int};
 /// [`PHYSICS_SIMULATE_SLOT`] and [`UPDATE_ON_REMOVE_SLOT`].
 pub type EntityFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
 
+/// The signature of `CBaseEntity::ForceVPhysicsCollide`,
+/// `bool (CBaseEntity *entity)`, at [`FORCE_VPHYSICS_COLLIDE_SLOT`].
+#[doc(alias("ForceVPhysicsCollide"))]
+pub type ForceVPhysicsCollideFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, other: *mut sys::CBaseEntity) -> bool;
+
 /// The signature of `CTFPlayer::GiveNamedItem`,
 /// `CBaseEntity *(const char *name, int subType, const CEconItemView *item, bool force)`.
 #[doc(alias("GiveNamedItem"))]
@@ -140,6 +146,21 @@ const _: () = {
 // `game/server/baseentity.h` declares no virtual method between
 // `PhysicsSimulate` and `UpdateOnRemove`.
 const _: () = assert!(UPDATE_ON_REMOVE_SLOT == PHYSICS_SIMULATE_SLOT + 1);
+
+// SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `VPhysicsUpdate`
+// at 164 on Windows and 165 on Linux in its `tf` section, which
+// `game/server/baseentity.h` declares after `ForceVPhysicsCollide` and
+// `VPhysicsDestroyObject`.
+const _: () = {
+	let vphysics_update =
+		vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_VPhysicsUpdate);
+
+	assert!(vphysics_update == 163 + CppDestructors::VTABLE_SLOTS);
+	assert!(FORCE_VPHYSICS_COLLIDE_SLOT + 2 == vphysics_update);
+
+	let _: fn(&sys::CBaseEntity__bindgen_vtable) -> ForceVPhysicsCollideFn =
+		|vtable| vtable.CBaseEntity_ForceVPhysicsCollide;
+};
 
 // SourceMod's slots on Windows: `PlayerRunCmd` at 431 in
 // `gamedata/sdktools.games/game.tf.txt`, `Reload` at 284 in
@@ -371,6 +392,16 @@ pub const WEAPON_CAN_SWITCH_TO_SLOT: usize =
 #[doc(alias("Weapon_Equip"))]
 pub const WEAPON_EQUIP_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_Equip);
+
+/// The slot of `CBaseEntity::ForceVPhysicsCollide` in an entity's primary
+/// vtable, from the generated binding: the method VPhysics's collision filter
+/// asks of each entity of a pair of physics objects, before the game rules'
+/// collision groups, whether the pair must collide anyway.
+#[doc(alias("ForceVPhysicsCollide"))]
+pub const FORCE_VPHYSICS_COLLIDE_SLOT: usize = vtable_slot!(
+	sys::CBaseEntity__bindgen_vtable,
+	CBaseEntity_ForceVPhysicsCollide
+);
 
 /// The slot of `CBaseEntity::PhysicsSimulate` in an entity's primary vtable,
 /// from the generated binding: the method that runs an entity's movement and

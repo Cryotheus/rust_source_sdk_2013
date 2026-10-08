@@ -276,6 +276,26 @@ pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
 	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
 }
 
+/// The address of the export `name` of the loaded module containing
+/// `address`, or `None` if no module contains it or the module does not
+/// export `name`. This never loads a library.
+///
+/// The module is kept loaded during the lookup only. The address is usable as
+/// a native pointer only while the module stays loaded, and only with the
+/// type the module exports it with.
+///
+/// # Safety
+///
+/// The module containing `address` must not unload during the call.
+pub unsafe fn module_symbol(address: usize, name: &CStr) -> Option<NonNull<c_void>> {
+	// SAFETY: The caller keeps the module loaded until its reference is added,
+	// which keeps it loaded during the lookup.
+	let module = unsafe { Module::at(address) }.ok()?;
+
+	// SAFETY: As above.
+	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
+}
+
 /// The path of the file the loader mapped `module` from.
 ///
 /// # Safety

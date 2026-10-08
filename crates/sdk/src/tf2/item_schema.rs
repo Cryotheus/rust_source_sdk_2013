@@ -289,6 +289,145 @@ const CHECKED_STRINGS: [(u16, &CStr, &CStr); 3] = [
 	(738, c"Pet Balloonicorn", c"tf_wearable"),
 ];
 
+/// The item classes the game creates as another class for each player class
+/// (`pszWpnEntTranslationList` in `tf_shareddefs.cpp`), each with its class
+/// for the Scout, Sniper, Soldier, Demoman, Medic, Heavy, Pyro, Spy and
+/// Engineer, in that order, or `None` for a player class it has none for.
+#[doc(alias("pszWpnEntTranslationList"))]
+const CLASS_ITEM_CLASSES: [(&CStr, [Option<&CStr>; 9]); 8] = [
+	(
+		c"tf_weapon_shotgun",
+		[
+			None,
+			None,
+			Some(c"tf_weapon_shotgun_soldier"),
+			None,
+			None,
+			Some(c"tf_weapon_shotgun_hwg"),
+			Some(c"tf_weapon_shotgun_pyro"),
+			None,
+			Some(c"tf_weapon_shotgun_primary"),
+		],
+	),
+	(
+		c"tf_weapon_pistol",
+		[
+			Some(c"tf_weapon_pistol_scout"),
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			Some(c"tf_weapon_pistol"),
+		],
+	),
+	(
+		c"tf_weapon_shovel",
+		[
+			None,
+			None,
+			Some(c"tf_weapon_shovel"),
+			Some(c"tf_weapon_bottle"),
+			None,
+			None,
+			None,
+			None,
+			None,
+		],
+	),
+	(
+		c"tf_weapon_bottle",
+		[
+			None,
+			None,
+			Some(c"tf_weapon_shovel"),
+			Some(c"tf_weapon_bottle"),
+			None,
+			None,
+			None,
+			None,
+			None,
+		],
+	),
+	(
+		c"saxxy",
+		[
+			Some(c"tf_weapon_bat"),
+			Some(c"tf_weapon_club"),
+			Some(c"tf_weapon_shovel"),
+			Some(c"tf_weapon_bottle"),
+			Some(c"tf_weapon_bonesaw"),
+			Some(c"tf_weapon_fireaxe"),
+			Some(c"tf_weapon_fireaxe"),
+			Some(c"tf_weapon_knife"),
+			Some(c"tf_weapon_wrench"),
+		],
+	),
+	(
+		c"tf_weapon_throwable",
+		[
+			Some(c"tf_weapon_throwable_secondary"),
+			Some(c"tf_weapon_throwable_secondary"),
+			Some(c"tf_weapon_throwable_secondary"),
+			Some(c"tf_weapon_throwable_secondary"),
+			Some(c"tf_weapon_throwable_primary"),
+			Some(c"tf_weapon_throwable_secondary"),
+			Some(c"tf_weapon_throwable_secondary"),
+			Some(c"tf_weapon_throwable_secondary"),
+			Some(c"tf_weapon_throwable_secondary"),
+		],
+	),
+	(
+		c"tf_weapon_parachute",
+		[
+			None,
+			None,
+			Some(c"tf_weapon_parachute_secondary"),
+			Some(c"tf_weapon_parachute_primary"),
+			None,
+			None,
+			None,
+			None,
+			None,
+		],
+	),
+	(
+		c"tf_weapon_revolver",
+		[
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			Some(c"tf_weapon_revolver"),
+			Some(c"tf_weapon_revolver_secondary"),
+		],
+	),
+];
+
+/// The class the game creates an item of `item_class` as for a player of
+/// `class` (`TranslateWeaponEntForClass`): another class for the
+/// [item classes it translates](CLASS_ITEM_CLASSES), compared ignoring ASCII
+/// case as the game does, or `item_class` itself for any other. `None` for an
+/// item class the game translates, but not for `class`.
+#[doc(alias("TranslateWeaponEntForClass"))]
+fn class_item_class(item_class: &CStr, class: PlayerClass) -> Option<&CStr> {
+	let translated = CLASS_ITEM_CLASSES.iter().find(|(generic, _)| {
+		generic
+			.to_bytes()
+			.eq_ignore_ascii_case(item_class.to_bytes())
+	});
+
+	match translated {
+		Some((_, classes)) => classes[class.to_raw() as usize - 1],
+		None => Some(item_class),
+	}
+}
+
 /// Whether the layout of the definitions' strings passed its checks, once it
 /// did or failed them.
 static STRINGS: OnceLock<bool> = OnceLock::new();
@@ -500,6 +639,22 @@ impl<'s> ItemDefinition<'s> {
 		// SAFETY: The schema keeps its definition through the callback, and the
 		// layout of its strings was checked.
 		Ok(unsafe { self.read_string(|raw| &raw const (*raw).m_pszItemClassname) })
+	}
+
+	/// The entity class the game creates the definition's items as for a player
+	/// of `class`: [`Self::item_class`], translated for the player's class as
+	/// the game does when it hands out their loadout
+	/// (`TranslateWeaponEntForClass`), such as `tf_weapon_shotgun_soldier` for
+	/// a Soldier's `tf_weapon_shotgun`. `None` for a definition without an item
+	/// class, or with one the game translates, but not for `class`.
+	///
+	/// This does not check that `class` uses the definition's items, as
+	/// [`Self::is_used_by`] does. Fails as [`Self::item_class`] does.
+	#[doc(alias("TranslateWeaponEntForClass"))]
+	pub fn item_class_for(self, class: PlayerClass) -> Result<Option<&'s CStr>, ItemSchemaError> {
+		Ok(self
+			.item_class()?
+			.and_then(|item_class| class_item_class(item_class, class)))
 	}
 
 	/// The definition's name (`m_pszDefinitionName`, the `name` of

@@ -10,6 +10,100 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Amount(f32);
 
+/// A [catalog](super::catalog) definition of any value type, as
+/// [`catalog::ALL`](super::catalog::ALL) lists them, for attributes chosen
+/// while the plugin runs, such as by name from a configuration file. Its
+/// values are plain floats, which [`Self::stored`] checks as the definition's
+/// value type and bounds would.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AnyAttributeDef {
+	/// A definition of an additive amount.
+	Amount(AttributeDef<Amount>),
+
+	/// A definition of an on or off switch.
+	Flag(AttributeDef<Flag>),
+
+	/// A definition of a multiplier.
+	Multiplier(AttributeDef<Multiplier>),
+
+	/// A definition of a duration.
+	Seconds(AttributeDef<Seconds>),
+}
+
+impl AnyAttributeDef {
+	/// The attribute class, as for [`AttributeDef::class`].
+	pub const fn class(&self) -> &'static CStr {
+		self.raw().class
+	}
+
+	/// How the schema describes the value, as for [`AttributeDef::format`].
+	pub const fn format(&self) -> DescriptionFormat {
+		self.raw().format
+	}
+
+	/// The definition index, as for [`AttributeDef::index`].
+	pub const fn index(&self) -> AttributeIndex {
+		self.raw().index
+	}
+
+	/// The largest stored value this crate writes.
+	pub const fn max(&self) -> f32 {
+		self.raw().max
+	}
+
+	/// The smallest stored value this crate writes.
+	pub const fn min(&self) -> f32 {
+		self.raw().min
+	}
+
+	/// The schema name, as for [`AttributeDef::name`].
+	pub const fn name(&self) -> &'static CStr {
+		self.raw().name
+	}
+
+	/// The definition without its value type.
+	pub(super) const fn raw(&self) -> RawDef {
+		match self {
+			Self::Amount(def) => def.raw(),
+			Self::Flag(def) => def.raw(),
+			Self::Multiplier(def) => def.raw(),
+			Self::Seconds(def) => def.raw(),
+		}
+	}
+
+	/// `value` as the game stores it, once checked as the definition's value
+	/// type: [`AttributeError::InvalidValue`] for a value the type has no
+	/// equal of, such as a [`Flag`] other than 0 or 1 or a negative
+	/// [`Multiplier`], and [`AttributeError::OutOfDomain`] outside the
+	/// definition's bounds.
+	pub fn stored(&self, value: f32) -> Result<f32, AttributeError> {
+		fn typed<V: AttributeValue>(
+			def: &AttributeDef<V>,
+			value: f32,
+		) -> Result<f32, AttributeError> {
+			def.stored(V::from_stored(value).ok_or(AttributeError::InvalidValue)?)
+		}
+
+		match self {
+			Self::Amount(def) => typed(def, value),
+			Self::Flag(def) => typed(def, value),
+			Self::Multiplier(def) => typed(def, value),
+			Self::Seconds(def) => typed(def, value),
+		}
+	}
+
+	/// What the definition's values are: `amount`, `flag`, `multiplier` or
+	/// `seconds`.
+	pub const fn value_kind(&self) -> &'static str {
+		match self {
+			Self::Amount(_) => "amount",
+			Self::Flag(_) => "flag",
+			Self::Multiplier(_) => "multiplier",
+			Self::Seconds(_) => "seconds",
+		}
+	}
+}
+
 impl Amount {
 	/// No change.
 	pub const ZERO: Self = Self(0.0);

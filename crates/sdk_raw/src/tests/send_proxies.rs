@@ -160,6 +160,54 @@ unsafe extern "C" fn int_proxy(
 	unsafe { (*out).__bindgen_anon_1.m_Int = data.cast::<c_int>().read() };
 }
 
+#[test]
+fn other_copies_trampolines_are_looked_through() {
+	// The game's proxy, under one of this copy's trampolines, under another
+	// copy's, which `other_plugins_proxy` stands for.
+	let under = prop(Some(int_proxy));
+	// SAFETY: As in the tests above.
+	let ours = unsafe { install(under, Box::new(|_| {})) }.unwrap();
+	let trampoline = TRAMPOLINES[ours.index()];
+	let calls_ours =
+		|proxy: ProxyFn| (address(proxy) == address(other_plugins_proxy)).then_some(trampoline);
+
+	assert_eq!(
+		look_through(other_plugins_proxy, calls_ours).map(address),
+		Some(address(int_proxy))
+	);
+
+	// The game's proxy, under another copy's trampoline, under one of this
+	// copy's.
+	let over = prop(Some(other_plugins_proxy));
+	// SAFETY: As in the tests above.
+	let theirs = unsafe { install(over, Box::new(|_| {})) }.unwrap();
+	let calls_game = |proxy: ProxyFn| {
+		(address(proxy) == address(other_plugins_proxy)).then_some(int_proxy as ProxyFn)
+	};
+
+	assert_eq!(
+		look_through(TRAMPOLINES[theirs.index()], calls_game).map(address),
+		Some(address(int_proxy))
+	);
+
+	// A proxy that is no copy's trampoline is the game's, and a chain that
+	// never ends stops.
+	assert_eq!(
+		look_through(int_proxy, |_| None).map(address),
+		Some(address(int_proxy))
+	);
+	assert_eq!(
+		look_through(other_plugins_proxy, Some).map(address),
+		Some(address(other_plugins_proxy))
+	);
+
+	// SAFETY: The properties are leaked, and no other thread sends them.
+	unsafe {
+		assert_eq!(restore(ours), Restored::Restored);
+		assert_eq!(restore(theirs), Restored::Restored);
+	}
+}
+
 /// Stands in for another plugin's proxy, which a test chains over a
 /// trampoline by hand.
 ///
@@ -217,4 +265,29 @@ fn send(prop: NonNull<sys::SendProp>, value: c_int, element: c_int, object_id: c
 
 		out.__bindgen_anon_1.m_Int
 	}
+}
+
+#[test]
+fn the_export_names_what_this_copys_trampolines_call() {
+	let prop = prop(Some(int_proxy));
+	// SAFETY: As in the tests above.
+	let slot = unsafe { install(prop, Box::new(|_| {})) }.unwrap();
+	let trampoline = TRAMPOLINES[slot.index()] as *const c_void;
+
+	assert_eq!(trampoline_original(trampoline) as usize, address(int_proxy));
+	assert!(trampoline_original(int_proxy as *const c_void).is_null());
+
+	// A proxy in a library without the export, such as this test's, is the
+	// game's.
+	let foreign = self::prop(Some(other_plugins_proxy));
+
+	assert_eq!(
+		// SAFETY: The property is live, and no library unloads.
+		unsafe { game_proxy(foreign.as_ptr()) }.map(address),
+		Some(address(other_plugins_proxy))
+	);
+
+	// SAFETY: As in the tests above.
+	assert_eq!(unsafe { restore(slot) }, Restored::Restored);
+	assert!(trampoline_original(trampoline).is_null());
 }

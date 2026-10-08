@@ -26,6 +26,10 @@ const PROT_READ: c_int = 1;
 /// `PROT_WRITE`: pages that may be written.
 const PROT_WRITE: c_int = 2;
 
+/// `dlopen`'s flag to resolve symbols as they are first used, which leaves
+/// an already loaded library as it was loaded.
+const RTLD_LAZY: c_int = 1;
+
 /// `dlopen`'s flag to never unload the library, even once every reference
 /// to it is closed.
 const RTLD_NODELETE: c_int = 0x1000;
@@ -307,6 +311,43 @@ pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
 	unsafe { dlclose(handle.as_ptr()) };
 
 	NonNull::new(symbol)
+}
+
+/// The address of the export `name` of the loaded module containing
+/// `address`, or `None` if no module contains it or the module does not
+/// export `name` itself. This never loads a library.
+///
+/// The module is found again by the name the loader gave it, and kept loaded
+/// during the lookup only. The symbols of its dependencies, which `dlsym`
+/// searches too, are not its own. The address is usable as a native pointer
+/// only while the module stays loaded, and only with the type the module
+/// exports it with.
+///
+/// # Safety
+///
+/// The module containing `address` must not unload during the call.
+pub unsafe fn module_symbol(address: usize, name: &CStr) -> Option<NonNull<c_void>> {
+	// SAFETY: The caller keeps the module loaded during the lookup.
+	let module = unsafe { Module::at(address) }.ok()?;
+	let path = CString::new(module.path().as_os_str().as_bytes()).ok()?;
+
+	// SAFETY: `RTLD_NOLOAD` only finds the library, which the caller keeps
+	// loaded, by the name the loader gave it, and adds a reference to it,
+	// closed below.
+	let handle = NonNull::new(unsafe { dlopen(path.as_ptr(), RTLD_LAZY | RTLD_NOLOAD) })?;
+
+	// SAFETY: The handle is live until closed.
+	let symbol = NonNull::new(unsafe { dlsym(handle.as_ptr(), name.as_ptr()) }).filter(|symbol| {
+		// SAFETY: The symbol lies in a library the handle, or the library's own
+		// references to its dependencies, keep loaded.
+		unsafe { Module::at(symbol.as_ptr() as usize) }
+			.is_ok_and(|owner| owner.base() == module.base())
+	});
+
+	// SAFETY: This releases only the reference `dlopen` added.
+	unsafe { dlclose(handle.as_ptr()) };
+
+	symbol
 }
 
 /// Keeps the module containing `address` loaded until the process exits, and

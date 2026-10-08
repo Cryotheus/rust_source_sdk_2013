@@ -14,14 +14,19 @@
 //! Each loaded copy of this crate has its own table, of
 //! [`MAX_SEND_PROXY_OVERRIDES`] slots, and its own trampolines: another
 //! plugin replacing the same property's proxy sees one of this crate's
-//! trampolines as the property's proxy, as this crate sees another's.
+//! trampolines as the property's proxy, as this crate sees another's. Each
+//! copy exports [`trampoline_original`] from the library it is linked into,
+//! such as a plugin, under [`TRAMPOLINE_ORIGINAL_SYMBOL`], through which
+//! [`game_proxy`] finds the game's proxy behind the trampolines of every
+//! copy.
 
 #[cfg(test)]
 #[path = "tests/send_proxies.rs"]
 mod tests;
 
+use crate::util;
 use std::any::Any;
-use std::ffi::{c_int, c_void};
+use std::ffi::{CStr, c_int, c_void};
 use std::mem;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{self, NonNull};
@@ -68,9 +73,27 @@ type ProxyFn = unsafe extern "C" fn(
 /// A panic is caught, and leaves what the property's own proxy sent.
 pub type ProxyHandler = dyn Fn(ProxyCall) + Send + Sync;
 
+/// [`trampoline_original`]'s signature, as other copies of this crate export
+/// it.
+type TrampolineOriginalFn = unsafe extern "C" fn(proxy: *const c_void) -> *const c_void;
+
 /// How many properties can have their send proxies replaced at once by one
 /// loaded copy of this crate.
 pub const MAX_SEND_PROXY_OVERRIDES: usize = 64;
+
+/// The most trampolines [`game_proxy`] looks through, one per override of
+/// the property by any loaded copy of this crate, before it gives up and
+/// returns the last.
+const MAX_TRAMPOLINE_CHAIN: usize = 64;
+
+/// The name every loaded copy of this crate exports [`trampoline_original`]
+/// under, from the library it is linked into, such as a plugin.
+///
+/// The name carries the version of the export's signature, which only ever
+/// changes with a new name, so that copies of different versions of this
+/// crate find each other's trampolines. A library cannot link two copies
+/// exporting the same version, as both would define the symbol.
+pub const TRAMPOLINE_ORIGINAL_SYMBOL: &CStr = c"source_sdk_2013_send_proxy_original_v1";
 
 /// The slots of the table, one per trampoline.
 static SLOTS: [Slot; MAX_SEND_PROXY_OVERRIDES] = [const { Slot::new() }; MAX_SEND_PROXY_OVERRIDES];
@@ -221,22 +244,27 @@ fn drop_payload(payload: Box<dyn Any + Send>) {
 }
 
 /// The send proxy the game gave `prop`, looking through the trampolines of
-/// this copy of the crate: the property's own proxy where one of them replaced
-/// it, or the property's proxy otherwise, which may be another plugin's.
+/// every loaded copy of this crate: the property's own proxy where they
+/// replaced it, or the property's proxy otherwise, which may be the proxy of
+/// a plugin that does not use this crate.
+///
+/// This copy's trampolines are found in its table, and other copies' through
+/// the [`TRAMPOLINE_ORIGINAL_SYMBOL`] export of the library the proxy lies
+/// in, which only a library linking a copy of this crate has. Returns `None`
+/// if the property has no proxy.
 ///
 /// # Safety
 ///
-/// `prop` must point to a live `SendProp`.
+/// `prop` must point to a live `SendProp`. No library may unload during the
+/// call, as none does while the server's main thread makes it.
 #[doc(alias("m_ProxyFn"))]
 pub unsafe fn game_proxy(prop: *const sys::SendProp) -> sys::SendVarProxyFn {
 	// SAFETY: The property is live, and its field is read without forming a
 	// reference.
 	let proxy = unsafe { (&raw const (*prop).m_ProxyFn).read() }?;
 
-	match slot_of_trampoline(proxy) {
-		Some(slot) => SLOTS[slot].original(),
-		None => Some(proxy),
-	}
+	// SAFETY: The caller keeps every library loaded during the call.
+	look_through(proxy, |proxy| unsafe { other_original(proxy) })
 }
 
 /// Replaces `prop`'s send proxy with a trampoline that calls the property's
@@ -305,6 +333,52 @@ pub fn is_installed(id: SlotId) -> bool {
 	SLOTS.get(id.index).is_some_and(|slot| slot.holds(id))
 }
 
+/// Follows `proxy` through trampolines to the proxy the first of them
+/// replaced: through the table for this copy's, and through `other` for
+/// other copies', which returns the proxy such a trampoline calls first, or
+/// `None` for a proxy that is none.
+///
+/// Returns `None` for one of this copy's trampolines that replaced no proxy,
+/// and the last proxy after [`MAX_TRAMPOLINE_CHAIN`] trampolines.
+fn look_through(mut proxy: ProxyFn, other: impl Fn(ProxyFn) -> Option<ProxyFn>) -> Option<ProxyFn> {
+	for _ in 0..MAX_TRAMPOLINE_CHAIN {
+		proxy = match slot_of_trampoline(proxy as usize) {
+			Some(slot) => SLOTS[slot].original()?,
+
+			None => match other(proxy) {
+				Some(original) => original,
+				None => return Some(proxy),
+			},
+		};
+	}
+
+	Some(proxy)
+}
+
+/// The proxy that `proxy` calls first, if it is a trampoline of another
+/// loaded copy of this crate, found through the
+/// [`TRAMPOLINE_ORIGINAL_SYMBOL`] export of the library it lies in.
+///
+/// # Safety
+///
+/// The library containing `proxy` must not unload during the call.
+unsafe fn other_original(proxy: ProxyFn) -> Option<ProxyFn> {
+	// SAFETY: As the caller promises.
+	let export = unsafe { util::module_symbol(proxy as usize, TRAMPOLINE_ORIGINAL_SYMBOL) }?;
+
+	// SAFETY: Every copy of this crate exports a function of this signature
+	// under the name, which carries the signature's version.
+	let export = unsafe { mem::transmute::<*mut c_void, TrampolineOriginalFn>(export.as_ptr()) };
+
+	// SAFETY: The export only compares the address with its copy's
+	// trampolines, and reads its copy's atomics.
+	let original = unsafe { export(proxy as *const c_void) };
+
+	// SAFETY: A non-null result is the address of a proxy the copy stored,
+	// which is a function of this type.
+	(!original.is_null()).then(|| unsafe { mem::transmute::<*const c_void, ProxyFn>(original) })
+}
+
 /// Puts back the proxy [`install`] replaced in the slot `id` names, and frees
 /// its handler. Does nothing to a slot restored since, even if taken again.
 ///
@@ -366,11 +440,11 @@ pub unsafe fn restore_all() {
 	}
 }
 
-/// The slot whose trampoline `proxy` is, if it is one of this crate's.
-fn slot_of_trampoline(proxy: ProxyFn) -> Option<usize> {
+/// The slot whose trampoline lies at `proxy`, if it is one of this crate's.
+fn slot_of_trampoline(proxy: usize) -> Option<usize> {
 	TRAMPOLINES
 		.iter()
-		.position(|&trampoline| trampoline as usize == proxy as usize)
+		.position(|&trampoline| trampoline as usize == proxy)
 }
 
 /// The send proxy of the property in slot `SLOT`: the property's own proxy,
@@ -414,4 +488,17 @@ unsafe extern "C" fn trampoline<const SLOT: usize>(
 	if let Err(payload) = catch_unwind(AssertUnwindSafe(|| handler(call))) {
 		drop_payload(payload);
 	}
+}
+
+/// The property's own proxy that `proxy` calls first, if `proxy` is one of
+/// this copy's trampolines, replacing a proxy, or null otherwise.
+///
+/// Exported under [`TRAMPOLINE_ORIGINAL_SYMBOL`] from the library this copy
+/// is linked into, for [`game_proxy`] in other copies. It only compares the
+/// address and reads atomics, so it may be called on any thread.
+#[unsafe(export_name = "source_sdk_2013_send_proxy_original_v1")]
+pub extern "C" fn trampoline_original(proxy: *const c_void) -> *const c_void {
+	slot_of_trampoline(proxy as usize)
+		.and_then(|slot| SLOTS[slot].original())
+		.map_or(ptr::null(), |original| original as *const c_void)
 }
