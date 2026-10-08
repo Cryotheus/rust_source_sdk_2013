@@ -1,8 +1,19 @@
 //! TF2 game rules hooks, which [`MetamodApi::hook_rules`] installs on the
-//! game rules' decisions that are not about a round's course: whether the
-//! teams are kept balanced, switched and scrambled, whether a holiday is
-//! active, and whether a player takes an attacker's damage.
+//! game rules' decisions that are not about a round's course: whether a
+//! player is ready to play, whether the teams are kept balanced, switched and
+//! scrambled, whether a holiday is active, and whether a player takes an
+//! attacker's damage.
 //!
+//! - [`RulesCallbacks::have_players`] runs after `CTFGameRules::BHavePlayers`,
+//!   which the game asks to know whether a player is ready to play: one on
+//!   RED or BLU with a class chosen, alive or not, and in arena, also two
+//!   players in its queue, while arena needs a player on each team otherwise.
+//!   Without one, a round being played, or sudden death outside arena, falls
+//!   back to the game's pre-game (`GR_STATE_PREGAME`), which the game leaves
+//!   once one is ready, restarting the round in full, which cleans up the map
+//!   (see [`crate::round_hooks`]). Arena also asks as a round ends, before it
+//!   moves players from its queue onto the teams, and as its pre-round
+//!   starts, before it shows the pre-round's timer.
 //! - [`RulesCallbacks::balance_teams`] runs before
 //!   `CTFGameRules::ShouldBalanceTeams`, which the game asks before it
 //!   refuses a player a team that would leave the teams more than
@@ -61,7 +72,8 @@ use crate::round_hooks::{RoundHookError, RoundRoute};
 use source_sdk_2013::entities::Entity;
 
 use source_sdk_2013::raw::tf2::game_rules::{
-	IS_HOLIDAY_ACTIVE_SLOT, IsHolidayActiveFn as IsHolidayActive, PLAYER_CAN_TAKE_DAMAGE_SLOT,
+	HAVE_PLAYERS_SLOT, HavePlayersFn as HavePlayers, IS_HOLIDAY_ACTIVE_SLOT,
+	IsHolidayActiveFn as IsHolidayActive, PLAYER_CAN_TAKE_DAMAGE_SLOT,
 	PlayerCanTakeDamageFn as PlayerCanTakeDamage, SHOULD_BALANCE_TEAMS_SLOT,
 	SHOULD_SCRAMBLE_TEAMS_SLOT, SHOULD_SWITCH_TEAMS_SLOT,
 	ShouldBalanceTeamsFn as ShouldBalanceTeams, ShouldScrambleTeamsFn as ShouldScrambleTeams,
@@ -76,6 +88,11 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
+
+/// A callback-scoped server, and whether the game, or an earlier hook, found a
+/// player ready to play, returning whether one is instead, if anything. A
+/// panic is contained by the hook dispatcher, and keeps the answer.
+pub type HavePlayersFn = for<'s> fn(Server<'s>, bool) -> Option<bool>;
 
 /// A callback-scoped server, a holiday the game asks about, and whether the
 /// game, or an earlier hook, found it active, returning whether it is active
@@ -93,6 +110,9 @@ pub type PlayerDamageFn = for<'s> fn(Server<'s>, PlayerDamageCheck<'s>) -> Optio
 /// scrambles the teams, which decides whether it may. A panic is contained
 /// by the hook dispatcher, and lets the game decide.
 pub type TeamsFn = for<'s> fn(Server<'s>) -> TeamsAction;
+
+/// `BHavePlayers` in TF2's game rules' primary vtable.
+const HAVE_PLAYERS: VirtualFunction<HavePlayers> = VirtualFunction::new(HAVE_PLAYERS_SLOT);
 
 /// `IsHolidayActive` in TF2's game rules' primary vtable.
 const IS_HOLIDAY_ACTIVE: VirtualFunction<IsHolidayActive> =
@@ -115,6 +135,7 @@ const SHOULD_SWITCH_TEAMS: VirtualFunction<ShouldSwitchTeams> =
 	VirtualFunction::new(SHOULD_SWITCH_TEAMS_SLOT);
 
 static BALANCE_ROUTE: RoundRoute<TeamsFn> = RoundRoute::new();
+static HAVE_PLAYERS_ROUTE: RoundRoute<HavePlayersFn> = RoundRoute::new();
 static HOLIDAY_ROUTE: RoundRoute<HolidayFn> = RoundRoute::new();
 static PLAYER_DAMAGE_ROUTE: RoundRoute<PlayerDamageFn> = RoundRoute::new();
 static SCRAMBLE_ROUTE: RoundRoute<TeamsFn> = RoundRoute::new();
@@ -145,6 +166,10 @@ pub struct RulesCallbacks {
 	/// Runs before the game asks whether it keeps the teams balanced, and
 	/// decides whether it may.
 	pub balance_teams: Option<TeamsFn>,
+
+	/// Runs after the game rules decide whether a player is ready to play,
+	/// and may decide otherwise.
+	pub have_players: Option<HavePlayersFn>,
 
 	/// Runs after the game rules decide whether a holiday is active, and may
 	/// decide otherwise.
@@ -180,10 +205,26 @@ impl RulesHooks {
 		for hook in self.hooks {
 			api.remove_hook(hook);
 			BALANCE_ROUTE.clear(hook);
+			HAVE_PLAYERS_ROUTE.clear(hook);
 			HOLIDAY_ROUTE.clear(hook);
 			PLAYER_DAMAGE_ROUTE.clear(hook);
 			SCRAMBLE_ROUTE.clear(hook);
 			SWITCH_ROUTE.clear(hook);
+		}
+	}
+}
+
+impl Handler<HavePlayers> for RoundRoute<HavePlayersFn> {
+	fn call(&self, call: &HookCall<'_, HavePlayers>) -> HookAction<bool> {
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let ready = call.return_value().unwrap_or_default();
+
+		match callback(server, ready) {
+			Some(ready) => HookAction::Override(ready),
+			None => HookAction::Ignore,
 		}
 	}
 }
@@ -279,9 +320,10 @@ pub enum TeamsAction {
 }
 
 impl MetamodApi<'_> {
-	/// Runs `callbacks` as TF2's game rules decide whether they keep the teams
-	/// balanced, switch or scramble them, whether a holiday is active, and whether a player takes an
-	/// attacker's damage, hooking only the methods `callbacks` names a
+	/// Runs `callbacks` as TF2's game rules decide whether a player is ready
+	/// to play, whether they keep the teams balanced, switch or scramble them,
+	/// whether a holiday is active, and whether a player takes an attacker's
+	/// damage, hooking only the methods `callbacks` names a
 	/// callback for; see the [module documentation](crate::rules_hooks).
 	///
 	/// `binding` must describe the same running server as `server`. Finds the
@@ -317,6 +359,7 @@ impl MetamodApi<'_> {
 		}
 
 		let none = callbacks.balance_teams.is_none()
+			&& callbacks.have_players.is_none()
 			&& callbacks.holiday.is_none()
 			&& callbacks.player_damage.is_none()
 			&& callbacks.scramble_teams.is_none()
@@ -343,9 +386,10 @@ impl MetamodApi<'_> {
 	/// # Safety
 	///
 	/// `vtable` must be live, hold functions of the signatures
-	/// [`IsHolidayActive`], [`PlayerCanTakeDamage`], [`ShouldBalanceTeams`],
-	/// [`ShouldScrambleTeams`] and [`ShouldSwitchTeams`] at the slots of
-	/// `CTFGameRules`' methods `IsHolidayActive`, `FPlayerCanTakeDamage`,
+	/// [`HavePlayers`], [`IsHolidayActive`], [`PlayerCanTakeDamage`],
+	/// [`ShouldBalanceTeams`], [`ShouldScrambleTeams`] and
+	/// [`ShouldSwitchTeams`] at the slots of `CTFGameRules`' methods
+	/// `BHavePlayers`, `IsHolidayActive`, `FPlayerCanTakeDamage`,
 	/// `ShouldBalanceTeams`, `ShouldScrambleTeams` and `ShouldSwitchTeams`,
 	/// called on game rules objects, and stay loaded until Metamod unloads
 	/// the plugin.
@@ -391,6 +435,7 @@ impl MetamodApi<'_> {
 	) -> Result<(), HookError> {
 		let RulesCallbacks {
 			balance_teams,
+			have_players,
 			holiday,
 			player_damage,
 			scramble_teams,
@@ -405,6 +450,17 @@ impl MetamodApi<'_> {
 					SHOULD_BALANCE_TEAMS,
 					HookTiming::Pre,
 					&BALANCE_ROUTE,
+					vtable,
+					(binding, callback),
+					hooks,
+				)?;
+			}
+
+			if let Some(callback) = have_players {
+				self.route_round(
+					HAVE_PLAYERS,
+					HookTiming::Post,
+					&HAVE_PLAYERS_ROUTE,
 					vtable,
 					(binding, callback),
 					hooks,
@@ -462,6 +518,7 @@ impl MetamodApi<'_> {
 	/// Whether any game rules hook is installed, for this load of the plugin.
 	fn rules_hooked(self) -> bool {
 		BALANCE_ROUTE.is_routed(self)
+			|| HAVE_PLAYERS_ROUTE.is_routed(self)
 			|| HOLIDAY_ROUTE.is_routed(self)
 			|| PLAYER_DAMAGE_ROUTE.is_routed(self)
 			|| SCRAMBLE_ROUTE.is_routed(self)

@@ -1,6 +1,6 @@
 //! ABI of TF2's game rules (`CTFGameRules`): the vtable slots and signatures of
 //! the methods that clean up the map and decide what it keeps, end and set up
-//! rounds, and decide captures, holidays, how the teams are balanced,
+//! rounds, and decide whether a player is ready to play, captures, holidays, how the teams are balanced,
 //! switched and scrambled, and players' damage,
 //! taken from the generated bindings, with calls of some; the round states of `gamerules_roundstate_t`, the team roles and the
 //! stalemate reasons; and the search for the game rules' vtable.
@@ -41,6 +41,13 @@ pub type CleanUpMapFn = unsafe extern "C" fn(this: *mut c_void);
 /// game rules as its receiver: whether flags may be picked up and captured.
 #[doc(alias("FlagsMayBeCapped"))]
 pub type FlagsMayBeCappedFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
+
+/// The signature of `CTFGameRules::BHavePlayers`, `bool ()`, with the game
+/// rules as its receiver: whether a player is ready to play, which the round's
+/// states ask before they leave the game's pre-game and as they fall back to
+/// it.
+#[doc(alias("BHavePlayers"))]
+pub type HavePlayersFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
 
 /// The signature of `CTFGameRules::IsHolidayActive`, `bool (int) const`,
 /// with the game rules as its receiver: whether the `EHoliday` is active.
@@ -183,6 +190,11 @@ const _: fn(
 
 const _: fn(
 	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_BHavePlayers;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
 ) -> unsafe extern "C" fn(*const sys::CTFGameRules, c_int) -> bool =
 	|vtable| vtable.CTFGameRules_IsHolidayActive;
 
@@ -281,7 +293,16 @@ const _: fn(
 //
 // The 64-bit gamedata of public SourceMod plugins agrees for other methods:
 // `IsHolidayActive` at 139 and 140, and `RoundRespawn` at 230 and 232.
+// `CTeamplayRoundBasedRules` declares `BHavePlayers` right before
+// `RoundRespawn`, so it is the slot before.
 const _: () = {
+	assert!(
+		HAVE_PLAYERS_SLOT
+			== cfg_select! {
+				target_os = "windows" => 229,
+				target_os = "linux" => 231,
+			}
+	);
 	assert!(
 		CLEAN_UP_MAP_SLOT
 			== cfg_select! {
@@ -327,6 +348,12 @@ pub const FLAGS_MAY_BE_CAPPED_SLOT: usize = vtable_slot!(
 
 /// The name of TF2's game rules class in its run-time type information.
 pub const GAME_RULES_CLASS: &str = "CTFGameRules";
+
+/// The slot of `BHavePlayers` in `CTFGameRules`' primary vtable, from the
+/// generated binding.
+#[doc(alias("BHavePlayers"))]
+pub const HAVE_PLAYERS_SLOT: usize =
+	vtable_slot!(sys::CTFGameRules__bindgen_vtable, CTFGameRules_BHavePlayers);
 
 /// `GR_STATE_INIT`: the game rules were just created.
 pub const GR_STATE_INIT: c_int = 0;
