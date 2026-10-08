@@ -13,6 +13,9 @@ thread_local! {
 	/// What [`on_switch`] and [`on_reload`] decide.
 	static ACTION: Cell<WeaponAction> = const { Cell::new(WeaponAction::Continue) };
 
+	/// What [`on_smack`] decides.
+	static SMACK: Cell<SmackAction> = const { Cell::new(SmackAction::Continue) };
+
 	/// What ran during the calls since the last check, in order, with the
 	/// address of the weapon it was given, if any.
 	static CALLS: RefCell<Vec<(&'static str, usize)>> = const { RefCell::new(Vec::new()) };
@@ -82,6 +85,13 @@ unsafe extern "C" fn game_reload(_: *mut sys::CBaseEntity) -> bool {
 	true
 }
 
+/// The game's `GetSmackTime`, which notes that it ran with the weapon's mode,
+/// and times the smack at 10.2.
+unsafe extern "C" fn game_smack_time(_: *mut sys::CBaseEntity, mode: c_int) -> f32 {
+	note("game", usize::try_from(mode).unwrap());
+	10.2
+}
+
 /// The game's `Weapon_Switch`, which notes that it ran, and switches.
 unsafe extern "C" fn game_switch(
 	_: *mut sys::CBaseEntity,
@@ -117,6 +127,12 @@ fn on_frame(_server: Server<'_>, timing: HookTiming, _weapon: Entity<'_>) {
 fn on_reload(_server: Server<'_>, _weapon: Entity<'_>) -> WeaponAction {
 	note("reload", 0);
 	ACTION.get()
+}
+
+/// The smack callback, which notes the call and decides [`SMACK`].
+fn on_smack(_server: Server<'_>, _weapon: Entity<'_>) -> SmackAction {
+	note("smack", 0);
+	SMACK.get()
 }
 
 /// The switch callback, which notes the weapon and decides [`ACTION`].
@@ -190,6 +206,34 @@ fn equips_are_seen_after_the_game() {
 		// Without a weapon, the callback does not run.
 		harness.call::<WeaponFn>(player.ptr(), WEAPON_EQUIP_SLOT, (ptr::null_mut(),));
 		assert_eq!(CALLS.take(), [("game", 0)]);
+	});
+}
+
+#[test]
+fn melee_swings_can_miss() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut melee = Mock::of_new_class(&[(
+			GET_SMACK_TIME_SLOT,
+			game_smack_time as SmackTimeFn as *mut c_void,
+		)]);
+		let hooks = api.hook_melee_smacks(tf2_binding(no_interfaces), on_smack);
+
+		assert_eq!(hooks.cover(api, melee.target::<TfMeleeWeapon>()), Ok(true));
+
+		let mut swing = || {
+			CALLS.take();
+			let time = harness.call::<SmackTimeFn>(melee.ptr(), GET_SMACK_TIME_SLOT, (1,));
+			(time, CALLS.take())
+		};
+
+		SMACK.set(SmackAction::Continue);
+		assert_eq!(swing(), (10.2, vec![("smack", 0), ("game", 1)]));
+
+		// The weapon never smacks, as the time is not positive.
+		const { assert!(NO_SMACK <= 0.0) };
+		SMACK.set(SmackAction::Miss);
+		assert_eq!(swing(), (NO_SMACK, vec![("smack", 0)]));
 	});
 }
 
