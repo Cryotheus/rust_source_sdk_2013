@@ -20,6 +20,9 @@ enum Ran {
 	/// The balance callback.
 	Balance,
 
+	/// The ready players callback, with the answer it was given.
+	HavePlayers(bool),
+
 	/// The holiday callback, with the holiday and the answer it was given.
 	Holiday(Holiday, bool),
 
@@ -43,6 +46,9 @@ thread_local! {
 
 	/// What the damage callback answers.
 	static DAMAGE: Cell<Option<bool>> = const { Cell::new(None) };
+
+	/// What the ready players callback answers.
+	static HAVE_PLAYERS: Cell<Option<bool>> = const { Cell::new(None) };
 
 	/// What the holiday callback answers.
 	static HOLIDAY: Cell<Option<bool>> = const { Cell::new(None) };
@@ -73,12 +79,16 @@ fn ran(ran: Ran) {
 }
 
 /// Every game rules callback, each noting that it ran, and deciding as
-/// [`TEAMS`], [`HOLIDAY`] and [`DAMAGE`] say.
+/// [`TEAMS`], [`HAVE_PLAYERS`], [`HOLIDAY`] and [`DAMAGE`] say.
 fn every_callback() -> RulesCallbacks {
 	RulesCallbacks {
 		balance_teams: Some(|_| {
 			ran(Ran::Balance);
 			TEAMS.get()
+		}),
+		have_players: Some(|_, ready| {
+			ran(Ran::HavePlayers(ready));
+			HAVE_PLAYERS.get()
 		}),
 		holiday: Some(|_, holiday, active| {
 			ran(Ran::Holiday(holiday, active));
@@ -105,9 +115,15 @@ fn every_callback() -> RulesCallbacks {
 }
 
 /// The vtable of a new game rules class, which holds the game's methods at
-/// their slots, each noting that it ran: only Halloween is active, players
-/// take all damage, and the teams are kept balanced, switched and scrambled.
+/// their slots, each noting that it ran: no player is ready, only Halloween
+/// is active, players take all damage, and the teams are kept balanced,
+/// switched and scrambled.
 fn new_rules_class() -> NonNull<*mut c_void> {
+	unsafe extern "C" fn have_players(_: *mut c_void) -> bool {
+		ran(Ran::Game("have players"));
+		false
+	}
+
 	unsafe extern "C" fn is_holiday_active(_: *mut c_void, holiday: c_int) -> bool {
 		ran(Ran::Game("holiday"));
 		holiday == Holiday::Halloween.to_raw()
@@ -138,7 +154,8 @@ fn new_rules_class() -> NonNull<*mut c_void> {
 		true
 	}
 
-	let methods: [(usize, *mut c_void); 5] = [
+	let methods: [(usize, *mut c_void); 6] = [
+		(HAVE_PLAYERS_SLOT, have_players as HavePlayers as _),
 		(
 			IS_HOLIDAY_ACTIVE_SLOT,
 			is_holiday_active as IsHolidayActive as _,
@@ -268,6 +285,50 @@ fn holidays_and_damage_are_decided_again_after_the_game() {
 }
 
 #[test]
+fn ready_players_are_decided_again_after_the_game() {
+	on_both(|harness| {
+		let api = harness.api();
+		let class = new_rules_class();
+		let mut rules = GameRules::of_class(class);
+
+		// SAFETY: As above.
+		let hooks =
+			unsafe { api.install_rules(class, tf2_binding(no_interfaces), every_callback()) }
+				.unwrap();
+
+		let ready = |harness, rules: &mut GameRules| {
+			rules_call::<HavePlayers>(harness, rules, HAVE_PLAYERS_SLOT, ())
+		};
+
+		HAVE_PLAYERS.set(None);
+		assert_eq!(
+			ready(harness, &mut rules),
+			(
+				false,
+				vec![Ran::Game("have players"), Ran::HavePlayers(false)]
+			)
+		);
+
+		HAVE_PLAYERS.set(Some(true));
+		assert_eq!(
+			ready(harness, &mut rules),
+			(
+				true,
+				vec![Ran::Game("have players"), Ran::HavePlayers(false)]
+			)
+		);
+
+		// Removed hooks run no callback.
+		hooks.remove(api);
+
+		assert_eq!(
+			ready(harness, &mut rules),
+			(false, vec![Ran::Game("have players")])
+		);
+	});
+}
+
+#[test]
 fn team_balance_switches_and_scrambles_are_refused_where_the_hooks_say_so() {
 	on_both(|harness| {
 		let api = harness.api();
@@ -337,7 +398,7 @@ fn rules_hooks_are_installed_all_at_once() {
 		// SAFETY: As above.
 		let hooks = unsafe { api.install_rules(class, binding, every_callback()) }.unwrap();
 
-		assert_eq!(hooks.hooks.len(), 5);
+		assert_eq!(hooks.hooks.len(), 6);
 
 		// An installed hook is reported without searching the module again.
 		assert!(matches!(
