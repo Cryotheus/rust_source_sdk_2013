@@ -20,6 +20,7 @@
 mod tests;
 
 use crate::entities::Entity;
+use crate::math::Vector;
 use crate::server::{InterfaceError, Server};
 
 use sdk_raw::entities::{
@@ -28,6 +29,8 @@ use sdk_raw::entities::{
 	FSOLID_USE_TRIGGER_BOUNDS, FSOLID_VOLUME_CONTENTS, find_solid_flags_field,
 };
 
+use sdk_raw::vcall;
+use std::ptr::NonNull;
 use std::sync::OnceLock;
 
 /// The offset of `m_usSolidFlags` in every entity, once found.
@@ -110,7 +113,105 @@ pub enum SolidFlagsError {
 	Interface(#[from] InterfaceError),
 }
 
+/// How an entity collides (`SolidType_t`), the `SOLID_*` values from
+/// `public/const.h`, as its collision property's `m_nSolidType` holds it.
+#[doc(alias("SolidType_t", "m_nSolidType"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SolidType {
+	/// `SOLID_NONE`: the entity has no solid model.
+	#[doc(alias("SOLID_NONE"))]
+	None,
+
+	/// `SOLID_BSP`: the entity collides by its brush model's BSP tree, as
+	/// brush entities do.
+	#[doc(alias("SOLID_BSP"))]
+	Bsp,
+
+	/// `SOLID_BBOX`: the entity collides as a box aligned with the world's
+	/// axes, as players do.
+	#[doc(alias("SOLID_BBOX"))]
+	BoundingBox,
+
+	/// `SOLID_OBB`: the entity collides as a box turned with it, which the
+	/// SDK notes is not implemented.
+	#[doc(alias("SOLID_OBB"))]
+	OrientedBox,
+
+	/// `SOLID_OBB_YAW`: the entity collides as a box turned only by its yaw.
+	#[doc(alias("SOLID_OBB_YAW"))]
+	OrientedBoxYaw,
+
+	/// `SOLID_CUSTOM`: every trace against the entity asks its
+	/// `TestCollision`.
+	#[doc(alias("SOLID_CUSTOM"))]
+	Custom,
+
+	/// `SOLID_VPHYSICS`: the entity collides by its model's collision mesh, as
+	/// maps' props default to.
+	#[doc(alias("SOLID_VPHYSICS"))]
+	Vphysics,
+}
+
+impl SolidType {
+	/// The solid type a `SolidType_t` value stands for, or `None` for a value
+	/// past `SOLID_VPHYSICS`.
+	pub const fn from_raw(value: u8) -> Option<Self> {
+		Some(match value as sys::SolidType_t {
+			sys::SolidType_t_SOLID_NONE => Self::None,
+			sys::SolidType_t_SOLID_BSP => Self::Bsp,
+			sys::SolidType_t_SOLID_BBOX => Self::BoundingBox,
+			sys::SolidType_t_SOLID_OBB => Self::OrientedBox,
+			sys::SolidType_t_SOLID_OBB_YAW => Self::OrientedBoxYaw,
+			sys::SolidType_t_SOLID_CUSTOM => Self::Custom,
+			sys::SolidType_t_SOLID_VPHYSICS => Self::Vphysics,
+			_ => return None,
+		})
+	}
+
+	/// The solid type's `SolidType_t` value.
+	pub const fn to_raw(self) -> u8 {
+		(match self {
+			Self::None => sys::SolidType_t_SOLID_NONE,
+			Self::Bsp => sys::SolidType_t_SOLID_BSP,
+			Self::BoundingBox => sys::SolidType_t_SOLID_BBOX,
+			Self::OrientedBox => sys::SolidType_t_SOLID_OBB,
+			Self::OrientedBoxYaw => sys::SolidType_t_SOLID_OBB_YAW,
+			Self::Custom => sys::SolidType_t_SOLID_CUSTOM,
+			Self::Vphysics => sys::SolidType_t_SOLID_VPHYSICS,
+		}) as u8
+	}
+}
+
 impl Entity<'_> {
+	/// The entity's box in its own space, as its minimum and maximum corners
+	/// relative to its origin: the bounds its collision property holds
+	/// (`m_vecMins` and `m_vecMaxs`), scaled with its model. The box turns with
+	/// the entity, unless it is [`SolidType::BoundingBox`] or [`SolidType::None`],
+	/// or has [`SolidFlags::FORCE_WORLD_ALIGNED`], when it stays aligned with the
+	/// world's axes (`IsBoundsDefinedInEntitySpace`).
+	///
+	/// Returns `None` if the entity has no collideable or it reports no box.
+	#[doc(alias("OBBMins", "OBBMaxs", "m_vecMins", "m_vecMaxs"))]
+	pub fn local_bounds(self) -> Option<(Vector, Vector)> {
+		// SAFETY: The entity is live.
+		let collideable = NonNull::new(unsafe {
+			vcall!(self.server_entity() => IServerEntity_GetCollideable())
+		})?;
+
+		// SAFETY: The collideable belongs to the live entity.
+		let mins = NonNull::new(
+			unsafe { vcall!(collideable.as_ptr() => ICollideable_OBBMins()) }.cast_mut(),
+		)?;
+
+		// SAFETY: As for `mins`.
+		let maxs = NonNull::new(
+			unsafe { vcall!(collideable.as_ptr() => ICollideable_OBBMaxs()) }.cast_mut(),
+		)?;
+
+		// SAFETY: The corners are members of the live entity, copied immediately.
+		Some(unsafe { (mins.as_ptr().read().into(), maxs.as_ptr().read().into()) })
+	}
+
 	/// Sets or clears the entity's [`SolidFlags::CUSTOM_RAY_TEST`], and
 	/// records the change for networking. Returns whether it was set.
 	///
@@ -217,5 +318,21 @@ impl Entity<'_> {
 			find_solid_flags_field(self.data_maps()).ok_or(SolidFlagsError::UnsupportedLayout)?;
 
 		Ok(*SOLID_FLAGS_OFFSET.get_or_init(|| offset))
+	}
+
+	/// How the entity collides (`m_nSolidType`), as its collision property's
+	/// `GetSolid` reports it. Returns `None` if the entity has no collideable, or
+	/// its solid type is past `SOLID_VPHYSICS`.
+	#[doc(alias("GetSolid", "m_nSolidType", "SolidType_t"))]
+	pub fn solid_type(self) -> Option<SolidType> {
+		// SAFETY: The entity is live.
+		let collideable = NonNull::new(unsafe {
+			vcall!(self.server_entity() => IServerEntity_GetCollideable())
+		})?;
+
+		// SAFETY: The collideable belongs to the live entity.
+		let solid = unsafe { vcall!(collideable.as_ptr() => ICollideable_GetSolid()) };
+
+		u8::try_from(solid).ok().and_then(SolidType::from_raw)
 	}
 }

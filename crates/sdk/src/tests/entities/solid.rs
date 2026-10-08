@@ -6,7 +6,11 @@ use super::*;
 use crate::interfaces::ValveEngine;
 use crate::server::Module;
 use crate::test_support::edicts::{set_change_accessor, set_shared_change_info};
-use crate::test_support::entities::{MockEntity, base_entity_fields, set_datamap, set_networking};
+
+use crate::test_support::entities::{
+	MockEntity, base_entity_fields, set_datamap, set_local_bounds, set_networking, set_solid_type,
+};
+
 use crate::test_support::sdk_core::change_tracking_engine;
 use crate::test_support::server::{export, mock_server};
 use sdk_raw::edicts::FL_EDICT_CHANGED;
@@ -189,4 +193,73 @@ fn debris_touches_are_set_alone_and_networked() {
 	assert_set_alone_and_networked(FSOLID_TRIGGER_TOUCH_DEBRIS, |entity, server, enabled| {
 		entity.set_trigger_touch_debris(server, enabled)
 	});
+}
+
+#[test]
+fn solid_types_are_read_through_the_collideable() {
+	let mut mock = MockEntity::new(5);
+
+	assert_eq!(mock.entity().solid_type(), Some(SolidType::BoundingBox));
+
+	set_solid_type(sys::SolidType_t_SOLID_VPHYSICS);
+	assert_eq!(mock.entity().solid_type(), Some(SolidType::Vphysics));
+
+	// `SOLID_LAST` only counts the types.
+	set_solid_type(sys::SolidType_t_SOLID_LAST);
+	assert_eq!(mock.entity().solid_type(), None);
+}
+
+#[test]
+fn solid_types_convert_to_and_from_their_values() {
+	let solids = (0..=u8::MAX)
+		.filter_map(SolidType::from_raw)
+		.collect::<Vec<_>>();
+
+	assert_eq!(
+		solids,
+		[
+			SolidType::None,
+			SolidType::Bsp,
+			SolidType::BoundingBox,
+			SolidType::OrientedBox,
+			SolidType::OrientedBoxYaw,
+			SolidType::Custom,
+			SolidType::Vphysics,
+		]
+	);
+
+	for (value, solid) in solids.into_iter().enumerate() {
+		assert_eq!(usize::from(solid.to_raw()), value);
+	}
+}
+
+#[test]
+fn local_bounds_are_read_through_the_collideable() {
+	let mut mock = MockEntity::new(5);
+
+	assert_eq!(
+		mock.entity().local_bounds(),
+		Some((Vector::new(-1.0, -1.0, -1.0), Vector::new(1.0, 1.0, 1.0)))
+	);
+
+	set_local_bounds(
+		sys::Vector {
+			x: -24.0,
+			y: -24.0,
+			z: 0.0,
+		},
+		sys::Vector {
+			x: 24.0,
+			y: 24.0,
+			z: 82.0,
+		},
+	);
+
+	assert_eq!(
+		mock.entity().local_bounds(),
+		Some((
+			Vector::new(-24.0, -24.0, 0.0),
+			Vector::new(24.0, 24.0, 82.0)
+		))
+	);
 }

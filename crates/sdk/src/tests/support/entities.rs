@@ -77,8 +77,11 @@ thread_local! {
 	static INPUTS: RefCell<Vec<ReceivedInput>> = const { RefCell::new(Vec::new()) };
 	static MODELS_SET: RefCell<Vec<(*mut sys::CBaseEntity, CString)>> = const { RefCell::new(Vec::new()) };
 	static NETWORKABLE: Cell<*mut sys::IServerNetworkable> = const { Cell::new(null_mut()) };
+	static OBB_MAXS: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: 1.0, y: 1.0, z: 1.0 }) };
+	static OBB_MINS: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: -1.0, y: -1.0, z: -1.0 }) };
 	static ORIGIN: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: 1.0, y: 2.0, z: 3.0 }) };
 	static SERVER_CLASS: Cell<*mut sys::ServerClass> = const { Cell::new(null_mut()) };
+	static SOLID_TYPE: Cell<sys::SolidType_t> = const { Cell::new(sys::SolidType_t_SOLID_BBOX) };
 	static TAKE_HEALTH_CALLS: RefCell<Vec<(f32, c_int)>> = const { RefCell::new(Vec::new()) };
 	static TELEPORTS: Cell<usize> = const { Cell::new(0) };
 	static TRANSMIT_STATE_UPDATES: Cell<usize> = const { Cell::new(0) };
@@ -162,6 +165,21 @@ pub struct MockState {
 
 	/// `m_pPhysicsObject`, which only the wrappers' null checks read.
 	pub physics_object: *mut c_void,
+
+	/// `m_angAbsRotation`.
+	pub abs_rotation: sys::QAngle,
+
+	/// `m_vecOrigin`.
+	pub origin: sys::Vector,
+
+	/// `m_angRotation`.
+	pub rotation: sys::QAngle,
+
+	/// `m_hMoveChild`.
+	pub move_child: u32,
+
+	/// `m_hMovePeer`.
+	pub move_peer: u32,
 }
 
 impl MockEntity {
@@ -180,9 +198,9 @@ impl MockEntity {
 	}
 
 	/// Builds an entity whose handle is `handle`, and resets the datamap,
-	/// origin, collision group, teleport count, transmit state update count,
-	/// `TakeHealth`, `Activate` and `SetModel` calls, server class, and edict
-	/// that mock entities on this thread report.
+	/// origin, box in its own space, solid type, collision group, teleport count,
+	/// transmit state update count, `TakeHealth`, `Activate` and `SetModel`
+	/// calls, server class, and edict that mock entities on this thread report.
 	pub fn new(handle: u32) -> Self {
 		Self::with_layout(handle, Layout::new::<[usize; 64]>())
 	}
@@ -264,6 +282,9 @@ impl MockEntity {
 					(&raw mut (*vtable).ICollideable_GetCollisionGroup).write(get_collision_group);
 					(&raw mut (*vtable).ICollideable_WorldSpaceSurroundingBounds)
 						.write(get_surrounding_bounds);
+					(&raw mut (*vtable).ICollideable_GetSolid).write(get_solid);
+					(&raw mut (*vtable).ICollideable_OBBMins).write(get_obb_mins);
+					(&raw mut (*vtable).ICollideable_OBBMaxs).write(get_obb_maxs);
 				},
 			)
 		};
@@ -295,6 +316,19 @@ impl MockEntity {
 			y: 2.0,
 			z: 3.0,
 		});
+		set_local_bounds(
+			sys::Vector {
+				x: -1.0,
+				y: -1.0,
+				z: -1.0,
+			},
+			sys::Vector {
+				x: 1.0,
+				y: 1.0,
+				z: 1.0,
+			},
+		);
+		SOLID_TYPE.set(sys::SolidType_t_SOLID_BBOX);
 		TELEPORTS.set(0);
 		TRANSMIT_STATE_UPDATES.set(0);
 		TAKE_HEALTH_CALLS.take();
@@ -573,6 +607,18 @@ unsafe extern "C" fn get_networkable(_: *mut sys::IServerEntity) -> *mut sys::IS
 	NETWORKABLE.get()
 }
 
+/// `ICollideable::OBBMaxs`, which returns the corner [`set_local_bounds`] or
+/// the last [`MockEntity::new`] set on this thread.
+unsafe extern "C" fn get_obb_maxs(_: *const sys::ICollideable) -> *const sys::Vector {
+	OBB_MAXS.with(Cell::as_ptr).cast_const()
+}
+
+/// `ICollideable::OBBMins`, which returns the corner [`set_local_bounds`] or
+/// the last [`MockEntity::new`] set on this thread.
+unsafe extern "C" fn get_obb_mins(_: *const sys::ICollideable) -> *const sys::Vector {
+	OBB_MINS.with(Cell::as_ptr).cast_const()
+}
+
 unsafe extern "C" fn get_origin(_: *const sys::ICollideable) -> *const sys::Vector {
 	ORIGIN.with(Cell::as_ptr).cast_const()
 }
@@ -603,6 +649,12 @@ unsafe extern "C" fn get_surrounding_bounds(
 
 unsafe extern "C" fn get_server_class(_: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
 	SERVER_CLASS.get()
+}
+
+/// `ICollideable::GetSolid`, which returns the solid type [`set_solid_type`]
+/// or the last [`MockEntity::new`] set on this thread.
+unsafe extern "C" fn get_solid(_: *const sys::ICollideable) -> sys::SolidType_t {
+	SOLID_TYPE.get()
 }
 
 /// The fields of `CBaseEntity`'s map holding health that mock entities store:
@@ -707,6 +759,16 @@ pub fn set_datamap(map: *mut sys::datamap_t) {
 	DATA_MAP.set(map);
 }
 
+/// Sets the corners of the box mock entities report in their own space on
+/// this thread, until the next [`MockEntity::new`] resets them to a box
+/// reaching one unit from the origin each way.
+///
+/// For tests only.
+pub fn set_local_bounds(mins: sys::Vector, maxs: sys::Vector) {
+	OBB_MINS.set(mins);
+	OBB_MAXS.set(maxs);
+}
+
 /// `CBaseEntity::SetModel`, which records the entity and the model for
 /// [`models_set`].
 unsafe extern "C" fn set_model(this: *mut sys::CBaseEntity, model: *const c_char) {
@@ -724,12 +786,21 @@ pub fn set_networking(class: *mut sys::ServerClass, edict: *mut sys::edict_t) {
 	EDICT.set(edict);
 }
 
+/// Sets the solid type mock entities report on this thread, such as
+/// `SOLID_VPHYSICS`, until the next [`MockEntity::new`] resets it to
+/// `SOLID_BBOX`.
+///
+/// For tests only.
+pub fn set_solid_type(solid: sys::SolidType_t) {
+	SOLID_TYPE.set(solid);
+}
+
 /// The members of `CBaseEntity`'s map that mock entities store in their
 /// [`MockState`], at the offsets [`MockEntity::state`] has them.
 ///
 /// For tests only. They are kept apart from [`base_entity_fields`], as
 /// [`health_fields`] are.
-pub fn state_fields() -> [sys::typedescription_t; 19] {
+pub fn state_fields() -> [sys::typedescription_t; 24] {
 	let member = |name, field_type, offset: usize, size: usize| {
 		let mut member = field(name, field_type, MOCK_STATE_OFFSET + offset);
 
@@ -857,6 +928,36 @@ pub fn state_fields() -> [sys::typedescription_t; 19] {
 			sys::_fieldtypes_FIELD_CUSTOM,
 			offset_of!(MockState, physics_object),
 			0,
+		),
+		member(
+			c"m_angAbsRotation",
+			sys::_fieldtypes_FIELD_VECTOR,
+			offset_of!(MockState, abs_rotation),
+			size_of::<sys::QAngle>(),
+		),
+		member(
+			c"m_vecOrigin",
+			sys::_fieldtypes_FIELD_VECTOR,
+			offset_of!(MockState, origin),
+			vector,
+		),
+		member(
+			c"m_angRotation",
+			sys::_fieldtypes_FIELD_VECTOR,
+			offset_of!(MockState, rotation),
+			size_of::<sys::QAngle>(),
+		),
+		member(
+			c"m_hMoveChild",
+			sys::_fieldtypes_FIELD_EHANDLE,
+			offset_of!(MockState, move_child),
+			int,
+		),
+		member(
+			c"m_hMovePeer",
+			sys::_fieldtypes_FIELD_EHANDLE,
+			offset_of!(MockState, move_peer),
+			int,
 		),
 	]
 }

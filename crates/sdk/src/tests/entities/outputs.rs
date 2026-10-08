@@ -8,6 +8,12 @@ use sdk_raw::test_support::entities::{data_map, field};
 use std::ffi::{c_int, c_short};
 use std::ptr::{null, null_mut};
 
+/// Where the mock entity's base class declares its outputs.
+const BASE_OUTPUTS_OFFSET: usize = 320;
+
+/// Where the mock entity embeds an object, whose output lies 8 bytes in.
+const EMBEDDED_OFFSET: usize = 256;
+
 /// Where the mock entity's first output lies, with a second one after it.
 const OUTPUTS_OFFSET: usize = 128;
 
@@ -38,6 +44,116 @@ fn action(
 	}))
 }
 
+#[test]
+fn every_output_is_listed_once_by_name() {
+	use sys::{_fieldtypes_FIELD_CUSTOM as CUSTOM, _fieldtypes_FIELD_STRING as STRING};
+
+	let mut mock = MockEntity::new(3);
+	let output_size = size_of::<sys::CBaseEntityOutput>();
+
+	let mut embedded = field(
+		c"m_Touching",
+		sys::_fieldtypes_FIELD_EMBEDDED,
+		EMBEDDED_OFFSET,
+	);
+
+	embedded.fieldSize = 1;
+	embedded.td = data_map(
+		c"CTouching",
+		vec![key(c"OnStartTouch", CUSTOM, 8, FTYPEDESC_OUTPUT)],
+		null_mut(),
+	);
+
+	let mut base_fields = base_entity_fields().to_vec();
+
+	base_fields.extend([
+		// Hidden by the derived class's output of the name.
+		key(c"ONCAPTEAM1", CUSTOM, BASE_OUTPUTS_OFFSET, FTYPEDESC_OUTPUT),
+		key(
+			c"OnUser1",
+			CUSTOM,
+			BASE_OUTPUTS_OFFSET + output_size,
+			FTYPEDESC_OUTPUT,
+		),
+		// Misaligned, so no output.
+		key(
+			c"OnUser2",
+			CUSTOM,
+			BASE_OUTPUTS_OFFSET + 2 * output_size + 4,
+			FTYPEDESC_OUTPUT,
+		),
+	]);
+
+	set_datamap(data_map(
+		c"CTriggerMultiple",
+		vec![
+			embedded,
+			key(c"OnCapTeam1", CUSTOM, OUTPUTS_OFFSET, FTYPEDESC_OUTPUT),
+			key(c"point_printname", STRING, STRING_OFFSET, 0),
+			// Hidden by the embedded object's output of the name.
+			key(
+				c"onstarttouch",
+				CUSTOM,
+				OUTPUTS_OFFSET + output_size,
+				FTYPEDESC_OUTPUT,
+			),
+		],
+		data_map(c"CBaseEntity", base_fields, null_mut()),
+	));
+
+	let kill = action(c"!activator", c"Kill", None, (0.0, 1), null_mut());
+
+	// SAFETY: The mock's zeroed storage holds the embedded object's output at
+	// the offset, which takes the action.
+	unsafe {
+		let output = mock
+			.as_ptr()
+			.byte_add(EMBEDDED_OFFSET + 8)
+			.cast::<sys::CBaseEntityOutput>();
+
+		(&raw mut (*output).m_ActionList).write(kill);
+	}
+
+	let entity = mock.entity();
+	let outputs = entity.outputs();
+
+	// The embedded object's output comes before the fields after it, and the
+	// derived class's before its base's.
+	assert_eq!(
+		outputs,
+		[
+			Output {
+				name: c"OnStartTouch",
+				actions: vec![OutputAction {
+					target: c"!activator".into(),
+					input: c"Kill".into(),
+					parameter: CString::default(),
+					delay: 0.0,
+					times_to_fire: Some(1),
+				}],
+			},
+			Output {
+				name: c"OnCapTeam1",
+				actions: Vec::new(),
+			},
+			Output {
+				name: c"OnUser1",
+				actions: Vec::new(),
+			},
+		]
+	);
+
+	// Each output is the one its name finds.
+	for output in &outputs {
+		assert_eq!(
+			entity.output_actions(output.name).as_ref(),
+			Some(&output.actions)
+		);
+	}
+
+	assert_eq!(entity.output_actions(c"OnUser2"), None);
+}
+
 /// A key of `field_type` named `name`, at `offset` in its object, with
 /// `flags` besides [`FTYPEDESC_KEY`].
 fn key(
@@ -52,6 +168,34 @@ fn key(
 	key.flags = FTYPEDESC_KEY | flags;
 	key.externalName = name.as_ptr();
 	key
+}
+
+#[test]
+fn outputs_are_listed_up_to_the_most() {
+	let mut mock = MockEntity::new(3);
+
+	let fields = (0..=MAX_OUTPUTS)
+		.map(|index| {
+			let name = CString::new(format!("OnCase{index:04}")).unwrap();
+
+			key(
+				Box::leak(name.into_boxed_c_str()),
+				sys::_fieldtypes_FIELD_CUSTOM,
+				OUTPUTS_OFFSET,
+				FTYPEDESC_OUTPUT,
+			)
+		})
+		.collect();
+
+	set_datamap(data_map(c"CLogicCase", fields, null_mut()));
+
+	let outputs = mock.entity().outputs();
+
+	assert_eq!(outputs.len(), MAX_OUTPUTS);
+	assert_eq!(
+		outputs.last().map(|output| output.name),
+		Some(c"OnCase1023")
+	);
 }
 
 #[test]

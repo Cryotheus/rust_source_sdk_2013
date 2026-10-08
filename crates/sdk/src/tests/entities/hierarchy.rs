@@ -157,6 +157,49 @@ fn mocks() -> Mocks {
 }
 
 #[test]
+fn move_children_are_listed_from_the_last_parented() {
+	let mut mocks = mocks();
+	let tools = mocks.tools.tools();
+	let child = entity(&mut mocks.child);
+	let parent = entity(&mut mocks.parent);
+	let grandparent = entity(&mut mocks.grandparent);
+
+	for mock in [&mut mocks.child, &mut mocks.parent, &mut mocks.grandparent] {
+		mock.state().move_child = EntityHandle::INVALID.to_raw();
+		mock.state().move_peer = EntityHandle::INVALID.to_raw();
+	}
+
+	assert_eq!(grandparent.move_child(), Ok(None));
+	assert_eq!(tools.move_children(grandparent), Ok(Vec::new()));
+
+	// The child was parented to the grandparent last, so leads to the parent.
+	mocks.grandparent.state().move_child = CHILD;
+	mocks.child.state().move_peer = PARENT;
+
+	assert_eq!(
+		grandparent.move_child(),
+		Ok(Some(EntityHandle::from_raw(CHILD)))
+	);
+	assert_eq!(child.move_peer(), Ok(Some(EntityHandle::from_raw(PARENT))));
+	assert_eq!(parent.move_peer(), Ok(None));
+	assert_eq!(tools.move_children(grandparent), Ok(vec![child, parent]));
+
+	// A stale handle ends the list, as it ends the game's walk.
+	mocks.child.state().move_peer = PARENT + (1 << 16);
+	assert_eq!(tools.move_children(grandparent), Ok(vec![child]));
+
+	// Peers that loop are listed until the list is as long as the entity
+	// list.
+	mocks.child.state().move_peer = PARENT;
+	mocks.parent.state().move_peer = CHILD;
+
+	let children = tools.move_children(grandparent).unwrap();
+
+	assert_eq!(children.len(), MAX_MOVE_CHILDREN);
+	assert_eq!(children[..3], [child, parent, child]);
+}
+
+#[test]
 fn parents_are_set_and_cleared_through_inputs() {
 	let mut mocks = mocks();
 	let tools = mocks.tools.tools();
