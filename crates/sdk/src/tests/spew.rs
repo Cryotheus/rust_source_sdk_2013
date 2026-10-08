@@ -12,11 +12,17 @@ static COLOR: SpewColor = SpewColor {
 /// The fake tier0's spew function.
 static CURRENT: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
 
+/// Whether a thread is inside [`hold`].
+static HELD: AtomicBool = AtomicBool::new(false);
+
 /// The function another plugin replaced, which it calls.
 static OTHER_PREVIOUS: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
 
 /// What the fake engine's and default spew functions printed.
 static PRINTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Whether [`hold`] lets its thread go.
+static RELEASED: AtomicBool = AtomicBool::new(false);
 
 /// One line a callback saw: kind, text, group, level and colour.
 type Seen = (SpewKind, String, String, i32, Option<SpewColor>);
@@ -29,9 +35,40 @@ static SERIAL: Mutex<()> = Mutex::new(());
 
 #[test]
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn a_busy_stop_can_be_retried() {
+	let _serial = setup(Some(engine_output));
+	let mut watch = start(hold);
+	let printing = std::thread::spawn(|| spew(SpewType::MESSAGE, c"held"));
+
+	while !HELD.load(Ordering::SeqCst) {
+		std::thread::yield_now();
+	}
+
+	// The watch leaves the chain, but a thread is still inside it.
+	assert_eq!(watch.stop(), Stopped::Busy);
+	assert_eq!(
+		output_function().map(function_address),
+		Some(function_address(engine_output))
+	);
+
+	// SAFETY: As for `start`.
+	let second = unsafe { watch_with(fake_api(), record) };
+
+	assert!(matches!(second, Err(WatchError::AlreadyWatching)));
+
+	RELEASED.store(true, Ordering::SeqCst);
+	printing.join().unwrap();
+
+	assert_eq!(watch.stop(), Stopped::Restored);
+	assert_eq!(watch.stop(), Stopped::Restored);
+	assert_eq!(printed(), ["engine: held"]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn a_null_function_means_the_default() {
 	let _serial = setup(None);
-	let watch = start(record);
+	let mut watch = start(record);
 
 	spew(SpewType::MESSAGE, c"plain");
 
@@ -48,7 +85,7 @@ extern "C" fn color() -> *const SpewColor {
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn contains_panics() {
 	let _serial = setup(Some(engine_output));
-	let watch = start(panic_on_output);
+	let mut watch = start(panic_on_output);
 
 	assert_eq!(spew(SpewType::MESSAGE, c"first"), SpewRetval::CONTINUE);
 	assert_eq!(spew(SpewType::MESSAGE, c"second"), SpewRetval::CONTINUE);
@@ -93,6 +130,15 @@ extern "C" fn group() -> *const c_char {
 	c"console".as_ptr()
 }
 
+/// Keeps its thread inside the watch's function until [`RELEASED`].
+fn hold(_: &Spew<'_>) {
+	HELD.store(true, Ordering::SeqCst);
+
+	while !RELEASED.load(Ordering::SeqCst) {
+		std::thread::yield_now();
+	}
+}
+
 #[test]
 fn kinds_follow_tier0() {
 	assert_eq!(SpewKind::from(SpewType::MESSAGE), SpewKind::Message);
@@ -107,7 +153,7 @@ fn kinds_follow_tier0() {
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn leaves_a_later_function_working() {
 	let _serial = setup(Some(engine_output));
-	let watch = start(record);
+	let mut watch = start(record);
 
 	// Another plugin chains after the watch, saving its stub.
 	OTHER_PREVIOUS.store(CURRENT.load(Ordering::SeqCst), Ordering::SeqCst);
@@ -156,7 +202,7 @@ fn needs_tier0() {
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn one_watch_at_a_time() {
 	let _serial = setup(Some(engine_output));
-	let watch = start(record);
+	let mut watch = start(record);
 
 	// SAFETY: As for `start`.
 	let second = unsafe { watch_with(fake_api(), record) };
@@ -195,7 +241,7 @@ extern "C" fn other_output(kind: SpewType, message: *const c_char) -> SpewRetval
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn output_from_the_callback_passes_straight_on() {
 	let _serial = setup(Some(engine_output));
-	let watch = start(record_and_print);
+	let mut watch = start(record_and_print);
 
 	spew(SpewType::MESSAGE, c"outer");
 
@@ -219,7 +265,7 @@ fn panic_on_output(_: &Spew<'_>) {
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn passes_answers_back() {
 	let _serial = setup(Some(engine_output));
-	let watch = start(record);
+	let mut watch = start(record);
 
 	assert_eq!(spew(SpewType::ASSERT, c"failed"), SpewRetval::DEBUGGER);
 	assert_eq!(spew(SpewType::MESSAGE, c"fine"), SpewRetval::CONTINUE);
@@ -249,7 +295,7 @@ fn record_and_print(spew_seen: &Spew<'_>) {
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn sees_output_and_passes_it_on() {
 	let _serial = setup(Some(engine_output));
-	let watch = start(record);
+	let mut watch = start(record);
 
 	assert_ne!(
 		output_function().map(function_address),
@@ -298,6 +344,8 @@ fn setup(current: Option<SpewOutputFn>) -> MutexGuard<'static, ()> {
 	PRINTED.lock().unwrap().clear();
 	SEEN.lock().unwrap().clear();
 	OTHER_PREVIOUS.store(ptr::null_mut(), Ordering::SeqCst);
+	HELD.store(false, Ordering::SeqCst);
+	RELEASED.store(false, Ordering::SeqCst);
 	guard
 }
 
