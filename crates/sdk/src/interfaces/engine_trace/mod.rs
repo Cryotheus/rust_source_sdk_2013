@@ -12,7 +12,7 @@ mod tests;
 use crate::entities::Entity;
 use crate::math::Vector;
 use sdk_raw::vcall;
-use std::ffi::{c_int, c_uint};
+use std::ffi::{CStr, c_int, c_uint, c_ushort};
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 use std::slice;
@@ -142,6 +142,12 @@ pub struct Trace<'s> {
 	/// Whether the whole ray lies inside something solid.
 	pub all_solid: bool,
 
+	/// For a ray that [starts solid](Self::start_solid), how far along it,
+	/// as [`Self::fraction`] measures, it leaves what it starts in
+	/// (`fractionleftsolid`). The engine leaves 0 otherwise.
+	#[doc(alias("fractionleftsolid"))]
+	pub fraction_left_solid: f32,
+
 	/// The normal of the surface the ray hit, pointing out of it, or the
 	/// origin if it hit nothing.
 	pub normal: Vector,
@@ -149,15 +155,59 @@ pub struct Trace<'s> {
 	/// The `CONTENTS_*` flags of what the ray hit.
 	pub contents: c_int,
 
+	/// The name of the surface the ray hit, as the engine fills it
+	/// (`surface.name`): a brush's material, such as `TOOLS/TOOLSCLIP`, or a
+	/// name of the engine's own for what has no material, such as a model's.
+	/// `None` if the engine left none.
+	#[doc(alias("csurface_t", "surface"))]
+	pub surface_name: Option<&'s CStr>,
+
+	/// The `SURF_*` flags of the brush surface the ray hit (`surface.flags`),
+	/// such as `SURF_SKY`.
+	pub surface_flags: c_ushort,
+
+	/// The `DISPSURF_FLAG_*` flags of the displacement the ray hit
+	/// (`dispFlags`), which the engine leaves 0 for anything else.
+	#[doc(alias("dispFlags", "DISPSURF_FLAG"))]
+	pub displacement_flags: c_ushort,
+
+	/// The hitbox of a model the ray hit by its hitboxes, or, where
+	/// [`Self::entity`] is the world's, 1 more than the index of the static
+	/// prop the ray hit, and 0 for the world's brushes.
+	pub hitbox: c_int,
+
 	/// What the ray hit, or `None` if it hit nothing: an entity, or the
 	/// world's own, at index 0, for the world's brushes and static props.
 	pub entity: Option<Entity<'s>>,
 }
 
 impl Trace<'_> {
+	/// The bit of [`Trace::displacement_flags`] that marks a displacement
+	/// (`DISPSURF_FLAG_SURFACE`).
+	const DISPLACEMENT_SURFACE: c_ushort = 1 << 0;
+
 	/// Whether the ray hit something before its end.
 	pub fn hit(&self) -> bool {
 		self.fraction < 1.0
+	}
+
+	/// Whether what the ray hit is a displacement, as its
+	/// [flags](Self::displacement_flags) mark it (`DISPSURF_FLAG_SURFACE`).
+	pub fn hit_displacement(&self) -> bool {
+		self.displacement_flags & Self::DISPLACEMENT_SURFACE != 0
+	}
+
+	/// The index of the static prop the ray hit, among the level's static
+	/// props, or `None` if it hit none: the engine reports a static prop as
+	/// the world's [entity](Self::entity), with a [hitbox](Self::hitbox) 1
+	/// more than its index.
+	pub fn static_prop(&self) -> Option<u32> {
+		let world = self.entity.and_then(Entity::index) == Some(0);
+
+		u32::try_from(self.hitbox)
+			.ok()
+			.filter(|&hitbox| world && hitbox > 0)
+			.map(|hitbox| hitbox - 1)
 	}
 }
 
@@ -435,8 +485,16 @@ impl<'s> EngineTrace<'s> {
 			end: trace._base.endpos.into(),
 			start_solid: trace._base.startsolid,
 			all_solid: trace._base.allsolid,
+			fraction_left_solid: trace.fractionleftsolid,
 			normal: trace._base.plane.normal.into(),
 			contents: trace._base.contents,
+			// SAFETY: The engine points a surface's name at a string of its own or
+			// of the level's, which lasts while the level does, beyond `'s`.
+			surface_name: NonNull::new(trace.surface.name.cast_mut())
+				.map(|name| unsafe { CStr::from_ptr(name.as_ptr()) }),
+			surface_flags: trace.surface.flags,
+			displacement_flags: trace._base.dispFlags,
+			hitbox: trace.hitbox,
 			// SAFETY: The engine points a trace that hit something at the live
 			// entity it hit, which stays allocated during `'s`, as entities are
 			// freed at the end of a frame.

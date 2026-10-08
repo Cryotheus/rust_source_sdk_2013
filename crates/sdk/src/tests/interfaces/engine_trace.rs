@@ -131,7 +131,9 @@ unsafe extern "C" fn clip_ray_to_entity(
 /// unless it asks for the world alone, and stops halfway at the first it lets
 /// the ray hit, on a surface facing back along the X axis, or reaches the
 /// ray's end. As the engine does, it moves the end by the ray's start offset,
-/// back to where a box's position is.
+/// back to where a box's position is. A hit is on [`SURFACE`] of a
+/// displacement, with hitbox 4, and the ray leaves what it starts in a
+/// quarter of the way along.
 unsafe extern "C" fn trace_ray(
 	_this: *mut sys::IEngineTrace,
 	ray: *const sys::Ray_t,
@@ -181,6 +183,11 @@ unsafe extern "C" fn trace_ray(
 	if hit.is_some() {
 		trace._base.plane.normal = Vector::new(-1.0, 0.0, 0.0).into();
 		trace._base.contents = CONTENTS_MONSTER.cast_signed();
+		trace._base.dispFlags = 0b111;
+		trace.fractionleftsolid = 0.25;
+		trace.surface.name = SURFACE.as_ptr();
+		trace.surface.flags = 0x4;
+		trace.hitbox = 4;
 	}
 
 	trace.m_pEnt = hit.map_or(ptr::null_mut(), <*mut _>::cast);
@@ -188,6 +195,9 @@ unsafe extern "C" fn trace_ray(
 
 /// A line from the origin along the X axis, 100 units long.
 const LINE: (Vector, Vector) = (Vector::new(0.0, 0.0, 0.0), Vector::new(100.0, 0.0, 0.0));
+
+/// The name of the surface the mock engine's hits are on.
+const SURFACE: &CStr = c"**studio**";
 
 #[test]
 fn boxes_start_at_their_center_and_lead_back_to_their_position() {
@@ -352,8 +362,13 @@ fn hulls_start_at_their_center_and_end_at_their_position() {
 
 	assert!(trace.hit());
 	assert_eq!(trace.end, Vector::new(50.0, 0.0, 0.0));
+	assert_eq!(trace.fraction_left_solid, 0.25);
 	assert_eq!(trace.normal, Vector::new(-1.0, 0.0, 0.0));
 	assert_eq!(trace.contents, CONTENTS_MONSTER.cast_signed());
+	assert_eq!(trace.surface_name, Some(SURFACE));
+	assert_eq!(trace.surface_flags, 0x4);
+	assert_eq!(trace.displacement_flags, 0b111);
+	assert_eq!(trace.hitbox, 4);
 	assert_eq!(trace.entity.map(Entity::as_ptr), Some(entity.as_ptr()));
 
 	TRACED.with_borrow(|traced| {
@@ -382,8 +397,48 @@ fn hulls_start_at_their_center_and_end_at_their_position() {
 	assert!(!still.hit());
 	assert_eq!(still.end, LINE.1);
 	assert_eq!(still.normal, Vector::new(0.0, 0.0, 0.0));
+	assert_eq!(still.surface_name, None);
+	assert_eq!(still.displacement_flags, 0);
 	assert_eq!(still.entity, None);
 	TRACED.with_borrow(|traced| assert!(!traced[1].swept));
+}
+
+#[test]
+fn static_props_are_hits_on_the_world_with_a_hitbox() {
+	let mut world = MockEntity::new(0);
+	let mut prop = MockEntity::new(1);
+
+	// The mock's hits have hitbox 4, on a displacement.
+	let mut mock = MockEngineTrace::new(&[world.as_ptr().cast()]);
+	let trace = mock.engine_trace().trace(
+		Ray::line(LINE.0, LINE.1),
+		MASK_SOLID,
+		TraceFilter::Everything,
+	);
+
+	assert_eq!(trace.static_prop(), Some(3));
+	assert!(trace.hit_displacement());
+
+	// An entity's hitboxes are no static prop.
+	let mut mock = MockEngineTrace::new(&[prop.as_ptr().cast()]);
+	let trace = mock.engine_trace().trace(
+		Ray::line(LINE.0, LINE.1),
+		MASK_SOLID,
+		TraceFilter::Everything,
+	);
+
+	assert_eq!(trace.static_prop(), None);
+
+	// Nor is a miss.
+	let mut mock = MockEngineTrace::new(&[]);
+	let trace = mock.engine_trace().trace(
+		Ray::line(LINE.0, LINE.1),
+		MASK_SOLID,
+		TraceFilter::Everything,
+	);
+
+	assert_eq!(trace.static_prop(), None);
+	assert!(!trace.hit_displacement());
 }
 
 /// The entity a line along [`LINE`] traced through `filter` stopped at, and
