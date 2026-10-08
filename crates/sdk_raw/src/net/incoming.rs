@@ -27,8 +27,8 @@ use crate::tier0::MAX_PATH;
 use crate::util::cstr::buffer_from_cstr;
 use crate::util::{self, Image, ModuleCache, ModuleKey, rtti};
 use crate::{vcall, vtable_slot};
-use std::ffi::{CStr, c_char, c_int};
-use std::mem::offset_of;
+use std::ffi::{CStr, c_char, c_int, c_void};
+use std::mem::{self, offset_of};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -718,19 +718,20 @@ pub struct StringCmdMessage {
 	/// value frees as it drops.
 	object: NonNull<[u64; STRING_CMD_WORDS]>,
 
-	/// The handler the message names, which [`Self::process`] passes it to.
+	/// The handler the message names, which the class's `Process` passes it
+	/// to.
 	handler: NonNull<sys::IClientMessageHandler>,
 }
 
 impl StringCmdMessage {
 	/// The message, as the `INetMessage` its class derives from, for calls
-	/// this module does not wrap, such as the class's own `Process`, which
-	/// passes it to its handler as [`Self::process`] does.
+	/// this module does not wrap.
 	pub const fn as_ptr(&self) -> NonNull<sys::INetMessage> {
 		self.object.cast()
 	}
 
-	/// The handler the message names, which [`Self::process`] passes it to.
+	/// The handler the message names, which the class's `Process` passes it
+	/// to.
 	pub const fn handler(&self) -> NonNull<sys::IClientMessageHandler> {
 		self.handler
 	}
@@ -750,11 +751,13 @@ impl StringCmdMessage {
 	///
 	/// `vtable` must be the engine's primary vtable of `NET_StringCmd`, as
 	/// [`find_string_cmd_vtable`] finds it, in a module that stays loaded while
-	/// the message lives. Its `GetType` and `GetSize` must read no field, and
-	/// its `SetReliable` and `SetNetChannel` must only store their argument in
-	/// `CNetMessage`, as the engine's do. `handler` must be a client's handler,
-	/// as [`handler_of_client`] returns it, and `channel` that client's
-	/// channel.
+	/// the message lives. Its `GetType` and `GetSize` must read no field, its
+	/// `SetReliable` and `SetNetChannel` must only store their argument in
+	/// `CNetMessage`, and its `Process` must pass the message to the
+	/// `ProcessStringCmd` method of the handler its fields name, and return
+	/// what that returns, as the engine's do. `handler` must be a client's
+	/// handler, as [`handler_of_client`] returns it, and `channel` that
+	/// client's channel.
 	pub unsafe fn new(
 		vtable: NonNull<sys::INetMessage__bindgen_vtable>,
 		handler: NonNull<sys::IClientMessageHandler>,
@@ -826,12 +829,13 @@ impl StringCmdMessage {
 		Ok(message)
 	}
 
-	/// Passes the message to the `ProcessStringCmd` method of the handler it
-	/// names, as the engine passes one a client sent. The method is called
-	/// through the handler's vtable, so hooks on it run, then the engine's
-	/// method runs the command as the client's, through
-	/// `IClient::ExecuteStringCommand`. Returns what the method returned,
-	/// which is `true` for every command the engine runs, or what a hook that
+	/// Processes the message as the engine processes one a client sent: calls
+	/// the class's `Process`, which passes the message to the
+	/// `ProcessStringCmd` method of the handler it names. Both methods are
+	/// called through their vtables, so hooks on either run, then the engine's
+	/// handler runs the command as the client's, through
+	/// `IClient::ExecuteStringCommand`. Returns what `Process` returned, which
+	/// is `true` for every command the engine runs, or what a hook that
 	/// blocked it decided.
 	///
 	/// The message does not come through the client's channel, so hooks on the
@@ -840,21 +844,23 @@ impl StringCmdMessage {
 	///
 	/// # Safety
 	///
-	/// On the server's main thread, while the client, its channel, and the
-	/// module of the message's vtable stay live. Neither the command nor what
-	/// hooks on the method do with it may disconnect the client: outside the
-	/// engine's processing of the client's packets, the engine frees its
-	/// channel at once as it disconnects, while the message still names it.
-	#[doc(alias("ProcessStringCmd"))]
+	/// Call it on the server's main thread, while the client, its channel, and
+	/// the module of the message's vtable stay live. Neither the command nor
+	/// what hooks on either method do with it may disconnect the client:
+	/// outside the engine's processing of the client's packets, the engine
+	/// frees its channel at once as it disconnects, while the message still
+	/// names it.
+	#[doc(alias("Process", "ProcessStringCmd"))]
 	pub unsafe fn process(&mut self) -> bool {
-		let handler = self.handler.as_ptr();
-		let message = self.as_ptr().as_ptr().cast::<sys::NET_StringCmd>();
+		let this = self.as_ptr().as_ptr();
 
-		// SAFETY: As the caller promises, the handler is a live client's, whose
-		// vtable is read here, so hooks that patched its slot run. The message is
-		// laid out as the engine's method reads one, and stays in place and
-		// alive for the call.
-		unsafe { vcall!(handler => IClientMessageHandler_ProcessStringCmd(message)) }
+		// SAFETY: The message holds the class's vtable, in a module the caller
+		// keeps loaded, whose `Process` passes the message to the handler it
+		// names, a live client's, as `new`'s caller promised. The vtables are
+		// read here, so hooks that patched their slots run. The message is laid
+		// out as the engine's methods read one, and stays in place and alive for
+		// the call.
+		unsafe { vcall!(this => INetMessage_Process()) }
 	}
 }
 
@@ -1063,6 +1069,38 @@ unsafe fn convars(fields: *const SetConVarFields) -> Option<Vec<ConVarEntry>> {
 unsafe fn copy<T>(fields: *const u8) -> T {
 	// SAFETY: As the caller promises.
 	unsafe { fields.cast::<T>().read_unaligned() }
+}
+
+/// The `CreateInterface` export of the engine module, found from `client`,
+/// one of the engine's clients, whose vtable the engine module emitted. Fails
+/// if no loaded module contains the vtable, or that module exports no
+/// `CreateInterface`.
+///
+/// The factory the engine passes plugins answers for the engine's interfaces,
+/// but need not lie in the engine module itself, so this finds the module
+/// through an address that does.
+///
+/// # Safety
+///
+/// `client` must point to the `IClient` base of a live client the engine
+/// made, as [`handler_of_client`] confirms, in a module that stays loaded for
+/// the call.
+#[doc(alias("CreateInterface"))]
+pub unsafe fn engine_factory_of_client(
+	client: NonNull<sys::IClient>,
+) -> Result<CreateInterfaceFn, util::Error> {
+	// SAFETY: As the caller promises, the client is live, and a polymorphic
+	// subobject, which starts with its vtable pointer.
+	let vtable = unsafe { (*client.as_ptr()).vtable_ };
+
+	// SAFETY: The client's vtable lies in the module that emitted it, the
+	// engine module, which the caller keeps loaded.
+	let export = unsafe { util::module_symbol(vtable as usize, c"CreateInterface") }
+		.ok_or(util::Error::InvalidImage)?;
+
+	// SAFETY: Every Source module exports `CreateInterface` with this
+	// signature.
+	Ok(unsafe { mem::transmute::<*mut c_void, CreateInterfaceFn>(export.as_ptr()) })
 }
 
 /// Finds the unique primary vtable of `NET_StringCmd` whose

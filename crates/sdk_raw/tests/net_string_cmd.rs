@@ -6,10 +6,12 @@
 
 use source_sdk_2013_raw::net::incoming::{
 	ClientMessage, MAX_STRING_CMD_LEN, MessageClass, StringCmdError, StringCmdFields,
-	StringCmdMessage, read_message,
+	StringCmdMessage, engine_factory_of_client, read_message,
 };
 use source_sdk_2013_raw::test_support::{mock_vtable, unexpected_call};
+use source_sdk_2013_raw::util;
 use source_sdk_2013_raw::util::cstr::cstring_from_buffer;
+use source_sdk_2013_raw::vcall;
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString, c_int};
 use std::ptr::NonNull;
@@ -44,6 +46,9 @@ thread_local! {
 
 	/// What the mock handler's `ProcessStringCmd` returns on this thread.
 	static HANDLED: Cell<bool> = const { Cell::new(true) };
+
+	/// How many times the mock class's `Process` was called on this thread.
+	static PROCESS_CALLS: Cell<usize> = const { Cell::new(0) };
 
 	/// The command of each message the mock handler was passed on this
 	/// thread, as a hook reads it, or `None` if it could not be read.
@@ -97,6 +102,23 @@ fn handler() -> NonNull<sys::IClientMessageHandler> {
 	})))
 }
 
+/// `INetMessage::Process`, which counts the call in [`PROCESS_CALLS`], then
+/// passes the message to the `ProcessStringCmd` method of the handler its
+/// fields name, as the engine's does.
+unsafe extern "C" fn process(this: *mut sys::INetMessage) -> bool {
+	PROCESS_CALLS.set(PROCESS_CALLS.get() + 1);
+
+	// SAFETY: Every message of the mock class holds its fields past its
+	// `CNetMessage` of `BASE` bytes, aligned for them.
+	let handler = unsafe { (*this.byte_add(BASE).cast::<StringCmdFields>()).handler };
+
+	// SAFETY: The fields name a mock handler, whose `ProcessStringCmd` only
+	// reads the message.
+	unsafe {
+		vcall!(handler.cast::<sys::IClientMessageHandler>() => IClientMessageHandler_ProcessStringCmd(this.cast()))
+	}
+}
+
 /// `IClientMessageHandler::ProcessStringCmd`, which reads the message as a
 /// hook on the method does, records its command in [`PROCESSED`], and returns
 /// [`HANDLED`].
@@ -145,6 +167,7 @@ fn string_cmd_vtable() -> NonNull<sys::INetMessage__bindgen_vtable> {
 		mock_vtable::<sys::INetMessage__bindgen_vtable>(unexpected_call as *const (), |vtable| {
 			(&raw mut (*vtable).INetMessage_GetSize).write(get_size);
 			(&raw mut (*vtable).INetMessage_GetType).write(get_type);
+			(&raw mut (*vtable).INetMessage_Process).write(process);
 			(&raw mut (*vtable).INetMessage_SetNetChannel).write(set_net_channel);
 			(&raw mut (*vtable).INetMessage_SetReliable).write(set_reliable);
 		})
@@ -245,12 +268,35 @@ fn messages_are_laid_out_as_the_engine_reads_them() {
 }
 
 #[test]
+fn no_engine_factory_is_found_where_no_module_exports_one() {
+	/// A vtable in this test binary, which exports no `CreateInterface`.
+	static VTABLE: [usize; 1] = [0];
+
+	// One on the heap, which no module holds.
+	let heap = Box::new([0_usize; 1]);
+
+	for vtable in [VTABLE.as_ptr(), heap.as_ptr()] {
+		let mut client = sys::IClient {
+			vtable_: vtable.cast(),
+		};
+
+		// SAFETY: The client is live, and its vtable is only located, never
+		// read.
+		let found = unsafe { engine_factory_of_client(NonNull::from(&mut client)) };
+
+		assert!(matches!(found, Err(util::Error::InvalidImage)));
+	}
+}
+
+#[test]
 fn processing_passes_the_message_to_its_handlers_method() {
 	let mut message = build(handler(), c"say_team medic").unwrap();
 
+	PROCESS_CALLS.set(0);
 	HANDLED.set(true);
 
-	// SAFETY: The mock handler only reads the message.
+	// SAFETY: The mock class's `Process` only passes the message on, and the
+	// mock handler only reads it.
 	assert!(unsafe { message.process() });
 
 	HANDLED.set(false);
@@ -258,6 +304,8 @@ fn processing_passes_the_message_to_its_handlers_method() {
 	// SAFETY: As above.
 	assert!(!unsafe { message.process() });
 
+	// Each went through the class's own `Process`, as the engine's do.
+	assert_eq!(PROCESS_CALLS.get(), 2);
 	assert_eq!(
 		PROCESSED.take(),
 		vec![Some(c"say_team medic".to_owned()); 2]
