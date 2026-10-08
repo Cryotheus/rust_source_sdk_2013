@@ -8,6 +8,7 @@
 use crate::Server;
 use crate::entities::{Entity, EntityHandle};
 use crate::math::Vector;
+use crate::tf2::custom_damage::CustomDamage;
 use sdk_raw::tf2::damage;
 use std::fmt;
 use std::mem::{MaybeUninit, offset_of};
@@ -379,6 +380,12 @@ impl DamageInfo {
 		}
 	}
 
+	/// The custom damage kind, as [`Self::custom_damage`] reads it.
+	#[doc(alias("GetDamageCustom"))]
+	pub fn custom_kind(&self) -> CustomDamage {
+		CustomDamage::from_raw(self.custom_damage())
+	}
+
 	/// The force the damage applies (`m_vecDamageForce`), which pushes the
 	/// victim, or its ragdoll, in its direction.
 	#[doc(alias("GetDamageForce"))]
@@ -447,6 +454,12 @@ impl DamageInfo {
 	#[doc(alias("SetAttacker"))]
 	pub fn set_attacker(&mut self, handle: EntityHandle) {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker), handle);
+	}
+
+	/// Replaces the custom damage kind, as [`Self::set_custom_damage`] does.
+	#[doc(alias("SetDamageCustom"))]
+	pub fn set_custom_kind(&mut self, kind: CustomDamage) {
+		self.set_custom_damage(kind.to_raw());
 	}
 
 	/// Replaces `m_hDamageBonusProvider`, the entity credited with the bonus.
@@ -640,9 +653,8 @@ impl DamageInfo {
 
 	scalar! {
 		/// The custom damage kind. In TF2 this is an `ETFDmgCustom` value, such
-		/// as [`CUSTOM_DAMAGE_PLASMA`] or
-		/// `sys::ETFDmgCustom_TF_DMG_CUSTOM_HEADSHOT as i32`. The cast is
-		/// needed because the sys constant's type differs between ABIs.
+		/// as [`CUSTOM_DAMAGE_PLASMA`], which [`Self::custom_kind`] reads as a
+		/// [`CustomDamage`].
 		#[doc(alias("GetDamageCustom"))]
 		custom_damage,
 		/// Replaces the custom damage kind.

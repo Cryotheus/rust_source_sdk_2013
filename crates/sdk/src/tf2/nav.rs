@@ -10,8 +10,10 @@
 //! lies from each team's spawn rooms, the areas it connects to, and its
 //! hiding spots.
 //!
-//! Finding an area by position or ID needs the mesh itself (`TheNavMesh`),
-//! which this module does not reach yet.
+//! [`NavMesh`] reads the mesh's list of every area (`TheNavAreas`), found
+//! in the game server module, and finds areas in it: the area under a
+//! position, as the game's `GetNavArea` does, the area with an ID, and the
+//! area nearest to a position.
 //!
 //! # Lifetimes
 //!
@@ -26,8 +28,12 @@
 //! # Unverified
 //!
 //! The wrappers follow the generated layouts and Valve's Source SDK 2013
-//! (`game/server/nav_area.h` and `game/server/tf/nav_mesh/tf_nav_area.h`),
-//! and have not been tested on a live server.
+//! (`game/server/nav_area.h`, `game/server/nav_mesh.cpp` and
+//! `game/server/tf/nav_mesh/tf_nav_area.h`), and have not been tested on a
+//! live server. [`NavMesh::find`] finds the list of areas as
+//! [`sdk_raw::tf2::nav::find_nav_areas`] describes: by a signature checked
+//! against TF2's 64-bit Windows `server.dll`, or on Linux by a symbol not
+//! checked against a retail build.
 
 #[cfg(test)]
 #[path = "../tests/tf2/nav.rs"]
@@ -57,6 +63,11 @@ pub enum NavError {
 	/// The entity is not a combat character, so it tracks no area.
 	#[error("the entity is not a combat character")]
 	NotACombatCharacter,
+
+	/// The game server module's list of areas was not found, as in a build
+	/// whose code differs from the one its search was checked against.
+	#[error("the navigation mesh's list of areas was not found")]
+	MeshNotFound,
 }
 
 /// One of the four sides of an area, along which it connects to others
@@ -683,5 +694,168 @@ impl<'s> NavArea<'s> {
 		// and the borrow ends before the method returns, with no game code run
 		// while it lasts.
 		unsafe { self.area.as_ref() }
+	}
+}
+
+/// TF2's navigation mesh, read through its list of every area
+/// (`TheNavAreas`), within the engine callback `'s`.
+///
+/// The list is empty on a level without a mesh, and changes as the
+/// [module documentation](self#lifetimes) describes, so each method reads
+/// it afresh. The lookups visit every area, where the game's searches use a
+/// grid of them, and find the areas the game's would, but for
+/// [`Self::nearest_area`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NavMesh<'s> {
+	areas: NonNull<raw::NavAreaVector>,
+	_scope: PhantomData<&'s ()>,
+}
+
+impl<'s> NavMesh<'s> {
+	/// How far below a position [`Self::area_at`] looks for ground by
+	/// default, as the game's `GetNavArea` does.
+	pub const BENEATH_LIMIT: f32 = 120.0;
+
+	/// Finds the mesh's list of areas in the game server module, searching
+	/// the module once.
+	///
+	/// Fails with [`NavError::UnsupportedGame`] outside TF2, and with
+	/// [`NavError::MeshNotFound`] if the module could not be read or does not
+	/// hold the list where the search looks.
+	#[doc(alias("TheNavAreas", "TheNavMesh"))]
+	pub fn find(server: Server<'s>) -> Result<Self, NavError> {
+		if server.game() != Game::TeamFortress2 {
+			return Err(NavError::UnsupportedGame);
+		}
+
+		// SAFETY: `Server::new` guarantees that the game server module, whose
+		// factory this is, stays loaded through the callback. A cached search
+		// for the same factory and module base was made in this same image:
+		// Source never unloads the game server module while plugins are loaded,
+		// since Metamod:Source and the engine unload plugins first, and the
+		// cache, a static of this plugin, is unloaded with it.
+		let areas = unsafe { raw::cached_nav_areas(server.game_server_factory().as_raw()) }
+			.ok()
+			.flatten()
+			.ok_or(NavError::MeshNotFound)?;
+
+		// SAFETY: The list is the game server module's `TheNavAreas`, a global
+		// that lives as long as the module, which outlives `'s`.
+		Ok(unsafe { Self::from_raw(areas) })
+	}
+
+	/// Wraps a list of TF2 areas.
+	///
+	/// # Safety
+	///
+	/// `areas` must point to a `NavAreaVector` of `CTFNavArea`s of the running
+	/// server's mesh, such as `TheNavAreas`, which stays allocated for all of
+	/// `'s`, and whose areas live as the [module documentation](self#lifetimes)
+	/// describes.
+	pub const unsafe fn from_raw(areas: NonNull<raw::NavAreaVector>) -> Self {
+		Self {
+			areas,
+			_scope: PhantomData,
+		}
+	}
+
+	/// How many areas the mesh holds, 0 on a level without one.
+	pub fn area_count(self) -> usize {
+		self.elements().len()
+	}
+
+	/// The area with an ID, which is never 0, or `None` if the mesh has none
+	/// (`GetNavAreaByID`).
+	#[doc(alias("GetNavAreaByID"))]
+	pub fn area_by_id(self, id: u32) -> Option<NavArea<'s>> {
+		if id == 0 {
+			return None;
+		}
+
+		self.areas().find(|area| area.id() == id)
+	}
+
+	/// The area whose ground lies under `position`, or `None` if none does
+	/// (`GetNavArea`).
+	///
+	/// As in the game, the area must overlap `position` in x and y, and its
+	/// ground there must lie no more than 5 units above `position` and no
+	/// more than `beneath` below it, such as [`Self::BENEATH_LIMIT`]. Of those
+	/// areas, the one whose ground is highest is found.
+	#[doc(alias("GetNavArea"))]
+	pub fn area_at(self, position: Vector, beneath: f32) -> Option<NavArea<'s>> {
+		let test = Vector::new(position.x, position.y, position.z + 5.0);
+		let mut found = None;
+		let mut found_height = f32::NEG_INFINITY;
+
+		for area in self.areas() {
+			if !area.is_overlapping(test, 0.0) {
+				continue;
+			}
+
+			let height = area.ground_height(test.x, test.y);
+
+			if height <= test.z && height >= position.z - beneath && height > found_height {
+				found = Some(area);
+				found_height = height;
+			}
+		}
+
+		found
+	}
+
+	/// The areas the mesh holds, in the order of its list.
+	pub fn areas(self) -> impl Iterator<Item = NavArea<'s>> + use<'s> {
+		(0..)
+			.map_while(move |index| self.elements().get(index).copied())
+			.filter_map(|area| {
+				// SAFETY: `from_raw`'s caller vouches that the list holds TF2's
+				// areas, which live as the module documentation describes.
+				NonNull::new(area).map(|area| unsafe { NavArea::from_raw(area.cast()) })
+			})
+	}
+
+	/// The area nearest to `position`, by the distance from `position` to the
+	/// area's [closest point](NavArea::closest_point), among areas closer than
+	/// `max_distance` that are not [blocked](NavArea::is_blocked) for `team`,
+	/// or for either team for `None` (`GetNearestNavArea`).
+	///
+	/// Unlike the game's `GetNearestNavArea`, it does not first look for the
+	/// area under `position`, find the ground under it, or check line of sight.
+	/// It compares every area rather than searching outwards through the
+	/// game's grid, which can settle on an area nearly as close.
+	#[doc(alias("GetNearestNavArea"))]
+	pub fn nearest_area(
+		self,
+		position: Vector,
+		max_distance: f32,
+		team: Option<ScoringTeam>,
+	) -> Option<NavArea<'s>> {
+		let mut found = None;
+		let mut found_distance = max_distance * max_distance;
+
+		for area in self.areas() {
+			let distance = position.distance_squared(*area.closest_point(position));
+
+			if distance < found_distance && !area.is_blocked(team) {
+				found = Some(area);
+				found_distance = distance;
+			}
+		}
+
+		found
+	}
+
+	/// The list's raw pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut raw::NavAreaVector {
+		self.areas.as_ptr()
+	}
+
+	/// The list's areas, borrowed only while a method reads them, since the
+	/// game reallocates them as the mesh changes.
+	fn elements(&self) -> &[*mut sys::CNavArea] {
+		// SAFETY: `from_raw`'s caller vouches that the list is live for `'s`,
+		// and the borrow ends before game code runs again.
+		unsafe { raw::nav_area_elements(self.areas) }
 	}
 }

@@ -1,18 +1,19 @@
-//! TF2 player think and entity simulation hooks, which run before and after
-//! the game's `CTFPlayer::PreThink` or `PostThink` for the players of the
-//! classes they cover, or its `CBaseEntity::PhysicsSimulate` for the entities.
+//! TF2 think and simulation hooks, which run before and after the game's
+//! `CTFPlayer::PreThink` or `PostThink` for the players of the classes they
+//! cover, or its `CBaseEntity::Think` or `PhysicsSimulate` for the entities.
 //!
 //! The game runs each player's commands as their client sends them. Around
 //! the movement of each, it calls `PreThink`, in which TF2 updates the
 //! player's conditions, and `PostThink`, in which it runs their taunts'
 //! attacks. `PhysicsSimulate` runs each entity's movement and thinks once a
-//! tick, and a player's commands. The hooks cover classes as [`crate::class_hooks`]
-//! describes: cover the players' classes, those of
+//! tick, and a player's commands, calling `Think` as the entity's main think
+//! comes due. The hooks cover classes as [`crate::class_hooks`] describes:
+//! cover the players' classes, those of
 //! [`ClassTargets::players`](source_sdk_2013::tf2::class_targets::ClassTargets::players),
 //! to hook every player's thinks.
 //!
-//! Under SourceHook, `PreThink`, `PostThink` and `PhysicsSimulate` each take a
-//! hook manager, which every handle hooking it shares.
+//! Under SourceHook, `PreThink`, `PostThink`, `Think` and `PhysicsSimulate`
+//! each take a hook manager, which every handle hooking it shares.
 
 #[cfg(test)]
 #[path = "tests/think_hooks.rs"]
@@ -22,6 +23,7 @@ use crate::MetamodApi;
 use crate::class_hooks::ClassHooks;
 use crate::hook::{HookAction, HookCall, HookTiming, VirtualFunction};
 use source_sdk_2013::entities::Entity;
+use source_sdk_2013::raw::entities::THINK_SLOT;
 
 use source_sdk_2013::raw::tf2::virtuals::{
 	EntityFn, PHYSICS_SIMULATE_SLOT, POST_THINK_SLOT, PRE_THINK_SLOT,
@@ -40,6 +42,9 @@ const AROUND: &[HookTiming] = &[HookTiming::Post, HookTiming::Pre];
 
 /// `PhysicsSimulate` in an entity's primary vtable.
 const PHYSICS_SIMULATE: VirtualFunction<EntityFn> = VirtualFunction::new(PHYSICS_SIMULATE_SLOT);
+
+/// `Think` in an entity's primary vtable.
+const THINK: VirtualFunction<EntityFn> = VirtualFunction::new(THINK_SLOT);
 
 /// A TF2 player's method that runs around the movement of each of their
 /// commands.
@@ -96,6 +101,22 @@ impl MetamodApi<'_> {
 		callback: ThinkFn,
 	) -> ClassHooks<BaseEntity> {
 		ClassHooks::new(binding, callback, PHYSICS_SIMULATE, AROUND, observe)
+	}
+
+	/// Runs `callback` before and after each `CBaseEntity::Think` of the
+	/// entities of the classes the returned hooks cover, which are none until
+	/// [`ClassHooks::cover`] covers them.
+	///
+	/// The engine calls the method as it simulates the entity, once the
+	/// entity's main think comes due, and the method runs the think function
+	/// the entity set, or what its class overrides it with. The think contexts
+	/// of [`think`](source_sdk_2013::raw::entities::think) run without it, and
+	/// entities with no think scheduled skip it.
+	///
+	/// `binding` must describe the running server. The callback must not
+	/// delete entities immediately, as [`Server::new`] requires.
+	pub fn hook_thinks(self, binding: ServerBinding, callback: ThinkFn) -> ClassHooks<BaseEntity> {
+		ClassHooks::new(binding, callback, THINK, AROUND, observe)
 	}
 }
 

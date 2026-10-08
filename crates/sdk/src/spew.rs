@@ -58,6 +58,12 @@ use std::time::{Duration, Instant};
 /// passing through the watch's function.
 const STOP_WAIT: Duration = Duration::from_secs(1);
 
+/// How long [`SpewWatch::stop`] waits once no call counts itself inside the
+/// watch's function, for any call between the stub and that count: one that
+/// jumped through the stub before it was retargeted but has not counted
+/// itself yet, or one that has counted itself out but not yet returned.
+const SETTLE: Duration = Duration::from_millis(100);
+
 /// The tier0 functions of the latest watch, leaked so that any thread can read
 /// them without a lock.
 static API: AtomicPtr<SpewApi> = AtomicPtr::new(ptr::null_mut());
@@ -214,12 +220,22 @@ impl SpewWatch {
 
 		let start = Instant::now();
 
-		while RUNNING.load(Ordering::SeqCst) != 0 {
-			if start.elapsed() >= STOP_WAIT {
-				return Stopped::Busy;
+		loop {
+			while RUNNING.load(Ordering::SeqCst) != 0 {
+				if start.elapsed() >= STOP_WAIT {
+					return Stopped::Busy;
+				}
+
+				std::thread::yield_now();
 			}
 
-			std::thread::yield_now();
+			// A call that was between the stub and its count counts itself in by
+			// now, or has returned, unless its thread was held up all this time.
+			std::thread::sleep(SETTLE);
+
+			if RUNNING.load(Ordering::SeqCst) == 0 {
+				break;
+			}
 		}
 
 		self.finished = true;
@@ -257,10 +273,11 @@ impl SpewWatch {
 	/// tier0's chain. See the [module](self) for how.
 	///
 	/// Lines other threads are printing through the watch's function
-	/// meanwhile finish first, waiting at most a second. If one is still
-	/// inside it then, this returns [`Stopped::Busy`]: the watch is out of
-	/// the chain, but the library must stay loaded until a later call returns
-	/// how the watch ended. Do not stop a watch from inside its callback.
+	/// meanwhile finish first, waiting at most a second, then a tenth of a
+	/// second more for calls on their way in or out of it. If one is still
+	/// inside it then, this returns [`Stopped::Busy`]: the watch is out of the
+	/// chain, but the library must stay loaded until a later call returns how
+	/// the watch ended. Do not stop a watch from inside its callback.
 	pub fn stop(&mut self) -> Stopped {
 		self.end()
 	}

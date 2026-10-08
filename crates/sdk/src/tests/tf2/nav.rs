@@ -32,11 +32,16 @@ unsafe extern "C" fn last_known_area(_: *const sys::CBaseCombatCharacter) -> *mu
 	LAST_KNOWN.get()
 }
 
-/// `CTFNavArea::IsBlocked`, blocked for RED only.
-unsafe extern "C" fn is_blocked(_: *const sys::CTFNavArea, team: c_int, ignore: bool) -> bool {
+/// The ID of the areas [`is_blocked`] blocks for every team.
+const BLOCKED_ID: u32 = 9;
+
+/// `CTFNavArea::IsBlocked`, blocked for RED, and for every team in the area
+/// with [`BLOCKED_ID`].
+unsafe extern "C" fn is_blocked(area: *const sys::CTFNavArea, team: c_int, ignore: bool) -> bool {
 	QUERIES.with_borrow_mut(|queries| queries.push(("IsBlocked", team, ignore)));
 
-	team == TF_TEAM_RED
+	// SAFETY: The mock vtable belongs to the leaked areas of these tests.
+	team == TF_TEAM_RED || unsafe { (*area)._base.m_id } == BLOCKED_ID
 }
 
 /// `CTFNavArea::IsPotentiallyVisibleToTeam`, visible to BLU only.
@@ -145,6 +150,152 @@ fn area() -> (NavArea<'static>, NonNull<sys::CTFNavArea>) {
 
 	// SAFETY: The area is leaked, and laid out as the game's.
 	(unsafe { NavArea::from_raw(raw) }, raw)
+}
+
+/// A leaked flat area at `height`, from `north_west` to `south_east` in x
+/// and y.
+fn flat_area(
+	id: u32,
+	north_west: (f32, f32),
+	south_east: (f32, f32),
+	height: f32,
+) -> NonNull<sys::CTFNavArea> {
+	let mut raw = empty_area(id);
+
+	// SAFETY: The area was just leaked, and nothing else refers to it.
+	let critical = unsafe { &mut raw.as_mut()._base._base };
+
+	critical.m_nwCorner = Vector::new(north_west.0, north_west.1, height).into();
+	critical.m_seCorner = Vector::new(south_east.0, south_east.1, height).into();
+	critical.m_invDxCorners = 1.0 / (south_east.0 - north_west.0);
+	critical.m_invDyCorners = 1.0 / (south_east.1 - north_west.1);
+	critical.m_neZ = height;
+	critical.m_swZ = height;
+
+	raw
+}
+
+/// A leaked list of `areas`, as `TheNavAreas` holds them.
+fn area_list(areas: Vec<NonNull<sys::CTFNavArea>>) -> NonNull<raw::NavAreaVector> {
+	let elements = Box::leak(
+		areas
+			.into_iter()
+			.map(|area| area.as_ptr().cast::<sys::CNavArea>())
+			.collect::<Box<[_]>>(),
+	);
+
+	// SAFETY: A zeroed vector, of null pointers and counts, is an empty one.
+	let list = Box::leak(unsafe { Box::<raw::NavAreaVector>::new_zeroed().assume_init() });
+
+	list.m_Memory.m_pMemory = elements.as_mut_ptr();
+	list.m_Memory.m_nAllocationCount = c_int::try_from(elements.len()).unwrap();
+	list.m_Size = list.m_Memory.m_nAllocationCount;
+	list.m_pElements = elements.as_mut_ptr();
+
+	NonNull::from(list)
+}
+
+/// A mesh of two floors over (0, 0) to (100, 100), at heights 0 and 100, an
+/// area from (200, 0) to (300, 100) at height 0, and between them an area
+/// blocked for every team, from (160, 0) to (190, 100).
+fn mesh() -> NavMesh<'static> {
+	let areas = area_list(vec![
+		flat_area(1, (0.0, 0.0), (100.0, 100.0), 0.0),
+		flat_area(2, (0.0, 0.0), (100.0, 100.0), 100.0),
+		flat_area(3, (200.0, 0.0), (300.0, 100.0), 0.0),
+		flat_area(BLOCKED_ID, (160.0, 0.0), (190.0, 100.0), 0.0),
+	]);
+
+	// SAFETY: The list and its areas are leaked, and laid out as the game's.
+	unsafe { NavMesh::from_raw(areas) }
+}
+
+/// The ID of `area`, if any.
+fn id(area: Option<NavArea<'_>>) -> Option<u32> {
+	area.map(NavArea::id)
+}
+
+#[test]
+fn meshes_list_their_areas() {
+	let mesh = mesh();
+
+	assert_eq!(mesh.area_count(), 4);
+	assert_eq!(
+		mesh.areas().map(NavArea::id).collect::<Vec<_>>(),
+		[1, 2, 3, BLOCKED_ID]
+	);
+	assert_eq!(id(mesh.area_by_id(3)), Some(3));
+	assert_eq!(id(mesh.area_by_id(42)), None);
+	assert_eq!(id(mesh.area_by_id(0)), None);
+
+	// SAFETY: The list is leaked, and empty, as on a level without a mesh.
+	let empty = unsafe { NavMesh::from_raw(area_list(Vec::new())) };
+
+	assert_eq!(empty.area_count(), 0);
+	assert_eq!(empty.areas().count(), 0);
+	assert_eq!(
+		id(empty.area_at(Vector::new(0.0, 0.0, 0.0), NavMesh::BENEATH_LIMIT)),
+		None
+	);
+	assert_eq!(
+		id(empty.nearest_area(Vector::new(0.0, 0.0, 0.0), 1000.0, None)),
+		None
+	);
+}
+
+#[test]
+fn meshes_find_the_highest_ground_under_a_position() {
+	let mesh = mesh();
+	let at = |x, y, z, beneath| id(mesh.area_at(Vector::new(x, y, z), beneath));
+
+	assert_eq!(at(50.0, 50.0, 0.0, NavMesh::BENEATH_LIMIT), Some(1));
+	assert_eq!(at(50.0, 50.0, 100.0, NavMesh::BENEATH_LIMIT), Some(2));
+	assert_eq!(at(50.0, 50.0, 60.0, NavMesh::BENEATH_LIMIT), Some(1));
+
+	// Ground up to 5 units above the position counts as under it.
+	assert_eq!(at(50.0, 50.0, -5.0, NavMesh::BENEATH_LIMIT), Some(1));
+	assert_eq!(at(50.0, 50.0, -5.5, NavMesh::BENEATH_LIMIT), None);
+	assert_eq!(at(50.0, 50.0, 95.0, NavMesh::BENEATH_LIMIT), Some(2));
+
+	// Ground further down than the limit does not.
+	assert_eq!(at(50.0, 50.0, 230.0, NavMesh::BENEATH_LIMIT), None);
+	assert_eq!(at(50.0, 50.0, 230.0, 130.0), Some(2));
+	assert_eq!(at(150.0, 50.0, 0.0, NavMesh::BENEATH_LIMIT), None);
+
+	// Blocked areas are still found, as in the game.
+	assert_eq!(
+		at(170.0, 50.0, 0.0, NavMesh::BENEATH_LIMIT),
+		Some(BLOCKED_ID)
+	);
+}
+
+#[test]
+fn meshes_find_the_nearest_area_not_blocked() {
+	let mesh = mesh();
+	let nearest = |x, max, team| id(mesh.nearest_area(Vector::new(x, 50.0, 0.0), max, team));
+
+	// The blocked area between is skipped, leaving the third area 20 units
+	// away and the first 80.
+	assert_eq!(nearest(180.0, 1000.0, None), Some(3));
+	assert_eq!(nearest(180.0, 1000.0, Some(ScoringTeam::Blue)), Some(3));
+	assert_eq!(nearest(180.0, 20.5, None), Some(3));
+	assert_eq!(nearest(180.0, 20.0, None), None);
+	assert_eq!(nearest(120.0, 1000.0, None), Some(1));
+
+	// The mock blocks every area for RED.
+	assert_eq!(nearest(180.0, 1000.0, Some(ScoringTeam::Red)), None);
+
+	let _ = QUERIES.take();
+}
+
+#[test]
+fn meshes_are_found_in_tf2_only() {
+	let scope = ();
+
+	assert_eq!(
+		NavMesh::find(null_server(Game::SourceSdk2013, &scope)),
+		Err(NavError::UnsupportedGame)
+	);
 }
 
 #[test]
