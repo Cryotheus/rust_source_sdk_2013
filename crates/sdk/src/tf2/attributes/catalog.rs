@@ -533,6 +533,35 @@ pub const SPREAD_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	10.0,
 );
 
+/// `ubercharge overheal rate penalty` (739,
+/// `mult_medigun_overheal_uberchargerate`): scales the ÜberCharge the owner's
+/// medigun builds while healing a patient at or above their maximum health,
+/// from 0 to 1, as the Vaccinator's does. The game reads it on the owner,
+/// from all of their items.
+#[doc(alias("ubercharge overheal rate penalty"))]
+pub const UBERCHARGE_OVERHEAL_RATE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
+	739,
+	c"ubercharge overheal rate penalty",
+	c"mult_medigun_overheal_uberchargerate",
+	DescriptionFormat::Percentage,
+	0.0,
+	1.0,
+);
+
+/// `ubercharge rate bonus` (10, `mult_medigun_uberchargerate`): scales the
+/// ÜberCharge the owner's medigun builds as it heals, from 1 to 4, as the
+/// Kritzkrieg's, the Quick-Fix's and the Vaccinator's do. The game reads it
+/// on the owner, from all of their items.
+#[doc(alias("ubercharge rate bonus"))]
+pub const UBERCHARGE_RATE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
+	10,
+	c"ubercharge rate bonus",
+	c"mult_medigun_uberchargerate",
+	DescriptionFormat::Percentage,
+	1.0,
+	4.0,
+);
+
 /// `weapon spread bonus` (106, `mult_spread_scale`): scales the weapon's
 /// bullet spread, from 0 to 1.
 #[doc(alias("weapon spread bonus"))]
