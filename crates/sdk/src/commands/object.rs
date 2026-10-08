@@ -6,7 +6,12 @@ use super::error::{
 };
 
 use super::registrar::{CommandRegistrar, UnlinksBeforeUnload};
-use super::{CommandAccess, CommandContext, CommandFlags, CommandHandler, CommandResult, route};
+
+use super::{
+	Client, ClientFilter, CommandAccess, CommandContext, CommandFlags, CommandHandler,
+	CommandResult, Invoker, route,
+};
+
 use crate::server::{Server, ServerBinding};
 use sdk_raw::commands::{ConCommandHooks, ConCommandObject, is_registered};
 use sdk_raw::vcall;
@@ -46,6 +51,7 @@ pub(super) struct CommandHeader {
 	name: &'static CStr,
 	help: &'static CStr,
 	access: CommandAccess,
+	client_filter: Option<ClientFilter>,
 	flags: CommandFlags,
 
 	/// The server the command was last registered with, for calls from the
@@ -75,6 +81,15 @@ impl CommandHeader {
 
 	pub(super) const fn access(&self) -> CommandAccess {
 		self.access
+	}
+
+	/// Whether `client` may run the command: its access lets clients run it,
+	/// and its filter, if any, accepts them.
+	pub(super) fn accepts_client(&self, server: Server<'_>, client: Client<'_>) -> bool {
+		self.access.allows_clients()
+			&& self
+				.client_filter
+				.is_none_or(|filter| (filter.accepts)(server, client))
 	}
 
 	pub(super) fn binding(&self) -> Option<ServerBinding> {
@@ -173,6 +188,7 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 				name,
 				help: c"",
 				access: CommandAccess::Server,
+				client_filter: None,
 				flags: CommandFlags::NONE,
 				binding: Cell::new(None),
 			},
@@ -183,6 +199,18 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 	/// Sets who may run the command, [`CommandAccess::Server`] by default.
 	pub const fn access(mut self, access: CommandAccess) -> Self {
 		self.header.access = access;
+		self
+	}
+
+	/// Narrows the clients [`access`](Self::access) lets run the command to
+	/// those `filter` accepts, such as a plugin's admins. Every client may run
+	/// it by default.
+	///
+	/// Clients the filter refuses are told the command is unknown, as for a
+	/// [`CommandAccess::Server`] command. Server-side invokers are not
+	/// filtered.
+	pub const fn clients(mut self, filter: ClientFilter) -> Self {
+		self.header.client_filter = Some(filter);
 		self
 	}
 
@@ -279,15 +307,50 @@ impl<H: CommandHandler> ConsoleCommand<H> {
 }
 
 impl<H> ConsoleCommand<H> {
+	/// Who may run the command, as set with [`access`](Self::access).
+	pub const fn access_level(&self) -> CommandAccess {
+		self.header.access
+	}
+
+	/// Whether `invoker` may run the command, as its
+	/// [`access`](Self::access) and [client filter](Self::clients) decide.
+	///
+	/// A [cheat](CommandFlags::CHEAT) command also needs `sv_cheats` set, which
+	/// this does not check, so a listing can show it as one.
+	pub fn allows(&self, server: Server<'_>, invoker: Invoker<'_>) -> bool {
+		match invoker {
+			Invoker::Server => self.header.access.allows_server(),
+			Invoker::Client(client) => self.header.accepts_client(server, client),
+		}
+	}
+
 	/// A pointer to the whole object, which the engine passes back to every
 	/// vtable slot.
 	fn as_base(&self) -> NonNull<sys::ConCommandBase> {
 		ConCommandObject::as_base(NonNull::from(self).cast())
 	}
 
+	/// The filter set with [`clients`](Self::clients), if any.
+	pub const fn client_filter(&self) -> Option<ClientFilter> {
+		self.header.client_filter
+	}
+
+	/// The flags the engine sees: those set with [`flags`](Self::flags) once
+	/// the command is registered, which other plugins may have changed since,
+	/// and none before.
+	pub fn current_flags(&self, _server: Server<'_>) -> CommandFlags {
+		self.header.current_flags()
+	}
+
 	/// The handler that runs each invocation.
 	pub const fn handler(&self) -> &H {
 		&self.handler
+	}
+
+	/// The text `help <name>` shows, as set with [`help`](Self::help).
+	#[doc(alias("GetHelpText"))]
+	pub const fn help_text(&self) -> &'static CStr {
+		self.header.help
 	}
 
 	/// The name the command is registered under.
@@ -303,6 +366,7 @@ impl<H: std::fmt::Debug> std::fmt::Debug for ConsoleCommand<H> {
 			.field("name", &self.header.name)
 			.field("help", &self.header.help)
 			.field("access", &self.header.access)
+			.field("client_filter", &self.header.client_filter)
 			.field("flags", &self.header.flags)
 			.field("handler", &self.handler)
 			.finish_non_exhaustive()

@@ -157,12 +157,15 @@ unsafe fn route(
 		return ClientRoute::NotRouted;
 	}
 
-	let context = CommandContext::new(
-		server,
-		args,
-		Invoker::Client(Client { edict }),
-		header.name(),
-	);
+	let client = Client { edict };
+
+	// A client the filter refuses is told the command is unknown, as for a
+	// command only the server may run.
+	if !header.accepts_client(server, client) {
+		return ClientRoute::NotRouted;
+	}
+
+	let context = CommandContext::new(server, args, Invoker::Client(client), header.name());
 
 	// The engine checks this itself only for commands it dispatches directly.
 	if header.current_flags().contains(CommandFlags::CHEAT) && !cheats_allowed(cvar) {
