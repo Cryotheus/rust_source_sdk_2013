@@ -1,0 +1,79 @@
+//! Team Fortress 2's game-specific raw bindings: functions, layouts, header
+//! values, and vtable slots of its game DLL and engine that the generated
+//! bindings do not describe.
+//!
+//! A `CBaseEntity *` to a TF2 player is also a `CTFPlayer *`, the type the
+//! generated vtable of `CTFPlayer` takes: every class from `CTFPlayer` down to
+//! `CBaseEntity` starts with its primary base, as this module asserts against
+//! the generated layouts. The Itanium bindings describe `CBasePlayer` and
+//! `CBaseAnimating` as opaque blobs, whose single, polymorphic primary bases
+//! that ABI also places first.
+
+pub mod airblast;
+pub mod ammo;
+pub mod attributes;
+pub mod bosses;
+pub mod bots;
+pub mod buildings;
+pub mod chat;
+pub mod class;
+pub mod class_targets;
+pub mod collision;
+pub mod conditions;
+pub mod custom_votes;
+pub mod damage;
+pub mod dominations;
+pub mod duels;
+pub mod effects;
+pub mod game_events;
+pub mod game_mode;
+pub mod game_rules;
+pub mod gc;
+pub mod god;
+pub mod host_timescale;
+pub mod item_generation;
+pub mod item_schema;
+pub mod nav;
+pub mod next_bot;
+pub mod objectives;
+pub mod objects;
+pub mod observer;
+pub mod player;
+pub mod projectiles;
+pub mod ragdolls;
+pub mod respawn;
+pub mod scoreboard;
+pub mod script_binding;
+pub mod scripts;
+pub mod spawn;
+pub mod teams;
+pub mod touch;
+pub mod virtuals;
+pub mod voice;
+pub mod voice_chat;
+pub mod voting;
+pub mod weapons;
+pub mod wearables;
+
+use crate::entities::SPAWN_SLOT;
+use crate::vtable_slot;
+use std::mem::offset_of;
+
+const _: () = {
+	assert!(
+		offset_of!(sys::CTFPlayer, _base) == 0
+			&& offset_of!(sys::CBaseMultiplayerPlayer, _base) == 0
+			&& offset_of!(sys::CAI_ExpresserHost<sys::CBasePlayer>, _base) == 0
+			&& offset_of!(sys::CBaseCombatCharacter, _base) == 0
+			&& offset_of!(sys::CBaseFlex, _base) == 0
+			&& offset_of!(sys::CBaseAnimatingOverlay, _base) == 0
+	);
+
+	#[cfg(target_os = "windows")]
+	assert!(
+		offset_of!(sys::CBasePlayer, _base) == 0 && offset_of!(sys::CBaseAnimating, _base) == 0
+	);
+};
+
+// A TF2 player overrides `Spawn` at the slot every entity has it.
+const _: () = assert!(SPAWN_SLOT == vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Spawn));

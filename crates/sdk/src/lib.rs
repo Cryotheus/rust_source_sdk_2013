@@ -1,0 +1,86 @@
+﻿//! Safer access to a running Source SDK 2013 server from a plugin.
+//!
+//! # Entry point
+//!
+//! Everything starts from a [`Server`], which [`Server::new`] creates from the
+//! engine's and game server's interface factories for the duration of one
+//! callback. Its safety contract covers what every other type relies on, and
+//! each interface is then a safe accessor away, such as [`Server::valve_engine`]
+//! or [`Server::server_game_dll`]. Operations with additional requirements,
+//! such as entity spawning or schema-dependent attribute writes, document
+//! their own `unsafe` contracts.
+//!
+//! # Handles and aliasing
+//!
+//! The engine and game own their objects and mutate them through their own
+//! pointers at any time, including in the middle of calls made from Rust. A
+//! Rust reference into such an object would promise an immutability (`&T`) or
+//! exclusivity (`&mut T`) that Rust cannot guarantee, so this crate never
+//! creates one. Engine objects are reached through handles instead, which
+//! store the pointer the engine returned and access the object only through
+//! virtual calls and raw reads and writes, like a `Cell`:
+//!
+//! - Handles are `Copy`, and their methods take `self`. Sharing a handle is
+//!   like sharing `&Cell<T>`: exclusivity would protect nothing, since the
+//!   engine keeps its own pointers.
+//! - Handles carry the scope lifetime of the `Server` they came from, so none
+//!   outlives the callback in which the engine keeps the object alive.
+//! - Handles are `!Send` and `!Sync`, since the engine is single-threaded.
+//! - Data read out of the engine is copied unless it stays unchanged for the
+//!   whole scope, such as class names or static strings.
+//!
+//! Uniqueness is reserved for what the plugin owns: an [`OwnedGameEvent`] is
+//! freed exactly once, and a [`GameEventListener`] is registered by pinned
+//! reference and is `!Unpin`, since the engine keeps its address.
+//!
+//! [`OwnedGameEvent`]: interfaces::game_event::OwnedGameEvent
+//! [`GameEventListener`]: interfaces::game_event::GameEventListener
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
+
+pub mod ambient_sounds;
+pub mod bitbuf;
+pub mod commands;
+pub mod datatables;
+pub mod edicts;
+pub mod entities;
+pub mod inputs;
+pub mod interfaces;
+pub mod key_values;
+pub mod math;
+pub mod net;
+pub mod players;
+pub mod precache;
+pub mod send_proxies;
+pub mod server;
+pub mod soundscapes;
+pub mod spew;
+pub mod steam;
+pub mod user_cmd;
+pub mod user_messages;
+
+#[cfg(any(test, feature = "_test-support"))]
+#[doc(hidden)]
+#[path = "tests/support/mod.rs"]
+pub mod test_support;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod tf2;
+
+use std::marker::PhantomData;
+
+/// The hand-written raw bindings and low-level utilities this crate wraps,
+/// for what [`sys`] does not generate.
+pub use sdk_raw as raw;
+
+pub use server::{Game, InterfaceError, InterfaceFactory, Module, Server, ServerBinding};
+
+/// The raw Source SDK bindings this crate wraps.
+pub use sys;
+
+/// Makes a type `!Send` and `!Sync`.
+///
+/// Engine state may only be touched from the server's main thread.
+pub(crate) type NotThreadSafe = PhantomData<*mut ()>;

@@ -1,0 +1,152 @@
+//! Identifiers for the clients connected to the server, and the players in
+//! the game.
+
+mod in_game;
+
+pub use in_game::{KickError, Player};
+use std::error::Error;
+use std::ffi::c_int;
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::hint;
+use std::num::NonZero;
+
+pub use sdk_raw::players::ABSOLUTE_PLAYER_LIMIT;
+
+/// The largest `int` that is a [`UserId`], which stores user IDs in 16 bits.
+const RAW_USER_ID_MAX: c_int = u16::MAX as c_int;
+
+/// An `int` which is not a [`UserId`], from [`UserId::from_raw`].
+///
+/// The engine and game events use -1 and 0 where no player applies, which
+/// [`is_sentinel`](Self::is_sentinel) recognizes. Every other such value is
+/// negative or too large for 16 bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct InvalidUserId(c_int);
+
+impl InvalidUserId {
+	/// Whether the value is one the engine or game events use where no player
+	/// applies: -1, which the engine returns for an edict no client owns, or 0,
+	/// which game events use for "no player", such as for the world as an
+	/// attacker, and the engine can report for a client slot nobody occupies.
+	///
+	/// Any other value did not come from the engine as a user ID, so it may be
+	/// worth a panic.
+	pub const fn is_sentinel(&self) -> bool {
+		matches!(self.0, -1 | 0)
+	}
+}
+
+impl Display for InvalidUserId {
+	fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+		match self.0 {
+			// Represents the user id of a player entity, even if they haven't been created yet
+			1..=RAW_USER_ID_MAX => unreachable!(),
+
+			// Sentinel used by the engine for unassigned user ids
+			-1 => write!(f, "No edict assigned"),
+
+			// All other negative values and zero are considered impossible representations.
+			value @ (c_int::MIN..-1 | 0) => {
+				hint::cold_path();
+				write!(f, "Invalid UserId representation: {value}")
+			}
+
+			// Positive value greater than the 16-bit networkable value.
+			value => write!(f, "Non-networkable UserId {value}"),
+		}
+	}
+}
+
+impl Error for InvalidUserId {}
+
+/// The server's identifier for a connected client, as used by game events.
+///
+/// The engine assigns each client a user ID when it connects. Game events
+/// identify players by it, such as through the `userid` and `attacker` keys of
+/// `player_death`.
+///
+/// A user ID is never 0. Game events use 0 for "no player", such as for the
+/// `attacker` of a player killed by the world, and the engine can report 0 for
+/// a client slot nobody occupies.
+///
+/// Use [`ValveEngine::edict_of_user_id`] and [`ValveEngine::user_id_of_edict`]
+/// to convert between user IDs and player edicts.
+///
+/// [`ValveEngine::edict_of_user_id`]: crate::interfaces::valve_engine::ValveEngine::edict_of_user_id
+/// [`ValveEngine::user_id_of_edict`]: crate::interfaces::valve_engine::ValveEngine::user_id_of_edict
+#[doc(alias("userid"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct UserId(NonZero<u16>);
+
+impl UserId {
+	/// Wraps a user ID, or returns `None` for 0.
+	pub const fn new(user_id: u16) -> Option<Self> {
+		match NonZero::new(user_id) {
+			Some(user_id) => Some(Self(user_id)),
+			None => None,
+		}
+	}
+
+	/// Converts the `int` representation used by the engine and game events.
+	///
+	/// # Errors
+	///
+	/// If `raw` is not between 1 and `u16::MAX`, as for the -1 and 0 the
+	/// engine and game events use where no player applies.
+	pub const fn from_raw(raw: c_int) -> Result<Self, InvalidUserId> {
+		match raw {
+			1..=RAW_USER_ID_MAX => Ok(Self(NonZero::new(raw as u16).unwrap())),
+			erroneous => Err(InvalidUserId(erroneous)),
+		}
+	}
+
+	/// The user ID as a `u16`, which is never 0.
+	pub const fn get(self) -> u16 {
+		self.0.get()
+	}
+
+	/// Returns the `int` representation used by the engine and game events.
+	pub const fn to_raw(self) -> c_int {
+		self.0.get() as c_int
+	}
+}
+
+impl Display for UserId {
+	fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+		Display::fmt(&self.0, f)
+	}
+}
+
+impl From<NonZero<u16>> for UserId {
+	fn from(user_id: NonZero<u16>) -> Self {
+		Self(user_id)
+	}
+}
+
+impl TryFrom<c_int> for UserId {
+	type Error = InvalidUserId;
+
+	fn try_from(raw: c_int) -> Result<Self, Self::Error> {
+		Self::from_raw(raw)
+	}
+}
+
+impl From<UserId> for NonZero<u16> {
+	fn from(user_id: UserId) -> Self {
+		user_id.0
+	}
+}
+
+impl From<UserId> for c_int {
+	fn from(user_id: UserId) -> Self {
+		user_id.to_raw()
+	}
+}
+
+impl From<UserId> for u16 {
+	fn from(user_id: UserId) -> Self {
+		user_id.get()
+	}
+}

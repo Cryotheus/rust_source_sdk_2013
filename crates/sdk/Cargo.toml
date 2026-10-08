@@ -1,0 +1,45 @@
+﻿[package]
+name = "source_sdk_2013"
+version.workspace = true
+edition = "2024"
+rust-version = "1.99.0"
+
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "Higher-level bindings for the Source SDK."
+categories = ["api-bindings"]
+keywords = ["gamedev", "source-engine", "valve"]
+
+[features]
+## Team Fortress 2's game-specific wrappers, in the `tf2` module.
+tf2 = ["sdk_raw/tf2"]
+
+## Gives plugin-chosen wearables and weapon attributes again whenever TF2
+## rebuilds a player's loadout, in the `tf2::loadout` module.
+tf2_loadout = ["tf2"]
+
+## Doc-hidden mock helpers for tests of this crate and of crates built on it.
+_test-support = ["sdk_raw/_test-support"]
+
+[dependencies]
+bitflags.workspace = true
+glam = { version = "0.33.10", features = [] }
+source_sdk_2013_declmacros = { path = "../sdk_declmacros", version = "0.1.0-alpha.7" }
+sys = { path = "../sdk_sys", version = "0.1.0-alpha.7", package = "source_sdk_2013_sys" }
+sdk_raw = { path = "../sdk_raw", version = "0.1.0-alpha.7", package = "source_sdk_2013_raw" }
+thiserror.workspace = true
+
+[dev-dependencies]
+sdk_raw = { path = "../sdk_raw", version = "0.1.0-alpha.7", package = "source_sdk_2013_raw", features = ["_test-support"] }
+# Gives this crate's own integration tests the `_test-support` helpers.
+source_sdk_2013 = { path = ".", features = ["_test-support"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+	"-Zunstable-options",
+	"--generate-link-to-definition",
+	"--generate-macro-expansion",
+]
