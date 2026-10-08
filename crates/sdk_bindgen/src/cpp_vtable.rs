@@ -1,0 +1,2763 @@
+//! C++ record metadata and synthetic vtable probes.
+//!
+//! Bindgen deliberately leaves several C++ vtables opaque, most notably when
+//! inheritance or a virtual destructor is involved.  This module collects the
+//! small amount of libclang metadata needed to describe those tables without
+//! asking bindgen to emit callable C++ methods.
+//!
+//! Records are keyed by their qualified C++ name. Class template
+//! specializations include their template arguments in that key, so
+//! `CEntityOutputTemplate<class Vector, FIELD_VECTOR>` and the primary
+//! `CEntityOutputTemplate` pattern are distinct records. Anything whose primary
+//! vtable cannot be derived faithfully (template-dependent layouts, several
+//! virtual bases, covariant overriders) is reported as
+//! [`VtableModel::Unsupported`] rather than guessed.
+#![allow(dead_code, non_upper_case_globals)]
+
+#[cfg(test)]
+#[path = "tests/cpp_vtable.rs"]
+mod tests;
+
+use clang_sys::*;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{CStr, CString};
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+use std::ptr::{null_mut, slice_from_raw_parts};
+use std::sync::{Arc, OnceLock};
+
+/// [`RecordCallTraits`] of records, keyed by [`RecordValue::canonical_spelling`].
+pub(crate) type RecordCallTraitIndex = BTreeMap<String, RecordCallTraits>;
+
+/// Names the constants [`query_record_call_traits`] evaluates.
+const CALL_TRAITS_PREFIX: &str = "__crys_record_call_traits_";
+
+/// Computes the bits and size which make up a [`RecordCallTraits`].
+///
+/// Access control does not affect the ABI. The generator parses with it
+/// disabled, so private special members count as they should.
+///
+/// `__has_trivial_copy` is deprecated, but it is the only trait which judges
+/// the copy constructor alone: Clang's `__is_trivially_constructible` also
+/// requires a trivial destructor.
+const CALL_TRAITS_TEMPLATE: &str = r#"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-builtins"
+template <class __crys_T>
+struct __crys_record_call_traits {
+	static constexpr unsigned long long bits =
+		(__is_constructible(__crys_T, const __crys_T &) ? 1ull : 0ull) |
+		(__has_trivial_copy(__crys_T) ? 2ull : 0ull) |
+		(__is_constructible(__crys_T, __crys_T &&) ? 4ull : 0ull) |
+		(__is_trivially_constructible(__crys_T, __crys_T &&) ? 8ull : 0ull) |
+		(__is_trivially_destructible(__crys_T) ? 16ull : 0ull);
+	static constexpr unsigned long long size = sizeof(__crys_T);
+};
+#pragma clang diagnostic pop
+"#;
+
+/// A direct base class declaration.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct BaseRecord {
+	/// Record key of the base, including template arguments for a class
+	/// template specialization. For a dependent base, the type spelling.
+	pub qualified_name: String,
+	pub type_spelling: String,
+	pub is_virtual: bool,
+	pub target: BaseTarget,
+}
+
+/// What a base class specifier refers to.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum BaseTarget {
+	/// A record definition collected under [`BaseRecord::qualified_name`].
+	Record,
+
+	/// A class template specialization. An explicit specialization is
+	/// collected under [`BaseRecord::qualified_name`]; an implicit
+	/// instantiation is only described by its template or partial
+	/// specialization, collected under `pattern`.
+	Specialization {
+		pattern: String,
+		arguments: Vec<Option<BaseRecord>>,
+	},
+
+	/// A template parameter, or a specialization which depends on one.
+	Dependent,
+}
+
+#[derive(Default)]
+struct CallTraitQueries {
+	values: BTreeMap<String, u64>,
+	error: Option<CppVtableError>,
+}
+
+struct Collector {
+	records: BTreeMap<String, Record>,
+	typedef_named_anonymous_records: BTreeSet<String>,
+	error: Option<CppVtableError>,
+	source_root: Option<SourceRootFilter>,
+}
+
+impl Collector {
+	fn new(source_root: Option<&Path>) -> Self {
+		Self {
+			records: BTreeMap::new(),
+			typedef_named_anonymous_records: BTreeSet::new(),
+			error: None,
+			source_root: source_root.map(SourceRootFilter::new),
+		}
+	}
+
+	fn includes_source_path(&mut self, source_path: Option<&Path>) -> bool {
+		match &mut self.source_root {
+			None => true,
+			Some(filter) => source_path.is_some_and(|path| filter.includes(path)),
+		}
+	}
+}
+
+/// The C++ ABI rules which affect virtual destructor slots and how virtual
+/// member functions pass and return classes by value.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum CppAbi {
+	/// The Itanium C++ ABI used by GCC and Clang on x86-64 Linux.
+	Itanium,
+
+	/// The Itanium C++ ABI used by GCC and Clang on 32-bit x86 Linux.
+	///
+	/// Vtables match [`Self::Itanium`]. Only class results differ: the C
+	/// calling convention already returns every struct through a hidden
+	/// pointer, which the callee pops, exactly as the C++ ABI does.
+	ItaniumX86,
+
+	/// The Microsoft C++ ABI used by 64-bit MSVC-compatible Windows targets.
+	///
+	/// The x86-64 Windows calling convention is uniform, so ordinary function
+	/// pointer aliases model virtual slots, once classes passed or returned by
+	/// value are lowered to the pointers the C++ ABI actually passes.
+	Msvc,
+
+	/// The Microsoft C++ ABI used by 32-bit x86 MSVC-compatible targets.
+	///
+	/// Virtual member functions use `__thiscall` on this target. Keeping this
+	/// distinct from [`Self::Msvc`] prevents silently generating cdecl slots.
+	MsvcX86,
+}
+
+impl CppAbi {
+	const fn is_microsoft(self) -> bool {
+		matches!(self, Self::Msvc | Self::MsvcX86)
+	}
+
+	/// Whether a by-value argument of a class with `traits` is passed as the
+	/// address of a temporary copy the caller made, where a C struct of the
+	/// same layout would be passed directly.
+	///
+	/// The callee may modify that temporary. Under the Microsoft ABI it also
+	/// destroys it, under the Itanium ABI the caller does.
+	pub(crate) fn passes_record_indirectly(self, traits: RecordCallTraits) -> bool {
+		match self {
+			Self::Itanium | Self::ItaniumX86 => !traits.itanium_passes_as_c_struct(),
+			Self::Msvc => !traits.msvc_x64_passes_as_c_struct(),
+
+			// The caller constructs such an argument directly in its outgoing
+			// argument area, which is where a C struct's bytes would be copied.
+			Self::MsvcX86 => false,
+		}
+	}
+
+	/// How a virtual member function returns a class with `traits` by value.
+	pub(crate) fn record_return(self, traits: RecordCallTraits) -> RecordReturn {
+		match self {
+			Self::Itanium if !traits.itanium_passes_as_c_struct() => RecordReturn::BeforeThis,
+			Self::Itanium | Self::ItaniumX86 => RecordReturn::Direct,
+
+			// Every class, however trivial, is returned from an instance method
+			// through a result pointer which follows `this`.
+			Self::Msvc | Self::MsvcX86 => RecordReturn::AfterThis,
+		}
+	}
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CppVtableError {
+	#[error("could not load libclang: {0}")]
+	LoadLibclang(String),
+
+	#[error("{context} contains an interior NUL byte")]
+	InteriorNul { context: String },
+
+	#[error("libclang failed to parse {path:?} (CXErrorCode {code})")]
+	ParseTranslationUnit { path: PathBuf, code: CXErrorCode },
+
+	#[error("libclang rejected {path:?}:\n{diagnostics}")]
+	Diagnostics { path: PathBuf, diagnostics: String },
+
+	#[error("libclang traversal panicked: {0}")]
+	TraversalPanic(String),
+
+	#[error("libclang could not evaluate the by-value call trait query {query:?}")]
+	CallTraitEvaluation { query: String },
+
+	#[error("no call traits were queried for {record:?}, which a vtable slot passes by value")]
+	MissingCallTraits { record: String },
+
+	#[error("duplicate complete C++ record definition for {0:?}")]
+	DuplicateRecord(String),
+
+	#[error("missing complete C++ record definition for {0:?}")]
+	MissingRecord(String),
+
+	#[error("the vtable of {record:?} cannot be modeled: {reason}")]
+	Unsupported { record: String, reason: String },
+
+	#[error("inheritance cycle while computing the vtable for {0:?}")]
+	InheritanceCycle(String),
+
+	#[error("virtual method {method:?} on {record:?} overrides no slot in its primary base")]
+	MissingOverrideSlot { record: String, method: String },
+
+	#[error(
+		"virtual method {method:?} on {record:?} ambiguously overrides {count} primary-base slots"
+	)]
+	AmbiguousOverrideSlots {
+		record: String,
+		method: String,
+		count: usize,
+	},
+}
+
+/// Borrowed AST cursor. It is only valid while its translation unit is alive.
+///
+/// The wrapper does not encode that lifetime, so libclang queries remain
+/// `unsafe` and must be made before the owning [`TranslationUnit`] is dropped.
+#[derive(Clone, Copy)]
+struct Cursor(CXCursor);
+
+impl Cursor {
+	unsafe fn collect_base_type(base_type: Type, is_virtual: bool) -> BaseRecord {
+		let canonical_type = unsafe { base_type.canonical() };
+		let type_spelling = unsafe { base_type.spelling() };
+
+		// Inside a template pattern a base may be a template parameter or a
+		// specialization that depends on one. Neither names a record yet.
+		let mut declaration = unsafe { canonical_type.declaration() };
+
+		if canonical_type.0.kind != CXType_Record || unsafe { declaration.is_null() } {
+			return BaseRecord {
+				qualified_name: type_spelling.clone(),
+				type_spelling,
+				is_virtual,
+				target: BaseTarget::Dependent,
+			};
+		}
+
+		let definition = Self(unsafe { clang_getCursorDefinition(declaration.0) });
+		if !unsafe { definition.is_null() } {
+			declaration = definition;
+		}
+
+		let target = if unsafe { declaration.is_template_specialization() } {
+			BaseTarget::Specialization {
+				pattern: unsafe { declaration.specialized_template().qualified_name() },
+				arguments: (0..unsafe { clang_Type_getNumTemplateArguments(canonical_type.0) }
+					.max(0) as u32)
+					.map(|index| {
+						let argument = Type(unsafe {
+							clang_Type_getTemplateArgumentAsType(canonical_type.0, index)
+						});
+						(argument.0.kind != CXType_Invalid)
+							.then(|| unsafe { Self::collect_base_type(argument, false) })
+					})
+					.collect(),
+			}
+		} else {
+			BaseTarget::Record
+		};
+
+		BaseRecord {
+			qualified_name: unsafe { declaration.qualified_name() },
+			type_spelling,
+			is_virtual,
+			target,
+		}
+	}
+
+	unsafe fn collect_base(self) -> BaseRecord {
+		let base_type = unsafe { self.cursor_type() };
+		let is_virtual = unsafe { clang_isVirtualBase(self.0) != 0 };
+		unsafe { Self::collect_base_type(base_type, is_virtual) }
+	}
+
+	unsafe fn collect_record(
+		self,
+		source_path: Option<PathBuf>,
+	) -> Result<Option<Record>, CppVtableError> {
+		let name = unsafe { self.spelling() };
+		if name.is_empty() {
+			return Ok(None);
+		}
+
+		let qualified_name = unsafe { self.qualified_name() };
+		let mut children = RecordChildren {
+			collect_nonvirtual: unsafe {
+				matches!(
+					self.kind(),
+					CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization
+				)
+			},
+			..RecordChildren::default()
+		};
+		unsafe {
+			clang_visitChildren(
+				self.0,
+				collect_record_child_visitor,
+				(&raw mut children).cast(),
+			)
+		};
+		if let Some(error) = children.error.take() {
+			return Err(error);
+		}
+
+		Ok(Some(Record {
+			usr: unsafe { self.usr() },
+			name,
+			qualified_name,
+			namespaces: unsafe { self.namespaces() },
+			source_path,
+			template: unsafe { self.template_role(&children) },
+			bases: children.bases,
+			virtual_methods: children.virtual_methods,
+			nonvirtual_methods: children.nonvirtual_methods,
+			member_names: children.member_names,
+			template_parameters: children.template_parameters,
+		}))
+	}
+
+	unsafe fn collect_virtual_method(
+		self,
+		kind: VirtualMethodKind,
+	) -> Result<VirtualMethod, CppVtableError> {
+		let name = unsafe { self.spelling() };
+		let parent_name = unsafe { self.semantic_parent().qualified_name() };
+		let qualified_name = if parent_name.is_empty() {
+			name.clone()
+		} else {
+			format!("{parent_name}::{name}")
+		};
+		let method_type = unsafe { self.cursor_type() };
+		let canonical_method_type = unsafe { method_type.canonical() };
+		let argument_count = unsafe { clang_Cursor_getNumArguments(self.0) };
+		let mut parameters = Vec::with_capacity(argument_count.max(0) as usize);
+		for index in 0..argument_count.max(0) as u32 {
+			let argument = Self(unsafe { clang_Cursor_getArgument(self.0, index) });
+			let argument_type = unsafe { argument.cursor_type() };
+			let type_spelling = unsafe { argument_type.globally_qualified_spelling() };
+			parameters.push(Parameter {
+				name: unsafe { argument.spelling() },
+				canonical_type: unsafe {
+					Type(clang_getArgType(canonical_method_type.0, index)).spelling()
+				},
+				record: unsafe { argument_type.by_value_record(&type_spelling) },
+				type_spelling,
+			});
+		}
+
+		let mut overridden_cursors = null_mut();
+		let mut overridden_count = 0;
+		unsafe {
+			clang_getOverriddenCursors(
+				self.0,
+				&raw mut overridden_cursors,
+				&raw mut overridden_count,
+			);
+		}
+		let mut overrides = Vec::with_capacity(overridden_count as usize);
+		if overridden_count != 0 && !overridden_cursors.is_null() {
+			let cursors =
+				unsafe { &*slice_from_raw_parts(overridden_cursors, overridden_count as usize) };
+			for overridden in cursors {
+				overrides.push(unsafe { Self(*overridden).method_reference() });
+			}
+		}
+		if !overridden_cursors.is_null() {
+			unsafe { clang_disposeOverriddenCursors(overridden_cursors) };
+		}
+
+		let (result_type, canonical_result_type, result_record) =
+			if kind == VirtualMethodKind::Destructor {
+				("void".to_owned(), "void".to_owned(), None)
+			} else {
+				let result = Type(unsafe { clang_getCursorResultType(self.0) });
+				let spelling = unsafe { result.globally_qualified_spelling() };
+				unsafe {
+					(
+						spelling.clone(),
+						result.canonical().spelling(),
+						result.by_value_record(&spelling),
+					)
+				}
+			};
+		// libclang's clang_isVolatileQualifiedType does not expose the cv bits
+		// stored inside a FunctionProtoType. Its canonical spelling does. Remove
+		// occurrences belonging to the result and parameters, leaving only the
+		// member-function qualifier (also handles nested function-pointer types).
+		let volatile_tokens = |spelling: &str| {
+			spelling
+				.split(|character: char| !is_cpp_identifier_character(character))
+				.filter(|token| *token == "volatile")
+				.count()
+		};
+		let nested_volatile = volatile_tokens(&canonical_result_type)
+			+ parameters
+				.iter()
+				.map(|parameter| volatile_tokens(&parameter.canonical_type))
+				.sum::<usize>();
+		let is_volatile =
+			volatile_tokens(&unsafe { canonical_method_type.spelling() }) > nested_volatile;
+
+		Ok(VirtualMethod {
+			usr: unsafe { self.usr() },
+			name,
+			qualified_name,
+			display_name: unsafe { self.display_name() },
+			kind,
+			declaration_index: 0,
+			is_const: kind == VirtualMethodKind::Method
+				&& unsafe { clang_CXXMethod_isConst(self.0) != 0 },
+			is_volatile,
+			ref_qualifier: unsafe { clang_Type_getCXXRefQualifier(method_type.0) },
+			result_type,
+			canonical_result_type,
+			result_record,
+			parameters,
+			is_variadic: unsafe { clang_isFunctionTypeVariadic(method_type.0) != 0 },
+			overrides,
+		})
+	}
+
+	unsafe fn cursor_type(self) -> Type {
+		Type(unsafe { clang_getCursorType(self.0) })
+	}
+
+	unsafe fn display_name(self) -> String {
+		unsafe { cx_string(clang_getCursorDisplayName(self.0)) }
+	}
+
+	/// The value of this integer constant expression or variable initializer.
+	unsafe fn evaluate_unsigned(self) -> Option<u64> {
+		let result = unsafe { clang_Cursor_Evaluate(self.0) };
+
+		if result.is_null() {
+			return None;
+		}
+
+		let value = (unsafe { clang_EvalResult_getKind(result) } == CXEval_Int)
+			.then(|| unsafe { clang_EvalResult_getAsUnsigned(result) } as u64);
+
+		unsafe { clang_EvalResult_dispose(result) };
+
+		value
+	}
+
+	/// Whether a class template or partial specialization encloses this cursor.
+	unsafe fn has_dependent_context(self) -> bool {
+		let mut current = unsafe { self.semantic_parent() };
+
+		while !unsafe { current.is_null() } {
+			match unsafe { current.kind() } {
+				CXCursor_TranslationUnit => return false,
+
+				CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization => {
+					return true;
+				}
+
+				_ => {}
+			}
+
+			current = unsafe { current.semantic_parent() };
+		}
+
+		false
+	}
+
+	unsafe fn is_anonymous(self) -> bool {
+		unsafe { clang_Cursor_isAnonymous(self.0) != 0 }
+	}
+
+	unsafe fn is_definition(self) -> bool {
+		unsafe { clang_isCursorDefinition(self.0) != 0 }
+	}
+
+	unsafe fn is_null(self) -> bool {
+		unsafe { clang_Cursor_isNull(self.0) != 0 }
+	}
+
+	/// Whether this record is a class template specialization (explicit, or
+	/// the instantiation named by a base specifier), or a member class of one.
+	unsafe fn is_template_specialization(self) -> bool {
+		unsafe {
+			matches!(
+				self.kind(),
+				CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
+			) && !self.specialized_template().is_null()
+		}
+	}
+
+	unsafe fn is_virtual_method(self) -> bool {
+		unsafe { clang_CXXMethod_isVirtual(self.0) != 0 }
+	}
+
+	unsafe fn kind(self) -> CXCursorKind {
+		unsafe { clang_getCursorKind(self.0) }
+	}
+
+	unsafe fn leading_tokens(self, count: usize) -> Vec<String> {
+		let translation_unit = unsafe { clang_Cursor_getTranslationUnit(self.0) };
+		let extent = unsafe { clang_getCursorExtent(self.0) };
+		let mut tokens = null_mut();
+		let mut token_count = 0;
+
+		unsafe {
+			clang_tokenize(
+				translation_unit,
+				extent,
+				&raw mut tokens,
+				&raw mut token_count,
+			)
+		};
+
+		if tokens.is_null() {
+			return Vec::new();
+		}
+
+		let spellings = unsafe { &*slice_from_raw_parts(tokens, token_count as usize) }
+			.iter()
+			.take(count)
+			.map(|token| unsafe { cx_string(clang_getTokenSpelling(translation_unit, *token)) })
+			.collect();
+
+		unsafe { clang_disposeTokens(translation_unit, tokens, token_count) };
+
+		spellings
+	}
+
+	unsafe fn method_reference(self) -> MethodReference {
+		let name = unsafe { self.spelling() };
+		let parent = unsafe { self.semantic_parent().qualified_name() };
+		MethodReference {
+			usr: unsafe { self.usr() },
+			qualified_name: if parent.is_empty() {
+				name
+			} else {
+				format!("{parent}::{name}")
+			},
+			display_name: unsafe { self.display_name() },
+		}
+	}
+
+	unsafe fn namespaces(self) -> Vec<String> {
+		let mut namespaces = Vec::new();
+		let mut current = unsafe { self.semantic_parent() };
+		while !unsafe { current.is_null() } {
+			let kind = unsafe { current.kind() };
+			if kind == CXCursor_TranslationUnit {
+				break;
+			}
+			if kind == CXCursor_Namespace {
+				let spelling = unsafe { current.spelling() };
+				if !spelling.is_empty() {
+					namespaces.push(spelling);
+				}
+			}
+			current = unsafe { current.semantic_parent() };
+		}
+		namespaces.reverse();
+		namespaces
+	}
+
+	/// The record key: the `::`-joined scopes and name, where every class
+	/// template specialization keeps its template arguments.
+	unsafe fn qualified_name(self) -> String {
+		let mut parts = Vec::new();
+		let mut current = self;
+		while !unsafe { current.is_null() } {
+			if unsafe { current.kind() } == CXCursor_TranslationUnit {
+				break;
+			}
+
+			if let Some(segment) = unsafe { current.qualified_name_segment() } {
+				parts.push(segment);
+			}
+
+			current = unsafe { current.semantic_parent() };
+		}
+
+		parts.reverse();
+		parts.join("::")
+	}
+
+	unsafe fn qualified_name_segment(self) -> Option<String> {
+		let segment = match unsafe { self.kind() } {
+			CXCursor_Namespace | CXCursor_ClassTemplate => unsafe { self.spelling() },
+			CXCursor_ClassTemplatePartialSpecialization => unsafe { self.display_name() },
+
+			CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
+				if unsafe { self.is_template_specialization() } =>
+			unsafe { self.display_name() },
+
+			CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl => unsafe {
+				self.spelling()
+			},
+
+			_ => return None,
+		};
+
+		(!segment.is_empty()).then_some(segment)
+	}
+
+	/// A spelling of this type declaration that is valid at global scope.
+	unsafe fn qualified_type_declaration_name(self) -> String {
+		let name = unsafe { self.spelling() };
+		if name.is_empty() {
+			return String::new();
+		}
+
+		let mut parts = vec![name];
+		let mut current = unsafe { self.semantic_parent() };
+		while !unsafe { current.is_null() } {
+			let kind = unsafe { current.kind() };
+			if kind == CXCursor_TranslationUnit {
+				break;
+			}
+			let segment = match kind {
+				CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
+					if unsafe { current.is_template_specialization() } =>
+				unsafe { current.display_name() },
+
+				CXCursor_Namespace
+				| CXCursor_ClassDecl
+				| CXCursor_StructDecl
+				| CXCursor_UnionDecl
+				| CXCursor_ClassTemplate
+				| CXCursor_ClassTemplatePartialSpecialization => unsafe { current.spelling() },
+
+				_ => String::new(),
+			};
+			if !segment.is_empty() {
+				parts.push(segment);
+			}
+			current = unsafe { current.semantic_parent() };
+		}
+
+		parts.reverse();
+		parts.join("::")
+	}
+
+	unsafe fn semantic_parent(self) -> Self {
+		Self(unsafe { clang_getCursorSemanticParent(self.0) })
+	}
+
+	unsafe fn source_path(self) -> Option<PathBuf> {
+		let location = unsafe { clang_getCursorLocation(self.0) };
+		let mut file = null_mut();
+		unsafe {
+			clang_getSpellingLocation(location, &raw mut file, null_mut(), null_mut(), null_mut());
+		}
+		if file.is_null() {
+			return None;
+		}
+
+		let file_name = unsafe { cx_string(clang_getFileName(file)) };
+		(!file_name.is_empty()).then(|| PathBuf::from(file_name))
+	}
+
+	unsafe fn specialized_template(self) -> Self {
+		Self(unsafe { clang_getSpecializedCursorTemplate(self.0) })
+	}
+
+	unsafe fn spelling(self) -> String {
+		unsafe { cx_string(clang_getCursorSpelling(self.0)) }
+	}
+
+	unsafe fn template_role(self, children: &RecordChildren) -> TemplateRole {
+		if unsafe {
+			matches!(
+				self.kind(),
+				CXCursor_ClassTemplate | CXCursor_ClassTemplatePartialSpecialization
+			)
+		} {
+			return TemplateRole::Pattern;
+		}
+
+		if unsafe { self.has_dependent_context() } {
+			return TemplateRole::DependentMember;
+		}
+
+		if !unsafe { self.is_template_specialization() } {
+			return TemplateRole::None;
+		}
+
+		// libclang exposes the members of an explicit specialization, but none
+		// of an explicit instantiation (`template class X<int>;`), whose layout
+		// comes from its template. Only an empty body needs the tokens.
+		if children.has_members {
+			return TemplateRole::ExplicitSpecialization;
+		}
+
+		match unsafe { self.leading_tokens(2) }.as_slice() {
+			[template, angle] if template == "template" && angle == "<" => {
+				TemplateRole::ExplicitSpecialization
+			}
+
+			[template, key]
+				if template == "template"
+					&& matches!(key.as_str(), "class" | "struct" | "union") =>
+			{
+				TemplateRole::ExplicitInstantiation
+			}
+
+			_ => TemplateRole::UnclassifiedSpecialization,
+		}
+	}
+
+	unsafe fn usr(self) -> String {
+		unsafe { cx_string(clang_getCursorUSR(self.0)) }
+	}
+}
+
+/// RAII owner for libclang's translation-unit creation context.
+///
+/// An index groups parsing work and must remain alive for every translation
+/// unit created from it. [`ParsedTranslationUnit`] declares it after the
+/// [`TranslationUnit`], so the translation unit is disposed first and the
+/// index afterward.
+struct Index(CXIndex);
+
+impl Index {
+	unsafe fn new() -> Self {
+		Self(unsafe { clang_createIndex(0, 0) })
+	}
+}
+
+impl Drop for Index {
+	fn drop(&mut self) {
+		unsafe { clang_disposeIndex(self.0) };
+	}
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct MethodReference {
+	pub usr: String,
+	pub qualified_name: String,
+	pub display_name: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Parameter {
+	pub name: String,
+	pub type_spelling: String,
+	pub canonical_type: String,
+
+	/// The record this parameter takes by value, if any.
+	pub record: Option<RecordValue>,
+}
+
+/// A parsed translation unit and the index which created it.
+///
+/// Fields drop in declaration order, so the translation unit is disposed
+/// before its index.
+struct ParsedTranslationUnit {
+	unit: TranslationUnit,
+	_index: Index,
+}
+
+/// One complete C++ class, struct, class template, or partial specialization definition.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Record {
+	pub usr: String,
+	pub name: String,
+	pub qualified_name: String,
+	pub namespaces: Vec<String>,
+	pub source_path: Option<PathBuf>,
+	pub template: TemplateRole,
+	pub bases: Vec<BaseRecord>,
+	pub virtual_methods: Vec<VirtualMethod>,
+	/// Pattern methods may become virtual by overriding a dependent base even
+	/// when their declaration omits the `virtual` keyword.
+	pub nonvirtual_methods: Vec<VirtualMethod>,
+
+	/// Names of the record's own member declarations, in order of first
+	/// declaration. The Microsoft ABI groups new virtual overloads by it.
+	pub member_names: Vec<String>,
+	/// Positional template parameter names used to bind concrete direct bases.
+	pub template_parameters: Vec<String>,
+}
+
+/// The properties of a class which decide how the C++ ABIs pass it by value,
+/// as Clang evaluates them for the target.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct RecordCallTraits {
+	/// `const T &` selects a copy constructor which is not deleted.
+	pub copy_constructible: bool,
+
+	/// The copy constructor is trivial.
+	pub trivial_copy_constructor: bool,
+
+	/// `T &&` selects a move constructor, or else a copy constructor, which
+	/// is not deleted.
+	pub move_constructible: bool,
+
+	/// Constructing a `T` from `T &&` is trivial. Clang also requires a
+	/// trivial destructor for this, as for `std::is_trivially_constructible`.
+	pub trivially_move_constructible: bool,
+	pub trivially_destructible: bool,
+	pub size: u64,
+}
+
+impl RecordCallTraits {
+	/// Clang's `canPassInRegisters` under the Itanium ABI: every copy
+	/// constructor, move constructor, and destructor is trivial or deleted, and
+	/// some copy or move constructor is not deleted.
+	fn itanium_passes_as_c_struct(self) -> bool {
+		let copies = !self.copy_constructible || self.trivial_copy_constructor;
+		let moves = !self.move_constructible || self.trivially_move_constructible;
+
+		copies
+			&& moves
+			&& self.trivially_destructible
+			&& (self.copy_constructible || self.move_constructible)
+	}
+
+	/// Clang's `canPassInRegisters` under the Microsoft x64 ABI, which ignores
+	/// move constructors: a trivial copy constructor which is not deleted, and
+	/// either a trivial destructor or a size of at most one register.
+	fn msvc_x64_passes_as_c_struct(self) -> bool {
+		self.copy_constructible
+			&& self.trivial_copy_constructor
+			&& (self.trivially_destructible || self.size <= 8)
+	}
+}
+
+#[derive(Default)]
+struct RecordChildren {
+	bases: Vec<BaseRecord>,
+	virtual_methods: Vec<VirtualMethod>,
+	nonvirtual_methods: Vec<VirtualMethod>,
+	collect_nonvirtual: bool,
+	next_declaration_index: usize,
+	member_names: Vec<String>,
+	template_parameters: Vec<String>,
+	has_members: bool,
+	error: Option<CppVtableError>,
+}
+
+/// A collection of complete C++ record definitions, keyed by qualified name.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub(crate) struct RecordIndex {
+	records: BTreeMap<String, Record>,
+	typedef_named_anonymous_records: BTreeSet<String>,
+}
+
+impl RecordIndex {
+	fn guarded<T>(
+		active: &mut BTreeSet<String>,
+		qualified_name: &str,
+		compute: impl FnOnce(&mut BTreeSet<String>) -> Result<T, CppVtableError>,
+	) -> Result<T, CppVtableError> {
+		if !active.insert(qualified_name.to_owned()) {
+			return Err(CppVtableError::InheritanceCycle(qualified_name.to_owned()));
+		}
+
+		let result = compute(active);
+		active.remove(qualified_name);
+		result
+	}
+
+	fn base_slots(
+		&self,
+		base: &BaseRecord,
+		abi: CppAbi,
+		active: &mut BTreeSet<String>,
+	) -> Result<Slots, CppVtableError> {
+		match &base.target {
+			BaseTarget::Dependent => Ok(Slots::Unknown(
+				"it depends on template parameters".to_owned(),
+			)),
+
+			BaseTarget::Record => self.record_slots(&base.qualified_name, abi, active),
+
+			BaseTarget::Specialization { pattern, arguments } => match self
+				.records
+				.get(&base.qualified_name)
+				.map(|record| record.template)
+			{
+				Some(TemplateRole::ExplicitSpecialization) => {
+					self.record_slots(&base.qualified_name, abi, active)
+				}
+
+				Some(TemplateRole::UnclassifiedSpecialization) => {
+					self.record_slots(&base.qualified_name, abi, active)
+				}
+
+				_ => self.concrete_instantiation_slots(base, pattern, arguments, abi, active),
+			},
+		}
+	}
+
+	/// libclang exposes concrete specialization type arguments, but does not
+	/// visit implicit class-template members. Reuse a pattern only when its
+	/// virtual signatures are independent of those arguments; substitute each
+	/// direct parameter base with its concrete Clang type. Dependent signatures
+	/// and nested dependent base expressions remain explicitly unsupported.
+	fn concrete_instantiation_slots(
+		&self,
+		base: &BaseRecord,
+		pattern_name: &str,
+		arguments: &[Option<BaseRecord>],
+		abi: CppAbi,
+		active: &mut BTreeSet<String>,
+	) -> Result<Slots, CppVtableError> {
+		let Some(pattern) = self.records.get(pattern_name) else {
+			return self.instantiation_slots(pattern_name, abi, active);
+		};
+		if pattern.virtual_methods.is_empty()
+			&& !pattern
+				.bases
+				.iter()
+				.any(|base| matches!(base.target, BaseTarget::Dependent))
+		{
+			return self.instantiation_slots(pattern_name, abi, active);
+		}
+		if pattern.template_parameters.len() != arguments.len() {
+			return Ok(Slots::Unknown(format!(
+				"template arguments for `{}` are not fully exposed",
+				base.qualified_name
+			)));
+		}
+		for method in &pattern.virtual_methods {
+			if pattern.template_parameters.iter().any(|parameter| {
+				[
+					method.result_type.as_str(),
+					method.canonical_result_type.as_str(),
+				]
+				.into_iter()
+				.chain(
+					method
+						.parameters
+						.iter()
+						.flat_map(|p| [p.type_spelling.as_str(), p.canonical_type.as_str()]),
+				)
+				.any(|spelling| {
+					replace_unqualified_identifier(spelling, parameter, "__crys_dependent")
+						!= spelling
+				})
+			}) {
+				return Ok(Slots::Unknown(format!(
+					"template `{pattern_name}` has dependent virtual signatures"
+				)));
+			}
+		}
+		let mut concrete = pattern.clone();
+		concrete.qualified_name = base.qualified_name.clone();
+		concrete.template = TemplateRole::ExplicitInstantiation;
+		for inherited in &mut concrete.bases {
+			if matches!(inherited.target, BaseTarget::Dependent) {
+				let Some(index) = pattern
+					.template_parameters
+					.iter()
+					.position(|name| name == &inherited.type_spelling)
+				else {
+					return Ok(Slots::Unknown(format!(
+						"template `{pattern_name}` has a dependent base expression"
+					)));
+				};
+				let Some(argument) = &arguments[index] else {
+					return Ok(Slots::Unknown(format!(
+						"template `{pattern_name}` has a non-type base argument"
+					)));
+				};
+				let is_virtual = inherited.is_virtual;
+				*inherited = argument.clone();
+				inherited.is_virtual = is_virtual;
+			}
+		}
+		let mut inherited_methods = Vec::new();
+		for inherited in &concrete.bases {
+			match self.base_slots(inherited, abi, active)? {
+				Slots::Known(tables) => inherited_methods.extend(
+					tables
+						.primary
+						.into_iter()
+						.chain(tables.secondary)
+						.map(|slot| slot.method),
+				),
+
+				Slots::Unknown(reason) => return Ok(Slots::Unknown(reason)),
+			}
+		}
+		for method in &pattern.nonvirtual_methods {
+			if inherited_methods
+				.iter()
+				.any(|inherited| inherited.name == method.name)
+				&& pattern.template_parameters.iter().any(|parameter| {
+					[
+						method.canonical_result_type.as_str(),
+						method.result_type.as_str(),
+					]
+					.into_iter()
+					.chain(
+						method
+							.parameters
+							.iter()
+							.flat_map(|p| [p.canonical_type.as_str(), p.type_spelling.as_str()]),
+					)
+					.any(|spelling| {
+						replace_unqualified_identifier(spelling, parameter, "__crys_dependent")
+							!= spelling
+					})
+				}) {
+				return Ok(Slots::Unknown(format!(
+					"template `{pattern_name}` has a potentially virtual dependent signature"
+				)));
+			}
+			if inherited_methods
+				.iter()
+				.any(|inherited| same_method_signature(method, inherited))
+			{
+				concrete.virtual_methods.push(method.clone());
+			}
+		}
+		concrete
+			.virtual_methods
+			.sort_by_key(|method| method.declaration_index);
+		for method in &mut concrete.virtual_methods {
+			method.qualified_name = format!("{}::{}", concrete.qualified_name, method.name);
+		}
+		Self::guarded(active, &base.qualified_name, |active| {
+			self.derived_slots(&concrete, &concrete.bases, Some(&concrete), abi, active)
+		})
+	}
+
+	/// Combines the bases' primary vtables and applies `own` virtual methods.
+	///
+	/// The first nonvirtual polymorphic base supplies the primary address
+	/// point. Secondary slots are retained as override metadata: Itanium adds
+	/// their overriders to the primary table, while MSVC leaves them secondary.
+	fn derived_slots(
+		&self,
+		_record: &Record,
+		bases: &[BaseRecord],
+		own: Option<&Record>,
+		abi: CppAbi,
+		active: &mut BTreeSet<String>,
+	) -> Result<Slots, CppVtableError> {
+		const VIRTUAL_BASES: &str = "virtual base classes are not modeled";
+
+		let mut tables = VtableSet::default();
+		let mut has_primary = false;
+		let mut has_virtual_base = false;
+
+		for base in bases {
+			match self.base_slots(base, abi, active)? {
+				Slots::Unknown(reason) => {
+					return Ok(Slots::Unknown(format!(
+						"base `{}`: {reason}",
+						base.type_spelling
+					)));
+				}
+
+				// A virtual base without virtual functions adds no function slots,
+				// but it does change where the vtable pointers live.
+				Slots::Known(slots) if base.is_virtual => {
+					if !slots.primary.is_empty() {
+						return Ok(Slots::Unknown(VIRTUAL_BASES.to_owned()));
+					}
+
+					has_virtual_base = true;
+				}
+
+				Slots::Known(slots) if slots.primary.is_empty() => {}
+
+				Slots::Known(slots) => {
+					if has_primary {
+						tables.secondary.extend(slots.primary);
+					} else {
+						tables.primary = slots.primary;
+						has_primary = true;
+					}
+					tables.secondary.extend(slots.secondary);
+				}
+			}
+		}
+
+		if let Some(own) = own
+			&& let Some(reason) = apply_record_methods(&mut tables, own, abi)?
+		{
+			return Ok(Slots::Unknown(reason));
+		}
+
+		if has_virtual_base && !tables.primary.is_empty() {
+			return Ok(Slots::Unknown(VIRTUAL_BASES.to_owned()));
+		}
+
+		Ok(Slots::Known(tables))
+	}
+
+	/// Returns whether `qualified_name` declares or inherits any virtual slots.
+	///
+	/// This is ABI-independent. Records whose bases cannot be resolved report
+	/// an [`CppVtableError::Unsupported`] error.
+	pub(crate) fn has_virtual_slots(&self, qualified_name: &str) -> Result<bool, CppVtableError> {
+		match self.vtable_model(qualified_name, CppAbi::Itanium)? {
+			VtableModel::NotPolymorphic => Ok(false),
+			VtableModel::Modeled(_) => Ok(true),
+
+			VtableModel::Unsupported { reason } => Err(CppVtableError::Unsupported {
+				record: qualified_name.to_owned(),
+				reason,
+			}),
+		}
+	}
+
+	/// The slots of an implicit (or explicit) instantiation of `pattern_name`.
+	///
+	/// Signatures inside a template depend on its arguments, so only templates
+	/// without virtual functions of their own are modeled. Their instantiations
+	/// contribute exactly the slots of their non-dependent bases.
+	fn instantiation_slots(
+		&self,
+		pattern_name: &str,
+		abi: CppAbi,
+		active: &mut BTreeSet<String>,
+	) -> Result<Slots, CppVtableError> {
+		let Some(pattern) = self.records.get(pattern_name) else {
+			return Ok(Slots::Unknown(format!(
+				"the definition of template `{pattern_name}` was not collected"
+			)));
+		};
+
+		if !pattern.virtual_methods.is_empty() {
+			return Ok(Slots::Unknown(format!(
+				"template `{pattern_name}` declares virtual functions"
+			)));
+		}
+
+		Self::guarded(active, pattern_name, |active| {
+			self.derived_slots(pattern, &pattern.bases, None, abi, active)
+		})
+	}
+
+	pub(crate) fn record(&self, qualified_name: &str) -> Option<&Record> {
+		self.records.get(qualified_name)
+	}
+
+	fn record_slots(
+		&self,
+		qualified_name: &str,
+		abi: CppAbi,
+		active: &mut BTreeSet<String>,
+	) -> Result<Slots, CppVtableError> {
+		let Some(record) = self.records.get(qualified_name) else {
+			return Ok(Slots::Unknown(format!(
+				"the definition of `{qualified_name}` was not collected"
+			)));
+		};
+
+		match record.template {
+			TemplateRole::None | TemplateRole::ExplicitSpecialization => {}
+
+			// A template's own struct is generic, so it never gets a probe. It is
+			// still non-polymorphic when no instantiation can have a vtable.
+			TemplateRole::Pattern | TemplateRole::DependentMember => {
+				return Ok(
+					match self.instantiation_slots(qualified_name, abi, active)? {
+						Slots::Known(slots) if slots.primary.is_empty() => Slots::Known(slots),
+
+						Slots::Known(_) | Slots::Unknown(_) => Slots::Unknown(format!(
+							"`{qualified_name}` depends on template arguments"
+						)),
+					},
+				);
+			}
+
+			TemplateRole::ExplicitInstantiation | TemplateRole::UnclassifiedSpecialization => {
+				return Ok(Slots::Unknown(format!(
+					"libclang exposes no members of `{qualified_name}`"
+				)));
+			}
+		}
+
+		Self::guarded(active, qualified_name, |active| {
+			self.derived_slots(record, &record.bases, Some(record), abi, active)
+		})
+	}
+
+	pub(crate) fn records(&self) -> &BTreeMap<String, Record> {
+		&self.records
+	}
+
+	/// Typedef names of unnamed records anywhere in the translation unit,
+	/// such as `typedef union { ... } pthread_mutex_t;`.
+	pub(crate) fn typedef_named_anonymous_records(&self) -> &BTreeSet<String> {
+		&self.typedef_named_anonymous_records
+	}
+
+	/// Computes the primary vtable address-point layout for `qualified_name`.
+	///
+	/// A record without virtual functions has an empty layout.
+	pub(crate) fn vtable_layout(
+		&self,
+		qualified_name: &str,
+		abi: CppAbi,
+	) -> Result<VtableLayout, CppVtableError> {
+		match self.vtable_model(qualified_name, abi)? {
+			VtableModel::Modeled(layout) => Ok(layout),
+
+			VtableModel::NotPolymorphic => Ok(VtableLayout {
+				record: qualified_name.to_owned(),
+				abi,
+				slots: Vec::new(),
+			}),
+
+			VtableModel::Unsupported { reason } => Err(CppVtableError::Unsupported {
+				record: qualified_name.to_owned(),
+				reason,
+			}),
+		}
+	}
+
+	/// Computes the primary vtable address-point layout for `qualified_name`,
+	/// or explains why it cannot be derived.
+	pub(crate) fn vtable_model(
+		&self,
+		qualified_name: &str,
+		abi: CppAbi,
+	) -> Result<VtableModel, CppVtableError> {
+		if !self.records.contains_key(qualified_name) {
+			return Err(CppVtableError::MissingRecord(qualified_name.to_owned()));
+		}
+
+		let mut active = BTreeSet::new();
+
+		Ok(match self.record_slots(qualified_name, abi, &mut active)? {
+			Slots::Known(slots) if slots.primary.is_empty() => VtableModel::NotPolymorphic,
+
+			Slots::Known(slots) => VtableModel::Modeled(VtableLayout {
+				record: qualified_name.to_owned(),
+				abi,
+				slots: slots.primary,
+			}),
+
+			Slots::Unknown(reason) => VtableModel::Unsupported { reason },
+		})
+	}
+}
+
+/// How a virtual member function returns a class by value.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum RecordReturn {
+	/// Exactly as a C function returns a struct of the same layout.
+	Direct,
+
+	/// Through a hidden pointer to uninitialized storage which the caller
+	/// passes before `this`. The callee constructs the result there and
+	/// returns the same pointer.
+	BeforeThis,
+
+	/// As [`Self::BeforeThis`], but the hidden pointer follows `this`.
+	AfterThis,
+}
+
+/// A class, struct, or union which a virtual member function takes or returns
+/// by value.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct RecordValue {
+	/// The unqualified canonical type, spelled so it is valid at global scope.
+	/// It keys the record's [`RecordCallTraits`].
+	pub canonical_spelling: String,
+
+	/// The declared spelling without top-level cv-qualifiers, as a probe
+	/// spells a pointer to it.
+	pub unqualified_spelling: String,
+}
+
+/// Primary-vtable slots, or why they are unknown.
+enum Slots {
+	Known(VtableSet),
+	Unknown(String),
+}
+
+struct SourceRootFilter {
+	root_components: Vec<String>,
+	cache: BTreeMap<PathBuf, bool>,
+}
+
+impl SourceRootFilter {
+	fn new(source_root: &Path) -> Self {
+		Self {
+			root_components: comparable_path_components(source_root),
+			cache: BTreeMap::new(),
+		}
+	}
+
+	fn includes(&mut self, source_path: &Path) -> bool {
+		if let Some(included) = self.cache.get(source_path) {
+			return *included;
+		}
+
+		let source_components = comparable_path_components(source_path);
+		let included = source_components.len() >= self.root_components.len()
+			&& source_components[..self.root_components.len()] == self.root_components;
+		self.cache.insert(source_path.to_path_buf(), included);
+		included
+	}
+}
+
+/// How a record relates to C++ templates.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum TemplateRole {
+	/// An ordinary record, including a member of an explicit specialization.
+	None,
+
+	/// The definition of a class template or of a partial specialization.
+	Pattern,
+
+	/// A record nested in a [`Self::Pattern`]. Its layout depends on the
+	/// enclosing template's arguments.
+	DependentMember,
+
+	/// A full explicit specialization, `template <> class X<int> { ... };`.
+	ExplicitSpecialization,
+
+	/// An explicit instantiation, `template class X<int>;`. libclang exposes
+	/// no members for it; its template describes its layout.
+	ExplicitInstantiation,
+
+	/// A specialization without members whose kind is hidden by a macro.
+	UnclassifiedSpecialization,
+}
+
+/// RAII owner for one parsed libclang translation unit.
+///
+/// The handle owns the AST, diagnostics, and storage backing the cursors used
+/// during record collection. Dropping it after traversal releases that native
+/// state with `clang_disposeTranslationUnit` and prevents it from outliving
+/// the [`Index`] that created it.
+struct TranslationUnit(CXTranslationUnit);
+
+impl TranslationUnit {
+	unsafe fn cursor(&self) -> Cursor {
+		Cursor(unsafe { clang_getTranslationUnitCursor(self.0) })
+	}
+
+	unsafe fn error_diagnostics(&self) -> Vec<String> {
+		let count = unsafe { clang_getNumDiagnostics(self.0) };
+		let mut errors = Vec::new();
+		for index in 0..count {
+			let diagnostic = unsafe { clang_getDiagnostic(self.0, index) };
+			let severity = unsafe { clang_getDiagnosticSeverity(diagnostic) };
+			if severity >= CXDiagnostic_Error {
+				let formatted = unsafe {
+					clang_formatDiagnostic(diagnostic, clang_defaultDiagnosticDisplayOptions())
+				};
+				errors.push(unsafe { cx_string(formatted) });
+			}
+			unsafe { clang_disposeDiagnostic(diagnostic) };
+		}
+		errors
+	}
+}
+
+impl Drop for TranslationUnit {
+	fn drop(&mut self) {
+		unsafe { clang_disposeTranslationUnit(self.0) };
+	}
+}
+
+/// Borrowed C++ type. It has the same translation-unit lifetime as its cursor.
+#[derive(Clone, Copy)]
+struct Type(CXType);
+
+impl Type {
+	/// The record this type names, if it is a class, struct, or union rather
+	/// than a pointer, reference, or scalar. `spelling` is this type's own
+	/// globally qualified spelling.
+	unsafe fn by_value_record(self, spelling: &str) -> Option<RecordValue> {
+		let canonical = unsafe { self.canonical() };
+
+		if canonical.0.kind != CXType_Record {
+			return None;
+		}
+
+		// A record type prints fully qualified, so only the global scope
+		// operator is missing.
+		let canonical_spelling = unsafe { canonical.spelling() };
+
+		Some(RecordValue {
+			canonical_spelling: format!("::{}", strip_leading_cv(&canonical_spelling)),
+			unqualified_spelling: strip_leading_cv(spelling).to_owned(),
+		})
+	}
+
+	unsafe fn canonical(self) -> Self {
+		Self(unsafe { clang_getCanonicalType(self.0) })
+	}
+
+	unsafe fn collect_qualifications(
+		self,
+		replacements: &mut BTreeMap<String, String>,
+		visited: &mut BTreeSet<String>,
+	) {
+		let spelling = unsafe { self.spelling() };
+		let key = format!("{}:{spelling}", self.0.kind);
+		if !visited.insert(key) {
+			return;
+		}
+
+		let declaration = unsafe { self.declaration() };
+		if !unsafe { declaration.is_null() } {
+			let name = unsafe { declaration.spelling() };
+			let qualified_name = unsafe { declaration.qualified_type_declaration_name() };
+			if !name.is_empty() && !qualified_name.is_empty() {
+				replacements.insert(name, format!("::{qualified_name}"));
+			}
+		}
+
+		match self.0.kind {
+			CXType_Pointer
+			| CXType_BlockPointer
+			| CXType_LValueReference
+			| CXType_RValueReference
+			| CXType_MemberPointer
+			| CXType_ObjCObjectPointer => {
+				unsafe {
+					Self(clang_getPointeeType(self.0)).collect_qualifications(replacements, visited)
+				};
+			}
+
+			CXType_ConstantArray
+			| CXType_IncompleteArray
+			| CXType_VariableArray
+			| CXType_DependentSizedArray => {
+				unsafe {
+					Self(clang_getArrayElementType(self.0))
+						.collect_qualifications(replacements, visited)
+				};
+			}
+
+			CXType_FunctionNoProto | CXType_FunctionProto => {
+				unsafe {
+					Self(clang_getResultType(self.0)).collect_qualifications(replacements, visited)
+				};
+				let count = unsafe { clang_getNumArgTypes(self.0) };
+				for index in 0..count.max(0) as u32 {
+					unsafe {
+						Self(clang_getArgType(self.0, index))
+							.collect_qualifications(replacements, visited)
+					};
+				}
+			}
+
+			CXType_Elaborated => unsafe {
+				Self(clang_Type_getNamedType(self.0)).collect_qualifications(replacements, visited);
+			},
+
+			_ => {}
+		}
+
+		let template_argument_count = unsafe { clang_Type_getNumTemplateArguments(self.0) };
+		for index in 0..template_argument_count.max(0) as u32 {
+			let argument = unsafe { clang_Type_getTemplateArgumentAsType(self.0, index) };
+			if argument.kind != CXType_Invalid {
+				unsafe { Self(argument).collect_qualifications(replacements, visited) };
+			}
+		}
+	}
+
+	unsafe fn declaration(self) -> Cursor {
+		Cursor(unsafe { clang_getTypeDeclaration(self.0) })
+	}
+
+	unsafe fn globally_qualified_spelling(self) -> String {
+		let spelling = unsafe { self.spelling() };
+		let mut replacements = BTreeMap::new();
+		let mut visited = BTreeSet::new();
+		unsafe { self.collect_qualifications(&mut replacements, &mut visited) };
+
+		let mut qualified = spelling;
+		for (name, qualified_name) in replacements {
+			qualified = replace_unqualified_identifier(&qualified, &name, &qualified_name);
+		}
+		qualified
+	}
+
+	unsafe fn spelling(self) -> String {
+		unsafe { cx_string(clang_getTypeSpelling(self.0)) }
+	}
+}
+
+/// A virtual member function or virtual destructor directly declared by a record.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct VirtualMethod {
+	pub usr: String,
+	pub name: String,
+	pub qualified_name: String,
+	pub display_name: String,
+	pub kind: VirtualMethodKind,
+	/// Direct-child order, including ordinary methods of a template pattern.
+	pub declaration_index: usize,
+	pub is_const: bool,
+	pub is_volatile: bool,
+	pub ref_qualifier: CXRefQualifierKind,
+	pub result_type: String,
+
+	/// The canonical result type, which detects covariant overriders.
+	pub canonical_result_type: String,
+
+	/// The record this method returns by value, if any.
+	pub result_record: Option<RecordValue>,
+	pub parameters: Vec<Parameter>,
+	pub is_variadic: bool,
+	pub overrides: Vec<MethodReference>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum VirtualMethodKind {
+	Method,
+	Destructor,
+}
+
+/// The fully expanded address-point slots for one record and ABI.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct VtableLayout {
+	pub record: String,
+	pub abi: CppAbi,
+	pub slots: Vec<VtableSlot>,
+}
+
+impl VtableLayout {
+	/// Every record which a slot takes or returns by value.
+	pub(crate) fn by_value_records(&self) -> impl Iterator<Item = &RecordValue> {
+		self.slots
+			.iter()
+			.filter(|slot| slot.kind == VtableSlotKind::Method)
+			.flat_map(|slot| {
+				slot.method
+					.parameters
+					.iter()
+					.filter_map(|parameter| parameter.record.as_ref())
+					.chain(slot.method.result_record.as_ref())
+			})
+	}
+}
+
+/// Whether and how the primary vtable of one record can be described.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum VtableModel {
+	/// Neither the record nor any base declares a virtual function.
+	NotPolymorphic,
+
+	/// Every primary vtable slot, in ABI order.
+	Modeled(VtableLayout),
+
+	/// The record may have a vtable, but its layout cannot be derived
+	/// faithfully from the collected metadata.
+	Unsupported { reason: String },
+}
+
+/// Rendered C++ declarations that bindgen can consume as ordinary aliases and a struct.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct VtableProbe {
+	pub record: String,
+
+	/// Rust/C++ identifier stem corresponding to [`Self::record`].
+	pub stem: String,
+
+	/// C++ field identifiers in ABI slot order.
+	pub field_names: Vec<String>,
+	pub source: String,
+	pub layout: VtableLayout,
+}
+
+/// Secondary entries are tracked solely to resolve inherited override
+/// lineages. Generated probes describe the primary address point only.
+#[derive(Default)]
+struct VtableSet {
+	primary: Vec<VtableSlot>,
+	secondary: Vec<VtableSlot>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct VtableSlot {
+	pub kind: VtableSlotKind,
+	pub method: VirtualMethod,
+
+	/// Position of the introducing declaration among the same-named virtual
+	/// functions of the hierarchy, in declaration order. It names the slot
+	/// identically under every ABI, even where the slot orders differ.
+	pub overload_index: usize,
+	lineage: BTreeSet<String>,
+}
+
+impl VtableSlot {
+	fn new(kind: VtableSlotKind, method: VirtualMethod) -> Self {
+		let mut lineage = BTreeSet::from([method.usr.clone()]);
+		lineage.extend(
+			method
+				.overrides
+				.iter()
+				.map(|overridden| overridden.usr.clone()),
+		);
+
+		Self {
+			kind,
+			method,
+			overload_index: 0,
+			lineage,
+		}
+	}
+
+	fn method(method: VirtualMethod, overload_index: usize) -> Self {
+		let mut slot = Self::new(VtableSlotKind::Method, method);
+		slot.overload_index = overload_index;
+		slot
+	}
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum VtableSlotKind {
+	Method,
+	ItaniumCompleteDestructor,
+	ItaniumDeletingDestructor,
+	MsvcScalarDeletingDestructor,
+}
+
+/// Applies one record's own virtual functions to its primary base's slots.
+///
+/// Overriders replace their slot in place. New virtual functions are appended
+/// in declaration order under the Itanium ABI. The Microsoft ABI instead
+/// groups them by the first member declaration of their name and emits each
+/// group in reverse declaration order, which reorders overload sets.
+///
+/// Returns why the table cannot be modeled, if it cannot.
+fn apply_record_methods(
+	tables: &mut VtableSet,
+	record: &Record,
+	abi: CppAbi,
+) -> Result<Option<String>, CppVtableError> {
+	let mut record = record.clone();
+	if record.template == TemplateRole::ExplicitInstantiation {
+		// A pattern with a dependent base has no override cursors. All method
+		// types here are concrete and argument-independent. Recover the exact
+		// overrides from canonical parameter types in the instantiated bases.
+		for method in &mut record.virtual_methods {
+			for slot in tables.primary.iter().chain(&tables.secondary) {
+				if same_method_signature(method, &slot.method)
+					&& !method
+						.overrides
+						.iter()
+						.any(|reference| reference.usr == slot.method.usr)
+				{
+					method.overrides.push(MethodReference {
+						usr: slot.method.usr.clone(),
+						qualified_name: slot.method.qualified_name.clone(),
+						display_name: slot.method.display_name.clone(),
+					});
+				}
+			}
+		}
+	}
+	let slots = &mut tables.primary;
+	let mut introduced = Vec::new();
+
+	for (declaration_index, method) in record.virtual_methods.iter().enumerate() {
+		if method.kind == VirtualMethodKind::Destructor {
+			let destructor_slots = slots
+				.iter()
+				.enumerate()
+				.filter_map(|(index, slot)| {
+					(slot.method.kind == VirtualMethodKind::Destructor).then_some(index)
+				})
+				.collect::<Vec<_>>();
+
+			let secondary_destructor = tables
+				.secondary
+				.iter()
+				.any(|slot| slot.method.kind == VirtualMethodKind::Destructor);
+			if destructor_slots.is_empty() && (!abi.is_microsoft() || !secondary_destructor) {
+				introduced.push(declaration_index);
+			} else {
+				for index in destructor_slots {
+					replace_slot_method(&mut slots[index], method);
+				}
+			}
+			for slot in &mut tables.secondary {
+				if slot.method.kind == VirtualMethodKind::Destructor {
+					replace_slot_method(slot, method);
+				}
+			}
+
+			continue;
+		}
+
+		let overridden_usrs = method
+			.overrides
+			.iter()
+			.map(|overridden| overridden.usr.as_str())
+			.collect::<BTreeSet<_>>();
+		if overridden_usrs.is_empty() {
+			introduced.push(declaration_index);
+			continue;
+		}
+
+		let matching_slots = slots
+			.iter()
+			.enumerate()
+			.filter_map(|(index, slot)| {
+				(slot
+					.lineage
+					.iter()
+					.any(|usr| overridden_usrs.contains(usr.as_str()))
+					|| (same_method_signature(method, &slot.method)
+						&& method.overrides.iter().any(|reference| {
+							reference.qualified_name == slot.method.qualified_name
+						})))
+				.then_some(index)
+			})
+			.collect::<Vec<_>>();
+		let secondary_slots = tables
+			.secondary
+			.iter()
+			.enumerate()
+			.filter_map(|(index, slot)| {
+				(slot
+					.lineage
+					.iter()
+					.any(|usr| overridden_usrs.contains(usr.as_str()))
+					|| (same_method_signature(method, &slot.method)
+						&& method.overrides.iter().any(|reference| {
+							reference.qualified_name == slot.method.qualified_name
+						})))
+				.then_some(index)
+			})
+			.collect::<Vec<_>>();
+		for &index in &secondary_slots {
+			let slot = &mut tables.secondary[index];
+			if slot.method.canonical_result_type != method.canonical_result_type {
+				return Ok(Some(format!(
+					"`{}` overrides `{}` with a covariant return type",
+					method.qualified_name, slot.method.qualified_name
+				)));
+			}
+			replace_slot_method(slot, method);
+		}
+
+		match matching_slots.as_slice() {
+			[] => {
+				if !secondary_slots.is_empty() {
+					if !abi.is_microsoft() {
+						introduced.push(declaration_index);
+					}
+					continue;
+				}
+				return Err(CppVtableError::MissingOverrideSlot {
+					record: record.qualified_name.clone(),
+					method: method.display_name.clone(),
+				});
+			}
+
+			[index] => {
+				// A covariant overrider may need a return-adjusting slot of its
+				// own. Both ABIs decide that from base offsets, which libclang
+				// does not expose.
+				if slots[*index].method.canonical_result_type != method.canonical_result_type {
+					return Ok(Some(format!(
+						"`{}` overrides `{}` with a covariant return type",
+						method.qualified_name, slots[*index].method.qualified_name
+					)));
+				}
+
+				replace_slot_method(&mut slots[*index], method);
+			}
+
+			_ => {
+				return Err(CppVtableError::AmbiguousOverrideSlots {
+					record: record.qualified_name.clone(),
+					method: method.display_name.clone(),
+					count: matching_slots.len(),
+				});
+			}
+		}
+	}
+
+	let mut name_counts = BTreeMap::<String, usize>::new();
+
+	for slot in slots
+		.iter()
+		.filter(|slot| slot.kind == VtableSlotKind::Method)
+	{
+		*name_counts
+			.entry(sanitize_identifier_fragment(&slot.method.name))
+			.or_default() += 1;
+	}
+
+	let overload_indices = introduced
+		.iter()
+		.filter(|&&declaration_index| {
+			record.virtual_methods[declaration_index].kind == VirtualMethodKind::Method
+		})
+		.map(|&declaration_index| {
+			let count = name_counts
+				.entry(sanitize_identifier_fragment(
+					&record.virtual_methods[declaration_index].name,
+				))
+				.or_default();
+			let overload_index = *count;
+			*count += 1;
+			(declaration_index, overload_index)
+		})
+		.collect::<BTreeMap<_, _>>();
+
+	if abi.is_microsoft() {
+		introduced.sort_by_key(|&declaration_index| {
+			let name = &record.virtual_methods[declaration_index].name;
+			let group = record
+				.member_names
+				.iter()
+				.position(|member| member == name)
+				.unwrap_or(usize::MAX);
+			(group, Reverse(declaration_index))
+		});
+	}
+
+	for declaration_index in introduced {
+		let method = &record.virtual_methods[declaration_index];
+
+		match method.kind {
+			VirtualMethodKind::Destructor => slots.extend(new_destructor_slots(method, abi)),
+
+			VirtualMethodKind::Method => slots.push(VtableSlot::method(
+				method.clone(),
+				overload_indices[&declaration_index],
+			)),
+		}
+	}
+	if !abi.is_microsoft()
+		&& !slots
+			.iter()
+			.any(|slot| slot.method.kind == VirtualMethodKind::Destructor)
+		&& let Some(inherited) = tables
+			.secondary
+			.iter()
+			.find(|slot| slot.method.kind == VirtualMethodKind::Destructor)
+	{
+		// Clang appends an implicit destructor after the class's explicit
+		// methods when only a secondary base supplies a virtual destructor.
+		let mut destructor = inherited.method.clone();
+		destructor.usr = format!("{}#implicit-destructor", record.usr);
+		destructor.name = format!("~{}", record.name);
+		destructor.qualified_name = format!("{}::{}", record.qualified_name, destructor.name);
+		slots.extend(new_destructor_slots(&destructor, abi));
+	}
+
+	Ok(None)
+}
+
+extern "C" fn call_trait_query_visitor(
+	cursor: CXCursor,
+	_parent: CXCursor,
+	data: CXClientData,
+) -> CXChildVisitResult {
+	let Some(queries) = (unsafe { data.cast::<CallTraitQueries>().as_mut() }) else {
+		return CXChildVisit_Break;
+	};
+
+	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+		let cursor = Cursor(cursor);
+
+		if cursor.kind() != CXCursor_VarDecl {
+			return Ok(());
+		}
+
+		let name = cursor.spelling();
+
+		if !name.starts_with(CALL_TRAITS_PREFIX) {
+			return Ok(());
+		}
+
+		let Some(value) = cursor.evaluate_unsigned() else {
+			return Err(CppVtableError::CallTraitEvaluation { query: name });
+		};
+
+		queries.values.insert(name, value);
+
+		Ok(())
+	}));
+
+	match result {
+		Ok(Ok(())) => CXChildVisit_Continue,
+
+		Ok(Err(error)) => {
+			queries.error = Some(error);
+			CXChildVisit_Break
+		}
+
+		Err(payload) => {
+			queries.error = Some(CppVtableError::TraversalPanic(panic_message(payload)));
+			CXChildVisit_Break
+		}
+	}
+}
+
+extern "C" fn collect_record_child_visitor(
+	cursor: CXCursor,
+	_parent: CXCursor,
+	data: CXClientData,
+) -> CXChildVisitResult {
+	let Some(children) = (unsafe { data.cast::<RecordChildren>().as_mut() }) else {
+		return CXChildVisit_Break;
+	};
+
+	if children.error.is_some() {
+		return CXChildVisit_Break;
+	}
+
+	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+		let cursor = Cursor(cursor);
+		let kind = cursor.kind();
+		let declaration_index = children.next_declaration_index;
+		children.next_declaration_index += 1;
+		let method = |kind| -> Result<VirtualMethod, CppVtableError> {
+			let mut method = cursor.collect_virtual_method(kind)?;
+			method.declaration_index = declaration_index;
+			Ok(method)
+		};
+
+		match kind {
+			CXCursor_TemplateTypeParameter
+			| CXCursor_NonTypeTemplateParameter
+			| CXCursor_TemplateTemplateParameter => children.template_parameters.push(cursor.spelling()),
+
+			CXCursor_CXXBaseSpecifier => {
+				children.has_members = true;
+				children.bases.push(cursor.collect_base());
+			}
+
+			CXCursor_CXXMethod if cursor.is_virtual_method() => {
+				children
+					.virtual_methods
+					.push(method(VirtualMethodKind::Method)?);
+			}
+
+			CXCursor_CXXMethod
+				if children.collect_nonvirtual && clang_CXXMethod_isStatic(cursor.0) == 0 =>
+			{
+				children
+					.nonvirtual_methods
+					.push(method(VirtualMethodKind::Method)?);
+			}
+
+			CXCursor_Destructor if cursor.is_virtual_method() => {
+				children
+					.virtual_methods
+					.push(method(VirtualMethodKind::Destructor)?);
+			}
+
+			CXCursor_Destructor if children.collect_nonvirtual => children
+				.nonvirtual_methods
+				.push(method(VirtualMethodKind::Destructor)?),
+
+			_ => {}
+		}
+
+		if is_named_member_kind(kind) {
+			children.has_members = true;
+
+			if !cursor.is_anonymous() {
+				let name = cursor.spelling();
+
+				if !name.is_empty() && !children.member_names.contains(&name) {
+					children.member_names.push(name);
+				}
+			}
+		}
+
+		Ok::<_, CppVtableError>(())
+	}));
+
+	match result {
+		Ok(Ok(())) => CXChildVisit_Continue,
+
+		Ok(Err(error)) => {
+			children.error = Some(error);
+			CXChildVisit_Break
+		}
+
+		Err(payload) => {
+			children.error = Some(CppVtableError::TraversalPanic(panic_message(payload)));
+			CXChildVisit_Break
+		}
+	}
+}
+
+extern "C" fn collect_record_visitor(
+	cursor: CXCursor,
+	_parent: CXCursor,
+	data: CXClientData,
+) -> CXChildVisitResult {
+	let Some(collector) = (unsafe { data.cast::<Collector>().as_mut() }) else {
+		return CXChildVisit_Break;
+	};
+
+	if collector.error.is_some() {
+		return CXChildVisit_Break;
+	}
+
+	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+		let cursor = Cursor(cursor);
+
+		// Clang's USR marks an unnamed record named by a typedef, for example
+		// `c:@UA@pthread_mutex_t`, whichever header declares it.
+		if matches!(
+			cursor.kind(),
+			CXCursor_ClassDecl | CXCursor_StructDecl | CXCursor_UnionDecl
+		) && cursor.is_definition()
+		{
+			let usr = cursor.usr();
+			let name = cursor.spelling();
+
+			if ["@SA@", "@UA@"]
+				.iter()
+				.any(|marker| usr.ends_with(&format!("{marker}{name}")))
+			{
+				collector.typedef_named_anonymous_records.insert(name);
+			}
+		}
+
+		let is_record = matches!(
+			cursor.kind(),
+			CXCursor_ClassDecl
+				| CXCursor_StructDecl
+				| CXCursor_ClassTemplate
+				| CXCursor_ClassTemplatePartialSpecialization
+		);
+
+		// Anonymous records cannot be named by a probe, and bindgen names them
+		// `__bindgen_ty_N`, so they never correspond to a generated vtable.
+		if is_record && cursor.is_definition() && !cursor.is_anonymous() {
+			let source_path = cursor.source_path();
+			if !collector.includes_source_path(source_path.as_deref()) {
+				return Ok(());
+			}
+
+			let record = cursor.collect_record(source_path)?;
+			if let Some(record) = record {
+				if let Some(existing) = collector.records.get(&record.qualified_name) {
+					// A definition can be reached through more than one AST path. Its
+					// USR remains stable; distinct definitions which merely collapse to
+					// the same display name must still be diagnosed when they affect a
+					// vtable. Repeated layout-only helper names are harmless because this
+					// index deliberately does not model data members.
+					let both_layout_only = existing.bases.is_empty()
+						&& existing.virtual_methods.is_empty()
+						&& record.bases.is_empty()
+						&& record.virtual_methods.is_empty();
+					if !both_layout_only
+						&& (existing.usr != record.usr
+							|| existing.bases != record.bases
+							|| existing.virtual_methods != record.virtual_methods)
+					{
+						return Err(CppVtableError::DuplicateRecord(record.qualified_name));
+					}
+				} else {
+					collector
+						.records
+						.insert(record.qualified_name.clone(), record);
+				}
+			}
+		}
+
+		Ok::<_, CppVtableError>(())
+	}));
+
+	match result {
+		Ok(Ok(())) => CXChildVisit_Recurse,
+
+		Ok(Err(error)) => {
+			collector.error = Some(error);
+			CXChildVisit_Break
+		}
+
+		Err(payload) => {
+			collector.error = Some(CppVtableError::TraversalPanic(panic_message(payload)));
+			CXChildVisit_Break
+		}
+	}
+}
+
+/// Parse an unsaved C++ source file and collect its complete record definitions.
+///
+/// `clang_args` are passed directly to libclang. Callers should include their
+/// language and target arguments (for example `-x`, `c++`, and `-std=c++17`).
+pub(crate) fn collect_records(
+	file_name: impl AsRef<Path>,
+	contents: &str,
+	clang_args: &[String],
+) -> Result<RecordIndex, CppVtableError> {
+	collect_records_with_source_root(file_name.as_ref(), contents, clang_args, None)
+}
+
+/// Parse an unsaved C++ source file and collect complete record definitions
+/// whose definition locations are beneath `source_root`.
+///
+/// This is the production-facing variant: compiler and standard-library
+/// headers may expose several implementation records with the same apparent
+/// qualified name, while only records owned by the source SDK are candidates
+/// for generated vtables.
+pub(crate) fn collect_records_under_root(
+	file_name: impl AsRef<Path>,
+	contents: &str,
+	clang_args: &[String],
+	source_root: impl AsRef<Path>,
+) -> Result<RecordIndex, CppVtableError> {
+	collect_records_with_source_root(
+		file_name.as_ref(),
+		contents,
+		clang_args,
+		Some(source_root.as_ref()),
+	)
+}
+
+fn collect_records_with_source_root(
+	file_name: &Path,
+	contents: &str,
+	clang_args: &[String],
+	source_root: Option<&Path>,
+) -> Result<RecordIndex, CppVtableError> {
+	let parsed = parse_translation_unit(file_name, contents, clang_args)?;
+	let mut collector = Collector::new(source_root);
+	let cursor = unsafe { parsed.unit.cursor() };
+	unsafe {
+		clang_visitChildren(
+			cursor.0,
+			collect_record_visitor,
+			(&raw mut collector).cast(),
+		);
+	}
+
+	if let Some(error) = collector.error {
+		return Err(error);
+	}
+
+	Ok(RecordIndex {
+		records: collector.records,
+		typedef_named_anonymous_records: collector.typedef_named_anonymous_records,
+	})
+}
+
+fn comparable_path_components(path: &Path) -> Vec<String> {
+	let path = lexically_absolute_path(path);
+	path.components()
+		.map(|component| {
+			let component = component.as_os_str().to_string_lossy();
+			if cfg!(windows) {
+				component.to_lowercase()
+			} else {
+				component.into_owned()
+			}
+		})
+		.collect()
+}
+
+unsafe fn cx_string(value: CXString) -> String {
+	let pointer = unsafe { clang_getCString(value) };
+	let string = if pointer.is_null() {
+		String::new()
+	} else {
+		unsafe { CStr::from_ptr(pointer) }
+			.to_string_lossy()
+			.into_owned()
+	};
+	unsafe { clang_disposeString(value) };
+	string
+}
+
+fn ensure_libclang_is_loaded() -> Result<(), CppVtableError> {
+	if is_loaded() {
+		return Ok(());
+	}
+
+	static LIBCLANG: OnceLock<Result<Arc<SharedLibrary>, String>> = OnceLock::new();
+
+	let library = LIBCLANG.get_or_init(|| load_manually().map(Arc::new));
+
+	match library {
+		Ok(library) => {
+			set_library(Some(library.clone()));
+			Ok(())
+		}
+
+		Err(error) => Err(CppVtableError::LoadLibclang(error.clone())),
+	}
+}
+
+fn is_cpp_identifier_character(character: char) -> bool {
+	character == '_' || character.is_alphanumeric()
+}
+
+/// Member declarations which introduce a name into their class, the way
+/// Clang's `NamedDecl` members order the Microsoft ABI's overload groups.
+fn is_named_member_kind(kind: CXCursorKind) -> bool {
+	matches!(
+		kind,
+		CXCursor_CXXMethod
+			| CXCursor_Constructor
+			| CXCursor_Destructor
+			| CXCursor_ConversionFunction
+			| CXCursor_FunctionTemplate
+			| CXCursor_FieldDecl
+			| CXCursor_VarDecl
+			| CXCursor_TypedefDecl
+			| CXCursor_TypeAliasDecl
+			| CXCursor_TypeAliasTemplateDecl
+			| CXCursor_ClassDecl
+			| CXCursor_StructDecl
+			| CXCursor_UnionDecl
+			| CXCursor_EnumDecl
+			| CXCursor_ClassTemplate
+			| CXCursor_ClassTemplatePartialSpecialization
+			| CXCursor_UsingDeclaration
+	)
+}
+
+fn lexically_absolute_path(path: &Path) -> PathBuf {
+	let absolute = if path.is_absolute() {
+		path.to_path_buf()
+	} else if let Ok(current_dir) = std::env::current_dir() {
+		current_dir.join(path)
+	} else {
+		path.to_path_buf()
+	};
+
+	let mut normalized = PathBuf::new();
+
+	for component in absolute.components() {
+		match component {
+			std::path::Component::CurDir => {}
+
+			std::path::Component::ParentDir => {
+				normalized.pop();
+			}
+
+			_ => normalized.push(component.as_os_str()),
+		}
+	}
+
+	normalized
+}
+
+/// Spells a virtual method's result and parameters, `this` first, the way the
+/// C++ ABI actually passes them, with a note for each by-value class lowered
+/// to a pointer.
+///
+/// Bindgen would otherwise model a class like a C struct of the same layout.
+/// That is wrong for an argument the C++ ABI passes as the address of a
+/// temporary copy (see [`CppAbi::passes_record_indirectly`]), and for a result
+/// returned through a hidden pointer the C ABI would not use (see
+/// [`CppAbi::record_return`]).
+fn lower_method_signature(
+	method: &VirtualMethod,
+	this: String,
+	abi: CppAbi,
+	call_traits: &RecordCallTraitIndex,
+) -> Result<(String, Vec<String>, Vec<String>), CppVtableError> {
+	let traits = |record: &RecordValue| {
+		call_traits
+			.get(&record.canonical_spelling)
+			.copied()
+			.ok_or_else(|| CppVtableError::MissingCallTraits {
+				record: record.canonical_spelling.clone(),
+			})
+	};
+
+	let mut result_type = method.result_type.clone();
+	let mut parameters = vec![this];
+	let mut notes = Vec::new();
+
+	if let Some(record) = &method.result_record {
+		let position = match abi.record_return(traits(record)?) {
+			RecordReturn::Direct => None,
+			RecordReturn::BeforeThis => Some(0),
+			RecordReturn::AfterThis => Some(1),
+		};
+
+		if let Some(position) = position {
+			let pointer = format!("{} *", record.unqualified_spelling);
+
+			parameters.insert(position, pointer.clone());
+			result_type = pointer;
+			notes.push(format!(
+				"C++ returns `{}` by value. `arg{}` is the hidden result pointer: the callee \
+				 constructs the result in the uninitialized storage it points to, and returns it.",
+				record.unqualified_spelling,
+				position + 1,
+			));
+		}
+	}
+
+	for parameter in &method.parameters {
+		let Some(record) = &parameter.record else {
+			parameters.push(parameter.type_spelling.clone());
+			continue;
+		};
+
+		if !abi.passes_record_indirectly(traits(record)?) {
+			parameters.push(parameter.type_spelling.clone());
+			continue;
+		}
+
+		parameters.push(format!("{} *", record.unqualified_spelling));
+
+		let destroyed_by = if abi.is_microsoft() {
+			"the callee destroys it"
+		} else {
+			"the caller destroys it after the call"
+		};
+
+		notes.push(format!(
+			"C++ takes `{}` by value. `arg{}` points to a temporary copy the caller makes; the \
+			 callee may modify it, and {destroyed_by}.",
+			record.unqualified_spelling,
+			parameters.len(),
+		));
+	}
+
+	Ok((result_type, parameters, notes))
+}
+
+fn new_destructor_slots(method: &VirtualMethod, abi: CppAbi) -> Vec<VtableSlot> {
+	match abi {
+		CppAbi::Itanium | CppAbi::ItaniumX86 => vec![
+			VtableSlot::new(VtableSlotKind::ItaniumCompleteDestructor, method.clone()),
+			VtableSlot::new(VtableSlotKind::ItaniumDeletingDestructor, method.clone()),
+		],
+
+		CppAbi::Msvc | CppAbi::MsvcX86 => vec![VtableSlot::new(
+			VtableSlotKind::MsvcScalarDeletingDestructor,
+			method.clone(),
+		)],
+	}
+}
+
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+	if let Some(message) = payload.downcast_ref::<&str>() {
+		(*message).to_owned()
+	} else if let Some(message) = payload.downcast_ref::<String>() {
+		message.clone()
+	} else {
+		"unknown panic payload".to_owned()
+	}
+}
+
+/// Parses an unsaved C++ source file, failing on any error diagnostic.
+fn parse_translation_unit(
+	file_name: &Path,
+	contents: &str,
+	clang_args: &[String],
+) -> Result<ParsedTranslationUnit, CppVtableError> {
+	ensure_libclang_is_loaded()?;
+
+	let file_name_string = file_name.to_string_lossy().into_owned();
+	let file_name_c = to_c_string(&file_name_string, "unsaved source filename")?;
+	let contents_c = to_c_string(contents, "unsaved C++ source")?;
+	let argument_strings = clang_args
+		.iter()
+		.enumerate()
+		.map(|(index, argument)| to_c_string(argument, &format!("clang argument {index}")))
+		.collect::<Result<Vec<_>, _>>()?;
+	let argument_pointers = argument_strings
+		.iter()
+		.map(|argument| argument.as_ptr())
+		.collect::<Vec<_>>();
+
+	let index = unsafe { Index::new() };
+	let mut unsaved = CXUnsavedFile {
+		Filename: file_name_c.as_ptr(),
+		Contents: contents_c.as_ptr(),
+		Length: contents.len() as _,
+	};
+	let mut translation_unit = null_mut();
+	let flags = CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing;
+	let error = unsafe {
+		clang_parseTranslationUnit2(
+			index.0,
+			file_name_c.as_ptr(),
+			argument_pointers.as_ptr(),
+			argument_pointers.len() as _,
+			&raw mut unsaved,
+			1,
+			flags,
+			&raw mut translation_unit,
+		)
+	};
+
+	if error != CXError_Success || translation_unit.is_null() {
+		return Err(CppVtableError::ParseTranslationUnit {
+			path: file_name.to_path_buf(),
+			code: error,
+		});
+	}
+
+	let parsed = ParsedTranslationUnit {
+		unit: TranslationUnit(translation_unit),
+		_index: index,
+	};
+	let diagnostics = unsafe { parsed.unit.error_diagnostics() };
+
+	if !diagnostics.is_empty() {
+		return Err(CppVtableError::Diagnostics {
+			path: file_name.to_path_buf(),
+			diagnostics: diagnostics.join("\n"),
+		});
+	}
+
+	Ok(parsed)
+}
+
+/// Has Clang evaluate the [`RecordCallTraits`] of every record in `records`
+/// for the target `clang_args` select.
+///
+/// The queries are appended to `prelude`, which must define every record,
+/// and parsed as one more translation unit named `file_name`.
+pub(crate) fn query_record_call_traits<'a>(
+	file_name: impl AsRef<Path>,
+	prelude: &str,
+	clang_args: &[String],
+	records: impl IntoIterator<Item = &'a RecordValue>,
+) -> Result<RecordCallTraitIndex, CppVtableError> {
+	let spellings = records
+		.into_iter()
+		.map(|record| record.canonical_spelling.as_str())
+		.collect::<BTreeSet<_>>()
+		.into_iter()
+		.collect::<Vec<_>>();
+
+	if spellings.is_empty() {
+		return Ok(RecordCallTraitIndex::new());
+	}
+
+	let mut source = format!("{prelude}\n{CALL_TRAITS_TEMPLATE}\n");
+
+	for (index, spelling) in spellings.iter().enumerate() {
+		for field in ["bits", "size"] {
+			let _ = writeln!(
+				source,
+				"constexpr unsigned long long {CALL_TRAITS_PREFIX}{index}_{field} = \
+				 ::__crys_record_call_traits< {spelling} >::{field};"
+			);
+		}
+	}
+
+	let parsed = parse_translation_unit(file_name.as_ref(), &source, clang_args)?;
+	let mut queries = CallTraitQueries::default();
+
+	unsafe {
+		clang_visitChildren(
+			parsed.unit.cursor().0,
+			call_trait_query_visitor,
+			(&raw mut queries).cast(),
+		);
+	}
+
+	if let Some(error) = queries.error {
+		return Err(error);
+	}
+
+	let mut value = |index: usize, field: &str| {
+		let name = format!("{CALL_TRAITS_PREFIX}{index}_{field}");
+
+		queries
+			.values
+			.remove(&name)
+			.ok_or(CppVtableError::CallTraitEvaluation { query: name })
+	};
+
+	let mut index = RecordCallTraitIndex::new();
+
+	for (position, spelling) in spellings.iter().enumerate() {
+		let bits = value(position, "bits")?;
+		let size = value(position, "size")?;
+		let has = |bit: u64| bits & bit != 0;
+
+		index.insert(
+			(*spelling).to_owned(),
+			RecordCallTraits {
+				copy_constructible: has(1),
+				trivial_copy_constructor: has(2),
+				move_constructible: has(4),
+				trivially_move_constructible: has(8),
+				trivially_destructible: has(16),
+				size,
+			},
+		);
+	}
+
+	Ok(index)
+}
+
+/// Renders a typed synthetic vtable probe for one modeled layout.
+///
+/// `call_traits` must describe every record in
+/// [`VtableLayout::by_value_records`], as [`query_record_call_traits`] does.
+pub(crate) fn render_vtable_probe(
+	records: &RecordIndex,
+	layout: &VtableLayout,
+	call_traits: &RecordCallTraitIndex,
+) -> Result<VtableProbe, CppVtableError> {
+	let qualified_record_name = layout.record.as_str();
+	let abi = layout.abi;
+	let record = records
+		.record(qualified_record_name)
+		.ok_or_else(|| CppVtableError::MissingRecord(qualified_record_name.to_owned()))?;
+	let stem = vtable_probe_stem(qualified_record_name);
+	let record_identifier = stem.strip_prefix("__crys_vtable_").unwrap_or(&stem);
+	let this_type = if qualified_record_name.starts_with("::") {
+		qualified_record_name.to_owned()
+	} else {
+		format!("::{qualified_record_name}")
+	};
+	let mut aliases = String::new();
+	let mut alias_exports = String::new();
+	let alias_scope = format!("{stem}_scope");
+	let mut fields = String::new();
+	let mut field_names = Vec::with_capacity(layout.slots.len());
+
+	for (index, slot) in layout.slots.iter().enumerate() {
+		let alias = format!("{stem}_slot_{index:03}_type");
+		let field = match slot.kind {
+			VtableSlotKind::Method => {
+				let method_name = sanitize_identifier_fragment(&slot.method.name);
+				let suffix = if slot.overload_index == 0 {
+					String::new()
+				} else {
+					slot.overload_index.to_string()
+				};
+				format!("{record_identifier}_{method_name}{suffix}")
+			}
+
+			VtableSlotKind::ItaniumCompleteDestructor => {
+				format!("{record_identifier}_complete_destructor")
+			}
+
+			VtableSlotKind::ItaniumDeletingDestructor => {
+				format!("{record_identifier}_deleting_destructor")
+			}
+
+			VtableSlotKind::MsvcScalarDeletingDestructor => {
+				format!("{record_identifier}_destructor")
+			}
+		};
+		let (result_type, mut parameters, notes) = match slot.kind {
+			VtableSlotKind::Method => {
+				let this = if slot.method.is_const {
+					format!("const {this_type} *")
+				} else {
+					format!("{this_type} *")
+				};
+				lower_method_signature(&slot.method, this, abi, call_traits)?
+			}
+
+			VtableSlotKind::ItaniumCompleteDestructor
+			| VtableSlotKind::ItaniumDeletingDestructor => (
+				"void".to_owned(),
+				vec![format!("{this_type} *")],
+				Vec::new(),
+			),
+
+			VtableSlotKind::MsvcScalarDeletingDestructor => (
+				"void *".to_owned(),
+				vec![format!("{this_type} *"), "unsigned int".to_owned()],
+				Vec::new(),
+			),
+		};
+
+		if slot.kind == VtableSlotKind::Method && slot.method.is_variadic {
+			parameters.push("...".to_owned());
+		}
+
+		let calling_convention = match abi {
+			// MSVC variadic member functions use cdecl so the caller can clean
+			// the variable argument list; ordinary x86 member calls use thiscall.
+			CppAbi::MsvcX86 if slot.kind == VtableSlotKind::Method && slot.method.is_variadic => {
+				"__cdecl "
+			}
+
+			CppAbi::MsvcX86 => "__thiscall ",
+			CppAbi::Itanium | CppAbi::ItaniumX86 | CppAbi::Msvc => "",
+		};
+		let _ = writeln!(
+			aliases,
+			"using {alias} = auto ({calling_convention}*)({}) -> {result_type};",
+			parameters.join(", ")
+		);
+		if !record.namespaces.is_empty() {
+			let _ = writeln!(alias_exports, "using {alias} = ::{alias_scope}::{alias};");
+		}
+
+		// Bindgen carries these onto the generated field's documentation.
+		for (position, note) in notes.iter().enumerate() {
+			if position != 0 {
+				let _ = writeln!(fields, "    ///");
+			}
+
+			let _ = writeln!(fields, "    /// {note}");
+		}
+
+		let _ = writeln!(fields, "    {alias} {field};");
+		field_names.push(field);
+	}
+
+	// Clang may preserve relative names inside template specializations and
+	// partially qualified parameter types. Resolve them in the original
+	// namespace, but isolate the using-directive so it cannot affect subsequent
+	// probes or delayed template instantiations (protobuf::int64 versus Steam).
+	// Export aliases with their original global names for the probe transform.
+	if !record.namespaces.is_empty() {
+		aliases = format!(
+			"namespace {alias_scope} {{\nusing namespace ::{};\n{aliases}}}\n{alias_exports}",
+			record.namespaces.join("::")
+		);
+	}
+	let source = format!("{aliases}\nstruct {stem} {{\n{fields}}};\n");
+
+	Ok(VtableProbe {
+		record: qualified_record_name.to_owned(),
+		stem,
+		field_names,
+		source,
+		layout: layout.clone(),
+	})
+}
+
+fn replace_slot_method(slot: &mut VtableSlot, method: &VirtualMethod) {
+	slot.lineage.insert(method.usr.clone());
+	slot.lineage.extend(
+		method
+			.overrides
+			.iter()
+			.map(|overridden| overridden.usr.clone()),
+	);
+	slot.method = method.clone();
+}
+
+fn replace_unqualified_identifier(spelling: &str, name: &str, replacement: &str) -> String {
+	if name.is_empty() {
+		return spelling.to_owned();
+	}
+	let mut rendered = String::with_capacity(spelling.len() + replacement.len());
+	let mut remaining = spelling;
+
+	while let Some(index) = remaining.find(name) {
+		let before = &remaining[..index];
+		let after_index = index + name.len();
+		let after = &remaining[after_index..];
+		let identifier_before = before
+			.chars()
+			.next_back()
+			.is_some_and(is_cpp_identifier_character);
+		let identifier_after = after
+			.chars()
+			.next()
+			.is_some_and(is_cpp_identifier_character);
+		let already_qualified = before.ends_with("::");
+
+		rendered.push_str(before);
+		if identifier_before || identifier_after || already_qualified {
+			rendered.push_str(name);
+		} else {
+			rendered.push_str(replacement);
+		}
+		remaining = after;
+	}
+
+	rendered.push_str(remaining);
+	rendered
+}
+
+fn same_method_signature(left: &VirtualMethod, right: &VirtualMethod) -> bool {
+	left.kind == right.kind
+		&& (left.kind == VirtualMethodKind::Destructor
+			|| (left.name == right.name
+				&& left.is_const == right.is_const
+				&& left.is_volatile == right.is_volatile
+				&& left.ref_qualifier == right.ref_qualifier
+				&& left.is_variadic == right.is_variadic
+				&& left
+					.parameters
+					.iter()
+					.map(|p| p.canonical_type.as_str())
+					.eq(right.parameters.iter().map(|p| p.canonical_type.as_str()))))
+}
+
+fn sanitize_identifier_fragment(value: &str) -> String {
+	let mut sanitized = String::new();
+	for character in value.chars() {
+		if character.is_ascii_alphanumeric() || character == '_' {
+			sanitized.push(character);
+		} else {
+			sanitized.push('_');
+		}
+	}
+
+	if sanitized.is_empty() {
+		"unnamed".to_owned()
+	} else {
+		sanitized
+	}
+}
+
+/// Removes the top-level cv-qualifiers Clang prints before a class type.
+fn strip_leading_cv(spelling: &str) -> &str {
+	let mut spelling = spelling.trim_start();
+
+	while let Some(rest) = spelling
+		.strip_prefix("const ")
+		.or_else(|| spelling.strip_prefix("volatile "))
+	{
+		spelling = rest.trim_start();
+	}
+
+	spelling
+}
+
+fn to_c_string(value: &str, context: &str) -> Result<CString, CppVtableError> {
+	CString::new(value).map_err(|_| CppVtableError::InteriorNul {
+		context: context.to_owned(),
+	})
+}
+
+/// Maps a qualified C++ record name to the deterministic probe identifier stem.
+pub(crate) fn vtable_probe_stem(qualified_record_name: &str) -> String {
+	let mut sanitized = String::new();
+	let mut chars = qualified_record_name.chars().peekable();
+
+	while let Some(character) = chars.next() {
+		if character == ':' && chars.peek() == Some(&':') {
+			chars.next();
+			sanitized.push_str("__");
+		} else if character.is_ascii_alphanumeric() || character == '_' {
+			sanitized.push(character);
+		} else {
+			let _ = write!(sanitized, "_u{:x}_", character as u32);
+		}
+	}
+
+	if sanitized.is_empty() {
+		sanitized.push_str("anonymous");
+	}
+
+	format!("__crys_vtable_{sanitized}")
+}

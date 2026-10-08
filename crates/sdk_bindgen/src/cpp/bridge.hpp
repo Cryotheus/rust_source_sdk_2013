@@ -1,0 +1,134 @@
+//we're making server-side plugins
+#define GAME_DLL
+#define IS_SERVER_DLL
+#define TF_DLL
+// Match server_tf.vpc, server_econ_base.vpc, and nav_mesh.vpc. These switches
+// affect base-class layouts and the TF2 player/weapon virtual tables.
+#define USES_ECON_ITEMS
+#define NEXT_BOT
+#define USE_NAV_MESH
+#define ENABLE_GC_MATCHMAKING
+#define GLOWS_ENABLE
+#define USE_DYNAMIC_ASSET_LOADING
+
+//suppress engine stamp checks that cause signature mismatch panics
+#define COPY_CHECK_STAMP
+
+//required by igameevents.h
+#include "public/tier0/platform.h"
+#include "public/tier1/interface.h"
+
+//clang's __m128 is always a vector type, never MSVC's union, so the element
+//accessors ssemath.h spells `a.m128_f32[i]` without POSIX cannot compile when
+//clang's own <xmmintrin.h> is found under the MSVC ABI. Their POSIX spelling
+//is equivalent and nothing else in ssemath.h depends on POSIX, so parse just
+//that header with it, before anything else includes it.
+#if defined(COMPILER_MSVC) && !defined(POSIX)
+#include "public/mathlib/vector.h"
+#include "public/mathlib/mathlib.h"
+#define POSIX
+#include "public/mathlib/ssemath.h"
+#undef POSIX
+#endif
+
+//bitbuf confuses clang
+//so stop it from loading, and make stubs to replace the problematic types
+#define BITBUF_H
+
+class bf_write {};
+class bf_read {};
+
+//finally include what we wanted in the first place
+#include "public/igameevents.h"
+#include "public/eiface.h"
+#include "public/toolframework/itoolentity.h"
+#include "public/dt_send.h"
+
+//other interfaces a server plugin can request from the engine and game factories
+#include "public/icvar.h"
+#include "public/ivoiceserver.h"
+#include "public/networkstringtabledefs.h"
+#include "public/engine/IEngineSound.h"
+#include "public/engine/IEngineTrace.h"
+#include "public/engine/iserverplugin.h"
+#include "public/engine/ivmodelinfo.h"
+#include "public/game/server/iplayerinfo.h"
+
+//for gameinterface.h
+#include "game/shared/predictioncopy.h"
+#include "game/shared/ehandle.h"
+#include "game/server/cbase.h"
+#include "game/shared/baseplayer_shared.h"
+#include "game/server/networkstringtable_gamedll.h"
+#include "game/shared/mapentities_shared.h"
+
+#include "game/server/gameinterface.h"
+#include "game/server/vote_controller.h"
+
+// Full TF2 player declarations, including their economy and shared state.
+#include "game/server/tf/tf_player.h"
+#include "game/shared/tf/tf_player_shared.h"
+
+// Item-generation declarations and TF2's concrete base-item criteria.
+#include "game/shared/econ/econ_entity_creation.h"
+#include "game/shared/tf/tf_item_system.h"
+
+// TF2's game rules, teams, objectives, buildings, weapons, projectiles and
+// navigation areas.
+//
+// nav_area.h defines `CNavArea::GetZ` with a `__restrict` qualifier that its
+// declarations lack, which MSVC accepts and clang refuses. The qualifier
+// changes no layout or virtual table, so these headers are parsed without it.
+#if defined(COMPILER_MSVC)
+#undef RESTRICT
+#define RESTRICT
+#endif
+
+#include "game/shared/tf/tf_gamerules.h"
+#include "game/server/tf/tf_team.h"
+#include "game/shared/tf/entity_capture_flag.h"
+#include "game/server/team_control_point.h"
+#include "game/server/tf/tf_obj_sentrygun.h"
+#include "game/server/tf/tf_obj_dispenser.h"
+#include "game/server/tf/tf_obj_teleporter.h"
+#include "game/shared/tf/tf_weapon_medigun.h"
+#include "game/shared/tf/tf_weapon_flamethrower.h"
+#include "game/shared/tf/tf_weapon_minigun.h"
+#include "game/shared/tf/tf_weapon_sniperrifle.h"
+#include "game/shared/tf/tf_weapon_knife.h"
+#include "game/shared/tf/tf_weaponbase_rocket.h"
+#include "game/shared/tf/tf_weapon_grenade_pipebomb.h"
+#include "game/server/tf/tf_projectile_arrow.h"
+#include "game/server/tf/nav_mesh/tf_nav_area.h"
+#include "game/server/NextBot/NextBotInterface.h"
+#include "game/server/NextBot/NextBotLocomotionInterface.h"
+#include "game/server/NextBot/NextBotBodyInterface.h"
+#include "game/server/NextBot/NextBotVisionInterface.h"
+#include "game/server/NextBot/NextBotIntentionInterface.h"
+#include "game/server/NextBot/NextBot.h"
+#include "game/server/NextBot/NextBotGroundLocomotion.h"
+#include "game/server/NextBot/Player/NextBotPlayerLocomotion.h"
+#include "game/server/NextBot/Player/NextBotPlayerBody.h"
+#include "game/server/tf/bot/tf_bot_locomotion.h"
+#include "game/server/tf/bot/tf_bot_body.h"
+#include "game/server/tf/bot/tf_bot_vision.h"
+
+#if defined(COMPILER_MSVC)
+#undef RESTRICT
+#define RESTRICT __restrict
+#endif
+
+//TF2's engine is built with replay support, which adds virtual methods to the
+//client message handler and to IClient. Without it, their later slots would be
+//off by one. Nothing included above depends on it.
+#define REPLAY_ENABLED
+
+//per-client networking: net channels and their messages, recipient filters, and
+//the engine's server and client objects
+#include "public/inetchannel.h"
+#include "public/inetmessage.h"
+#include "public/inetmsghandler.h"
+#include "public/irecipientfilter.h"
+#include "public/iserver.h"
+#include "public/iclient.h"
+

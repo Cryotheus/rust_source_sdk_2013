@@ -1,0 +1,36 @@
+﻿[package]
+name = "source_sdk_2013_bindgen"
+version.workspace = true
+edition = "2024"
+rust-version = "1.99.0"
+
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "Binding generator for the Source SDK."
+categories = ["development-tools::ffi"]
+keywords = []
+
+[dependencies]
+anyhow.workspace = true
+bindgen.workspace = true
+clang-sys = { version = "1.9.1", features = ["clang_11_0", "runtime"] }
+crys_bricks = { workspace = true, features = ["bindings"] }
+log.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+rscode.workspace = true
+syn.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+	"-Zunstable-options",
+	"--generate-link-to-definition",
+	"--generate-macro-expansion",
+]
