@@ -1,7 +1,7 @@
 //! `ICvar`, the registry of console variables and commands.
 
 use crate::NotThreadSafe;
-use crate::commands::{CommandBaseKind, CommandFlags};
+use crate::commands::{CommandBaseKind, CommandFlags, drop_payload};
 use crate::server::{Server, ServerBinding};
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use sdk_raw::vcall;
@@ -690,6 +690,7 @@ unsafe extern "C" fn changed(var: *mut sys::IConVar, old_string: *const c_char, 
 		// for the call, and the string it held, or null.
 		unsafe { notify(server, cvar, var, old_string, old_float, watching.callback) };
 	}))
+	.map_err(drop_payload)
 	.ok();
 }
 

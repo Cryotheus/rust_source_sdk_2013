@@ -94,7 +94,7 @@ pub(super) unsafe fn dispatch_from_engine(
 }
 
 /// Drops a panic's payload, whose own drop may panic too.
-pub(super) fn drop_payload(payload: Box<dyn Any + Send>) {
+pub(crate) fn drop_payload(payload: Box<dyn Any + Send>) {
 	if let Err(nested) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
 		mem::forget(nested);
 	}

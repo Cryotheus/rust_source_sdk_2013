@@ -267,6 +267,22 @@ fn panic_on_change(_: Server<'_>, _: ConVarChange<'_>) {
 	panic!("the callback failed");
 }
 
+/// Counts its runs in [`PANICKED`], then panics with a payload whose own drop
+/// panics.
+fn panic_with_failing_payload(_: Server<'_>, _: ConVarChange<'_>) {
+	/// A panic's payload, which panics when dropped.
+	struct FailingPayload;
+
+	impl Drop for FailingPayload {
+		fn drop(&mut self) {
+			panic!("dropping the payload failed");
+		}
+	}
+
+	PANICKED.set(PANICKED.get() + 1);
+	std::panic::panic_any(FailingPayload);
+}
+
 /// Records each change it gets in [`SEEN`].
 fn record(_: Server<'_>, change: ConVarChange<'_>) {
 	let seen = Seen {
@@ -416,11 +432,22 @@ fn panics_are_contained() {
 		null_mut(),
 	);
 	let registry = mock_cvar(gravity.cast(), vec![gravity]);
-	let watch = cvar(registry)
-		.watch_changes(binding(), panic_on_change)
-		.unwrap();
+	let cvar = cvar(registry);
+	let watch = cvar.watch_changes(binding(), panic_on_change).unwrap();
 
 	// Each panic ends its call, and the next change is passed on.
+	call_global_change_callbacks(registry, gravity, c"800".as_ptr(), 800.0);
+	call_global_change_callbacks(registry, gravity, c"700".as_ptr(), 700.0);
+	assert_eq!(PANICKED.take(), 2);
+
+	watch.stop();
+
+	// A payload whose drop panics too is contained as well, rather than
+	// unwinding out of the function the engine calls and aborting.
+	let watch = cvar
+		.watch_changes(binding(), panic_with_failing_payload)
+		.unwrap();
+
 	call_global_change_callbacks(registry, gravity, c"800".as_ptr(), 800.0);
 	call_global_change_callbacks(registry, gravity, c"700".as_ptr(), 700.0);
 	assert_eq!(PANICKED.take(), 2);
