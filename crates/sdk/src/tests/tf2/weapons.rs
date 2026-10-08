@@ -550,6 +550,77 @@ fn failed_replacement_restores_inventory_and_rejected_pickup_does_not_leak_weapo
 	assert_eq!(given.entity().as_ptr(), fresh_ptr.as_ptr());
 	assert_eq!(player.weapon, fresh_ptr.as_ptr());
 	assert_eq!(fresh.flags, 0);
+
+	// An exchange whose new weapon fails after equipping deletes it and equips
+	// the old weapon again.
+	// SAFETY: As for the player's fields above.
+	unsafe {
+		(&raw mut old.flags).write(0);
+		(&raw mut old.slot).write(2);
+		(&raw mut old.owner).write(1);
+		(&raw mut player.weapon).write(old_ptr);
+		(&raw mut player.second_weapon).write(null_mut());
+		(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+	}
+	assert!(matches!(
+		// SAFETY: As for the first `give_with`.
+		unsafe {
+			inventory.exchange_with(
+				None,
+				|| Ok(fresh_ptr),
+				|_| Err(AttributeError::RuntimeListFull.into()),
+			)
+		},
+		Err(WeaponError::Attribute(AttributeError::RuntimeListFull))
+	));
+	assert_eq!(player.weapon, old_ptr, "the old weapon is equipped again");
+	assert_eq!(old.owner, 1);
+	assert_eq!(old.flags, 0);
+	assert_eq!(fresh.owner, EntityHandle::INVALID.to_raw());
+	assert_eq!(fresh.flags, 1, "the failed weapon is removed");
+
+	// A classname override the game fell back from changes nothing.
+	// SAFETY: As for the player's fields above.
+	unsafe { (&raw mut fresh.flags).write(0) };
+	assert!(matches!(
+		// SAFETY: As for the first `exchange_with`.
+		unsafe {
+			inventory.exchange_with(Some(c"tf_weapon_sdk_missing"), || Ok(fresh_ptr), |_| Ok(()))
+		},
+		Err(WeaponError::CreationFailed)
+	));
+	assert_eq!(player.weapon, old_ptr);
+	assert_eq!(old.flags, 0);
+	assert_eq!(fresh.flags, 1);
+
+	// Otherwise the new weapon takes the old one's slot, and the old one is
+	// deleted.
+	// SAFETY: As for the player's fields above.
+	unsafe { (&raw mut fresh.flags).write(0) };
+	// SAFETY: As for the first `exchange_with`.
+	let exchanged =
+		unsafe { inventory.exchange_with(Some(c"tf_weapon_bottle"), || Ok(fresh_ptr), |_| Ok(())) }
+			.unwrap();
+	assert_eq!(exchanged.entity().as_ptr(), fresh_ptr.as_ptr());
+	assert_eq!(player.weapon, fresh_ptr.as_ptr());
+	assert!(player.second_weapon.is_null());
+	assert_eq!(fresh.owner, 1);
+	assert_eq!(fresh.flags, 0);
+	assert_eq!(old.owner, EntityHandle::INVALID.to_raw());
+	assert_eq!(old.flags, 1, "the exchanged weapon is removed");
+
+	// Into an empty slot, nothing is exchanged.
+	// SAFETY: As for the player's fields above.
+	unsafe {
+		(&raw mut player.weapon).write(null_mut());
+		(&raw mut fresh.owner).write(EntityHandle::INVALID.to_raw());
+		(&raw mut old.flags).write(0);
+	}
+	// SAFETY: As for the first `exchange_with`.
+	unsafe { inventory.exchange_with(None, || Ok(fresh_ptr), |_| Ok(())) }.unwrap();
+	assert_eq!(player.weapon, fresh_ptr.as_ptr());
+	assert_eq!(fresh.flags, 0);
+	assert_eq!(old.flags, 0);
 	GIVE_RESULT.set(null_mut());
 	NETWORKABLE.set(null_mut());
 }

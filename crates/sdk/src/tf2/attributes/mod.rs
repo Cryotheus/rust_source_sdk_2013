@@ -79,8 +79,8 @@ use std::ffi::CStr;
 use std::marker::PhantomData;
 
 pub use definition::{
-	Amount, AttributeDef, AttributeIndex, AttributeValue, Combine, DescriptionFormat, Flag,
-	Multiplier, Seconds,
+	Amount, AnyAttributeDef, AttributeDef, AttributeIndex, AttributeValue, Combine,
+	DescriptionFormat, Flag, Multiplier, Seconds,
 };
 
 pub(crate) use layout::item_definition;
@@ -247,8 +247,25 @@ impl AttributeSet {
 		value: V,
 	) -> Result<(), AttributeError> {
 		let stored = def.stored(value)?;
-		let def = def.raw();
 
+		self.insert_raw(def.raw(), stored);
+
+		Ok(())
+	}
+
+	/// As [`Self::insert`], for a definition of any value type, with the value
+	/// as a float that [`AnyAttributeDef::stored`] checks.
+	pub fn insert_any(&mut self, def: AnyAttributeDef, value: f32) -> Result<(), AttributeError> {
+		let stored = def.stored(value)?;
+
+		self.insert_raw(def.raw(), stored);
+
+		Ok(())
+	}
+
+	/// Adds a checked stored value, or replaces the value of the set's entry for
+	/// the definition.
+	fn insert_raw(&mut self, def: RawDef, stored: f32) {
 		match self
 			.entries
 			.iter_mut()
@@ -257,8 +274,6 @@ impl AttributeSet {
 			Some(entry) => *entry = (def, stored),
 			None => self.entries.push((def, stored)),
 		}
-
-		Ok(())
 	}
 
 	/// Whether the set has no attributes.
@@ -723,6 +738,20 @@ impl<'s> ItemAttributes<'s> {
 		self.set_raw(token, def.raw(), stored)
 	}
 
+	/// As [`Self::set`], for a definition of any value type, with the value as a
+	/// float that [`AnyAttributeDef::stored`] checks.
+	#[doc(alias("AddAttribute"))]
+	pub fn set_any(
+		self,
+		token: SchemaToken<'s>,
+		def: AnyAttributeDef,
+		value: f32,
+	) -> Result<(), AttributeError> {
+		let stored = def.stored(value)?;
+
+		self.set_raw(token, def.raw(), stored)
+	}
+
 	/// Sets a runtime attribute by name, with no type or domain checks, and
 	/// returns the entry the game added or changed. `None` means the list did
 	/// not change: the running schema has no such attribute, or its entry
@@ -1051,6 +1080,25 @@ impl<'s> PlayerAttributes<'s> {
 		// running schema keeps it, the default type and the gameplay domain the
 		// catalog's bounds were vetted against, which `stored` checked. Its second
 		// condition covers the attributes the speed update and read-back iterate.
+		unsafe { self.set_for_unchecked(def.name(), stored, duration) }
+	}
+
+	/// As [`Self::set`], for a definition of any value type, with the value as a
+	/// float that [`AnyAttributeDef::stored`] checks.
+	#[doc(alias("AddCustomAttribute"))]
+	pub fn set_any(
+		self,
+		token: SchemaToken<'s>,
+		def: AnyAttributeDef,
+		value: f32,
+		duration: Option<f32>,
+	) -> Result<bool, AttributeError> {
+		let _ = token;
+		let stored = def.stored(value)?;
+
+		// SAFETY: As for `set`: the token's first condition gives the catalog's
+		// name its default type and vetted domain, which `stored` checked, and its
+		// second covers what the speed update and read-back iterate.
 		unsafe { self.set_for_unchecked(def.name(), stored, duration) }
 	}
 
