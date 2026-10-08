@@ -1,9 +1,6 @@
-//! Tests of the scan for TF2's PvE answer through the `god` command's gate.
+//! Tests of the scan for the `god` command's gate.
 
 use super::*;
-
-/// Where the answer's code starts, after the callback, in [`code`].
-const ANSWER_AT: usize = BASE + 0x400;
 
 const BASE: usize = 0x180000000;
 
@@ -15,22 +12,28 @@ const GLOBALS: usize = BASE + 0x2100;
 /// Where the `god` command's callback starts, in [`code`].
 const GOD: usize = BASE + 0x100;
 
+/// Where `IsPVEModeActive`'s code starts, after the callback, in [`code`].
+const IS_PVE_MODE_ACTIVE_AT: usize = BASE + 0x400;
+
 const RULES: usize = BASE + 0x2000;
 
 #[test]
-fn a_patched_answer_is_refused() {
+fn a_patched_gate_is_refused() {
 	let mut code = code();
-	code.bytes[ANSWER_AT - GOD + PATCH_OFFSET] = REPLACEMENT;
-	assert!(matches!(find(code), Err(PveModeError::UnsupportedGame)));
+	code.bytes[GATE_AT + PATCH_OFFSET] = REPLACEMENT;
+	assert!(matches!(find(code), Err(GodError::UnsupportedGame)));
 }
 
 /// A code section starting with the callback, whose gate starts at
-/// [`GATE_AT`] and calls the answer, which follows it.
+/// [`GATE_AT`] and calls `IsPVEModeActive`, which follows it.
 fn code() -> Section {
 	let mut bytes = vec![0xcc; 0x400];
 	put_gate(&mut bytes, GATE_AT);
 
-	for (out, input) in bytes[ANSWER_AT - GOD..].iter_mut().zip(ANSWER) {
+	for (out, input) in bytes[IS_PVE_MODE_ACTIVE_AT - GOD..]
+		.iter_mut()
+		.zip(IS_PVE_MODE_ACTIVE)
+	{
 		*out = match input {
 			SignaturePattern::Exact(byte) => byte,
 			SignaturePattern::Any => 0x26,
@@ -49,30 +52,32 @@ fn code() -> Section {
 fn every_gate_in_the_callback_is_validated() {
 	let mut code = code();
 	put_gate(&mut code.bytes, GATE_AT + GATE_LEN);
-	assert!(matches!(
-		find(code.clone()),
-		Err(PveModeError::AmbiguousGate)
-	));
+	assert!(matches!(find(code.clone()), Err(GodError::AmbiguousGate)));
 
 	// A gate with the wrong reference must not hide the valid one or make it
 	// ambiguous.
 	put_relative(&mut code.bytes, GATE_AT + 3, GOD, GOD);
-	assert_eq!(find(code).unwrap(), ANSWER_AT);
+	assert_eq!(find(code).unwrap(), GOD + GATE_AT + GATE_LEN);
 }
 
-/// Finds the answer through the callback at [`GOD`] in `code`, in an image
-/// whose only data section holds [`GLOBALS`] and [`RULES`].
-fn find(code: Section) -> Result<usize, PveModeError> {
-	find_answer(&image(code), GOD)
+/// Finds the gate in the callback at [`GOD`] in `code`, in an image whose
+/// only data section holds [`GLOBALS`] and [`RULES`].
+fn find(code: Section) -> Result<usize, GodError> {
+	find_gate(&image(code), GOD)
 }
 
 #[test]
-fn finds_the_answer_in_tf2s_windows_build() {
+fn finds_the_gate() {
+	assert_eq!(find(code()).unwrap(), GOD + GATE_AT);
+}
+
+#[test]
+fn finds_the_gate_in_tf2s_windows_build() {
 	// `CC_God_f` and `CTFGameRules::IsPVEModeActive`, as TF2's 64-bit Windows
 	// server.dll loads them at its preferred base, and the data section
 	// holding `g_pGameRules` and `gpGlobals`.
 	const CC_GOD_F: usize = 0x180290d20;
-	const IS_PVE_MODE_ACTIVE: usize = 0x180570ad0;
+	const IS_PVE_MODE_ACTIVE_CODE: usize = 0x180570ad0;
 
 	#[rustfmt::skip]
 	let god = vec![
@@ -90,7 +95,7 @@ fn finds_the_answer_in_tf2s_windows_build() {
 	];
 
 	#[rustfmt::skip]
-	let answer = vec![
+	let is_pve_mode_active = vec![
 		0x80, 0xb9, 0x26, 0x0d, 0x00, 0x00, 0x00, 0x0f, 0x95, 0xc0, 0xc3, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc,
 	];
 
@@ -104,8 +109,8 @@ fn finds_the_answer_in_tf2s_windows_build() {
 				writable: false,
 			},
 			Section {
-				address: IS_PVE_MODE_ACTIVE,
-				bytes: answer,
+				address: IS_PVE_MODE_ACTIVE_CODE,
+				bytes: is_pve_mode_active,
 				executable: true,
 				writable: false,
 			},
@@ -118,12 +123,8 @@ fn finds_the_answer_in_tf2s_windows_build() {
 		],
 	};
 
-	assert_eq!(find_answer(&image, CC_GOD_F).unwrap(), IS_PVE_MODE_ACTIVE);
-}
-
-#[test]
-fn finds_the_answer_the_gate_calls() {
-	assert_eq!(find(code()).unwrap(), ANSWER_AT);
+	assert_eq!(find_gate(&image, CC_GOD_F).unwrap(), CC_GOD_F + 0x3b);
+	assert_eq!(image.sections[0].bytes[0x3b + PATCH_OFFSET], ORIGINAL);
 }
 
 #[test]
@@ -131,14 +132,11 @@ fn gates_past_the_start_of_the_callback_are_ignored() {
 	let mut code = code();
 	code.bytes[GATE_AT..GATE_AT + GATE_LEN].fill(0xcc);
 	put_gate(&mut code.bytes, GATE_SEARCH_LEN);
-	assert!(matches!(
-		find(code.clone()),
-		Err(PveModeError::UnsupportedGame)
-	));
+	assert!(matches!(find(code.clone()), Err(GodError::UnsupportedGame)));
 
 	code.bytes[GATE_SEARCH_LEN..GATE_SEARCH_LEN + GATE_LEN].fill(0xcc);
 	put_gate(&mut code.bytes, GATE_SEARCH_LEN - 1);
-	assert_eq!(find(code).unwrap(), ANSWER_AT);
+	assert_eq!(find(code).unwrap(), GOD + GATE_SEARCH_LEN - 1);
 }
 
 /// An image of `code` and a data section holding [`GLOBALS`] and [`RULES`].
@@ -158,7 +156,7 @@ fn image(code: Section) -> Image {
 }
 
 /// Writes the gate at offset `at` of the callback, whose code starts at
-/// [`GOD`], calling the answer at [`ANSWER_AT`].
+/// [`GOD`], calling `IsPVEModeActive` at [`IS_PVE_MODE_ACTIVE_AT`].
 fn put_gate(bytes: &mut [u8], at: usize) {
 	for (out, input) in bytes[at..].iter_mut().zip(GATE) {
 		*out = match input {
@@ -168,7 +166,7 @@ fn put_gate(bytes: &mut [u8], at: usize) {
 	}
 
 	put_relative(bytes, at + 3, RULES, GOD);
-	put_relative(bytes, at + 13, ANSWER_AT, GOD);
+	put_relative(bytes, at + 13, IS_PVE_MODE_ACTIVE_AT, GOD);
 	put_relative(bytes, at + 24, GLOBALS, GOD);
 }
 
@@ -185,38 +183,39 @@ fn references_must_be_the_rules_and_globals_in_data() {
 	for at in [3, 24] {
 		let mut code = code();
 		put_relative(&mut code.bytes, GATE_AT + at, GOD, GOD);
-		assert!(matches!(find(code), Err(PveModeError::UnsupportedGame)));
-	}
-}
-
-#[test]
-fn the_call_must_lead_to_the_answer() {
-	for target in [ANSWER_AT + 1, RULES, BASE + 0x3000] {
-		let mut code = code();
-		put_relative(&mut code.bytes, GATE_AT + 13, target, GOD);
-		assert!(matches!(find(code), Err(PveModeError::UnsupportedGame)));
+		assert!(matches!(find(code), Err(GodError::UnsupportedGame)));
 	}
 }
 
 #[test]
 fn the_callback_must_be_code() {
 	assert!(matches!(
-		find_answer(&image(code()), RULES),
-		Err(PveModeError::UnsupportedGame)
+		find_gate(&image(code()), RULES),
+		Err(GodError::UnsupportedGame)
 	));
 	assert!(matches!(
-		find_answer(&image(code()), BASE + 0x3000),
-		Err(PveModeError::UnsupportedGame)
+		find_gate(&image(code()), BASE + 0x3000),
+		Err(GodError::UnsupportedGame)
 	));
+}
+
+#[test]
+fn the_gate_must_call_is_pve_mode_active() {
+	for target in [IS_PVE_MODE_ACTIVE_AT + 1, RULES, BASE + 0x3000] {
+		let mut code = code();
+		put_relative(&mut code.bytes, GATE_AT + 13, target, GOD);
+		assert!(matches!(find(code), Err(GodError::UnsupportedGame)));
+	}
 }
 
 #[test]
 fn truncated_code_is_refused() {
 	let mut code = code();
 	code.bytes.truncate(GATE_AT + GATE_LEN - 1);
-	assert!(matches!(find(code), Err(PveModeError::UnsupportedGame)));
+	assert!(matches!(find(code), Err(GodError::UnsupportedGame)));
 
 	let mut code = self::code();
-	code.bytes.truncate(ANSWER_AT - GOD + ANSWER_LEN - 1);
-	assert!(matches!(find(code), Err(PveModeError::UnsupportedGame)));
+	code.bytes
+		.truncate(IS_PVE_MODE_ACTIVE_AT - GOD + IS_PVE_MODE_ACTIVE_LEN - 1);
+	assert!(matches!(find(code), Err(GodError::UnsupportedGame)));
 }
