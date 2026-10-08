@@ -36,6 +36,7 @@
 mod tests;
 
 use crate::MetamodApi;
+use crate::recipients::Recipients;
 
 use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
@@ -45,11 +46,9 @@ use source_sdk_2013::interfaces::EngineSound;
 use source_sdk_2013::math::Vector;
 use source_sdk_2013::raw::interfaces::engine_sound::{EMIT_SOUND_SLOT, EmitSoundFn as EmitSound};
 use source_sdk_2013::raw::util::cstr::borrow_cstr;
-use source_sdk_2013::raw::vcall;
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
 use std::ffi::{CStr, c_int};
-use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 /// Decides whether a sound the server emits is sent. A panic is contained by
@@ -127,47 +126,7 @@ struct RoutedSounds {
 
 /// The recipient filter of a sound the server is emitting, which lists the
 /// clients the engine sends it to. Valid only for the call.
-#[derive(Debug, Clone, Copy)]
-pub struct SoundRecipients<'a> {
-	filter: NonNull<sys::IRecipientFilter>,
-	_call: PhantomData<&'a sys::IRecipientFilter>,
-}
-
-impl SoundRecipients<'_> {
-	/// Whether the engine sends the sound to no client.
-	pub fn is_empty(self) -> bool {
-		self.len() == 0
-	}
-
-	/// Whether the engine sends the sound reliably.
-	#[doc(alias("IsReliable"))]
-	pub fn is_reliable(self) -> bool {
-		// SAFETY: The filter is live for the call, on the main thread.
-		unsafe { vcall!(self.filter.as_ptr().cast_const() => IRecipientFilter_IsReliable()) }
-	}
-
-	/// The entity index of each client the engine sends the sound to.
-	#[doc(alias("GetRecipientIndex"))]
-	pub fn iter(self) -> impl Iterator<Item = c_int> {
-		(0..self.len()).map(move |slot| {
-			// SAFETY: As for `is_reliable`, and the slot is below the count.
-			unsafe {
-				vcall!(self.filter.as_ptr().cast_const() => IRecipientFilter_GetRecipientIndex(slot as c_int))
-			}
-		})
-	}
-
-	/// How many clients the engine sends the sound to.
-	#[doc(alias("GetRecipientCount"))]
-	pub fn len(self) -> usize {
-		// SAFETY: As for `is_reliable`.
-		let count = unsafe {
-			vcall!(self.filter.as_ptr().cast_const() => IRecipientFilter_GetRecipientCount())
-		};
-
-		usize::try_from(count).unwrap_or(0)
-	}
-}
+pub type SoundRecipients<'a> = Recipients<'a>;
 
 struct SoundRoute {
 	state: Cell<Option<RoutedSounds>>,
@@ -221,10 +180,9 @@ impl Handler<EmitSound> for SoundRoute {
 			|vector: *const sys::Vector| unsafe { vector.as_ref() }.map(|&vector| vector.into());
 
 		let sound = EmittedSound {
-			recipients: SoundRecipients {
-				filter,
-				_call: PhantomData,
-			},
+			// SAFETY: The game's filter is live for the call, on the main thread,
+			// and the sound does not outlive the call.
+			recipients: unsafe { Recipients::new(filter) },
 			entity,
 			channel,
 			sample,
