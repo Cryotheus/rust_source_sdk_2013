@@ -10,18 +10,18 @@ use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use sdk_raw::util::cstr::cstring_from_buffer;
 use sdk_raw::util::printf::vsnprintf;
 use sdk_raw::vcall;
-use source_sdk_2013::Module;
 use source_sdk_2013::commands::{
-	ClientRoute, CommandAccess, CommandBaseKind, CommandContext, CommandError, CommandFlags,
-	CommandFn, CommandHandler, CommandRegistrar, CommandResult, ConsoleCommand, ConsoleVariable,
-	Invoker, RegisterCommandError, RegisterCommandErrorKind, UnlinksBeforeUnload,
-	UnregisterCommandErrorKind, route_client_command,
+	Client, ClientFilter, ClientRoute, CommandAccess, CommandBaseKind, CommandContext,
+	CommandError, CommandFlags, CommandFn, CommandHandler, CommandRegistrar, CommandResult,
+	ConsoleCommand, ConsoleVariable, Invoker, RegisterCommandError, RegisterCommandErrorKind,
+	UnlinksBeforeUnload, UnregisterCommandErrorKind, route_client_command,
 };
 use source_sdk_2013::interfaces::{Cvar, ValveEngine};
 use source_sdk_2013::test_support::edicts::edict_table;
 use source_sdk_2013::test_support::interfaces::cvar::mock_base;
 use source_sdk_2013::test_support::leak;
 use source_sdk_2013::test_support::server::{export, mock_binding, mock_server};
+use source_sdk_2013::{Module, Server};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, c_char, c_int};
 use std::pin::Pin;
@@ -211,6 +211,88 @@ unsafe extern "C" fn client_printf(
 /// What `ClientPrintf` printed since the last call.
 fn client_prints() -> Vec<(c_int, String)> {
 	CLIENT_PRINTS.take()
+}
+
+#[test]
+fn client_filters_narrow_the_clients_that_may_run_a_command() {
+	mock_engine();
+
+	let filtered = leak_pinned(
+		ConsoleCommand::new(c"sb_round_cancel", record)
+			.access(CommandAccess::Everyone)
+			.clients(ClientFilter {
+				name: "slot 1",
+				accepts: in_slot_1,
+			})
+			.flags(CommandFlags::HIDDEN)
+			.help(c"Cancels the round."),
+	);
+
+	let allowed = leak_pinned(
+		ConsoleCommand::new(c"sb_may_cancel", move |command: &CommandContext<'_>| {
+			command.reply(filtered.allows(command.server(), command.invoker()))?;
+			Ok(())
+		})
+		.access(CommandAccess::Everyone),
+	);
+
+	register(filtered).unwrap();
+	register(allowed).unwrap();
+
+	let mut table = edict_table(3, |_| false);
+
+	// Clients the filter refuses are left to the game, which reports the
+	// command unknown.
+	assert_eq!(
+		route(&raw mut table[2], "sb_round_cancel"),
+		ClientRoute::Handled
+	);
+	assert_eq!(
+		route(&raw mut table[1], "sb_round_cancel"),
+		ClientRoute::NotRouted
+	);
+	assert_eq!(
+		seen(),
+		[Seen {
+			slot: Some(1),
+			typed: "sb_round_cancel".to_owned(),
+			args: vec![],
+		}]
+	);
+	assert_eq!(client_prints(), [(2, "ran sb_round_cancel\n".to_owned())]);
+
+	// The server is never filtered.
+	engine_dispatch(filtered.get_ref(), &*tokenized("sb_round_cancel"));
+	assert_eq!(seen().len(), 1);
+	assert_eq!(console(), ["ran sb_round_cancel\n"]);
+
+	// A listing asks the command the same.
+	assert_eq!(
+		route(&raw mut table[2], "sb_may_cancel"),
+		ClientRoute::Handled
+	);
+	assert_eq!(
+		route(&raw mut table[1], "sb_may_cancel"),
+		ClientRoute::Handled
+	);
+	engine_dispatch(allowed.get_ref(), &*tokenized("sb_may_cancel"));
+	assert_eq!(
+		client_prints(),
+		[(2, "true\n".to_owned()), (1, "false\n".to_owned())]
+	);
+	assert_eq!(console(), ["true\n"]);
+
+	let scope = ();
+	let server = mock_server(&scope);
+
+	assert_eq!(filtered.access_level(), CommandAccess::Everyone);
+	assert_eq!(
+		filtered.client_filter().map(|filter| filter.name),
+		Some("slot 1")
+	);
+	assert_eq!(filtered.current_flags(server), CommandFlags::HIDDEN);
+	assert_eq!(filtered.help_text(), c"Cancels the round.");
+	assert!(allowed.client_filter().is_none());
 }
 
 #[test]
@@ -533,6 +615,11 @@ fn handlers_with_state_dispatch_through_the_whole_command() {
 
 	assert_eq!(route(&raw mut table[1], "sb_greet"), ClientRoute::Handled);
 	assert_eq!(client_prints(), [(1, "hello\n".to_owned())]);
+}
+
+/// A [`ClientFilter`] that lets only the client in slot 1 through.
+fn in_slot_1(_: Server<'_>, client: Client<'_>) -> bool {
+	client.slot() == 1
 }
 
 /// Leaks a command or variable, pinned, as plugins keep theirs in statics.
