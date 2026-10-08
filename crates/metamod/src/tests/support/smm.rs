@@ -2,6 +2,7 @@
 
 use crate::api::{MetamodApi, MetamodApiBinding, MetamodVersion};
 use crate::sys::api::ISmmApi;
+use crate::sys::plugin_manager::MMIFACE_PLMANAGER;
 use crate::sys::sourcehook::MMIFACE_SOURCEHOOK;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::MaybeUninit;
@@ -18,6 +19,8 @@ pub(crate) struct MockSmm {
 	pub(crate) sourcehook: *mut c_void,
 	/// The KHook that the 2.0 `GetDetourInterface` returns.
 	pub(crate) khook: *mut c_void,
+	/// The `ISmmPluginManager` that `MetaFactory` returns.
+	pub(crate) plugin_manager: *mut c_void,
 	_vtable: Box<[MaybeUninit<*const ()>; SLOTS]>,
 }
 
@@ -51,6 +54,7 @@ impl MockSmm {
 			},
 			sourcehook: ptr::null_mut(),
 			khook: ptr::null_mut(),
+			plugin_manager: ptr::null_mut(),
 			_vtable: vtable,
 		})
 	}
@@ -96,9 +100,15 @@ unsafe extern "C" fn meta_factory(
 ) -> *mut c_void {
 	// SAFETY: Every mock `ISmmApi` is a `MockSmm`, and callers pass a name.
 	unsafe {
-		match CStr::from_ptr(name) == MMIFACE_SOURCEHOOK {
-			true => (*this.cast::<MockSmm>()).sourcehook,
-			false => ptr::null_mut(),
+		let name = CStr::from_ptr(name);
+		let smm = this.cast::<MockSmm>();
+
+		if name == MMIFACE_SOURCEHOOK {
+			(*smm).sourcehook
+		} else if name == MMIFACE_PLMANAGER {
+			(*smm).plugin_manager
+		} else {
+			ptr::null_mut()
 		}
 	}
 }

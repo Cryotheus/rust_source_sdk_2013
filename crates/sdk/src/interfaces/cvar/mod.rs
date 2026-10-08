@@ -80,6 +80,19 @@ impl<'s> CommandBase<'s> {
 		// read without forming a reference.
 		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pszName).read()) }.unwrap_or_default()
 	}
+
+	/// Its help text, as `help` prints it, or empty: for a variable, that of
+	/// the variable that holds its value, as [`ConVar::help_text`] reads it.
+	#[doc(alias("GetHelpText"))]
+	pub fn help_text(self) -> &'s CStr {
+		if let Some(var) = self.as_var() {
+			return var.help_text();
+		}
+
+		// SAFETY: As for `name`. The engine keeps the text with the entry.
+		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pszHelpString).read()) }
+			.unwrap_or_default()
+	}
 }
 
 /// The console variables and commands the registry listed when
@@ -154,6 +167,34 @@ impl<'s> ConVar<'s> {
 	pub fn default_string(self) -> CString {
 		// SAFETY: As for `string`.
 		unsafe { copy_cstr((&raw const (*self.parent()).m_pszDefaultValue).read()) }
+			.unwrap_or_default()
+	}
+
+	/// The least and the most value the variable takes, each `None` where it
+	/// has no bound. Setting it clamps a value to these.
+	#[doc(alias("GetMin", "GetMax"))]
+	pub fn bounds(self) -> (Option<f32>, Option<f32>) {
+		let parent = self.parent();
+
+		// SAFETY: As for `name`.
+		unsafe {
+			(
+				(&raw const (*parent).m_bHasMin)
+					.read()
+					.then(|| (&raw const (*parent).m_fMinVal).read()),
+				(&raw const (*parent).m_bHasMax)
+					.read()
+					.then(|| (&raw const (*parent).m_fMaxVal).read()),
+			)
+		}
+	}
+
+	/// The help text of the variable that holds the value, as `help` prints it,
+	/// or empty.
+	#[doc(alias("GetHelpText"))]
+	pub fn help_text(self) -> &'s CStr {
+		// SAFETY: As for `name`. The engine keeps the text with the variable.
+		unsafe { borrow_cstr((&raw const (*self.parent())._base.m_pszHelpString).read()) }
 			.unwrap_or_default()
 	}
 

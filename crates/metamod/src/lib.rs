@@ -4,6 +4,7 @@ mod api;
 mod context;
 pub mod hook;
 mod plugin;
+mod plugins;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
@@ -202,6 +203,7 @@ pub use crys_bricks::env_cstr as __private_env_cstr;
 
 pub use hook::HookError;
 pub use plugin::{ErrorBuffer, PluginCallbacks, PluginDescriptor, PluginMetadata};
+pub use plugins::{PluginEntry, PluginId, PluginManager, PluginSource, PluginState};
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
