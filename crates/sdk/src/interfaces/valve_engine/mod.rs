@@ -285,6 +285,17 @@ impl<'s> ValveEngine<'s> {
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_LogPrint(message.as_ptr())) };
 	}
 
+	/// The map's entities as the map file gives them: each entity's key values,
+	/// in the text form `{ "classname" "info_target" ... }`, which the game parses
+	/// again as it cleans the map up between rounds. `None` without a level.
+	#[doc(alias("GetMapEntitiesString"))]
+	pub fn map_entities(self) -> Option<CString> {
+		// SAFETY: As for `change_level`. The engine returns the text it holds for
+		// the level's map, or null, and the text is copied at once.
+		unsafe { copy_cstr(vcall!(self.as_ptr() => IVEngineServer_GetMapEntitiesString())) }
+			.filter(|entities| !entities.is_empty())
+	}
+
 	/// The net channel of the client owning an edict.
 	///
 	/// Returns `None` for an edict that no connected client owns, and for fake

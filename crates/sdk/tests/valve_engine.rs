@@ -1,6 +1,7 @@
 //! Tests of the engine's services for the game (`IVEngineServer`): the
 //! arguments its methods receive, edict and user ID lookups, clients' Steam
-//! IDs, the lock of the network string tables, and visibility queries.
+//! IDs, the map's entities, the lock of the network string tables, and
+//! visibility queries.
 
 use sdk_raw::edicts::FL_EDICT_FREE;
 use sdk_raw::players::ABSOLUTE_PLAYER_LIMIT;
@@ -29,6 +30,9 @@ thread_local! {
 	/// The engine and command `ServerCommand` last received.
 	static RECEIVED: Cell<(*mut sys::IVEngineServer, *const c_char)> =
 		const { Cell::new((null_mut(), ptr::null())) };
+
+	/// The text `GetMapEntitiesString` returns.
+	static MAP_ENTITIES: Cell<*const c_char> = const { Cell::new(ptr::null()) };
 
 	/// The length of every set passed to `CheckOriginInPVS` and `CheckBoxInPVS`.
 	static PVS_LENGTHS: RefCell<Vec<c_int>> = const { RefCell::new(Vec::new()) };
@@ -207,6 +211,39 @@ fn lookup_ignores_free_slots_even_if_the_engine_returns_them() {
 			.map(Edict::index),
 		Some(1)
 	);
+}
+
+#[test]
+fn map_entities_are_copied_and_none_without_a_level() {
+	// SAFETY: The patch only writes a slot of the vtable.
+	unsafe {
+		export_engine(|vtable| {
+			(&raw mut (*vtable).IVEngineServer_GetMapEntitiesString).write(map_entities_string);
+		})
+	};
+
+	let scope = ();
+	let engine = mock_server(&scope).valve_engine().unwrap();
+	let text = c"{\n\"classname\" \"worldspawn\"\n}\n{\n\"classname\" \"info_target\"\n}\n";
+
+	MAP_ENTITIES.set(text.as_ptr());
+
+	let entities = engine.map_entities().unwrap();
+
+	assert_eq!(entities.as_c_str(), text);
+	assert_ne!(entities.as_ptr(), text.as_ptr());
+
+	// Without a level, the engine has no text, or an empty one.
+	MAP_ENTITIES.set(ptr::null());
+	assert_eq!(engine.map_entities(), None);
+
+	MAP_ENTITIES.set(c"".as_ptr());
+	assert_eq!(engine.map_entities(), None);
+}
+
+/// `IVEngineServer::GetMapEntitiesString`, which returns [`MAP_ENTITIES`].
+unsafe extern "C" fn map_entities_string(_: *mut sys::IVEngineServer) -> *const c_char {
+	MAP_ENTITIES.get()
 }
 
 #[test]
