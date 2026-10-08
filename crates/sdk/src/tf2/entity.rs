@@ -1,6 +1,6 @@
 //! The native members TF2 exposes to VScript on every entity, through the
 //! script class of `CBaseEntity`: its solid flags and collision group, its
-//! bounds, its velocity and pushes, and damage.
+//! bounds, its origin, angles, velocity and pushes, and damage.
 //!
 //! [`TfEntity`] wraps an entity within one engine callback, and calls the
 //! members' native bindings, found by name and checked against the SDK's
@@ -33,13 +33,13 @@ use crate::entities::Entity;
 use crate::entities::fields::FieldError;
 use crate::entities::movement::MoveType;
 use crate::entities::solid::SolidFlags;
-use crate::math::Vector;
+use crate::math::{QAngle, Vector};
 use crate::tf2::collision::TfCollisionGroup;
 use crate::tf2::damage::DamageType;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::tf2::script_instances::{ScriptInstance, ScriptInstanceError};
 use crate::{Game, Server};
-use sdk_raw::tf2::script_binding::{float, handle, int, vector};
+use sdk_raw::tf2::script_binding::{float, handle, int, qangle, vector};
 use std::ffi::{CStr, c_int};
 use std::ptr::null_mut;
 
@@ -285,6 +285,52 @@ impl<'s> TfEntity<'s> {
 	#[doc(alias("RemoveSolidFlags"))]
 	pub fn remove_solid_flags(self, flags: SolidFlags) -> Result<(), TfEntityError> {
 		self.call_with_flags(c"RemoveSolidFlags", flags)
+	}
+
+	/// Turns the entity in the world (`SetAbsAngles`), and its angles relative
+	/// to its move parent to match.
+	///
+	/// Unlike a teleport, clients interpolate the turn, as they do moves made
+	/// with [`set_abs_origin`](Self::set_abs_origin). Fails with
+	/// [`TfEntityError::NonFinite`] for angles that are not finite, before the
+	/// game is called.
+	#[doc(alias("SetAbsAngles"))]
+	pub fn set_abs_angles(self, angles: QAngle) -> Result<(), TfEntityError> {
+		if ![angles.pitch, angles.yaw, angles.roll]
+			.iter()
+			.all(|angle| angle.is_finite())
+		{
+			return Err(TfEntityError::NonFinite);
+		}
+
+		let angles = sys::QAngle::from(angles);
+
+		// SAFETY: The member reads the finite angles during the call, and stores
+		// them, the entity's local angles, which it computes from its move
+		// parent's, and the time of the change, which clients interpolate from.
+		unsafe { self.call(c"SetAbsAngles", &mut [qangle(&angles)]) }
+	}
+
+	/// Moves the entity in the world (`SetAbsOrigin`), and its origin relative
+	/// to its move parent to match.
+	///
+	/// Unlike a teleport, which makes clients snap the entity to its new
+	/// origin, clients interpolate the move, so stepping an entity a little
+	/// each tick looks smooth. The entity touches nothing it passes through on
+	/// the way. Fails with [`TfEntityError::NonFinite`] for an origin that is
+	/// not finite, before the game is called.
+	#[doc(alias("SetAbsOrigin"))]
+	pub fn set_abs_origin(self, origin: Vector) -> Result<(), TfEntityError> {
+		if !origin.is_finite() {
+			return Err(TfEntityError::NonFinite);
+		}
+
+		let origin = sys::Vector::from(origin);
+
+		// SAFETY: The member reads the finite origin during the call, and stores
+		// it, the entity's local origin, which it computes from its move
+		// parent's, and the time of the change, which clients interpolate from.
+		unsafe { self.call(c"SetAbsOrigin", &mut [vector(&origin)]) }
 	}
 
 	/// Sets the entity's velocity in the world, in units per second
