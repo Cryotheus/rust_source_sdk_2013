@@ -52,6 +52,10 @@ pub const DMG_ALWAYSGIB: c_int = 1 << 13;
 /// Explosive blast damage.
 pub const DMG_BLAST: c_int = 1 << 6;
 
+/// A blast on the surface of water, which cannot harm what is underwater,
+/// and which TF2 aliases as [`DMG_MELEE`].
+pub const DMG_BLAST_SURFACE: c_int = 1 << 27;
+
 /// Shotgun pellets: not quite a bullet.
 pub const DMG_BUCKSHOT: c_int = 1 << 29;
 
@@ -73,11 +77,30 @@ pub const DMG_CRUSH: c_int = 1 << 0;
 /// Damage the SDK's `CEntityFlame` deals alongside [`DMG_BURN`].
 pub const DMG_DIRECT: c_int = 1 << 28;
 
+/// Dissolving, which TF2 aliases as
+/// [`DMG_DONT_COUNT_DAMAGE_TOWARDS_CRIT_RATE`].
+pub const DMG_DISSOLVE: c_int = 1 << 26;
+
+/// TF2's damage that does not raise its attacker's chance of random critical
+/// hits, an alias of [`DMG_DISSOLVE`].
+pub const DMG_DONT_COUNT_DAMAGE_TOWARDS_CRIT_RATE: c_int = DMG_DISSOLVE;
+
 /// Drowning.
 pub const DMG_DROWN: c_int = 1 << 14;
 
+/// A laser or other high-energy beam, which TF2 aliases as
+/// [`DMG_RADIUS_MAX`].
+pub const DMG_ENERGYBEAM: c_int = 1 << 10;
+
 /// Falling too far.
 pub const DMG_FALL: c_int = 1 << 5;
+
+/// TF2's radius damage that falls to half at the edge of its radius, an
+/// alias of [`DMG_RADIATION`].
+pub const DMG_HALF_FALLOFF: c_int = DMG_RADIATION;
+
+/// TF2's damage that sets its victim on fire, an alias of [`DMG_PLASMA`].
+pub const DMG_IGNITE: c_int = DMG_PLASMA;
 
 /// TF2's healing marked as exempt from its healing debuffs, an alias of
 /// [`DMG_SLASH`]. `CTFPlayer::TakeHealth` has its check commented out, so the
@@ -88,11 +111,31 @@ pub const DMG_IGNORE_DEBUFFS: c_int = DMG_SLASH;
 /// does, an alias of [`DMG_BULLET`] (`CTFPlayer::TakeHealth`).
 pub const DMG_IGNORE_MAXHEALTH: c_int = DMG_BULLET;
 
+/// TF2's melee damage, an alias of [`DMG_BLAST_SURFACE`].
+pub const DMG_MELEE: c_int = DMG_BLAST_SURFACE;
+
 /// Stops any damage type from gibbing the victim on death.
 pub const DMG_NEVERGIB: c_int = 1 << 12;
 
+/// TF2's damage whose distance modifier adds less at close range, an alias
+/// of [`DMG_POISON`].
+pub const DMG_NOCLOSEDISTANCEMOD: c_int = DMG_POISON;
+
+/// Shot by a plasma weapon, which TF2 aliases as [`DMG_IGNITE`].
+pub const DMG_PLASMA: c_int = 1 << 24;
+
+/// Blood poisoning, which TF2 aliases as [`DMG_NOCLOSEDISTANCEMOD`].
+pub const DMG_POISON: c_int = 1 << 17;
+
 /// Prevents the damage from applying a physics force.
 pub const DMG_PREVENT_PHYSICS_FORCE: c_int = 1 << 11;
+
+/// Radiation, which TF2 aliases as [`DMG_HALF_FALLOFF`].
+pub const DMG_RADIATION: c_int = 1 << 18;
+
+/// TF2's radius damage that does not fall off over its radius, an alias of
+/// [`DMG_ENERGYBEAM`].
+pub const DMG_RADIUS_MAX: c_int = DMG_ENERGYBEAM;
 
 /// Electric shock.
 pub const DMG_SHOCK: c_int = 1 << 8;

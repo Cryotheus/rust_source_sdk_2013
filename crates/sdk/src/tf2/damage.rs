@@ -754,6 +754,13 @@ bitflags::bitflags! {
 		#[doc(alias("DMG_DIRECT"))]
 		const DIRECT = damage::DMG_DIRECT as u32;
 
+		/// TF2's `DMG_DONT_COUNT_DAMAGE_TOWARDS_CRIT_RATE`, which aliases
+		/// `DMG_DISSOLVE`: damage that does not raise its attacker's chance of
+		/// random critical hits, as the damage they deal does.
+		#[doc(alias("DMG_DONT_COUNT_DAMAGE_TOWARDS_CRIT_RATE", "DMG_DISSOLVE"))]
+		const DONT_COUNT_DAMAGE_TOWARDS_CRIT_RATE =
+			damage::DMG_DONT_COUNT_DAMAGE_TOWARDS_CRIT_RATE as u32;
+
 		/// Drowning.
 		#[doc(alias("DMG_DROWN"))]
 		const DROWN = damage::DMG_DROWN as u32;
@@ -766,13 +773,40 @@ bitflags::bitflags! {
 		#[doc(alias("DMG_GENERIC"))]
 		const GENERIC = damage::DMG_GENERIC as u32;
 
+		/// TF2's `DMG_HALF_FALLOFF`, which aliases `DMG_RADIATION`: radius
+		/// damage that falls to half at the edge of its radius. Like
+		/// [`Self::BLAST`], it lets a kill gib the victim.
+		#[doc(alias("DMG_HALF_FALLOFF", "DMG_RADIATION"))]
+		const HALF_FALLOFF = damage::DMG_HALF_FALLOFF as u32;
+
+		/// TF2's `DMG_IGNITE`, which aliases `DMG_PLASMA`: damage that sets
+		/// its victim on fire, unless they stand in water up to the waist.
+		#[doc(alias("DMG_IGNITE", "DMG_PLASMA"))]
+		const IGNITE = damage::DMG_IGNITE as u32;
+
+		/// TF2's `DMG_MELEE`, which aliases `DMG_BLAST_SURFACE`: melee damage,
+		/// which resistances to melee damage reduce.
+		#[doc(alias("DMG_MELEE", "DMG_BLAST_SURFACE"))]
+		const MELEE = damage::DMG_MELEE as u32;
+
 		/// Stops any damage type from gibbing the victim on death.
 		#[doc(alias("DMG_NEVERGIB"))]
 		const NEVER_GIB = damage::DMG_NEVERGIB as u32;
 
+		/// TF2's `DMG_NOCLOSEDISTANCEMOD`, which aliases `DMG_POISON`: with
+		/// [`Self::USE_DISTANCE_MOD`], damage gains less at close range, as a
+		/// stickybomb's does.
+		#[doc(alias("DMG_NOCLOSEDISTANCEMOD", "DMG_POISON"))]
+		const NO_CLOSE_DISTANCE_MOD = damage::DMG_NOCLOSEDISTANCEMOD as u32;
+
 		/// Prevents the damage from applying a physics force.
 		#[doc(alias("DMG_PREVENT_PHYSICS_FORCE"))]
 		const PREVENT_PHYSICS_FORCE = damage::DMG_PREVENT_PHYSICS_FORCE as u32;
+
+		/// TF2's `DMG_RADIUS_MAX`, which aliases `DMG_ENERGYBEAM`: radius
+		/// damage that does not fall off over its radius.
+		#[doc(alias("DMG_RADIUS_MAX", "DMG_ENERGYBEAM"))]
+		const RADIUS_MAX = damage::DMG_RADIUS_MAX as u32;
 
 		/// Electric shock.
 		#[doc(alias("DMG_SHOCK"))]
