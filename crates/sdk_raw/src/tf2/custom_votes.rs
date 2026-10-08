@@ -226,8 +226,10 @@ impl TaggedVtable {
 /// - The destructors, `OnVoteFailed`, `ExecuteCommand` and
 ///   `ListIssueDetails` are `OnVoteStarted`, which does nothing. The issue is
 ///   never freed.
-/// - `IsEnabled` and `RequestCallVote` are `IsTeamRestrictedVote`, which
-///   returns false.
+/// - `IsEnabled` is `IsTeamRestrictedVote`, which returns false.
+/// - `RequestCallVote` is `base`'s, which refuses calls while the issue is not
+///   enabled, telling the caller that the server disabled it, or why else it
+///   refuses them first.
 /// - `ProcessResults` is `GetNumberVoteOptions`, which returns 2,
 ///   [`VOTE_ACTION_FAIL`].
 /// - The rest are `base`'s: its `GetTypeStringLocalized` returns an empty
@@ -237,20 +239,21 @@ impl TaggedVtable {
 ///
 /// `base` must be the vtable of an issue whose class does not override
 /// `CBaseIssue`'s `OnVoteStarted`, `IsTeamRestrictedVote`,
-/// `GetNumberVoteOptions`, and `GetTypeStringLocalized`, such as TF2's
-/// `CRestartGameIssue`, in a module that outlives the issues using the table.
-/// Under the x86-64 calling conventions of both targets, the caller passes
-/// the arguments and cleans them up, so a function that takes fewer, and
-/// returns what the caller ignores or the same integer type, can stand in for
-/// one that takes more.
+/// `GetNumberVoteOptions`, and `GetTypeStringLocalized`, and whose
+/// `RequestCallVote` refuses calls while `IsEnabled` returns false, such as
+/// TF2's `CRestartGameIssue`, in a module that outlives the issues using the
+/// table. Under the x86-64 calling conventions of both targets, the caller
+/// passes the arguments and cleans them up, so a function that takes fewer,
+/// and returns what the caller ignores or the same integer type, can stand
+/// in for one that takes more.
 pub unsafe fn dead_vtable(base: &IssueVtable) -> IssueVtable {
 	let nothing = base.CBaseIssue_OnVoteStarted;
 	let refuse = base.CBaseIssue_IsTeamRestrictedVote;
 
 	// SAFETY: The functions take the issue first and ignore what follows, as
 	// the caller promises of `base`. The destructors' return value is ignored
-	// by `delete`, `RequestCallVote` and `IsEnabled` return a `bool` as
-	// `IsTeamRestrictedVote` does, and `ProcessResults` an `int` enumeration as
+	// by `delete`, `IsEnabled` returns a `bool` as `IsTeamRestrictedVote`
+	// does, and `ProcessResults` an `int` enumeration as
 	// `GetNumberVoteOptions` returns an `int`.
 	unsafe {
 		IssueVtable {
@@ -273,16 +276,7 @@ pub unsafe fn dead_vtable(base: &IssueVtable) -> IssueVtable {
 			CBaseIssue_OnVoteStarted: nothing,
 			CBaseIssue_IsEnabled: refuse,
 			CBaseIssue_CanTeamCallVote: base.CBaseIssue_CanTeamCallVote,
-			CBaseIssue_RequestCallVote: transmute::<
-				unsafe extern "C" fn(*mut sys::CBaseIssue) -> bool,
-				unsafe extern "C" fn(
-					*mut sys::CBaseIssue,
-					c_int,
-					*const c_char,
-					*mut sys::vote_create_failed_t,
-					*mut c_int,
-				) -> bool,
-			>(refuse),
+			CBaseIssue_RequestCallVote: base.CBaseIssue_RequestCallVote,
 			CBaseIssue_IsTeamRestrictedVote: refuse,
 			CBaseIssue_GetDisplayString: base.CBaseIssue_GetDisplayString,
 			CBaseIssue_ExecuteCommand: nothing,

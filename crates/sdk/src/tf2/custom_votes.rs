@@ -13,9 +13,9 @@
 //! them to the level's controller. The controller deletes its issues as the
 //! level ends, so attach the votes as each level activates, and as the plugin
 //! loads or unpauses during a level. [`CustomVotes::detach`] switches them to
-//! functions of the game alone, which hide them and refuse every call, as the
-//! plugin pauses, and dropping the votes detaches them for good, as it
-//! unloads.
+//! functions of the game alone, which hide them and refuse every call, telling
+//! callers that the server disabled them, as the plugin pauses, and dropping
+//! the votes detaches them for good, as it unloads.
 //!
 //! # What players see
 //!
@@ -474,6 +474,10 @@ pub enum VoteRefusal {
 
 	/// What the vote would change is already so
 	/// (`VOTE_FAILED_MODIFICATION_ALREADY_ACTIVE`).
+	///
+	/// TF2's clients show its Vote Failed panel with no reason, only
+	/// `%FailedReason%`, as seen on 2026-10-08, so a vote may rather say why
+	/// itself, and refuse with [`VoteRefusal::Handled`].
 	AlreadyActive,
 
 	/// The game is waiting for players (`VOTE_FAILED_WAITINGFORPLAYERS`).
@@ -1006,7 +1010,8 @@ unsafe fn make_tables(
 	}));
 
 	// SAFETY: `CRestartGameIssue` overrides none of the methods the dead table
-	// borrows, as checked above, and is in the game module, which outlives
+	// borrows, as checked above, its `RequestCallVote` refuses calls once
+	// `IsEnabled` returns false, and it is in the game module, which outlives
 	// every issue.
 	let dead = Box::leak(Box::new(TaggedVtable {
 		rtti,

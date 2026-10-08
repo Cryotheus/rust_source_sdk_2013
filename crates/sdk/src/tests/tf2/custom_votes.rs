@@ -94,6 +94,29 @@ impl Controller {
 	}
 }
 
+/// A vote that only has a name.
+struct NamedVote(&'static CStr);
+
+impl CustomVote for NamedVote {
+	fn call(&self, _: Server<'_>, _: VoteCall<'_>) -> Result<VoteText, VoteRefusal> {
+		Err(VoteRefusal::Generic)
+	}
+
+	fn label(&self) -> &'static CStr {
+		c"#Vote_RestartGame"
+	}
+
+	fn name(&self) -> &'static CStr {
+		self.0
+	}
+
+	fn offered(&self, _: Server<'_>) -> bool {
+		true
+	}
+
+	fn pass(&self, _: Server<'_>, _: &CStr) {}
+}
+
 /// A vtable after its RTTI, as compilers lay them out.
 #[repr(C)]
 struct RttiVtable {
@@ -242,14 +265,22 @@ unsafe extern "C" fn base_ratio(_: *mut sys::CBaseIssue) -> f32 {
 	0.6
 }
 
+/// As `CRestartGameIssue`'s, which refuses calls while the issue is not
+/// enabled.
 unsafe extern "C" fn base_request(
-	_: *mut sys::CBaseIssue,
+	this: *mut sys::CBaseIssue,
 	_: c_int,
 	_: *const c_char,
-	_: *mut sys::vote_create_failed_t,
+	failure: *mut sys::vote_create_failed_t,
 	_: *mut c_int,
 ) -> bool {
-	true
+	let enabled = unsafe { ((*(*this).vtable_).CBaseIssue_IsEnabled)(this) };
+
+	if !enabled {
+		unsafe { failure.write(sys::vote_create_failed_t_VOTE_FAILED_ISSUE_DISABLED) };
+	}
+
+	enabled
 }
 
 unsafe extern "C" fn base_restart_text(_: *mut sys::CBaseIssue) -> *const c_char {
@@ -373,6 +404,8 @@ fn detached_issues_refuse_everything_and_revive_in_place() {
 	assert!(!votes.is_attached());
 
 	let vtable = unsafe { &*(*issue).vtable_ };
+	let mut failure = sys::vote_create_failed_t_VOTE_FAILED_GENERIC;
+	let mut time = 0;
 
 	unsafe {
 		assert!(!(vtable.CBaseIssue_IsEnabled)(issue));
@@ -380,13 +413,17 @@ fn detached_issues_refuse_everything_and_revive_in_place() {
 			issue,
 			1,
 			c"".as_ptr(),
-			ptr::null_mut(),
-			ptr::null_mut()
+			&raw mut failure,
+			&raw mut time
 		));
 		assert_eq!(process(issue), VOTE_ACTION_FAIL);
 		(vtable.CBaseIssue_ExecuteCommand)(issue);
 	}
 
+	assert_eq!(
+		failure,
+		sys::vote_create_failed_t_VOTE_FAILED_ISSUE_DISABLED
+	);
 	assert!(calls.borrow().is_empty());
 
 	controller.attach().unwrap();
@@ -470,6 +507,34 @@ fn names_are_ascii_words_that_fit_before_the_tag() {
 		check_names(&votes),
 		Err(CustomVoteError::DuplicateName(_))
 	));
+}
+
+#[test]
+fn reloaded_votes_keep_their_places() {
+	let controller = controller(16);
+	let named = || -> Vec<Box<dyn CustomVote>> {
+		[c"Alpha", c"Beta", c"Gamma"]
+			.into_iter()
+			.map(|name| Box::new(NamedVote(name)) as Box<dyn CustomVote>)
+			.collect()
+	};
+
+	let votes = install_with(mock_binding(), named(), restart_vtable());
+
+	controller.attach().unwrap();
+
+	let issues = controller.issues();
+
+	votes.detach();
+	controller.attach().unwrap();
+	assert_eq!(controller.issues(), issues);
+
+	drop(votes);
+
+	let _votes = install_with(mock_binding(), named(), restart_vtable());
+
+	controller.attach().unwrap();
+	assert_eq!(controller.issues(), issues);
 }
 
 /// Calls the issue's `ProcessResults`.
