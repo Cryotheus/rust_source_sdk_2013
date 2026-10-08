@@ -209,6 +209,33 @@ fn conditions_cover_every_identifier_in_order() {
 }
 
 #[test]
+fn conditions_have_the_games_names() {
+	assert_eq!(Condition::AIMING.name(), "TF_COND_AIMING");
+	assert_eq!(Condition::URINE.name(), "TF_COND_URINE");
+	assert_eq!(
+		Condition::INVULNERABLE_HIDE_UNLESS_DAMAGED.name(),
+		"TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED"
+	);
+
+	let names: std::collections::HashSet<_> = Condition::all().map(Condition::name).collect();
+
+	assert_eq!(names.len(), Condition::all().len());
+	assert!(names.iter().all(|name| name.starts_with("TF_COND_")));
+
+	for condition in Condition::all() {
+		assert_eq!(Condition::from_name(condition.name()), Some(condition));
+	}
+
+	// As the game's lookup, case is ignored.
+	assert_eq!(
+		Condition::from_name("tf_cond_urine"),
+		Some(Condition::URINE)
+	);
+	assert_eq!(Condition::from_name("TF_COND_LAST"), None);
+	assert_eq!(Condition::from_name("URINE"), None);
+}
+
+#[test]
 fn durations_are_set_only_for_held_conditions_but_crit_boosts() {
 	let scope = ();
 	let fake = player(VARS);
