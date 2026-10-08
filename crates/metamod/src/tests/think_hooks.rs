@@ -27,7 +27,8 @@ impl Mock {
 	fn of_new_class() -> Box<Self> {
 		let last = PRE_THINK_SLOT
 			.max(POST_THINK_SLOT)
-			.max(PHYSICS_SIMULATE_SLOT);
+			.max(PHYSICS_SIMULATE_SLOT)
+			.max(THINK_SLOT);
 		let slots = Vec::leak(vec![game_method as EntityFn as *mut c_void; last + 1]);
 
 		Box::new(Self {
@@ -59,6 +60,28 @@ fn on_think(_server: Server<'_>, timing: HookTiming, _entity: Entity<'_>) {
 			HookTiming::Pre => "before",
 			HookTiming::Post => "after",
 		})
+	});
+}
+
+#[test]
+fn entity_thinks_run_between_the_hooks() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut entity = Mock::of_new_class();
+		let hooks = api.hook_thinks(tf2_binding(no_interfaces), on_think);
+
+		assert_eq!(hooks.cover(api, entity.target::<BaseEntity>()), Ok(true));
+		assert_eq!(
+			run(harness, &mut entity, THINK_SLOT),
+			["before", "game", "after"]
+		);
+
+		// The simulation around the think is not hooked.
+		assert_eq!(run(harness, &mut entity, PHYSICS_SIMULATE_SLOT), ["game"]);
+
+		// Removed, the hooks no longer run.
+		hooks.remove(api);
+		assert_eq!(run(harness, &mut entity, THINK_SLOT), ["game"]);
 	});
 }
 

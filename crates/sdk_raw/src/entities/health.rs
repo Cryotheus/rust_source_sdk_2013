@@ -22,6 +22,13 @@ use std::mem::{MaybeUninit, offset_of};
 pub type EventKilledFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::CTakeDamageInfo);
 
+/// The signature of `CBaseEntity::TakeHealth`, `int (float, int)`, with the
+/// entity as its receiver: the healing, and the `DMG_*` bits it heals, as
+/// [`take_health`] passes them, returning the health the entity gained.
+#[doc(alias("TakeHealth"))]
+pub type TakeHealthFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, amount: f32, damage_type: c_int) -> c_int;
+
 #[cfg(target_os = "windows")]
 const _: () = assert!(offset_of!(sys::CBaseAnimating, _base) == 0);
 
@@ -91,6 +98,9 @@ const _: () = assert!(
 
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> EventKilledFn =
 	|vtable| vtable.CBaseEntity_Event_Killed;
+
+const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TakeHealthFn =
+	|vtable| vtable.CBaseEntity_TakeHealth;
 
 /// The `m_takedamage` of an entity that takes damage, and which aim
 /// assistance may target.

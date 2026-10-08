@@ -2,12 +2,36 @@
 //! generated bindings of `CNavArea` (`game/server/nav_area.h`) and
 //! `CTFNavArea` (`game/server/tf/nav_mesh/tf_nav_area.h`) do not describe:
 //! the bits of an area's attributes, the number of teams an area counts, the
-//! slot of the method that finds a character's area, and how to read the
-//! vectors an area keeps its connections and hiding spots in.
+//! slot of the method that finds a character's area, how to read the vectors
+//! an area keeps its connections and hiding spots in, and where the game
+//! server module keeps the list of every area (`TheNavAreas`).
 
+#[cfg(test)]
+#[path = "../tests/tf2/nav.rs"]
+mod tests;
+
+use crate::interfaces::CreateInterfaceFn;
+use crate::util::{self, ModuleCache, ModuleKey};
 use crate::vtable_slot;
 use std::ffi::c_int;
+use std::mem::offset_of;
+use std::ptr::NonNull;
 use std::slice;
+
+#[cfg(target_os = "linux")]
+use crate::util::elf::LoadedElf;
+
+#[cfg(any(target_os = "windows", test))]
+use crate::util::{Image, SignaturePattern, relative, sig};
+
+// `TheNavAreas` is a `CUtlVector` whose memory starts with the pointer to
+// its elements, which its count follows, as the code that finds it reads
+// them.
+const _: () = assert!(
+	offset_of!(NavAreaVector, m_Memory) == 0
+		&& offset_of!(sys::CUtlMemory<*mut sys::CNavArea>, m_pMemory) == 0
+		&& offset_of!(NavAreaVector, m_Size) == 16
+);
 
 // The opaque `CUtlVectorUltraConservative`s of an area are each a pointer to
 // their data.
@@ -228,4 +252,199 @@ pub unsafe fn ultra_conservative_elements<'a, T>(vector: *const impl Sized) -> &
 
 		slice::from_raw_parts(elements, len)
 	}
+}
+
+/// `NavAreaVector` (`nav_area.h`): the vector of areas that `TheNavAreas`,
+/// the list of every area of the mesh, is.
+pub type NavAreaVector = sys::CUtlVector<*mut sys::CNavArea, sys::CUtlMemory<*mut sys::CNavArea>>;
+
+/// What [`cached_nav_areas`] found in the last module it searched: the
+/// address of `TheNavAreas`, or `None` if the module lacks it where this
+/// module looks.
+static NAV_AREAS: ModuleCache<Option<usize>> = ModuleCache::new();
+
+/// The global variable `TheNavAreas`, whose name the Itanium ABI does not
+/// mangle.
+#[cfg(target_os = "linux")]
+const NAV_AREAS_SYMBOL: &[u8] = b"TheNavAreas";
+
+/// The message `nav_update_lighting` prints with the count of
+/// `TheNavAreas`, with its terminator.
+#[cfg(any(target_os = "windows", test))]
+const UPDATE_LIGHTING_MESSAGE: &[u8] = b"Computed lighting for %d/%d areas\n\0";
+
+// `nav_update_lighting`'s loop over `TheNavAreas`, `CNavMesh::
+// CommandNavUpdateLighting`, in TF2's 64-bit Windows `server.dll`, up to its
+// message with the areas' count. The wildcards are `rip`-relative operands,
+// the slot of `ComputeLighting`, and the loop's branch back.
+//
+//  +0  mov rax, [rip+TheNavAreas]          ; m_Memory.m_pMemory
+//  +7  mov ecx, edi
+//  +9  mov rcx, [rax+rcx*8]
+// +13  mov rax, [rcx]
+// +16  call [rax+ComputeLighting]
+// +22  test al, al
+// +24  lea ecx, [rbx+1]
+// +27  cmovz ecx, ebx
+// +30  inc edi
+// +32  cmp edi, [rip+TheNavAreas+16]       ; m_Size
+// +38  mov ebx, ecx
+// +40  jl +0
+// +42  mov r8d, [rip+TheNavAreas+16]       ; m_Size
+// +49  lea rcx, [rip+message]
+// +56  mov edx, ebx
+// +58  call [rip+DevMsg]
+#[cfg(any(target_os = "windows", test))]
+const UPDATE_LIGHTING: [SignaturePattern; 64] = sig![
+	0x48 0x8b 0x05 ? ? ? ?
+	0x8b 0xcf
+	0x48 0x8b 0x0c 0xc8
+	0x48 0x8b 0x01
+	0xff 0x90 ? ? ? ?
+	0x84 0xc0
+	0x8d 0x4b 0x01
+	0x0f 0x44 0xcb
+	0xff 0xc7
+	0x3b 0x3d ? ? ? ?
+	0x8b 0xd9
+	0x7c ?
+	0x44 0x8b 0x05 ? ? ? ?
+	0x48 0x8d 0x0d ? ? ? ?
+	0x8b 0xd3
+	0xff 0x15 ? ? ? ?
+];
+
+/// Where [`UPDATE_LIGHTING`] reads the pointer to the areas.
+#[cfg(any(target_os = "windows", test))]
+const UPDATE_LIGHTING_ELEMENTS: usize = 3;
+
+/// Where [`UPDATE_LIGHTING`] loads [`UPDATE_LIGHTING_MESSAGE`].
+#[cfg(any(target_os = "windows", test))]
+const UPDATE_LIGHTING_MESSAGE_OPERAND: usize = 52;
+
+/// Where [`UPDATE_LIGHTING`] reads the areas' count, in the loop and for the
+/// message.
+#[cfg(any(target_os = "windows", test))]
+const UPDATE_LIGHTING_SIZES: [usize; 2] = [34, 45];
+
+/// Finds `TheNavAreas`, the list of every area of TF2's navigation mesh, in
+/// the module whose `CreateInterface` export is `factory`, such as the game
+/// server module, or `Ok(None)` if the module lacks it where this function
+/// looks. The list holds `CTFNavArea`s, and is empty until a level with a
+/// mesh loads.
+///
+/// On Windows, the list is the one `nav_update_lighting`'s code counts, found
+/// by a signature of that code verified in TF2's 64-bit `server.dll`: its three
+/// references to the list must agree, and the message it prints must be the
+/// command's. On Linux, it is the variable the module's symbols name
+/// `TheNavAreas`, which is not checked against a retail build. Either way, the
+/// list must lie in a writable section of the module, which on Windows must
+/// not be executable.
+///
+/// The address is metadata from a snapshot of the module: it does not keep
+/// the module loaded, and is the list only while the module stays loaded.
+///
+/// # Safety
+///
+/// `factory` must be the `CreateInterface` export of a module that stays
+/// loaded throughout this call.
+#[doc(alias("TheNavAreas"))]
+pub unsafe fn find_nav_areas(
+	factory: CreateInterfaceFn,
+) -> Result<Option<NonNull<NavAreaVector>>, util::Error> {
+	#[cfg(target_os = "windows")]
+	let address = {
+		// SAFETY: The factory is an executable address in its module, which the
+		// caller keeps loaded while it is inspected.
+		let image = unsafe { Image::load(factory as usize) }?;
+
+		nav_areas_in(&image)
+	};
+
+	#[cfg(target_os = "linux")]
+	let address = {
+		// SAFETY: As above.
+		let elf = unsafe { LoadedElf::at(factory as usize) }?;
+
+		elf.resolve_data(NAV_AREAS_SYMBOL)
+			.filter(|&(address, size)| {
+				size >= size_of::<NavAreaVector>() && address % align_of::<NavAreaVector>() == 0
+			})
+			.map(|(address, _)| address)
+	};
+
+	Ok(address.and_then(|address| NonNull::new(address as *mut NavAreaVector)))
+}
+
+/// Finds `TheNavAreas` as [`find_nav_areas`] does, but inspects each module
+/// once: a later call for the same module, mapped at the same base with its
+/// `CreateInterface` at the same address, returns what the first found,
+/// including `None`. A failure is not kept.
+///
+/// # Safety
+///
+/// - `factory` must be the `CreateInterface` export of a module that stays
+///   loaded throughout this call.
+/// - If an earlier call inspected a module mapped at the same base, with its
+///   `CreateInterface` at the same address, the module containing `factory`
+///   must be that same image, as [`ModuleCache`] assumes.
+pub unsafe fn cached_nav_areas(
+	factory: CreateInterfaceFn,
+) -> Result<Option<NonNull<NavAreaVector>>, util::Error> {
+	// SAFETY: The caller keeps the factory's module loaded for this call.
+	let key = unsafe { ModuleKey::of(factory as usize) }?;
+
+	let address = NAV_AREAS.get_or_resolve(key, || {
+		// SAFETY: As the caller promises.
+		unsafe { find_nav_areas(factory) }.map(|areas| areas.map(|areas| areas.as_ptr() as usize))
+	})?;
+
+	// SAFETY: The address came from a search of this module, in this call or,
+	// on a cache hit, in an earlier one, of the same image, as the caller
+	// promises.
+	Ok(address.and_then(|address| NonNull::new(address as *mut NavAreaVector)))
+}
+
+/// The areas `areas` holds, read in place.
+///
+/// # Safety
+///
+/// `areas` must point to a live `NavAreaVector`, such as `TheNavAreas`, whose
+/// elements nothing changes or frees while the slice lives.
+pub unsafe fn nav_area_elements<'a>(areas: NonNull<NavAreaVector>) -> &'a [*mut sys::CNavArea] {
+	// SAFETY: As the caller promises. The fields are read without forming a
+	// reference to the vector, which the game writes.
+	unsafe {
+		let areas = areas.as_ptr();
+		let elements = (&raw const (*areas).m_Memory.m_pMemory).read();
+		let len = usize::try_from((&raw const (*areas).m_Size).read()).unwrap_or(0);
+
+		if elements.is_null() || len == 0 {
+			&[]
+		} else {
+			slice::from_raw_parts(elements, len)
+		}
+	}
+}
+
+/// Finds `TheNavAreas` in a snapshot of a Windows module, through
+/// [`UPDATE_LIGHTING`].
+#[cfg(any(target_os = "windows", test))]
+fn nav_areas_in(image: &Image) -> Option<usize> {
+	let at = image.unique(&UPDATE_LIGHTING, 1)?;
+	let code = image.read(at, UPDATE_LIGHTING.len())?;
+	let areas = relative(at, code, UPDATE_LIGHTING_ELEMENTS)?;
+	let size = areas.checked_add(offset_of!(NavAreaVector, m_Size))?;
+	let message = relative(at, code, UPDATE_LIGHTING_MESSAGE_OPERAND)?;
+
+	let agrees = UPDATE_LIGHTING_SIZES
+		.iter()
+		.all(|&operand| relative(at, code, operand) == Some(size));
+
+	(agrees
+		&& !image.executable(message)
+		&& image.read(message, UPDATE_LIGHTING_MESSAGE.len()) == Some(UPDATE_LIGHTING_MESSAGE)
+		&& !image.executable(areas)
+		&& image.contains(areas, size_of::<NavAreaVector>(), false, true))
+	.then_some(areas)
 }
