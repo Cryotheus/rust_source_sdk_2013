@@ -1,9 +1,10 @@
 //! ABI of TF2's game rules (`CTFGameRules`): the vtable slots and signatures of
 //! the methods that clean up the map and decide what it keeps, end and set up
-//! rounds, and decide whether a player is ready to play, captures, holidays, how the teams are balanced,
-//! switched and scrambled, and players' damage,
-//! taken from the generated bindings, with calls of some; the round states of `gamerules_roundstate_t`, the team roles and the
-//! stalemate reasons; and the search for the game rules' vtable.
+//! rounds, and decide whether a player is ready to play, captures, holidays,
+//! how the teams are balanced, switched and scrambled, and players' damage,
+//! taken from the generated bindings, with calls of some; the round states of
+//! `gamerules_roundstate_t`, the team roles and the stalemate reasons; and the
+//! search for the game rules' vtable.
 
 #[cfg(test)]
 #[path = "../tests/tf2/game_rules.rs"]
