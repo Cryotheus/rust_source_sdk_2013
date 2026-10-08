@@ -51,7 +51,11 @@
 //!   hooks, so the listener sees those too;
 //! - as with other Metamod hooks, sends made off the server's main thread,
 //!   such as the snapshots worker threads send when `sv_parallel_sendsnapshot`
-//!   is set, or while the plugin is paused or after it unloads.
+//!   is set, or while the plugin is paused or after it unloads. With Metamod
+//!   1.12, those threads' sends go straight to the channel without entering
+//!   SourceHook's hook loop, which is not safe to share between threads, so
+//!   they also skip other plugins' SourceHook hooks on these methods when
+//!   SourceHook patched them with this library's hook functions.
 //!
 //! The listener sees each send before the channel takes it, so it also sees
 //! those the channel then refuses, such as data too large for its stream.
