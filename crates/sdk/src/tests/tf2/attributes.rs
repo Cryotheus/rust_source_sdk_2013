@@ -118,9 +118,82 @@ fn catalog_attributes_are_set_on_players_within_their_bounds() {
 		Ok(false)
 	);
 
+	// Definitions of any value type check the float as their type.
+	let speed = AnyAttributeDef::Multiplier(catalog::MOVE_SPEED_BONUS);
+	let airblast = AnyAttributeDef::Flag(catalog::AIRBLAST_DISABLED);
+
+	assert_eq!(attributes.set_any(token, speed, 1.2, None), Ok(false));
+	fake.take_calls();
+	assert_eq!(
+		attributes.set_any(token, airblast, 0.5, None),
+		Err(AttributeError::InvalidValue)
+	);
+	assert_eq!(
+		attributes.set_any(token, speed, 9.0, None),
+		Err(AttributeError::OutOfDomain)
+	);
+	assert!(fake.take_calls().is_empty());
+
 	fake.set_flags(EFL_KILLME);
 	assert_eq!(
 		attributes.set(token, &catalog::MOVE_SPEED_BONUS, factor(1.2), None),
 		Err(AttributeError::MarkedForDeletion)
+	);
+}
+
+#[test]
+fn the_catalog_is_listed_once_and_found_by_name_or_index() {
+	for (position, def) in catalog::ALL.iter().enumerate() {
+		let others = &catalog::ALL[position + 1..];
+
+		assert!(others.iter().all(|other| other.name() != def.name()));
+		assert!(others.iter().all(|other| other.index() != def.index()));
+		assert_eq!(catalog::by_index(def.index()), Some(*def));
+		assert!(def.min() < def.max());
+	}
+
+	assert_eq!(
+		catalog::find("DAMAGE BONUS"),
+		Some(AnyAttributeDef::Multiplier(catalog::DAMAGE_BONUS))
+	);
+	assert_eq!(
+		catalog::find("move speed bonus").map(|def| def.name()),
+		Some(c"move speed bonus")
+	);
+	assert_eq!(catalog::find("damage bonus "), None);
+	assert_eq!(catalog::find("set item tint RGB"), None);
+	assert_eq!(catalog::by_index(AttributeIndex::new(142).unwrap()), None);
+}
+
+#[test]
+fn values_of_any_definition_are_checked_as_its_type() {
+	let damage = AnyAttributeDef::Multiplier(catalog::DAMAGE_BONUS);
+	let airblast = AnyAttributeDef::Flag(catalog::AIRBLAST_DISABLED);
+
+	assert_eq!(damage.value_kind(), "multiplier");
+	assert_eq!(damage.stored(1.5), Ok(1.5));
+	assert_eq!(damage.stored(0.5), Err(AttributeError::OutOfDomain));
+	assert_eq!(damage.stored(-1.0), Err(AttributeError::InvalidValue));
+	assert_eq!(damage.stored(f32::NAN), Err(AttributeError::InvalidValue));
+	assert_eq!(airblast.stored(1.0), Ok(1.0));
+	assert_eq!(airblast.stored(0.5), Err(AttributeError::InvalidValue));
+
+	let mut set = AttributeSet::new();
+
+	set.insert_any(damage, 2.0).unwrap();
+	set.insert(&catalog::DAMAGE_BONUS, Multiplier::new(1.5).unwrap())
+		.unwrap();
+
+	assert_eq!(set.len(), 1);
+	assert_eq!(
+		set.insert_any(airblast, 2.0),
+		Err(AttributeError::InvalidValue)
+	);
+	assert_eq!(set.len(), 1);
+	assert_eq!(
+		set,
+		AttributeSet::new()
+			.with(&catalog::DAMAGE_BONUS, Multiplier::new(1.5).unwrap())
+			.unwrap()
 	);
 }
