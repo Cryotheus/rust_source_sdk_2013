@@ -17,8 +17,9 @@ use std::ptr::{self, NonNull};
 impl<'s> Entity<'s> {
 	/// Whether the entity's name answers to `query`, as the game decides for
 	/// the inputs and outputs it sends by name (`CBaseEntity::NameMatches`):
-	/// ignoring ASCII case, with a `*` ending `query` matching the rest of
-	/// any name, and `!player`, in any case, matching every player.
+	/// ignoring ASCII case, with a `*` in `query` matching the rest of any name
+	/// whose start matches what comes before it, and `!player`, in any case,
+	/// matching every player.
 	///
 	/// An entity without a name answers to an empty query, and to one that
 	/// starts with `*`. As the game compares characters as `int`s, a character
