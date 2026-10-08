@@ -1,5 +1,6 @@
 //! TF2 chat hooks, which run after the game's `CBasePlayer::CheckChatText`
-//! with the text of each message a player says in chat.
+//! with the text of each message a player says in chat, and after its
+//! `CanHearAndReadChatFrom` to decide who reads it.
 //!
 //! The game's `Host_Say` (`game/server/client.cpp:173-379`) runs the `say` and
 //! `say_team` commands of humans and bots alike, such as those a plugin runs
@@ -12,26 +13,37 @@
 //! chat format adds. What the server's console says has no player, and
 //! reaches no hook.
 //!
-//! Install for each distinct player class (for example as each player is put
-//! in the server; bots have a vtable of their own). Hooks cover that class,
-//! including subsequently connected players of the same class, until removed
-//! or the plugin unloads. As with other Metamod hooks, they stop calling
-//! handlers while the plugin is paused.
+//! Install [`MetamodApi::hook_player_chat`] for each distinct player class
+//! (for example as each player is put in the server; bots have a vtable of
+//! their own). Hooks cover that class, including subsequently connected
+//! players of the same class, until removed or the plugin unloads. As with
+//! other Metamod hooks, they stop calling handlers while the plugin is paused.
+//!
+//! [`MetamodApi::hook_chat_reading`] returns [`ClassHooks`] instead, which
+//! cover the classes of [`TfPlayer`] given to them, and take one of the
+//! plugin's [hook managers](crate::class_hooks#costs).
 
 #[cfg(test)]
 #[path = "tests/chat_hooks.rs"]
 mod tests;
 
 use crate::MetamodApi;
+use crate::class_hooks::ClassHooks;
 
 use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
 use source_sdk_2013::entities::Entity;
-use source_sdk_2013::raw::tf2::chat::{CHECK_CHAT_TEXT_SLOT, CheckChatTextFn as CheckChatText};
+
+use source_sdk_2013::raw::tf2::chat::{
+	CAN_HEAR_AND_READ_CHAT_FROM_SLOT, CHECK_CHAT_TEXT_SLOT,
+	CanHearAndReadChatFromFn as CanHearAndReadChatFrom, CheckChatTextFn as CheckChatText,
+};
+
 use source_sdk_2013::raw::util::cstr::borrow_cstr;
 use source_sdk_2013::raw::util::vtable::vtable_pointer;
+use source_sdk_2013::tf2::class_targets::TfPlayer;
 use source_sdk_2013::{Game, Server, ServerBinding, sys};
 use std::cell::Cell;
 use std::ffi::{CStr, c_void};
@@ -40,6 +52,16 @@ use std::ptr::NonNull;
 /// A callback-scoped server, the player saying a message in chat, and a copy
 /// of its text. A panic is contained by the hook dispatcher.
 pub type ChatFn = for<'s> fn(Server<'s>, Entity<'s>, &CStr);
+
+/// A callback-scoped server, the player who might read a message, the player
+/// saying it, and whether the game, or an earlier hook, lets the reader get
+/// it, deciding whether they do. A panic is contained by the hook dispatcher,
+/// and keeps the decision.
+pub type ChatReadFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>, bool) -> ChatReadAction;
+
+/// `CanHearAndReadChatFrom` in a TF2 player's primary vtable.
+const CAN_HEAR_AND_READ_CHAT_FROM: VirtualFunction<CanHearAndReadChatFrom> =
+	VirtualFunction::new(CAN_HEAR_AND_READ_CHAT_FROM_SLOT);
 
 /// `CheckChatText` in a TF2 player's primary vtable.
 const CHECK_CHAT_TEXT: VirtualFunction<CheckChatText> = VirtualFunction::new(CHECK_CHAT_TEXT_SLOT);
@@ -58,6 +80,21 @@ pub enum ChatHookError {
 	/// player can ignore.
 	#[error(transparent)]
 	Hook(#[from] HookError),
+}
+
+/// Whether a player gets a message another says in chat.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ChatReadAction {
+	/// Keeps the decision as the game, or an earlier hook, made it.
+	#[default]
+	Continue,
+
+	/// Sends the reader the message.
+	Read,
+
+	/// Keeps the message from the reader.
+	Withhold,
 }
 
 struct ChatRoute {
@@ -200,5 +237,63 @@ impl MetamodApi<'_> {
 			vtable,
 		}));
 		Ok(hook)
+	}
+}
+
+impl MetamodApi<'_> {
+	/// Runs `callback` after each `CBasePlayer::CanHearAndReadChatFrom` of the
+	/// players of the classes the returned hooks cover, which are none until
+	/// [`ClassHooks::cover`] covers them: once the game decided whether the
+	/// player gets a message another player says in chat; see the
+	/// [module documentation](crate::chat_hooks).
+	///
+	/// [`ChatReadAction::Read`] and [`ChatReadAction::Withhold`] change the
+	/// decision. Neither reaches past the game's other checks: `say_team`
+	/// still goes only to the speaker's team, and nobody gets a message from
+	/// a player they ignore. What the server's console says, which the game
+	/// asks about with no speaker, keeps the game's decision without a call.
+	///
+	/// `binding` must describe the running server. The callback runs for each
+	/// other player at each message, and must not delete entities
+	/// immediately, as [`Server::new`] requires.
+	pub fn hook_chat_reading(
+		self,
+		binding: ServerBinding,
+		callback: ChatReadFn,
+	) -> ClassHooks<TfPlayer> {
+		ClassHooks::new(
+			binding,
+			callback,
+			CAN_HEAR_AND_READ_CHAT_FROM,
+			&[HookTiming::Post],
+			read,
+		)
+	}
+}
+
+/// Gives `callback` the reader, the speaker, and the decision, which it may
+/// change.
+fn read<'s>(
+	server: Server<'s>,
+	callback: ChatReadFn,
+	reader: Entity<'s>,
+	call: &HookCall<'_, CanHearAndReadChatFrom>,
+) -> HookAction<bool> {
+	let (speaker,) = call.args();
+
+	let Some(speaker) = NonNull::new(speaker) else {
+		return HookAction::Ignore;
+	};
+
+	// SAFETY: The game asks about the live player saying the message, whose
+	// entity base is at its start, and who stays in the entity list through
+	// the call.
+	let speaker = unsafe { Entity::from_live(server, speaker) };
+	let reads = call.return_value().unwrap_or_default();
+
+	match callback(server, reader, speaker, reads) {
+		ChatReadAction::Continue => HookAction::Ignore,
+		ChatReadAction::Read => HookAction::Override(true),
+		ChatReadAction::Withhold => HookAction::Override(false),
 	}
 }

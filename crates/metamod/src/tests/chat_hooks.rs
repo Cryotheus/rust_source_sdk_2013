@@ -1,9 +1,11 @@
-//! Tests of `crate::chat_hooks`: post hooks of `CheckChatText` on mock player
-//! classes, through the mock SourceHook and KHook.
+//! Tests of `crate::chat_hooks`: post hooks of `CheckChatText` and
+//! `CanHearAndReadChatFrom` on mock player classes, through the mock
+//! SourceHook and KHook.
 
 use super::*;
 use crate::test_support::harness::{Harness, expect, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
+use source_sdk_2013::tf2::class_targets::ClassTarget;
 use std::cell::RefCell;
 use std::ffi::{CString, c_char, c_int};
 use std::ptr::null_mut;
@@ -143,4 +145,89 @@ fn say(
 	CALLS.take();
 	harness.call::<CheckChatText>(player.ptr().as_ptr(), CHECK_CHAT_TEXT_SLOT, (pointer, 127));
 	CALLS.take()
+}
+
+thread_local! {
+	/// What [`on_chat_reading`] decides.
+	static READ_ACTION: Cell<ChatReadAction> = const { Cell::new(ChatReadAction::Continue) };
+
+	/// What the game's `CanHearAndReadChatFrom` decides.
+	static GAME_READS: Cell<bool> = const { Cell::new(true) };
+
+	/// The reader, speaker and decision [`on_chat_reading`] was given since the
+	/// last check.
+	static READS: RefCell<Vec<(usize, usize, bool)>> = const { RefCell::new(Vec::new()) };
+}
+
+#[test]
+fn chat_reading_decisions_are_changed_after_the_game() {
+	on_both(|harness| {
+		let api = harness.api();
+		let slots = Vec::leak(vec![
+			game_can_hear_and_read_chat_from as CanHearAndReadChatFrom
+				as *mut c_void;
+			CAN_HEAR_AND_READ_CHAT_FROM_SLOT + 1
+		]);
+		let mut reader = Player {
+			vtable: slots.as_mut_ptr(),
+		};
+		let mut speaker = Player {
+			vtable: slots.as_mut_ptr(),
+		};
+		let (reader, speaker) = (reader.ptr().as_ptr(), speaker.ptr().as_ptr());
+		// SAFETY: The test only calls the hooked slot, which holds a method of
+		// its signature.
+		let target =
+			unsafe { ClassTarget::<TfPlayer>::from_raw(NonNull::new(slots.as_mut_ptr()).unwrap()) };
+		let hooks = api.hook_chat_reading(tf2_binding(no_interfaces), on_chat_reading);
+		let check = |speaker: *mut sys::CBaseEntity| {
+			READS.take();
+			let reads = harness.call::<CanHearAndReadChatFrom>(
+				reader,
+				CAN_HEAR_AND_READ_CHAT_FROM_SLOT,
+				(speaker,),
+			);
+			(reads, READS.take())
+		};
+		let seen = |reads| vec![(reader.addr(), speaker.addr(), reads)];
+
+		assert_eq!(hooks.cover(api, target), Ok(true));
+
+		READ_ACTION.set(ChatReadAction::Continue);
+		assert_eq!(check(speaker), (true, seen(true)));
+
+		READ_ACTION.set(ChatReadAction::Withhold);
+		assert_eq!(check(speaker), (false, seen(true)));
+
+		GAME_READS.set(false);
+		READ_ACTION.set(ChatReadAction::Read);
+		assert_eq!(check(speaker), (true, seen(false)));
+
+		// The server's console has no player to give the callback, and keeps the
+		// game's decision.
+		assert_eq!(check(null_mut()), (false, vec![]));
+		GAME_READS.set(true);
+	});
+}
+
+/// The game's `CanHearAndReadChatFrom`, which decides [`GAME_READS`].
+unsafe extern "C" fn game_can_hear_and_read_chat_from(
+	_this: *mut sys::CBaseEntity,
+	_speaker: *mut sys::CBaseEntity,
+) -> bool {
+	GAME_READS.get()
+}
+
+/// The callback, which notes the reader, the speaker, and the decision, and
+/// decides [`READ_ACTION`].
+fn on_chat_reading(
+	_server: Server<'_>,
+	reader: Entity<'_>,
+	speaker: Entity<'_>,
+	reads: bool,
+) -> ChatReadAction {
+	READS.with_borrow_mut(|seen| {
+		seen.push((reader.as_ptr().addr(), speaker.as_ptr().addr(), reads))
+	});
+	READ_ACTION.get()
 }

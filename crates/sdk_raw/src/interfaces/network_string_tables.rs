@@ -11,6 +11,13 @@ use std::ffi::{CStr, c_int};
 /// `int`, as 65535.
 pub const INVALID_STRING_INDEX: u16 = u16::MAX;
 
+/// The most bytes of user data a string of a table can carry: what fits the
+/// 14 bits the engine sends each string's user data size in, as its
+/// `MAX_USERDATA_BITS` (`engine/networkstringtable.h`, which the SDK does not
+/// ship) sets them.
+#[doc(alias("MAX_USERDATA_BITS", "MAX_USERDATA_SIZE"))]
+pub const MAX_USER_DATA_LEN: usize = (1 << 14) - 1;
+
 /// The `length` to pass `INetworkStringTable::AddString` when adding a string
 /// without user data: its default in `public/networkstringtabledefs.h`.
 /// `length` is the size of the user data, not of the string.
