@@ -28,6 +28,7 @@ pub mod game_events;
 pub mod game_mode;
 pub mod game_rules;
 pub mod gc;
+pub mod god;
 pub mod host_timescale;
 pub mod item_schema;
 pub mod meters;
