@@ -87,6 +87,12 @@ pub trait DerivesFrom<B: ClassKind>: ClassKind {}
 
 impl<K: ClassKind> DerivesFrom<K> for K {}
 
+/// `CTFWeaponBaseMelee`: TF2's melee weapons, from the Bat to the Heavy's
+/// fists and the Spy's knife.
+#[doc(alias("CTFWeaponBaseMelee"))]
+#[derive(Debug)]
+pub enum TfMeleeWeapon {}
+
 /// `CTFPlayer`: TF2's players, of the two classes of
 /// [`PLAYER_CLASSES`].
 #[doc(alias("CTFPlayer", "CTFBot"))]
@@ -117,6 +123,7 @@ kinds! {
 	BaseObject: c"CBaseObject", sys::CBaseObject__bindgen_vtable, [BaseEntity, CombatCharacter];
 	CombatCharacter: c"CBaseCombatCharacter", sys::CBaseCombatCharacter__bindgen_vtable, [BaseEntity];
 	CombatWeapon: c"CBaseCombatWeapon", sys::CBaseCombatWeapon__bindgen_vtable, [BaseEntity];
+	TfMeleeWeapon: c"CTFWeaponBaseMelee", sys::CTFWeaponBaseMelee__bindgen_vtable, [BaseEntity, CombatWeapon, TfWeapon];
 	TfPlayer: c"CTFPlayer", sys::CTFPlayer__bindgen_vtable, [BaseEntity, CombatCharacter];
 	TfWeapon: c"CTFWeaponBase", sys::CTFWeaponBase__bindgen_vtable, [BaseEntity, CombatWeapon];
 }

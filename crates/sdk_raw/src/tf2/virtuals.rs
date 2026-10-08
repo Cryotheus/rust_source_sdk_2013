@@ -63,6 +63,11 @@ pub type RunCommandFn = unsafe extern "C" fn(
 pub type ShouldCollideFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, group: c_int, contents: c_int) -> bool;
 
+/// The signature of `CTFWeaponBaseMelee::GetSmackTime`,
+/// `float (int weaponMode)`, at [`GET_SMACK_TIME_SLOT`].
+#[doc(alias("GetSmackTime"))]
+pub type SmackTimeFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity, mode: c_int) -> f32;
+
 /// The signature of a character's virtual methods that take a weapon and
 /// return nothing, `void (CBaseCombatWeapon *weapon)`: that of
 /// [`WEAPON_EQUIP_SLOT`].
@@ -236,6 +241,26 @@ const _: () = {
 	assert!(RELOAD_SLOT == vtable_slot!(Weapon, CTFWeaponBase_Reload));
 };
 
+// `game/shared/tf/tf_weaponbase_melee.h` declares `GetSmackTime` right after
+// `Smack`, and the generated binding places it at 474 on Windows and 481 on
+// Linux.
+const _: () = {
+	use sys::CTFWeaponBaseMelee__bindgen_vtable as Melee;
+
+	let _: fn(&Melee) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee, c_int) -> f32 =
+		|vtable| vtable.CTFWeaponBaseMelee_GetSmackTime;
+
+	assert!(GET_SMACK_TIME_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_Smack) + 1);
+
+	assert!(
+		GET_SMACK_TIME_SLOT
+			== cfg_select! {
+				target_os = "windows" => 474,
+				target_os = "linux" => 481,
+			}
+	);
+};
+
 // SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `GetMaxHealth`
 // at 123 on Windows and 124 on Linux in its `tf` section, which TF2's players
 // override. The generated binding places `CanBeAutobalanced` at 474 on
@@ -287,6 +312,16 @@ pub const CALC_IS_ATTACK_CRITICAL_HELPER_SLOT: usize = vtable_slot!(
 pub const CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT: usize = vtable_slot!(
 	sys::CTFWeaponBase__bindgen_vtable,
 	CTFWeaponBase_CalcIsAttackCriticalHelperNoCrits
+);
+
+/// The slot of `CTFWeaponBaseMelee::GetSmackTime` in a TF2 melee weapon's
+/// primary vtable, from the generated binding: the method from which a melee
+/// weapon's swing learns when it lands, its smack, which the weapon then
+/// traces and deals its damage at.
+#[doc(alias("GetSmackTime"))]
+pub const GET_SMACK_TIME_SLOT: usize = vtable_slot!(
+	sys::CTFWeaponBaseMelee__bindgen_vtable,
+	CTFWeaponBaseMelee_GetSmackTime
 );
 
 /// The slot of `CTFPlayer::GiveNamedItem` in a TF2 player's primary vtable,
