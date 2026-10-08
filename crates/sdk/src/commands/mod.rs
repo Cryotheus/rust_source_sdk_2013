@@ -86,6 +86,22 @@ impl<'d> Client<'d> {
 	}
 }
 
+/// Narrows the clients a command lets run it, such as to a plugin's admins:
+/// see [`ConsoleCommand::clients`].
+///
+/// Clients it refuses are told the command is unknown, as for any command a
+/// client cannot run. Server-side invokers are never filtered.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientFilter {
+	/// Who the filter lets through, in a few words, for listings such as a
+	/// plugin's help command: `"admins"`.
+	pub name: &'static str,
+
+	/// Whether the client may run the command. It is asked before each of the
+	/// client's invocations, and by [`ConsoleCommand::allows`].
+	pub accepts: for<'d> fn(Server<'d>, Client<'d>) -> bool,
+}
+
 /// Who may run a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CommandAccess {
@@ -111,11 +127,14 @@ pub enum CommandAccess {
 }
 
 impl CommandAccess {
-	const fn allows_clients(self) -> bool {
+	/// Whether connected clients may run the command, all of them unless a
+	/// [`ClientFilter`] narrows them.
+	pub const fn allows_clients(self) -> bool {
 		matches!(self, Self::Clients | Self::Everyone)
 	}
 
-	const fn allows_server(self) -> bool {
+	/// Whether server-side invokers may run the command.
+	pub const fn allows_server(self) -> bool {
 		matches!(self, Self::Server | Self::Everyone)
 	}
 }

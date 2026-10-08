@@ -15,6 +15,9 @@
 use crate::NotThreadSafe;
 use crate::server::{InterfaceError, Server};
 use sdk_raw::interfaces::network_string_tables::{INVALID_STRING_INDEX, UNKNOWN_STRING_LENGTH};
+
+pub use sdk_raw::interfaces::network_string_tables::MAX_USER_DATA_LEN;
+
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
@@ -24,6 +27,18 @@ use std::ptr::{self, NonNull};
 /// The name of the table listing the files clients download while they
 /// connect.
 pub const DOWNLOADABLES: &CStr = c"downloadables";
+
+/// The name of the table of the texts and addresses the game's info panel
+/// (`CTextWindow`) shows, such as the message of the day, each the user data
+/// of a string naming it.
+///
+/// The panel looks up the entry a `VGUIMenu` message's `msg` key names, and
+/// shows its text up to its first NUL: as a web page if it starts with
+/// `http://` or `https://`, as HTML if it starts with `<`, and as plain text
+/// otherwise. Its `RichText` converts a plain text into 1024 wide characters,
+/// its terminator included, so it shows at most 1023 characters, and it
+/// looks up a text starting with `#` as a localization token.
+pub const INFO_PANEL: &CStr = c"InfoPanel";
 
 /// The name of the table listing the precached models, whose indices are
 /// entities' model indices.
@@ -69,7 +84,8 @@ pub enum AddDownloadableError {
 	Refused,
 }
 
-/// A string table refused a string, as [`NetworkStringTable::add`] reports.
+/// A string table refused a string, as [`NetworkStringTable::add`] and
+/// [`NetworkStringTable::add_with_user_data`] report.
 ///
 /// The engine refuses new strings, such as once a table holds as many as it
 /// was created for.
@@ -136,6 +152,40 @@ impl<'s> NetworkStringTable<'s> {
 		// data is passed, so there is no buffer for the engine to read.
 		let index = unsafe {
 			vcall!(self.as_ptr() => INetworkStringTable_AddString(true, string.as_ptr(), UNKNOWN_STRING_LENGTH, ptr::null()))
+		};
+
+		usize::try_from(index)
+			.ok()
+			.filter(|_| index != c_int::from(INVALID_STRING_INDEX))
+			.ok_or(AddStringError)
+	}
+
+	/// Adds a string to the table with `data` as its user data, or replaces the
+	/// user data of the string if the table contains it, and returns its index.
+	///
+	/// The engine copies both, and replicates the data to clients with the
+	/// string, as the game does with the entries of [`INFO_PANEL`]. Fails if the
+	/// engine refuses the string, as it does once the table is full, or if
+	/// `data` is empty or longer than [`MAX_USER_DATA_LEN`].
+	///
+	/// As [`Self::add`], the string lasts only until the level ends, and while a
+	/// level runs, add it inside
+	/// [`ValveEngine::with_unlocked_string_tables`]. Add only data a table's
+	/// readers expect.
+	///
+	/// [`ValveEngine::with_unlocked_string_tables`]: crate::interfaces::ValveEngine::with_unlocked_string_tables
+	#[doc(alias("AddString", "SetStringUserData"))]
+	pub fn add_with_user_data(self, string: &CStr, data: &[u8]) -> Result<usize, AddStringError> {
+		if data.is_empty() || data.len() > MAX_USER_DATA_LEN {
+			return Err(AddStringError);
+		}
+
+		let length = c_int::try_from(data.len()).map_err(|_| AddStringError)?;
+
+		// SAFETY: As for `name`. The engine copies the string and the `length`
+		// bytes of user data, which only need to live for the call.
+		let index = unsafe {
+			vcall!(self.as_ptr() => INetworkStringTable_AddString(true, string.as_ptr(), length, data.as_ptr().cast()))
 		};
 
 		usize::try_from(index)
