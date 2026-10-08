@@ -21,8 +21,7 @@
 //!   retreat when nobody is left.
 //! - Jarate, Mad Milk and the Gas Passer, whose hits stop counting for their
 //!   strange counters, other than as robots slowed in Mann vs. Machine.
-//! - VScript's `IsPVEModeActive`, and Mann vs. Machine's statistics, which
-//!   exist only in that mode.
+//! - Mann vs. Machine's statistics, which exist only in that mode.
 //! - `CTFGameRules::ShouldSkipAutoScramble`, which the linker folded into the
 //!   same code, so automatic scrambles are skipped.
 //!
@@ -30,7 +29,9 @@
 //! respawn times and waves, damage between teammates, the win panel, team
 //! balancing, switching and scrambling, dominations, name changes, the tags of
 //! `sv_tags`, and who counts as the enemy team for critical hits
-//! (`IsPVEModeControlled`). Neither are clients, which only see the flag.
+//! (`IsPVEModeControlled`). Neither is VScript's `IsPVEModeActive`, whose
+//! binding reads the flag inline too, nor are clients, which only see the
+//! flag.
 //!
 //! Linux servers have no patch: [`PveModePatch::locate`] fails there.
 
