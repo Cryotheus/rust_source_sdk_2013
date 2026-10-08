@@ -1,14 +1,15 @@
 //! Tests of reading the engine's console registry (`ICvar`): its list of
 //! commands and variables, and variables as other modules declare them.
 
+use sdk_raw::vcall;
 use source_sdk_2013::commands::{CommandBaseKind, CommandFlags};
 use source_sdk_2013::interfaces::Cvar;
-use source_sdk_2013::interfaces::cvar::ConVar;
+use source_sdk_2013::interfaces::cvar::{ConVar, ConVarChange, ConVarWatchError};
 use source_sdk_2013::test_support::interfaces::cvar::{mock_command, mock_cvar, mock_var};
-use source_sdk_2013::{Game, InterfaceFactory, Server};
-use std::cell::Cell;
-use std::ffi::{CStr, c_char, c_int, c_void};
-use std::ptr::null_mut;
+use source_sdk_2013::{Game, InterfaceFactory, Server, ServerBinding};
+use std::cell::{Cell, RefCell};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::ptr::{null, null_mut};
 
 /// The most entries a listing reads, which keeps a corrupted registry that
 /// links in a loop from hanging the server.
@@ -17,6 +18,12 @@ const MAX_LISTED: usize = 65_536;
 thread_local! {
 	/// The registry [`engine_factory`] exports.
 	static REGISTRY: Cell<*mut sys::ICvar> = const { Cell::new(null_mut()) };
+
+	/// The changes [`record`] saw on this thread.
+	static SEEN: RefCell<Vec<Seen>> = const { RefCell::new(Vec::new()) };
+
+	/// How many times [`panic_on_change`] ran on this thread.
+	static PANICKED: Cell<usize> = const { Cell::new(0) };
 }
 
 /// A registry as the wrappers see it, from the leaked mock `registry`.
@@ -218,4 +225,254 @@ fn entries_read_their_help_text_and_bounds() {
 	// SAFETY: As above.
 	unsafe { (*parent)._base.m_pszHelpString = std::ptr::null() };
 	assert_eq!(child.help_text(), c"");
+}
+
+/// A change [`record`] saw.
+#[derive(Debug, PartialEq)]
+struct Seen {
+	name: CString,
+	var: Option<*mut sys::ConVar>,
+	old: CString,
+	old_float: f32,
+
+	/// The variable's value as the callback read it, if it got the variable.
+	new: Option<CString>,
+}
+
+/// A binding to the factories of the servers [`cvar`] makes, which export the
+/// registry it last set.
+fn binding() -> ServerBinding {
+	let factory = InterfaceFactory::new(engine_factory);
+
+	// SAFETY: As for `cvar`.
+	unsafe { ServerBinding::new(factory, factory, Game::TeamFortress2) }
+}
+
+/// Tells the registry's global change callbacks that `var` changed from
+/// `old`, as a variable does after each change of its string.
+fn call_global_change_callbacks(
+	registry: *mut sys::ICvar,
+	var: *mut sys::ConVar,
+	old: *const c_char,
+	old_float: f32,
+) {
+	// SAFETY: The registry and the variable, if any, are leaked mocks, and the
+	// old string, if any, is NUL-terminated.
+	unsafe { vcall!(registry => ICvar_CallGlobalChangeCallbacks(var, old, old_float)) };
+}
+
+/// Counts its runs in [`PANICKED`], then panics.
+fn panic_on_change(_: Server<'_>, _: ConVarChange<'_>) {
+	PANICKED.set(PANICKED.get() + 1);
+	panic!("the callback failed");
+}
+
+/// Records each change it gets in [`SEEN`].
+fn record(_: Server<'_>, change: ConVarChange<'_>) {
+	let seen = Seen {
+		name: change.name().to_owned(),
+		var: change.var().map(ConVar::as_ptr),
+		old: change.old_string().to_owned(),
+		old_float: change.old_float(),
+		new: change.var().map(ConVar::string),
+	};
+
+	SEEN.with_borrow_mut(|changes| changes.push(seen));
+}
+
+/// The changes [`record`] saw on this thread since the last call.
+fn seen() -> Vec<Seen> {
+	SEEN.take()
+}
+
+#[test]
+fn watches_pass_on_each_change_with_its_variable_and_old_value() {
+	let gravity = mock_var(
+		c"sv_gravity",
+		c"800",
+		c"600",
+		CommandFlags::NOTIFY,
+		null_mut(),
+	);
+	let registry = mock_cvar(gravity.cast(), vec![gravity]);
+	let watch = cvar(registry).watch_changes(binding(), record).unwrap();
+	let seen_gravity = |old: &CStr, old_float| Seen {
+		name: c"sv_gravity".to_owned(),
+		var: Some(gravity),
+		old: old.to_owned(),
+		old_float,
+		new: Some(c"600".to_owned()),
+	};
+
+	call_global_change_callbacks(registry, gravity, c"800".as_ptr(), 800.0);
+	assert_eq!(seen(), [seen_gravity(c"800", 800.0)]);
+
+	// A missing old string reads as empty, and a missing variable is skipped.
+	call_global_change_callbacks(registry, gravity, null(), 0.0);
+	call_global_change_callbacks(registry, null_mut(), c"1".as_ptr(), 1.0);
+	assert_eq!(seen(), [seen_gravity(c"", 0.0)]);
+
+	drop(watch);
+}
+
+#[test]
+fn one_watch_runs_at_a_time() {
+	let gravity = mock_var(
+		c"sv_gravity",
+		c"800",
+		c"600",
+		CommandFlags::NONE,
+		null_mut(),
+	);
+	let registry = mock_cvar(gravity.cast(), vec![gravity]);
+	let cvar = cvar(registry);
+	let change = || call_global_change_callbacks(registry, gravity, c"800".as_ptr(), 800.0);
+	let watch = cvar.watch_changes(binding(), record).unwrap();
+
+	assert_eq!(
+		cvar.watch_changes(binding(), panic_on_change).unwrap_err(),
+		ConVarWatchError::AlreadyWatching
+	);
+	assert_eq!(
+		ConVarWatchError::AlreadyWatching.to_string(),
+		"console variable changes are already being watched"
+	);
+
+	// The refused watch installed nothing.
+	change();
+	assert_eq!(seen().len(), 1);
+	assert_eq!(PANICKED.take(), 0);
+
+	// Once stopped, another may start, and the engine calls only that one, so
+	// stopping removed the first.
+	watch.stop();
+	change();
+	assert!(seen().is_empty());
+
+	let watch = cvar.watch_changes(binding(), record).unwrap();
+
+	change();
+	assert_eq!(seen().len(), 1);
+
+	// Dropping a watch stops it too.
+	drop(watch);
+	change();
+	assert!(seen().is_empty());
+	assert!(cvar.watch_changes(binding(), record).is_ok());
+}
+
+#[test]
+fn unlisted_variables_are_passed_by_name() {
+	let gravity = mock_var(
+		c"sv_gravity",
+		c"800",
+		c"600",
+		CommandFlags::NONE,
+		null_mut(),
+	);
+
+	// A variable a module declared but has not registered, which the registry
+	// does not list.
+	let stray = mock_var(c"sb_stray", c"0", c"1", CommandFlags::NONE, null_mut());
+
+	// Another variable of a listed name, which is not the one listed.
+	let shadow = mock_var(
+		c"SV_Gravity",
+		c"800",
+		c"100",
+		CommandFlags::NONE,
+		null_mut(),
+	);
+	let registry = mock_cvar(gravity.cast(), vec![gravity]);
+	let watch = cvar(registry).watch_changes(binding(), record).unwrap();
+	let unlisted = |name: &CStr, old: &CStr, old_float| Seen {
+		name: name.to_owned(),
+		var: None,
+		old: old.to_owned(),
+		old_float,
+		new: None,
+	};
+
+	call_global_change_callbacks(registry, stray, c"0".as_ptr(), 0.0);
+	call_global_change_callbacks(registry, shadow, c"800".as_ptr(), 800.0);
+	assert_eq!(
+		seen(),
+		[
+			unlisted(c"sb_stray", c"0", 0.0),
+			unlisted(c"SV_Gravity", c"800", 800.0)
+		]
+	);
+
+	drop(watch);
+}
+
+#[test]
+fn panics_are_contained() {
+	let gravity = mock_var(
+		c"sv_gravity",
+		c"800",
+		c"600",
+		CommandFlags::NONE,
+		null_mut(),
+	);
+	let registry = mock_cvar(gravity.cast(), vec![gravity]);
+	let watch = cvar(registry)
+		.watch_changes(binding(), panic_on_change)
+		.unwrap();
+
+	// Each panic ends its call, and the next change is passed on.
+	call_global_change_callbacks(registry, gravity, c"800".as_ptr(), 800.0);
+	call_global_change_callbacks(registry, gravity, c"700".as_ptr(), 700.0);
+	assert_eq!(PANICKED.take(), 2);
+
+	drop(watch);
+}
+
+#[test]
+fn changes_on_other_threads_are_skipped() {
+	/// The mock registry and variable, which another thread changes.
+	struct Engine {
+		registry: *mut sys::ICvar,
+		var: *mut sys::ConVar,
+	}
+
+	// SAFETY: The mocks are leaked, and the test's thread waits while the
+	// other uses them.
+	unsafe impl Send for Engine {}
+
+	impl Engine {
+		/// Changes the variable on this thread, and counts the changes
+		/// [`record`] saw on it.
+		fn change(&self) -> usize {
+			call_global_change_callbacks(self.registry, self.var, c"800".as_ptr(), 800.0);
+			seen().len()
+		}
+	}
+
+	let gravity = mock_var(
+		c"sv_gravity",
+		c"800",
+		c"600",
+		CommandFlags::NONE,
+		null_mut(),
+	);
+	let registry = mock_cvar(gravity.cast(), vec![gravity]);
+	let watch = cvar(registry).watch_changes(binding(), record).unwrap();
+	let engine = Engine {
+		registry,
+		var: gravity,
+	};
+
+	// Neither thread hears of the other thread's change.
+	assert_eq!(
+		std::thread::spawn(move || engine.change()).join().unwrap(),
+		0
+	);
+	assert!(seen().is_empty());
+
+	// This thread's changes are still passed on.
+	call_global_change_callbacks(registry, gravity, c"800".as_ptr(), 800.0);
+	assert_eq!(seen().len(), 1);
+
+	drop(watch);
 }
