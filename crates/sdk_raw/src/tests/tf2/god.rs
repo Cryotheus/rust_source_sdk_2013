@@ -73,9 +73,9 @@ fn finds_the_gate() {
 
 #[test]
 fn finds_the_gate_in_tf2s_windows_build() {
-	// `CC_God_f` and `CTFGameRules::IsPVEModeActive`, as TF2's 64-bit Windows
-	// server.dll loads them at its preferred base, and the data section
-	// holding `g_pGameRules` and `gpGlobals`.
+	// `CC_God_f` and `CTFGameRules::IsPVEModeActive`, as one build of TF2's
+	// 64-bit Windows server.dll loads them at its preferred base, and the data
+	// section holding `g_pGameRules` and `gpGlobals`. Other builds move them.
 	const CC_GOD_F: usize = 0x180290d20;
 	const IS_PVE_MODE_ACTIVE_CODE: usize = 0x180570ad0;
 
