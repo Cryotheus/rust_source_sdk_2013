@@ -1,0 +1,410 @@
+use super::{Error, Image, MAX_IMAGE_BYTES, PinnedModule, Section, pe};
+use std::ffi::{CStr, OsString, c_char, c_void};
+use std::io;
+use std::mem::MaybeUninit;
+use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
+use std::ptr::NonNull;
+
+const _: () = assert!(size_of::<MemoryInformation>() == 48);
+
+/// `GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS`: `GetModuleHandleExW`'s name is
+/// an address in the module, not its name.
+const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 4;
+
+/// `GET_MODULE_HANDLE_EX_FLAG_PIN`: `GetModuleHandleExW` keeps the module
+/// loaded until the process exits, however often it is freed.
+const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 1;
+
+/// The longest path Windows gives a module, in UTF-16 units.
+const MAX_MODULE_PATH: usize = 32768;
+
+/// `MEM_COMMIT`: `VirtualAlloc` backs the pages with memory.
+const MEM_COMMIT: u32 = 0x1000;
+
+/// `MEM_RESERVE`: `VirtualAlloc` reserves the pages' addresses.
+const MEM_RESERVE: u32 = 0x2000;
+
+/// `PAGE_EXECUTE_READ`: pages that may be executed and read.
+const PAGE_EXECUTE_READ: u32 = 0x20;
+
+/// `PAGE_EXECUTE_READWRITE`: pages that may be executed, read and written.
+pub(super) const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+
+/// `PAGE_READWRITE`: pages that may be read and written.
+const PAGE_READWRITE: u32 = 0x04;
+
+#[repr(C)]
+struct MemoryInformation {
+	base: *mut c_void,
+	allocation_base: *mut c_void,
+	allocation_protection: u32,
+	partition_id: u16,
+	region_size: usize,
+	state: u32,
+	protection: u32,
+	kind: u32,
+}
+
+/// Copies process memory through the OS without creating borrowed references.
+#[derive(Debug)]
+pub struct MemoryReader;
+
+impl MemoryReader {
+	/// A reader of this process's memory.
+	pub fn open() -> Result<Self, Error> {
+		Ok(Self)
+	}
+
+	/// Copy a bounded readable range, rejecting overflow and partial reads.
+	pub fn copy(&self, address: usize, len: usize) -> Result<Vec<u8>, Error> {
+		if len > MAX_IMAGE_BYTES || address.checked_add(len).is_none() {
+			return Err(Error::InvalidImage);
+		}
+		let mut bytes = vec![0; len];
+		let mut read = 0;
+		// SAFETY: Windows validates readable source memory and the owned output
+		// allocation has len bytes. No references into mutable engine data exist.
+		if unsafe {
+			ReadProcessMemory(
+				GetCurrentProcess(),
+				address as *const c_void,
+				bytes.as_mut_ptr().cast(),
+				len,
+				&mut read,
+			)
+		} == 0
+		{
+			return Err(std::io::Error::last_os_error().into());
+		}
+		if read != len {
+			return Err(Error::InvalidImage);
+		}
+		Ok(bytes)
+	}
+}
+
+/// A loader reference pinning a Windows module until dropped.
+#[derive(Debug)]
+pub struct Module(*mut c_void);
+
+impl Module {
+	/// Acquire the loaded module containing `address`.
+	///
+	/// # Safety
+	/// The module must remain loaded until its loader reference is acquired.
+	pub unsafe fn at(address: usize) -> Result<Self, Error> {
+		let mut handle = std::ptr::null_mut();
+		// SAFETY: FROM_ADDRESS treats the value as an address rather than UTF-16;
+		// the output is valid and the caller keeps the module loaded during lookup.
+		if unsafe {
+			GetModuleHandleExW(
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+				address as *const u16,
+				&mut handle,
+			)
+		} == 0
+		{
+			return Err(std::io::Error::last_os_error().into());
+		}
+		Ok(Self(handle))
+	}
+
+	/// Acquire the already loaded module named `name`, such as `engine.dll`,
+	/// without loading it.
+	///
+	/// Fails with the error Windows reports if no module of that name is
+	/// loaded, and with [`io::ErrorKind::InvalidInput`] if `name` contains a
+	/// NUL.
+	pub fn loaded(name: &str) -> Result<Self, Error> {
+		if name.contains('\0') {
+			return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
+		}
+
+		let name = name.encode_utf16().chain([0]).collect::<Vec<_>>();
+		let mut handle = std::ptr::null_mut();
+
+		// SAFETY: Without flags, this only finds a module that is already
+		// loaded, by its NUL-terminated name, and adds a loader reference to
+		// it; the output is valid.
+		if unsafe { GetModuleHandleExW(0, name.as_ptr(), &mut handle) } == 0 {
+			return Err(io::Error::last_os_error().into());
+		}
+
+		Ok(Self(handle))
+	}
+
+	/// The module's live load address.
+	pub fn base(&self) -> usize {
+		self.0 as usize
+	}
+}
+
+impl Drop for Module {
+	fn drop(&mut self) {
+		// SAFETY: Balances exactly the one loader reference taken when this
+		// Module was made, by Module::at or loaded_symbol.
+		unsafe {
+			FreeLibrary(self.0);
+		}
+	}
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+	fn FlushInstructionCache(process: *mut c_void, address: *const c_void, size: usize) -> i32;
+	fn FreeLibrary(module: *mut c_void) -> i32;
+	fn GetCurrentProcess() -> *mut c_void;
+	fn GetModuleFileNameW(module: *mut c_void, name: *mut u16, capacity: u32) -> u32;
+	fn GetModuleHandleExA(flags: u32, name: *const c_char, module: *mut *mut c_void) -> i32;
+	fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut *mut c_void) -> i32;
+	fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
+
+	fn ReadProcessMemory(
+		process: *mut c_void,
+		base: *const c_void,
+		buffer: *mut c_void,
+		len: usize,
+		read: *mut usize,
+	) -> i32;
+
+	fn VirtualAlloc(address: *mut c_void, size: usize, kind: u32, protection: u32) -> *mut c_void;
+
+	fn VirtualProtect(address: *const c_void, size: usize, protection: u32, old: *mut u32) -> i32;
+
+	fn VirtualQuery(
+		address: *const c_void,
+		information: *mut MemoryInformation,
+		size: usize,
+	) -> usize;
+}
+
+/// Allocates `len` bytes of fresh pages, readable and writable, which are
+/// never freed.
+pub(super) fn allocate_pages(len: usize) -> io::Result<NonNull<u8>> {
+	// SAFETY: This maps new pages wherever the system chooses, touching no
+	// existing memory.
+	let pages = unsafe {
+		VirtualAlloc(
+			std::ptr::null_mut(),
+			len,
+			MEM_COMMIT | MEM_RESERVE,
+			PAGE_READWRITE,
+		)
+	};
+
+	NonNull::new(pages.cast()).ok_or_else(io::Error::last_os_error)
+}
+
+/// Makes the `len` bytes of pages at `address` executable and read-only, and
+/// the instruction fetches of this process see what was written to them.
+///
+/// # Safety
+///
+/// The pages must be an allocation of [`allocate_pages`], and no code may run
+/// from them or write to them during the call.
+pub(super) unsafe fn make_executable(address: NonNull<c_void>, len: usize) -> io::Result<()> {
+	// SAFETY: As the caller promises.
+	unsafe { protect(address.as_ptr(), len, PAGE_EXECUTE_READ) }?;
+	flush_instruction_cache(address.as_ptr(), len)
+}
+
+/// Makes the instruction fetches of this process see the code changed in
+/// `len` bytes at `address`.
+pub(super) fn flush_instruction_cache(address: *const c_void, len: usize) -> io::Result<()> {
+	// SAFETY: The process pseudo-handle is valid, and flushing reads no
+	// memory through `address`.
+	if unsafe { FlushInstructionCache(GetCurrentProcess(), address, len) } == 0 {
+		return Err(io::Error::last_os_error());
+	}
+
+	Ok(())
+}
+
+/// Whether the OS currently reports committed executable memory at `address`.
+pub fn is_executable(address: usize) -> bool {
+	let mut information = MaybeUninit::<MemoryInformation>::uninit();
+	// SAFETY: VirtualQuery queries without dereferencing the address. The output
+	// uses the verified Windows x64 MEMORY_BASIC_INFORMATION layout.
+	if unsafe {
+		VirtualQuery(
+			address as *const c_void,
+			information.as_mut_ptr(),
+			size_of::<MemoryInformation>(),
+		)
+	} != size_of::<MemoryInformation>()
+	{
+		return false;
+	}
+	// SAFETY: Successful VirtualQuery initialized the complete structure.
+	let information = unsafe { information.assume_init() };
+	information.state == 0x1000
+		&& information.protection & 0x101 == 0
+		&& information.protection & 0xf0 != 0
+}
+
+pub(super) unsafe fn load(address: usize) -> Result<Image, Error> {
+	// SAFETY: Forwarded keep-loaded guarantee from Image::load.
+	let module = unsafe { Module::at(address)? };
+	let image = snapshot(&module)?;
+	if !image.executable(address) {
+		return Err(Error::InvalidImage);
+	}
+	Ok(image)
+}
+
+/// The address of the export `name` of the already loaded library `library`,
+/// such as `tier0.dll`, or `None` if no library of that name is loaded or it
+/// does not export `name`. This never loads a library.
+///
+/// The library is kept loaded during the lookup only. The address is usable
+/// as a native pointer only while the library stays loaded, and only with the
+/// type the library exports it with.
+pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
+	let mut handle = std::ptr::null_mut();
+
+	// SAFETY: Without flags, this only finds a module that is already loaded,
+	// by name, and adds a loader reference to it; the output is valid.
+	if unsafe { GetModuleHandleExA(0, library.as_ptr(), &mut handle) } == 0 {
+		return None;
+	}
+
+	// Releases the reference when dropped, after the lookup.
+	let module = Module(handle);
+
+	// SAFETY: The reference keeps the module loaded during the lookup.
+	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
+}
+
+/// The address of the export `name` of the loaded module containing
+/// `address`, or `None` if no module contains it or the module does not
+/// export `name`. This never loads a library.
+///
+/// The module is kept loaded during the lookup only. The address is usable as
+/// a native pointer only while the module stays loaded, and only with the
+/// type the module exports it with.
+///
+/// # Safety
+///
+/// The module containing `address` must not unload during the call.
+pub unsafe fn module_symbol(address: usize, name: &CStr) -> Option<NonNull<c_void>> {
+	// SAFETY: The caller keeps the module loaded until its reference is added,
+	// which keeps it loaded during the lookup.
+	let module = unsafe { Module::at(address) }.ok()?;
+
+	// SAFETY: As above.
+	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
+}
+
+/// The path of the file the loader mapped `module` from.
+///
+/// # Safety
+///
+/// `module` must be the handle of a module that stays loaded for the call.
+unsafe fn module_path(module: *mut c_void) -> io::Result<PathBuf> {
+	let mut name = vec![0_u16; 260];
+
+	loop {
+		// SAFETY: The buffer holds `name.len()` units, and the caller keeps the
+		// module loaded.
+		let len =
+			unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), name.len() as u32) } as usize;
+
+		if len == 0 {
+			return Err(io::Error::last_os_error());
+		}
+
+		// A path that filled the buffer was truncated.
+		if len < name.len() {
+			name.truncate(len);
+			return Ok(OsString::from_wide(&name).into());
+		}
+
+		if name.len() >= MAX_MODULE_PATH {
+			return Err(io::ErrorKind::InvalidData.into());
+		}
+
+		name.resize(name.len() * 2, 0);
+	}
+}
+
+/// Keeps the module containing `address` loaded until the process exits, and
+/// returns where it is loaded and the file it was mapped from.
+///
+/// Windows ignores every later `FreeLibrary` of a pinned module, so code and
+/// data in it, such as a vtable another library patches, stay mapped for the
+/// rest of the process. Pinning is permanent and cannot be undone.
+///
+/// # Safety
+///
+/// The module must stay loaded until it is pinned.
+pub unsafe fn pin_module(address: usize) -> Result<PinnedModule, Error> {
+	let mut handle = std::ptr::null_mut();
+
+	// SAFETY: FROM_ADDRESS treats the value as an address rather than UTF-16,
+	// the output is valid, and the caller keeps the module loaded until PIN
+	// keeps it loaded for good.
+	if unsafe {
+		GetModuleHandleExW(
+			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+			address as *const u16,
+			&mut handle,
+		)
+	} == 0
+	{
+		return Err(io::Error::last_os_error().into());
+	}
+
+	Ok(PinnedModule {
+		base: handle as usize,
+		// SAFETY: The module is pinned.
+		path: unsafe { module_path(handle) }?,
+	})
+}
+
+/// Sets the protection of the pages holding `len` bytes at `address` to
+/// `protection`, a `PAGE_*` value, returning the previous protection of the
+/// first.
+///
+/// # Safety
+///
+/// The pages must belong to a module or allocation that stays mapped for the
+/// call, and nothing may rely on their previous protection while it is
+/// changed, such as code executing from them that the new protection forbids.
+pub(super) unsafe fn protect(
+	address: *const c_void,
+	len: usize,
+	protection: u32,
+) -> io::Result<u32> {
+	let mut old = 0;
+
+	// SAFETY: As the caller promises; `old` is a valid output.
+	if unsafe { VirtualProtect(address, len, protection, &mut old) } == 0 {
+		return Err(io::Error::last_os_error());
+	}
+
+	Ok(old)
+}
+
+/// Snapshots the image of the module that `module` keeps loaded.
+pub(super) fn snapshot(module: &Module) -> Result<Image, Error> {
+	let memory = MemoryReader::open()?;
+	let base = module.base();
+	let headers = pe::Headers::read(|offset, len| {
+		memory.copy(base.checked_add(offset).ok_or(Error::InvalidImage)?, len)
+	})?;
+	base.checked_add(headers.size).ok_or(Error::InvalidImage)?;
+	let mut sections = Vec::new();
+	for section in headers.sections {
+		let start = base
+			.checked_add(section.offset)
+			.ok_or(Error::InvalidImage)?;
+		sections.push(Section {
+			address: start,
+			bytes: memory.copy(start, section.len)?,
+			executable: section.executable,
+			writable: section.writable,
+		});
+	}
+	Ok(Image { base, sections })
+}
