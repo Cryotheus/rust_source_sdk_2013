@@ -1,8 +1,11 @@
 //! TF2 weapon hooks, which run around the methods of the weapons, and of the
 //! players carrying them, of the classes they cover: as a weapon runs its
-//! attacks or reloads, and before a player switches to a weapon, or after
-//! they pick one up.
+//! attacks or reloads, as a melee weapon swings, and before a player switches
+//! to a weapon, or after they pick one up.
 //!
+//! - [`MetamodApi::hook_melee_smacks`] runs before
+//!   `CTFWeaponBaseMelee::GetSmackTime`, as a melee weapon swings and times
+//!   when the swing lands, and can keep it from landing.
 //! - [`MetamodApi::hook_weapon_frames`] runs around
 //!   `CBaseCombatWeapon::ItemPostFrame`, in which a player's active weapon
 //!   runs its attacks and reloads, after the movement of each of the player's
@@ -39,11 +42,11 @@ use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::player::WEAPON_SWITCH_SLOT;
 
 use source_sdk_2013::raw::tf2::virtuals::{
-	EntityFn, ITEM_POST_FRAME_SLOT, PredicateFn, RELOAD_SLOT, WEAPON_CAN_SWITCH_TO_SLOT,
-	WEAPON_EQUIP_SLOT, WeaponFn, WeaponPredicateFn, WeaponSwitchFn,
+	EntityFn, GET_SMACK_TIME_SLOT, ITEM_POST_FRAME_SLOT, PredicateFn, RELOAD_SLOT, SmackTimeFn,
+	WEAPON_CAN_SWITCH_TO_SLOT, WEAPON_EQUIP_SLOT, WeaponFn, WeaponPredicateFn, WeaponSwitchFn,
 };
 
-use source_sdk_2013::tf2::class_targets::{CombatWeapon, TfPlayer};
+use source_sdk_2013::tf2::class_targets::{CombatWeapon, TfMeleeWeapon, TfPlayer};
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::ptr::NonNull;
 
@@ -66,8 +69,16 @@ pub type SwitchFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>) -> WeaponActi
 /// panic is contained by the hook dispatcher.
 pub type EquipFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>);
 
+/// A callback-scoped server and the melee weapon swinging, deciding whether
+/// its swing lands. A panic is contained by the hook dispatcher, and lets the
+/// swing land.
+pub type SmackFn = for<'s> fn(Server<'s>, Entity<'s>) -> SmackAction;
+
 /// Before the game's method, then after it.
 const AROUND: &[HookTiming] = &[HookTiming::Post, HookTiming::Pre];
+
+/// `GetSmackTime` in a TF2 melee weapon's primary vtable.
+const GET_SMACK_TIME: VirtualFunction<SmackTimeFn> = VirtualFunction::new(GET_SMACK_TIME_SLOT);
 
 /// `ItemPostFrame` in a weapon's primary vtable.
 const ITEM_POST_FRAME: VirtualFunction<EntityFn> = VirtualFunction::new(ITEM_POST_FRAME_SLOT);
@@ -85,6 +96,25 @@ const WEAPON_EQUIP: VirtualFunction<WeaponFn> = VirtualFunction::new(WEAPON_EQUI
 /// `Weapon_Switch` in a TF2 player's primary vtable.
 const WEAPON_SWITCH: VirtualFunction<WeaponSwitchFn> = VirtualFunction::new(WEAPON_SWITCH_SLOT);
 
+/// The time of the smack of a swing that never lands: a melee weapon smacks
+/// once the time passes if it is positive (`CTFWeaponBaseMelee::ItemPostFrame`),
+/// and sets this one once its swing landed.
+const NO_SMACK: f32 = -1.0;
+
+/// Whether a melee weapon's swing lands.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum SmackAction {
+	/// Lets the swing land, as the game times it.
+	#[default]
+	Continue,
+
+	/// Keeps the swing from landing, skipping the game's method, and the hooks
+	/// of other plugins that would run after this one: the weapon schedules no
+	/// smack.
+	Miss,
+}
+
 /// Whether a weapon may do what the game is about to have it do.
 #[must_use]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -99,6 +129,44 @@ pub enum WeaponAction {
 }
 
 impl MetamodApi<'_> {
+	/// Runs `callback` before each `CTFWeaponBaseMelee::GetSmackTime` of the
+	/// melee weapons of the classes the returned hooks cover, which are none
+	/// until [`ClassHooks::cover`] covers them: as a melee weapon swings, and
+	/// times its smack, when the swing lands, at which the weapon traces in
+	/// front of its owner, and hits and damages what it finds. The Hot Hand
+	/// times its second slap the same way.
+	///
+	/// [`SmackAction::Miss`] keeps the swing from landing: it traces, hits
+	/// and damages nothing, and plays no hit sound. Its animations, its
+	/// sound, and the times of the weapon's next attacks stay as the game set
+	/// them. The swinging player's client predicts its own smacks, so it may
+	/// still show a hit on its own screen.
+	///
+	/// `binding` must describe the running server. The callback must not
+	/// delete entities immediately, as [`Server::new`] requires.
+	pub fn hook_melee_smacks(
+		self,
+		binding: ServerBinding,
+		callback: SmackFn,
+	) -> ClassHooks<TfMeleeWeapon> {
+		ClassHooks::new(
+			binding,
+			callback,
+			GET_SMACK_TIME,
+			&[HookTiming::Pre],
+			|server, callback, weapon, call| {
+				if call.superseded() == Some(true) {
+					return HookAction::Ignore;
+				}
+
+				match callback(server, weapon) {
+					SmackAction::Continue => HookAction::Ignore,
+					SmackAction::Miss => HookAction::Supersede(NO_SMACK),
+				}
+			},
+		)
+	}
+
 	/// Runs `callback` before each `CTFPlayer::Weapon_CanSwitchTo`
 	/// of the players of the classes the returned hooks cover, which are none
 	/// until [`ClassHooks::cover`] covers them: as the game asks whether a
