@@ -1,6 +1,6 @@
 //! Generic low-level utilities: checked image readers, signature scans, a
 //! cache of module resolutions, run-time type information, C strings, vtable
-//! calls, and code patching.
+//! calls, code patching, and jump stubs.
 //!
 //! Snapshots own their bytes; they never borrow mutable engine memory. Returned
 //! addresses describe the snapshot and can become stale when a module unloads.
@@ -15,6 +15,7 @@ pub mod pe;
 pub mod printf;
 pub mod rtti;
 pub mod signature;
+pub mod stub;
 pub mod vtable;
 
 #[cfg(target_os = "linux")]

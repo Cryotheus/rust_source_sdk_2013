@@ -55,6 +55,7 @@ pub mod precache;
 pub mod send_proxies;
 pub mod server;
 pub mod soundscapes;
+pub mod spew;
 pub mod steam;
 pub mod user_cmd;
 pub mod user_messages;

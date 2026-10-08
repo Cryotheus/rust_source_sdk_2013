@@ -19,8 +19,20 @@ const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 1;
 /// The longest path Windows gives a module, in UTF-16 units.
 const MAX_MODULE_PATH: usize = 32768;
 
+/// `MEM_COMMIT`: `VirtualAlloc` backs the pages with memory.
+const MEM_COMMIT: u32 = 0x1000;
+
+/// `MEM_RESERVE`: `VirtualAlloc` reserves the pages' addresses.
+const MEM_RESERVE: u32 = 0x2000;
+
+/// `PAGE_EXECUTE_READ`: pages that may be executed and read.
+const PAGE_EXECUTE_READ: u32 = 0x20;
+
 /// `PAGE_EXECUTE_READWRITE`: pages that may be executed, read and written.
 pub(super) const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+
+/// `PAGE_READWRITE`: pages that may be read and written.
+const PAGE_READWRITE: u32 = 0x04;
 
 #[repr(C)]
 struct MemoryInformation {
@@ -156,6 +168,8 @@ unsafe extern "system" {
 		read: *mut usize,
 	) -> i32;
 
+	fn VirtualAlloc(address: *mut c_void, size: usize, kind: u32, protection: u32) -> *mut c_void;
+
 	fn VirtualProtect(address: *const c_void, size: usize, protection: u32, old: *mut u32) -> i32;
 
 	fn VirtualQuery(
@@ -163,6 +177,36 @@ unsafe extern "system" {
 		information: *mut MemoryInformation,
 		size: usize,
 	) -> usize;
+}
+
+/// Allocates `len` bytes of fresh pages, readable and writable, which are
+/// never freed.
+pub(super) fn allocate_pages(len: usize) -> io::Result<NonNull<u8>> {
+	// SAFETY: This maps new pages wherever the system chooses, touching no
+	// existing memory.
+	let pages = unsafe {
+		VirtualAlloc(
+			std::ptr::null_mut(),
+			len,
+			MEM_COMMIT | MEM_RESERVE,
+			PAGE_READWRITE,
+		)
+	};
+
+	NonNull::new(pages.cast()).ok_or_else(io::Error::last_os_error)
+}
+
+/// Makes the `len` bytes of pages at `address` executable and read-only, and
+/// the instruction fetches of this process see what was written to them.
+///
+/// # Safety
+///
+/// The pages must be an allocation of [`allocate_pages`], and no code may run
+/// from them or write to them during the call.
+pub(super) unsafe fn make_executable(address: NonNull<c_void>, len: usize) -> io::Result<()> {
+	// SAFETY: As the caller promises.
+	unsafe { protect(address.as_ptr(), len, PAGE_EXECUTE_READ) }?;
+	flush_instruction_cache(address.as_ptr(), len)
 }
 
 /// Makes the instruction fetches of this process see the code changed in

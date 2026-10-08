@@ -330,12 +330,29 @@ impl<'s> ValveEngine<'s> {
 
 	/// Queues a command as though it were entered at the server console.
 	///
-	/// Commands are normally processed on the next frame. Include a command
-	/// separator such as a trailing newline when required by the command parser.
+	/// The engine runs queued commands at the start of the next frame, or when
+	/// [`Self::server_execute`] runs them. It rejects text that does not end in
+	/// a newline or `;`, printing "Error, bad server command" instead, so end
+	/// `command` with one. Several commands can be queued at once, separated by
+	/// newlines or `;`.
 	#[doc(alias("ServerCommand"))]
 	pub fn server_command(self, command: &CStr) {
 		// SAFETY: As for `change_level`.
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_ServerCommand(command.as_ptr())) };
+	}
+
+	/// Runs the commands queued in the server's command buffer, such as those
+	/// [`Self::server_command`] queued, now rather than at the start of the
+	/// next frame.
+	///
+	/// The engine runs its buffer only once at a time, so this does nothing
+	/// while the buffer is already running: inside a console command's
+	/// callback, for example. A queued `wait` ends the run, leaving the
+	/// commands after it for a later frame.
+	#[doc(alias("ServerExecute"))]
+	pub fn server_execute(self) {
+		// SAFETY: As for `change_level`.
+		unsafe { vcall!(self.as_ptr() => IVEngineServer_ServerExecute()) };
 	}
 
 	/// Renders a client's view from another entity, such as a camera, or from
