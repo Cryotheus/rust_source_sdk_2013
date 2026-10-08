@@ -205,6 +205,45 @@ impl<'s> ValveEngine<'s> {
 		unsafe { vcall!(self.as_ptr() => IVEngineServer_GetEntityCount()) }
 	}
 
+	/// The map `name` names, as `changelevel` and TF2's own map votes find
+	/// maps: its canonical name, and how it was found, or `None` if no map has
+	/// the name, nor one starting with it.
+	///
+	/// A map that is [`FoundMap::PossiblyAvailable`] may still be downloaded
+	/// as a level changes to it, as workshop maps are.
+	#[doc(alias("FindMap"))]
+	pub fn find_map(self, name: &CStr) -> Option<(CString, FoundMap)> {
+		let name = name.to_bytes();
+		let mut buffer = [0 as c_char; MAX_PATH];
+
+		// Room for the name's NUL, which the zeroed buffer already holds.
+		if name.len() >= MAX_PATH {
+			return None;
+		}
+
+		for (to, &from) in buffer.iter_mut().zip(name) {
+			*to = from as c_char;
+		}
+
+		// SAFETY: As for `change_level`. The engine writes at most the
+		// buffer's length, its NUL included.
+		let found = unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_FindMap(buffer.as_mut_ptr(), MAX_PATH as c_int))
+		};
+
+		let found = match found {
+			sys::IVEngineServer_eFindMapResult_eFindMap_Found => FoundMap::Exact,
+			sys::IVEngineServer_eFindMapResult_eFindMap_FuzzyMatch => FoundMap::Fuzzy,
+			sys::IVEngineServer_eFindMapResult_eFindMap_NonCanonical => FoundMap::NonCanonical,
+			sys::IVEngineServer_eFindMapResult_eFindMap_PossiblyAvailable => {
+				FoundMap::PossiblyAvailable
+			}
+			_ => return None,
+		};
+
+		Some((cstring_from_buffer(&buffer), found))
+	}
+
 	/// The path of the game directory, such as `.../tf`.
 	#[doc(alias("GetGameDir"))]
 	pub fn game_dir(self) -> CString {
@@ -434,6 +473,26 @@ impl Cluster {
 	pub const fn index(self) -> usize {
 		self.0 as usize
 	}
+}
+
+/// How [`ValveEngine::find_map`] found a map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[doc(alias("eFindMapResult"))]
+pub enum FoundMap {
+	/// A map of exactly the name.
+	Exact,
+
+	/// A map whose name starts with the name, such as `cp_dustbowl` for
+	/// `cp_dust`.
+	Fuzzy,
+
+	/// A map the name is another name of, such as
+	/// `workshop/cp_qualified_name.ugc1234` for `workshop/1234`.
+	NonCanonical,
+
+	/// No map yet, but one the server may be able to download as a level
+	/// changes to it.
+	PossiblyAvailable,
 }
 
 /// A potentially visible set: a bit for each visibility cluster of the level's

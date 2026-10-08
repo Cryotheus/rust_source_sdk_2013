@@ -20,6 +20,7 @@ pub mod class;
 pub mod class_targets;
 pub mod collision;
 pub mod conditions;
+pub mod custom_votes;
 pub mod damage;
 pub mod dominations;
 pub mod duels;
