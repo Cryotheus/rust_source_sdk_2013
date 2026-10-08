@@ -125,6 +125,10 @@ thread_local! {
 	/// players' VScript methods, with the entity called.
 	static CALLS: RefCell<Vec<(&'static str, usize)>> = const { RefCell::new(Vec::new()) };
 
+	/// The calls of buildings' `StartPlacement` and `StartBuilding`, with the
+	/// building and the player passed.
+	static STARTS: RefCell<Vec<(&'static str, usize, usize)>> = const { RefCell::new(Vec::new()) };
+
 	/// What players' `bool` VScript methods return.
 	static ANSWER: Cell<bool> = const { Cell::new(false) };
 }
@@ -374,11 +378,15 @@ impl World {
 			sys::CBaseObject__bindgen_vtable,
 			CBaseObject_GetMaxUpgradeLevel
 		);
+		let placement = vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_StartPlacement);
+		let building = vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_StartBuilding);
 		let slots = [
 			is_dying,
 			detonate,
 			destroy,
 			max_level,
+			placement,
+			building,
 			SCRIPT_DESCRIPTION_SLOT,
 		]
 		.into_iter()
@@ -401,6 +409,8 @@ impl World {
 		vtable[detonate] = detonate_object as *const ();
 		vtable[destroy] = destroy_object as *const ();
 		vtable[max_level] = max_upgrade_level as *const ();
+		vtable[placement] = start_placement as *const ();
+		vtable[building] = start_building as *const ();
 		vtable[SCRIPT_DESCRIPTION_SLOT] = script_description as *const ();
 
 		let vtable = vtable.leak().as_ptr();
@@ -427,6 +437,7 @@ impl World {
 		ENTITIES.take();
 		INPUTS.take();
 		CALLS.take();
+		STARTS.take();
 
 		let spawn = |index: u32, class_name, map, class| {
 			let fake = leak(FakeEntity {
@@ -733,6 +744,59 @@ fn buildings_are_found_by_class_and_builder() {
 		Building::all(null_server(Game::SourceSdk2013, &scope)),
 		Err(BuildingError::WrongGame)
 	));
+}
+
+#[test]
+fn buildings_built_for_players_start_as_placed_blueprints() {
+	let world = World::new();
+	let scope = ();
+	let server = mock_server(&scope);
+	let engineer = entity(world.engineer);
+	let spawn = BuildingSpawn::new(ObjectKind::Dispenser);
+
+	// SAFETY: Each build fails before creating anything.
+	unsafe {
+		assert!(matches!(
+			spawn.build(null_server(Game::SourceSdk2013, &scope), engineer),
+			Err(BuildingError::WrongGame)
+		));
+
+		for fake in [world.prop, world.dispenser] {
+			assert!(matches!(
+				spawn.build(server, entity(fake)),
+				Err(BuildingError::NotTfPlayer)
+			));
+		}
+
+		assert!(matches!(
+			spawn.clone().level(4).build(server, engineer),
+			Err(BuildingError::InvalidLevel(4))
+		));
+
+		world.set(world.engineer, |engineer| engineer.flags |= EFL_KILLME);
+		assert!(matches!(
+			spawn.build(server, engineer),
+			Err(BuildingError::MarkedForDeletion)
+		));
+	}
+
+	world.set(world.engineer, |engineer| engineer.flags &= !EFL_KILLME);
+
+	// SAFETY: The fake dispenser's methods only note their calls.
+	assert!(unsafe { building(server, world.dispenser).start_construction(engineer) });
+
+	// Placed for the engineer, then built without taking their metal.
+	assert_eq!(
+		STARTS.take(),
+		[
+			(
+				"StartPlacement",
+				world.dispenser.addr(),
+				world.engineer.addr()
+			),
+			("StartBuilding", world.dispenser.addr(), 0),
+		]
+	);
 }
 
 #[test]
@@ -1464,4 +1528,19 @@ fn sappers_are_found_on_the_buildings_they_sap() {
 unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
 	// SAFETY: Callers pass the networkable of a fake entity.
 	unsafe { (*fake_of(this)).class }
+}
+
+/// `CBaseObject::StartBuilding`, which notes the call and the builder, and
+/// starts building.
+unsafe extern "C" fn start_building(
+	this: *mut sys::CBaseObject,
+	builder: *mut sys::CBaseEntity,
+) -> bool {
+	STARTS.with_borrow_mut(|starts| starts.push(("StartBuilding", this.addr(), builder.addr())));
+	true
+}
+
+/// `CBaseObject::StartPlacement`, which notes the call and the player.
+unsafe extern "C" fn start_placement(this: *mut sys::CBaseObject, player: *mut sys::CTFPlayer) {
+	STARTS.with_borrow_mut(|starts| starts.push(("StartPlacement", this.addr(), player.addr())));
 }
