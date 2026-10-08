@@ -98,6 +98,10 @@ pub mod observer_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod physics_collision_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod placement_hooks;
 
 #[cfg(feature = "tf2")]
