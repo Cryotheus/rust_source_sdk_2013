@@ -7,6 +7,10 @@
 //! and the parsing and formatting of values, which follow the C library, are
 //! [`ConVarObject`]'s.
 
+#[cfg(test)]
+#[path = "../tests/commands/variable.rs"]
+mod tests;
+
 use super::CommandFlags;
 
 use super::error::{
@@ -63,6 +67,8 @@ static HOOKS: ConVarHooks = ConVarHooks {
 ///
 /// Its value is read and changed on the server's main thread, as a
 /// [`Server`] proves. It holds its default until changed, registered or not.
+/// A [read-only](Self::read_only) variable refuses every change but those
+/// made through it, such as a plugin publishing its state.
 ///
 /// A variable is `Sync`: everything the engine or Rust writes after
 /// construction is only touched on the server's main thread.
@@ -79,6 +85,9 @@ pub struct ConsoleVariable {
 	flags: CommandFlags,
 	min: Option<f32>,
 	max: Option<f32>,
+
+	/// Whether the engine's calls that set the value are refused.
+	read_only: bool,
 
 	/// The server the variable was last registered with, for calls from the
 	/// engine.
@@ -118,6 +127,7 @@ impl ConsoleVariable {
 			flags: CommandFlags::NONE,
 			min: None,
 			max: None,
+			read_only: false,
 			binding: Cell::new(None),
 		}
 	}
@@ -246,6 +256,16 @@ impl ConsoleVariable {
 	/// engine is handed and the hooks cast back.
 	fn object_ptr(&self) -> NonNull<ConVarObject> {
 		NonNull::from(self).cast()
+	}
+
+	/// Makes the variable read-only: the engine refuses to change it, from the
+	/// console, from a config or from another plugin, and prints that it is
+	/// read-only to the server console instead. Its own setters, such as
+	/// [`set_string`](Self::set_string), still change it, and run the change
+	/// callbacks as for any variable.
+	pub const fn read_only(mut self) -> Self {
+		self.read_only = true;
+		self
 	}
 
 	/// Fills in the engine-visible fields before linking.
@@ -450,6 +470,7 @@ impl std::fmt::Debug for ConsoleVariable {
 			.field("flags", &self.flags)
 			.field("min", &self.min)
 			.field("max", &self.max)
+			.field("read_only", &self.read_only)
 			.finish_non_exhaustive()
 	}
 }
@@ -468,7 +489,7 @@ unsafe impl Sync for ConsoleVariable {}
 unsafe fn engine_change_string(variable: NonNull<ConVarObject>, value: &CStr, old_float: f32) {
 	// SAFETY: The caller upholds the contract.
 	unsafe {
-		from_engine(variable, |variable, callbacks| {
+		set_from_engine(variable, |variable, callbacks| {
 			variable.change_string(callbacks, value.to_owned(), old_float)
 		})
 	};
@@ -493,7 +514,7 @@ unsafe fn engine_clamp(variable: NonNull<ConVarObject>, value: &mut f32) -> bool
 unsafe fn engine_set_float(variable: NonNull<ConVarObject>, value: f32, force: bool) {
 	// SAFETY: The caller upholds the contract.
 	unsafe {
-		from_engine(variable, |variable, callbacks| {
+		set_from_engine(variable, |variable, callbacks| {
 			variable.set_float_value(callbacks, value, force)
 		})
 	};
@@ -508,7 +529,7 @@ unsafe fn engine_set_float(variable: NonNull<ConVarObject>, value: f32, force: b
 unsafe fn engine_set_int(variable: NonNull<ConVarObject>, value: c_int) {
 	// SAFETY: The caller upholds the contract.
 	unsafe {
-		from_engine(variable, |variable, callbacks| {
+		set_from_engine(variable, |variable, callbacks| {
 			variable.set_int_value(callbacks, value)
 		})
 	};
@@ -523,15 +544,15 @@ unsafe fn engine_set_int(variable: NonNull<ConVarObject>, value: c_int) {
 unsafe fn engine_set_string(variable: NonNull<ConVarObject>, value: Option<&CStr>) {
 	// SAFETY: The caller upholds the contract.
 	unsafe {
-		from_engine(variable, |variable, callbacks| {
+		set_from_engine(variable, |variable, callbacks| {
 			variable.set_string_value(callbacks, value)
 		})
 	};
 }
 
-/// Runs `f` for the variable whose slot the engine called, with the registry
-/// if its change callbacks should run. A panic is caught, since it must not
-/// unwind into the engine, and `None` returned.
+/// Runs `f` for the variable whose slot the engine called, with the server it
+/// was registered with. A panic is caught, since it must not unwind into the
+/// engine, and `None` returned.
 ///
 /// # Safety
 ///
@@ -540,7 +561,7 @@ unsafe fn engine_set_string(variable: NonNull<ConVarObject>, value: Option<&CStr
 /// engine's call to it, on the main thread.
 unsafe fn from_engine<R>(
 	variable: NonNull<ConVarObject>,
-	f: impl FnOnce(&ConsoleVariable, Option<Cvar<'_>>) -> R,
+	f: impl FnOnce(&ConsoleVariable, Option<Server<'_>>) -> R,
 ) -> Option<R> {
 	let outcome = catch_unwind(AssertUnwindSafe(|| {
 		// SAFETY: Only `ConsoleVariable::new` creates objects with `HOOKS`, each
@@ -557,8 +578,35 @@ unsafe fn from_engine<R>(
 			.get()
 			.map(|binding| unsafe { binding.server(&scope) });
 
-		f(variable, variable.change_callbacks(server))
+		f(variable, server)
 	}));
 
 	outcome.map_err(drop_payload).ok()
+}
+
+/// Runs `f` to change the variable whose slot the engine called, as
+/// [`from_engine`] does, with the registry if its change callbacks should run,
+/// unless the variable is [read-only](ConsoleVariable::read_only). That one
+/// keeps its value, and the server console says why.
+///
+/// # Safety
+///
+/// As for [`from_engine`].
+unsafe fn set_from_engine(
+	variable: NonNull<ConVarObject>,
+	f: impl FnOnce(&ConsoleVariable, Option<Cvar<'_>>),
+) {
+	// SAFETY: The caller upholds the contract.
+	unsafe {
+		from_engine(variable, |variable, server| match variable.read_only {
+			true => {
+				if let Some(server) = server {
+					let name = variable.name.to_string_lossy();
+					server.console_print(&super::line_from(format_args!("{name} is read-only.")));
+				}
+			}
+
+			false => f(variable, variable.change_callbacks(server)),
+		})
+	};
 }
