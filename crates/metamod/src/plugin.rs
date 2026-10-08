@@ -2,6 +2,7 @@
 
 use crate::MetamodVersion;
 use crate::sys::plugin::{self as raw, PluginMetadata as RawMetadata};
+use crate::sys::plugin_manager::{PL_MIN_ID, PluginId};
 use std::ffi::{CStr, c_char, c_void};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
@@ -93,6 +94,14 @@ impl PluginDescriptor {
 	/// Compares the supplied plugin object with our selected C++ shell.
 	pub fn is_selected_plugin(&self, version: MetamodVersion, plugin: NonNull<c_void>) -> bool {
 		raw::cpp_metamod_plugin_for_version(version.plugin_api_version()) == plugin.as_ptr()
+	}
+
+	/// The ID Metamod gave the plugin as it loaded it through the shell for
+	/// `version`, while it stays loaded.
+	pub fn id(&self, version: MetamodVersion) -> Option<PluginId> {
+		let status = raw::cpp_metamod_plugin_status(version.plugin_api_version());
+
+		(status.loaded && status.id >= PL_MIN_ID).then_some(status.id)
 	}
 }
 
