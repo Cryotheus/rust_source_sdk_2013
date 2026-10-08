@@ -63,6 +63,10 @@ impl<'s> GameClient<'s> {
 	/// Runs a command as though the client sent it, through the engine's own
 	/// commands and then the game's. Returns whether a command handled it.
 	///
+	/// The command does not pass through the client's message handler, so hooks
+	/// on the messages the client sends do not see it, as they see the client's
+	/// own commands. [`Self::process_string_command`] passes it there first.
+	///
 	/// # Safety
 	///
 	/// The command must not disconnect the client or free entities
