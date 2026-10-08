@@ -165,3 +165,57 @@ fn variables_report_the_flags_and_default_of_their_parent() {
 	unsafe { (&raw mut (*parent.as_ptr()).m_pszDefaultValue).write(c"".as_ptr()) };
 	assert!(child.is_default());
 }
+
+#[test]
+fn entries_read_their_help_text_and_bounds() {
+	let parent = mock_var(
+		c"sv_gravity",
+		c"800",
+		c"800",
+		CommandFlags::NOTIFY,
+		null_mut(),
+	);
+	let child = mock_var(
+		c"sv_gravity",
+		c"800",
+		c"800",
+		CommandFlags::NONE,
+		null_mut(),
+	);
+	let status = mock_command(c"status", parent.cast());
+
+	// SAFETY: The entries are leaked, and nothing else refers to them yet.
+	unsafe {
+		(*child).m_pParent = parent;
+		(*parent)._base.m_pszHelpString = c"World gravity.".as_ptr();
+		(*child)._base.m_pszHelpString = c"Another module's text.".as_ptr();
+		(*status).m_pszHelpString = c"Display map and connection status.".as_ptr();
+		(*parent).m_bHasMin = true;
+		(*parent).m_fMinVal = -4.5;
+		(*child).m_bHasMax = true;
+		(*child).m_fMaxVal = 10.0;
+	}
+
+	let cvar = cvar(mock_cvar(status, vec![child]));
+
+	assert_eq!(
+		cvar.command_bases()
+			.map(|base| (base.name(), base.help_text()))
+			.collect::<Vec<_>>(),
+		[
+			(c"status", c"Display map and connection status."),
+			(c"sv_gravity", c"World gravity."),
+		]
+	);
+
+	// The variable that holds the value has the text and the bounds.
+	let child = cvar.find_var(c"sv_gravity").unwrap();
+
+	assert_eq!(child.help_text(), c"World gravity.");
+	assert_eq!(child.bounds(), (Some(-4.5), None));
+
+	// A missing text reads as empty.
+	// SAFETY: As above.
+	unsafe { (*parent)._base.m_pszHelpString = std::ptr::null() };
+	assert_eq!(child.help_text(), c"");
+}
