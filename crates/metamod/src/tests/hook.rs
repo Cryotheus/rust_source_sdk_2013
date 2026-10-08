@@ -280,6 +280,47 @@ fn handlers_ignore_other_threads() {
 }
 
 #[test]
+fn sourcehook_loops_stay_on_the_main_thread() {
+	fn supersede(_call: &HookCall<'_, Add>) -> HookAction<i32> {
+		HookAction::Supersede(0)
+	}
+
+	let harness = Harness::new(MetamodVersion::Stable1226);
+	let api = harness.api();
+	let mut object = Object::new(class(), 5);
+
+	// SAFETY: The class has `Add` at the slot.
+	unsafe {
+		api.add_hook(
+			ADD,
+			HookTarget::class_of(object.ptr()),
+			HookTiming::Pre,
+			&supersede,
+		)
+		.unwrap();
+	}
+
+	let pointer = SendPtr(ptr::from_mut(&mut *object).cast_const());
+	let shared = SendPtr(ptr::from_ref(&harness));
+
+	let returned = std::thread::spawn(move || {
+		let (pointer, shared) = (pointer, shared);
+
+		// SAFETY: The harness outlives the thread, which this thread awaits.
+		let harness = unsafe { &*shared.0 };
+
+		harness.call::<Add>(pointer.0.cast_mut(), ADD.index(), (1,))
+	})
+	.join()
+	.unwrap();
+
+	assert_eq!(returned, 6);
+	assert_eq!(harness.sourcehook.state.borrow().loops, 0);
+	assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 0);
+	assert_eq!(harness.sourcehook.state.borrow().loops, 1);
+}
+
+#[test]
 fn handlers_see_earlier_hooks_only_through_sourcehook() {
 	fn look(call: &HookCall<'_, Add>) -> HookAction<i32> {
 		note_handler(call.superseded());
