@@ -13,7 +13,7 @@ use crate::test_support::tf2::script_binding::{
 use crate::tf2::damage::CUSTOM_DAMAGE_PLASMA;
 use sdk_raw::entities::EFL_KILLME;
 use sdk_raw::test_support::entities::{data_map, field};
-use sdk_raw::tf2::script_binding::{FLOAT, HANDLE, INT, VECTOR};
+use sdk_raw::tf2::script_binding::{FLOAT, HANDLE, INT, QANGLE, VECTOR};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CString, c_char, c_void};
 
@@ -29,16 +29,19 @@ const INSTANCE_OFFSET: usize = 72;
 
 /// The native members the mock entities' script class declares: each one's
 /// name and parameter types. All return nothing, and others are missing.
-const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 11] = [
+const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 14] = [
 	(c"AddSolidFlags", &[INT]),
 	(c"ApplyAbsVelocityImpulse", &[VECTOR]),
 	(c"ApplyLocalAngularVelocityImpulse", &[VECTOR]),
 	(c"RemoveSolidFlags", &[INT]),
+	(c"SetAbsAngles", &[QANGLE]),
+	(c"SetAbsOrigin", &[VECTOR]),
 	(c"SetAbsVelocity", &[VECTOR]),
 	(c"SetCollisionGroup", &[INT]),
 	(c"SetPhysAngularVelocity", &[VECTOR]),
 	(c"SetPhysVelocity", &[VECTOR]),
 	(c"SetSize", &[VECTOR, VECTOR]),
+	(c"SetSolid", &[INT]),
 	(c"SetSolidFlags", &[INT]),
 	(
 		c"TakeDamageCustom",
@@ -52,6 +55,7 @@ const SCRIPT_ID_OFFSET: usize = 80;
 /// An argument a native member received.
 #[derive(Debug, Clone, PartialEq)]
 enum Argument {
+	Angles([f32; 3]),
 	Float(f32),
 	Handle(sys::HSCRIPT),
 	Int(c_int),
@@ -327,8 +331,17 @@ fn members_receive_their_arguments() {
 	entity.add_solid_flags(flags).unwrap();
 	entity.remove_solid_flags(SolidFlags::TRIGGER).unwrap();
 	entity.set_solid_flags(SolidFlags::empty()).unwrap();
+	entity.set_solid(SolidType::BoundingBox).unwrap();
 	entity
 		.set_collision_group(TfCollisionGroup::RespawnRooms)
+		.unwrap();
+	entity.set_abs_origin(Vector::new(4.0, 5.0, 6.0)).unwrap();
+	entity
+		.set_abs_angles(QAngle {
+			pitch: 10.0,
+			yaw: 20.0,
+			roll: 30.0,
+		})
 		.unwrap();
 	entity.set_abs_velocity(Vector::new(1.0, 2.0, 3.0)).unwrap();
 	entity.apply_impulse(Vector::new(0.0, 0.0, 300.0)).unwrap();
@@ -358,9 +371,15 @@ fn members_receive_their_arguments() {
 			),
 			call(c"SetSolidFlags", vec![Argument::Int(0)]),
 			call(
+				c"SetSolid",
+				vec![Argument::Int(c_int::from(SolidType::BoundingBox.to_raw()))]
+			),
+			call(
 				c"SetCollisionGroup",
 				vec![Argument::Int(TfCollisionGroup::RespawnRooms.to_raw())]
 			),
+			call(c"SetAbsOrigin", vec![Argument::Vector([4.0, 5.0, 6.0])]),
+			call(c"SetAbsAngles", vec![Argument::Angles([10.0, 20.0, 30.0])]),
 			call(c"SetAbsVelocity", vec![Argument::Vector([1.0, 2.0, 3.0])]),
 			call(
 				c"ApplyAbsVelocityImpulse",
@@ -489,6 +508,12 @@ unsafe extern "C" fn record(
 						Argument::Vector([vector.x, vector.y, vector.z])
 					}
 
+					QANGLE => {
+						let angles = &*value.m_pData.cast::<sys::QAngle>();
+
+						Argument::Angles([angles.x, angles.y, angles.z])
+					}
+
 					other => panic!("unexpected argument type {other}"),
 				}
 			}
@@ -537,7 +562,15 @@ fn values_the_game_mishandles_are_refused() {
 		Vector::new(0.0, f32::INFINITY, 0.0),
 		Vector::new(0.0, 0.0, f32::NEG_INFINITY),
 	] {
+		let angles = QAngle {
+			pitch: value.x,
+			yaw: value.y,
+			roll: value.z,
+		};
+
 		for result in [
+			entity.set_abs_origin(value),
+			entity.set_abs_angles(angles),
 			entity.set_abs_velocity(value),
 			entity.apply_impulse(value),
 			entity.apply_angular_impulse(value),
