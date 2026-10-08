@@ -5,9 +5,10 @@
 //! An issue's vtable is built from a game issue's, [`live_vtable`] replacing
 //! the methods a custom issue implements, and [`dead_vtable`] making a table
 //! of the game's functions alone, to switch an issue to before the module
-//! with its Rust methods unloads. Both are [`TaggedVtable`]s, and the issues
-//! that use them carry [`ISSUE_TAG`] after their type string, so that a module
-//! loaded later finds the issues an earlier one left behind.
+//! with its Rust methods unloads. Both are [`TaggedVtable`]s, which keep the
+//! game issue's RTTI before their methods, and the issues that use them carry
+//! [`ISSUE_TAG`] after their type string, so that a module loaded later finds
+//! the issues an earlier one left behind.
 
 use crate::entities::INVALID_EHANDLE_INDEX;
 use std::ffi::{CStr, c_char, c_int};
@@ -52,6 +53,17 @@ pub type ProcessResultsFn = unsafe extern "C" fn(
 	potential: c_int,
 ) -> sys::CBaseIssue_EVoteAction;
 
+/// What precedes the methods of a C++ vtable, which `dynamic_cast` and
+/// `typeid` read: MSVC's pointer to the class's RTTI Complete Object Locator.
+#[cfg(target_os = "windows")]
+pub type VtableRtti = [usize; 1];
+
+/// What precedes the methods of a C++ vtable, which `dynamic_cast` and
+/// `typeid` read: the Itanium ABI's offset from the table's object to the
+/// complete object, and pointer to the class's `type_info`.
+#[cfg(target_os = "linux")]
+pub type VtableRtti = [usize; 2];
+
 // The MSVC binding describes the controller's fields.
 #[cfg(target_os = "windows")]
 const _: () = assert!(
@@ -61,8 +73,8 @@ const _: () = assert!(
 		&& offset_of!(sys::CVoteController, m_potentialIssues) % align_of::<IssueList>() == 0
 );
 
-// The game reaches the methods through the address of the table.
-const _: () = assert!(offset_of!(TaggedVtable, methods) == 0);
+// The game reads the RTTI right before the methods.
+const _: () = assert!(offset_of!(TaggedVtable, methods) == size_of::<VtableRtti>());
 
 // The generated method has the signature of `ProcessResultsFn`.
 const _: fn(&IssueVtable) -> ProcessResultsFn = |vtable| vtable.CBaseIssue_ProcessResults;
@@ -172,16 +184,38 @@ pub struct IssueMethods {
 	pub process_results: ProcessResultsFn,
 }
 
-/// A vtable an SDK made for custom issues, followed by [`LIVE_VTABLE`] or
-/// [`DEAD_VTABLE`], so that an issue's state can be read from the table it
-/// points to.
+/// A vtable an SDK made for custom issues, after the RTTI of the game issue
+/// it was made from, and followed by [`LIVE_VTABLE`] or [`DEAD_VTABLE`], so
+/// that an issue's state can be read from the table it points to.
+///
+/// Issues point to the table's methods, as [`TaggedVtable::issue_vtable`]
+/// gives them, and the game reads the RTTI right before them as it casts an
+/// issue with `dynamic_cast` or reads its `typeid`, as TF2 does to every vote
+/// that passes, to tell whether it is a kick vote.
 #[repr(C)]
 pub struct TaggedVtable {
+	/// The RTTI of the game issue the table was made from, which the game then
+	/// takes custom issues for.
+	pub rtti: VtableRtti,
+
 	/// The methods, which the game calls.
 	pub methods: IssueVtable,
 
 	/// [`LIVE_VTABLE`] or [`DEAD_VTABLE`].
 	pub state: u64,
+}
+
+impl TaggedVtable {
+	/// The table whose methods are at `vtable`, the vtable of an issue using
+	/// it.
+	pub fn from_issue_vtable(vtable: *const IssueVtable) -> *const Self {
+		vtable.wrapping_byte_sub(offset_of!(Self, methods)).cast()
+	}
+
+	/// The vtable of an issue using the table at `this`: its methods.
+	pub fn issue_vtable(this: *const Self) -> *const IssueVtable {
+		this.wrapping_byte_add(offset_of!(Self, methods)).cast()
+	}
 }
 
 /// A table of `base`'s functions alone, for issues whose module unloads,
@@ -385,4 +419,15 @@ pub fn tagged_type_string(name: &CStr) -> Option<[c_char; MAX_VOTE_DETAILS_LENGT
 	}
 
 	Some(type_string)
+}
+
+/// The RTTI before the methods of the C++ vtable at `vtable`.
+///
+/// # Safety
+///
+/// `vtable` must be the vtable of an object of a polymorphic C++ class, as
+/// the compiler made it, which its RTTI precedes.
+pub unsafe fn vtable_rtti(vtable: *const IssueVtable) -> VtableRtti {
+	// SAFETY: As the caller promises.
+	unsafe { vtable.cast::<VtableRtti>().sub(1).read() }
 }

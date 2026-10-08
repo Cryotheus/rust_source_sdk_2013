@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::test_support::server::mock_binding;
-use sdk_raw::tf2::custom_votes::{IssueList, tagged_type_string};
+use sdk_raw::tf2::custom_votes::{IssueList, VtableRtti, tagged_type_string};
 use std::cell::Cell;
 
 #[cfg(target_os = "windows")]
@@ -16,37 +16,43 @@ thread_local! {
 	static RESULT: Cell<sys::CBaseIssue_EVoteAction> = const { Cell::new(VOTE_ACTION_PASS) };
 }
 
-/// The mock restart vote's vtable, with `CBaseIssue`'s behavior where the
-/// dead table borrows it.
-static RESTART_VTABLE: IssueVtable = IssueVtable {
-	#[cfg(target_os = "windows")]
-	CBaseIssue_destructor: base_destructor,
-	#[cfg(target_os = "linux")]
-	CBaseIssue_complete_destructor: base_nothing,
-	#[cfg(target_os = "linux")]
-	CBaseIssue_deleting_destructor: base_nothing,
-	CBaseIssue_GetTypeStringLocalized: base_empty,
-	CBaseIssue_GetDetailsString: base_details,
-	CBaseIssue_SetIssueDetails: base_set_details,
-	CBaseIssue_OnVoteFailed: base_with_int,
-	CBaseIssue_OnVoteStarted: base_nothing,
-	CBaseIssue_IsEnabled: base_true,
-	CBaseIssue_CanTeamCallVote: base_team,
-	CBaseIssue_RequestCallVote: base_request,
-	CBaseIssue_IsTeamRestrictedVote: base_false,
-	CBaseIssue_GetDisplayString: base_restart_text,
-	CBaseIssue_ExecuteCommand: base_nothing,
-	CBaseIssue_ListIssueDetails: base_list,
-	CBaseIssue_GetVotePassedString: base_restart_text,
-	CBaseIssue_CountPotentialVoters: base_two,
-	CBaseIssue_GetNumberVoteOptions: base_two,
-	CBaseIssue_IsYesNoVote: base_true,
-	CBaseIssue_GetVoteOptions: base_options,
-	CBaseIssue_BRecordVoteFailureEventForEntity: base_team,
-	CBaseIssue_GetQuorumRatio: base_ratio,
-	CBaseIssue_ProcessResults: base_process,
-	CBaseIssue_OnVoteEnded: base_nothing,
-	CBaseIssue_OnPlayerDisconnected: base_list,
+/// The mock restart vote's RTTI, which custom issues keep.
+const RESTART_RTTI: VtableRtti = [0x5254_5449; size_of::<VtableRtti>() / size_of::<usize>()];
+
+/// The mock restart vote's vtable, after its RTTI, with `CBaseIssue`'s
+/// behavior where the dead table borrows it.
+static RESTART_VTABLE: RttiVtable = RttiVtable {
+	rtti: RESTART_RTTI,
+	methods: IssueVtable {
+		#[cfg(target_os = "windows")]
+		CBaseIssue_destructor: base_destructor,
+		#[cfg(target_os = "linux")]
+		CBaseIssue_complete_destructor: base_nothing,
+		#[cfg(target_os = "linux")]
+		CBaseIssue_deleting_destructor: base_nothing,
+		CBaseIssue_GetTypeStringLocalized: base_empty,
+		CBaseIssue_GetDetailsString: base_details,
+		CBaseIssue_SetIssueDetails: base_set_details,
+		CBaseIssue_OnVoteFailed: base_with_int,
+		CBaseIssue_OnVoteStarted: base_nothing,
+		CBaseIssue_IsEnabled: base_true,
+		CBaseIssue_CanTeamCallVote: base_team,
+		CBaseIssue_RequestCallVote: base_request,
+		CBaseIssue_IsTeamRestrictedVote: base_false,
+		CBaseIssue_GetDisplayString: base_restart_text,
+		CBaseIssue_ExecuteCommand: base_nothing,
+		CBaseIssue_ListIssueDetails: base_list,
+		CBaseIssue_GetVotePassedString: base_restart_text,
+		CBaseIssue_CountPotentialVoters: base_two,
+		CBaseIssue_GetNumberVoteOptions: base_two,
+		CBaseIssue_IsYesNoVote: base_true,
+		CBaseIssue_GetVoteOptions: base_options,
+		CBaseIssue_BRecordVoteFailureEventForEntity: base_team,
+		CBaseIssue_GetQuorumRatio: base_ratio,
+		CBaseIssue_ProcessResults: base_process,
+		CBaseIssue_OnVoteEnded: base_nothing,
+		CBaseIssue_OnPlayerDisconnected: base_list,
+	},
 };
 
 /// A mock vote controller.
@@ -86,6 +92,13 @@ impl Controller {
 	fn remove_last(&self) {
 		unsafe { (*potential_issues(self.raw.as_ptr())).m_Size -= 1 };
 	}
+}
+
+/// A vtable after its RTTI, as compilers lay them out.
+#[repr(C)]
+struct RttiVtable {
+	rtti: VtableRtti,
+	methods: IssueVtable,
 }
 
 /// A difficulty vote that offers itself as `offered` says, and notes the
@@ -142,7 +155,7 @@ fn a_full_controller_takes_nothing() {
 fn another_issue_with_the_name_is_refused() {
 	let controller = controller(16);
 	let (_votes, _calls) = install();
-	let mut other = new_issue(c"difficulty", &RESTART_VTABLE, controller.raw.as_ptr()).unwrap();
+	let mut other = new_issue(c"difficulty", restart_vtable(), controller.raw.as_ptr()).unwrap();
 
 	other.m_szTypeString[ISSUE_TAG_OFFSET..].fill(0);
 	controller.add(Box::leak(Box::new(other)));
@@ -270,7 +283,7 @@ fn controller(capacity: usize) -> Controller {
 	}));
 	let memory = Box::leak(vec![ptr::null_mut::<sys::CBaseIssue>(); capacity].into_boxed_slice())
 		.as_mut_ptr();
-	let mut restart = new_issue(c"RestartGame", &RESTART_VTABLE, raw.as_ptr()).unwrap();
+	let mut restart = new_issue(c"RestartGame", restart_vtable(), raw.as_ptr()).unwrap();
 
 	// The mock restart vote is not tagged.
 	restart.m_szTypeString[ISSUE_TAG_OFFSET..].fill(0);
@@ -300,6 +313,22 @@ fn cuts_long_text_at_a_character() {
 	assert_eq!(cut.len(), 62);
 	assert!(str::from_utf8(cut).is_ok());
 	assert_eq!(cut_text(&[0xFF; 80]).len(), MAX_TEXT_LEN);
+}
+
+#[test]
+fn custom_issues_keep_the_restart_votes_rtti() {
+	let controller = controller(16);
+	let (votes, _calls) = install();
+
+	controller.attach().unwrap();
+
+	let issue = controller.issues()[1];
+	let rtti = || unsafe { vtable_rtti((*issue).vtable_) };
+
+	assert_eq!(rtti(), RESTART_RTTI);
+	drop(votes);
+	assert_eq!(state(issue), DEAD_VTABLE);
+	assert_eq!(rtti(), RESTART_RTTI);
 }
 
 #[test]
@@ -380,7 +409,7 @@ fn install() -> (CustomVotes, Rc<RefCell<Vec<CString>>>) {
 	};
 
 	(
-		install_with(mock_binding(), vec![Box::new(vote)], &RESTART_VTABLE),
+		install_with(mock_binding(), vec![Box::new(vote)], restart_vtable()),
 		calls,
 	)
 }
@@ -458,9 +487,14 @@ unsafe fn process(issue: *mut sys::CBaseIssue) -> sys::CBaseIssue_EVoteAction {
 	}
 }
 
+/// The mock restart vote's vtable, as its issue points to it.
+fn restart_vtable() -> *const IssueVtable {
+	&raw const RESTART_VTABLE.methods
+}
+
 /// The state its tagged vtable gives an issue.
 fn state(issue: *mut sys::CBaseIssue) -> u64 {
-	unsafe { (*(*issue).vtable_.cast::<TaggedVtable>()).state }
+	unsafe { (*TaggedVtable::from_issue_vtable((*issue).vtable_)).state }
 }
 
 #[test]
@@ -560,7 +594,7 @@ fn unoffered_votes_are_hidden_and_refused() {
 		offered: Rc::clone(&offered),
 		passed: Rc::default(),
 	};
-	let _votes = install_with(mock_binding(), vec![Box::new(vote)], &RESTART_VTABLE);
+	let _votes = install_with(mock_binding(), vec![Box::new(vote)], restart_vtable());
 
 	controller.attach().unwrap();
 

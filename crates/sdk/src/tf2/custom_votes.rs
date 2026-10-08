@@ -5,7 +5,10 @@
 //! Each [`CustomVote`] becomes an issue of the level's global vote controller,
 //! made with the generated `CBaseIssue` layout and a vtable whose methods are
 //! partly Rust's and partly those of TF2's own `CRestartGameIssue`, so that
-//! the voters, the quorum, and the Yes and No choices are TF2's.
+//! the voters, the quorum, and the Yes and No choices are TF2's. The vtable
+//! keeps the restart vote's RTTI before its methods, so that the game's
+//! `dynamic_cast`s, such as TF2's check for a kick vote as any vote passes,
+//! take a custom issue for a restart vote.
 //! [`CustomVotes::install`] takes the votes, and [`CustomVotes::attach`] adds
 //! them to the level's controller. The controller deletes its issues as the
 //! level ends, so attach the votes as each level activates, and as the plugin
@@ -72,7 +75,7 @@ use sdk_raw::tf2::custom_votes::{
 	ACTIVE_ISSUE_INDEX_OFFSET, DEAD_VTABLE, ISSUE_TAG_OFFSET, IssueMethods, IssueVtable,
 	LIVE_VTABLE, MAX_ISSUE_NAME_LEN, MAX_VOTE_DETAILS_LENGTH, ProcessResultsFn, TaggedVtable,
 	VOTE_ACTION_FAIL, VOTE_ACTION_PASS, VOTE_INDEX_OFFSET, dead_vtable, is_tagged, live_vtable,
-	new_issue, potential_issues,
+	new_issue, potential_issues, vtable_rtti,
 };
 
 use sdk_raw::tf2::voting::{DEDICATED_SERVER, IssueVtables};
@@ -314,13 +317,16 @@ impl CustomVotes {
 	/// Whether the votes are in the level's controller, and the plugin's.
 	pub fn is_attached(&self) -> bool {
 		with_registry(|registry| {
-			let live = registry.tables.as_ref().map(|tables| tables.live);
+			let Some(tables) = registry.tables else {
+				return false;
+			};
+			let live = TaggedVtable::issue_vtable(tables.live);
 
 			!registry.issues.is_empty()
 				&& registry.issues.iter().all(|issue| {
 					// SAFETY: Registered issues are live, or leaked by detached
 					// destructors, so readable.
-					live.is_some_and(|live| unsafe { (&raw const (*issue.raw.as_ptr()).vtable_).read() } == live.cast())
+					live == unsafe { (&raw const (*issue.raw.as_ptr()).vtable_).read() }
 				})
 		})
 		.unwrap_or(false)
@@ -562,7 +568,7 @@ unsafe fn attach_to(
 
 		Some(None) => {
 			// SAFETY: `restart` is TF2's restart vote, whose vtable is the game's.
-			let tables = unsafe { make_tables(restart, &*base) }?;
+			let tables = unsafe { make_tables(restart, base) }?;
 
 			with_registry_mut(|registry| registry.tables = Some(tables));
 			tables
@@ -597,7 +603,7 @@ unsafe fn attach_to(
 		return Err(CustomVoteError::NoRoom { needed, free });
 	}
 
-	let live = tables.live.cast::<IssueVtable>();
+	let live = TaggedVtable::issue_vtable(tables.live);
 	let mut size = size;
 
 	with_registry_mut(|registry| {
@@ -711,10 +717,12 @@ fn detach_all() {
 			return;
 		};
 
+		let dead = TaggedVtable::issue_vtable(tables.dead);
+
 		for issue in &registry.issues {
 			// SAFETY: Registered issues are live, or leaked by detached
 			// destructors, so writable.
-			unsafe { (&raw mut (*issue.raw.as_ptr()).vtable_).write(tables.dead.cast()) };
+			unsafe { (&raw mut (*issue.raw.as_ptr()).vtable_).write(dead) };
 		}
 	});
 }
@@ -946,6 +954,8 @@ fn lookup(this: *mut sys::CBaseIssue) -> Option<(ServerBinding, Rc<dyn CustomVot
 
 /// Makes the live and dead tables from the restart vote's `base`, after
 /// checking that the methods the dead table borrows behave as `CBaseIssue`'s.
+/// Both keep its RTTI, so that the game takes custom issues for restart votes,
+/// which have no fields of their own.
 ///
 /// # Safety
 ///
@@ -953,9 +963,13 @@ fn lookup(this: *mut sys::CBaseIssue) -> Option<(ServerBinding, Rc<dyn CustomVot
 /// `base`, in the game module.
 unsafe fn make_tables(
 	restart: NonNull<sys::CBaseIssue>,
-	base: &IssueVtable,
+	base: *const IssueVtable,
 ) -> Result<Tables, CustomVoteError> {
 	let restart = restart.as_ptr();
+
+	// SAFETY: As the caller promises, `base` is the vtable the compiler made
+	// for `CRestartGameIssue`.
+	let (rtti, base) = unsafe { (vtable_rtti(base), &*base) };
 
 	// SAFETY: The restart vote's own methods, which read nothing but its
 	// fields, called on it.
@@ -986,6 +1000,7 @@ unsafe fn make_tables(
 	};
 
 	let live = Box::leak(Box::new(TaggedVtable {
+		rtti,
 		methods: live_vtable(base, &methods),
 		state: LIVE_VTABLE,
 	}));
@@ -994,6 +1009,7 @@ unsafe fn make_tables(
 	// borrows, as checked above, and is in the game module, which outlives
 	// every issue.
 	let dead = Box::leak(Box::new(TaggedVtable {
+		rtti,
 		methods: unsafe { dead_vtable(base) },
 		state: DEAD_VTABLE,
 	}));
@@ -1088,13 +1104,12 @@ fn plan(
 			continue;
 		};
 
-		// SAFETY: As above. A tagged issue's vtable is a `TaggedVtable`, which
-		// an SDK leaked or keeps live.
+		// SAFETY: As above. A tagged issue's vtable is the methods of a
+		// `TaggedVtable`, which an SDK leaked or keeps live.
 		let state = unsafe {
 			is_tagged(issue.as_ptr()).then(|| {
-				let vtable = (&raw const (*issue.as_ptr()).vtable_)
-					.read()
-					.cast::<TaggedVtable>();
+				let vtable =
+					TaggedVtable::from_issue_vtable((&raw const (*issue.as_ptr()).vtable_).read());
 
 				(vtable, (&raw const (*vtable).state).read())
 			})
