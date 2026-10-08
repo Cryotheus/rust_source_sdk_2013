@@ -23,7 +23,8 @@ struct MockCvar {
 /// order with the variable's `IConVar` subobject, as `CCvar` converts the
 /// `ConVar *` it is given. As `CCvar` does, it counts the callbacks before
 /// calling the first; one removed meanwhile ends the walk here, where `CCvar`
-/// would read past the end of its list.
+/// would go on past the end of its list, to what its old last slot still
+/// holds.
 unsafe extern "C" fn call_global_change_callbacks(
 	this: *mut sys::ICvar,
 	var: *mut sys::ConVar,

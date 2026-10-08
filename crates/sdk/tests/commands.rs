@@ -123,7 +123,10 @@ fn base_of<T>(object: &T) -> *mut sys::ConCommandBase {
 /// `ICvar::CallGlobalChangeCallbacks`, which records a change as the engine's
 /// own global callback would see it, reading the new value through the
 /// variable, then calls the callbacks installed as `CCvar` does: counted
-/// before the first runs, with the variable's `IConVar` subobject.
+/// before the first runs, with the variable's `IConVar` subobject. As in the
+/// test support's mock registry, one removed meanwhile ends the walk here,
+/// where `CCvar` would go on past the end of its list, to what its old last
+/// slot still holds.
 unsafe extern "C" fn call_global_change_callbacks(
 	_: *mut sys::ICvar,
 	var: *mut sys::ConVar,
@@ -155,14 +158,16 @@ unsafe extern "C" fn call_global_change_callbacks(
 	for index in 0..count {
 		// The list is not borrowed while a callback runs, since the callback may
 		// change variables, which call back here.
-		let Some(Some(callback)) =
+		let Some(callback) =
 			GLOBAL_CALLBACKS.with_borrow(|callbacks| callbacks.get(index).copied())
 		else {
-			continue;
+			break;
 		};
 
-		// SAFETY: As above, and the subobject lies within the variable.
-		unsafe { callback(&raw mut (*var)._base_1, old, old_float) };
+		if let Some(callback) = callback {
+			// SAFETY: As above, and the subobject lies within the variable.
+			unsafe { callback(&raw mut (*var)._base_1, old, old_float) };
+		}
 	}
 }
 
