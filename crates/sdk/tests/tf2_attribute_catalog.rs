@@ -39,7 +39,7 @@ enum Token {
 }
 
 /// Every definition of the catalog.
-fn all() -> [Def; 40] {
+fn all() -> [Def; 41] {
 	[
 		Def::of(&AIRBLAST_DISABLED),
 		Def::of(&BLAST_RADIUS_DECREASED),
@@ -59,6 +59,7 @@ fn all() -> [Def; 40] {
 		Def::of(&FASTER_RELOAD_RATE),
 		Def::of(&FIRE_RATE_BONUS),
 		Def::of(&FIRE_RATE_PENALTY),
+		Def::of(&HEALTH_FROM_PACKS_INCREASED),
 		Def::of(&HEALTH_REGEN),
 		Def::of(&HEAL_ON_HIT_RAPID_FIRE),
 		Def::of(&HEAL_ON_HIT_SLOW_FIRE),

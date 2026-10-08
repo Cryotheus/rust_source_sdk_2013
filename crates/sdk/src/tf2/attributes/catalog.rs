@@ -310,6 +310,19 @@ pub const HEAL_ON_KILL: AttributeDef<Amount> = AttributeDef::new(
 	500.0,
 );
 
+/// `health from packs increased` (108, `mult_health_frompacks`): scales the
+/// health the owner gains from health kits, from 1 to 10. Kits still heal no
+/// further than the owner's maximum.
+#[doc(alias("health from packs increased"))]
+pub const HEALTH_FROM_PACKS_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
+	108,
+	c"health from packs increased",
+	c"mult_health_frompacks",
+	DescriptionFormat::Percentage,
+	1.0,
+	10.0,
+);
+
 /// `health regen` (57, `add_health_regen`): health the owner regenerates per
 /// second, up to 100.
 #[doc(alias("health regen"))]
