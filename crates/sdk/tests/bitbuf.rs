@@ -152,6 +152,25 @@ fn signed_fields_use_twos_complement() {
 }
 
 #[test]
+fn skipped_bits_are_passed_over_whole_or_not_at_all() {
+	let mut writer = BitWriter::new();
+
+	writer.write_ubits(0b101, 3);
+	writer.write_u32(0xDEAD_BEEF);
+	writer.write_ubits(0b11, 2);
+
+	let mut reader = writer.reader();
+
+	assert_eq!(reader.skip(3), Ok(()));
+	assert_eq!(reader.skip(35), Err(Overflow));
+	assert_eq!(reader.position(), 3);
+	assert_eq!(reader.skip(32), Ok(()));
+	assert_eq!(reader.read_ubits(2), Ok(0b11));
+	assert_eq!(reader.skip(0), Ok(()));
+	assert_eq!(reader.skip(1), Err(Overflow));
+}
+
+#[test]
 fn strings_end_with_their_terminator() {
 	let mut writer = BitWriter::new();
 

@@ -1,16 +1,19 @@
 //! Tests of the engine's game event manager (`IGameEventManager2`): listeners
-//! it keeps and calls by address, and the events created, fired, and freed
-//! across the boundary.
+//! it keeps and calls by address, and the events created, decoded, fired, and
+//! freed across the boundary.
 
+use sdk_raw::bitbuf::BfRead;
+use sdk_raw::interfaces::game_event::MAX_EVENT_BITS;
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use source_sdk_2013::Module;
+use source_sdk_2013::bitbuf::BitWriter;
 use source_sdk_2013::interfaces::GameEventManager;
 use source_sdk_2013::interfaces::game_event::{GameEvent, GameEventHandler, GameEventListener};
 use source_sdk_2013::test_support::leak;
 use source_sdk_2013::test_support::server::{export, mock_server};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString, c_char, c_int};
-use std::ptr::null_mut;
+use std::ptr::{NonNull, null_mut};
 
 thread_local! {
 	/// The manager `AddListener` or `RemoveListener` last received.
@@ -31,6 +34,9 @@ thread_local! {
 
 	/// How many events `FireEvent` fired.
 	static FIRED: Cell<usize> = const { Cell::new(0) };
+
+	/// How many times `UnserializeEvent` was called.
+	static UNSERIALIZED: Cell<usize> = const { Cell::new(0) };
 
 	/// The names of the events the handler received, in order.
 	static DELIVERED: RefCell<Vec<CString>> = const { RefCell::new(Vec::new()) };
@@ -193,6 +199,61 @@ fn listeners_register_by_address_and_receive_fired_events() {
 	assert_eq!(REMOVED_LISTENER.get(), added);
 }
 
+#[test]
+fn serialized_events_are_decoded_and_freed_by_their_owner() {
+	// SAFETY: As above.
+	let vtable = unsafe {
+		mock_vtable::<sys::IGameEventManager2__bindgen_vtable>(
+			unexpected_call as *const (),
+			|vtable| {
+				(&raw mut (*vtable).IGameEventManager2_UnserializeEvent).write(unserialize_event);
+				(&raw mut (*vtable).IGameEventManager2_FreeEvent).write(free_event);
+			},
+		)
+	};
+	let interface = leak(sys::IGameEventManager2 {
+		vtable_: Box::leak(vtable),
+	});
+
+	export(Module::Engine, GameEventManager::VERSION, interface);
+
+	let scope = ();
+	let manager = mock_server(&scope).game_events().unwrap();
+	let mut data = BitWriter::new();
+
+	data.write_ubits(7, MAX_EVENT_BITS);
+	data.write_u16(5);
+
+	let event = manager.unserialize_event(&data).unwrap();
+
+	assert_eq!(event.as_event().name(), c"player_regenerate");
+	drop(event);
+	assert_eq!((UNSERIALIZED.get(), FREED.get()), (1, 1));
+
+	// An ID the manager has no description of.
+	let mut unknown = BitWriter::new();
+
+	unknown.write_ubits(8, MAX_EVENT_BITS);
+	unknown.write_u16(5);
+	assert!(manager.unserialize_event(&unknown).is_none());
+	assert_eq!((UNSERIALIZED.get(), FREED.get()), (2, 1));
+
+	// Bits that end before the event's field: the event is freed.
+	let mut short = BitWriter::new();
+
+	short.write_ubits(7, MAX_EVENT_BITS);
+	short.write_u8(5);
+	assert!(manager.unserialize_event(&short).is_none());
+	assert_eq!((UNSERIALIZED.get(), FREED.get()), (3, 2));
+
+	// Fewer bits than an ID: the manager is not asked.
+	let mut tiny = BitWriter::new();
+
+	tiny.write_ubits(7, MAX_EVENT_BITS - 1);
+	assert!(manager.unserialize_event(&tiny).is_none());
+	assert_eq!((UNSERIALIZED.get(), FREED.get()), (3, 2));
+}
+
 /// `IGameEventManager2::AddListener`, which records its arguments and knows
 /// only `player_regenerate`.
 unsafe extern "C" fn record_add_listener(
@@ -216,4 +277,34 @@ unsafe extern "C" fn record_remove_listener(
 ) {
 	RECEIVED_MANAGER.set(manager);
 	REMOVED_LISTENER.set(listener);
+}
+
+/// `IGameEventManager2::UnserializeEvent`, which knows only the ID 7, a
+/// `player_regenerate` of one 16-bit field. As the engine does, it marks the
+/// buffer overflowed when the field does not fit, and returns the event
+/// anyway.
+unsafe extern "C" fn unserialize_event(
+	_: *mut sys::IGameEventManager2,
+	buffer: *mut sys::bf_read,
+) -> *mut sys::IGameEvent {
+	UNSERIALIZED.set(UNSERIALIZED.get() + 1);
+
+	// SAFETY: The wrapper passes a live buffer of its own, which describes the
+	// bits it holds for the call.
+	let buffer = unsafe { BfRead::from_sys(NonNull::new(buffer).unwrap()).as_mut() };
+
+	// SAFETY: As above.
+	let bits = unsafe { buffer.unread_bits(buffer.data_bits - buffer.cur_bit) }.unwrap();
+	let bits = BitWriter::from(bits);
+	let mut reader = bits.reader();
+
+	if reader.read_ubits(MAX_EVENT_BITS).unwrap() != 7 {
+		return null_mut();
+	}
+
+	if reader.read_u16().is_err() {
+		buffer.overflow = 1;
+	}
+
+	EVENT.with(|&event| event)
 }
