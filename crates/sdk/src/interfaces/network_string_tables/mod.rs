@@ -209,6 +209,36 @@ impl<'s> NetworkStringTable<'s> {
 		// copied, since adding strings may move the table's storage.
 		unsafe { copy_cstr(vcall!(self.as_ptr() => INetworkStringTable_GetString(index))) }
 	}
+
+	/// A copy of the user data of the string at an index, which ranges up to
+	/// [`Self::len`]: the bytes the engine keeps beside it, such as the map
+	/// list TF2 keeps beside `ServerMapCycle` in the table of that name. It is
+	/// empty if the string has none, and `None` if the index is out of range.
+	#[doc(alias("GetStringUserData"))]
+	pub fn user_data(self, index: usize) -> Option<Vec<u8>> {
+		if index >= self.len() {
+			return None;
+		}
+
+		let index = c_int::try_from(index).ok()?;
+		let mut len: c_int = 0;
+
+		// SAFETY: As for `name`, and the index is in range. The engine writes
+		// the data's length, and returns its address or null.
+		let data = unsafe {
+			vcall!(self.as_ptr() => INetworkStringTable_GetStringUserData(index, &raw mut len))
+		};
+
+		let len = usize::try_from(len).unwrap_or(0);
+
+		if data.is_null() || len == 0 {
+			return Some(Vec::new());
+		}
+
+		// SAFETY: The engine's user data is `len` bytes at `data`, copied before
+		// anything can change the table.
+		Some(unsafe { std::slice::from_raw_parts(data.cast::<u8>(), len) }.to_vec())
+	}
 }
 
 impl<'s> NetworkStringTables<'s> {
