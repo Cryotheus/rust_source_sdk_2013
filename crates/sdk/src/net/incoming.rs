@@ -11,15 +11,27 @@
 //! which no public header declares, so [`IncomingMessage::decode`] reads them
 //! only once the engine's reported sizes, and pointers the engine keeps into
 //! its own messages, confirm the expected layout.
+//!
+//! A plugin can also pass a client's handler a command of its own, as though
+//! the client sent it, with [`GameClient::process_string_command`]. Hooks on
+//! the message's `Process` and on the handler see it as they see the client's
+//! own commands.
+
+#[cfg(test)]
+#[path = "../tests/net/incoming.rs"]
+mod tests;
 
 use crate::NotThreadSafe;
 use crate::bitbuf::BitWriter;
 use crate::interfaces::game_server::GameClient;
 use crate::server::{InterfaceError, Server, ServerBinding};
-use sdk_raw::net::incoming::{self as raw, ClientLayoutError, ClientMessage, MessageClass};
+use sdk_raw::net::incoming::{
+	self as raw, ClientLayoutError, ClientMessage, MessageClass, StringCmdError,
+};
+use sdk_raw::util;
 use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
-use std::ffi::{CString, c_int};
+use std::ffi::{CStr, CString, c_int};
 use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::NonNull;
@@ -351,8 +363,10 @@ impl Incoming {
 
 /// Decides about the messages clients send.
 pub trait IncomingHandler: 'static {
-	/// Called for each message a client sends, before the engine processes
-	/// it, during the engine's processing of the client's packet.
+	/// Called for each message a client sends, before the engine processes it:
+	/// during the engine's processing of the client's packet, or, for a command
+	/// a plugin passes as the client's with
+	/// [`GameClient::process_string_command`], during that call.
 	fn incoming(&self, server: Server<'_>, message: IncomingMessage<'_>) -> Verdict;
 }
 
@@ -500,10 +514,10 @@ impl<'s> IncomingMessage<'s> {
 	/// The message's fields, or `None` if the engine's layout is not the one
 	/// expected, or the fields are inconsistent.
 	pub fn decode(self) -> Option<Incoming> {
-		// SAFETY: The engine passed the message to the client's handler method
-		// for its kind, and keeps it alive and unchanged while it is processed,
-		// which the scope `'s` lies within, during a callback from the engine's
-		// module.
+		// SAFETY: The message was passed to the client's handler method for its
+		// kind, by the engine or through `GameClient::process_string_command`,
+		// which keep it alive and unchanged while it is processed, which the scope
+		// `'s` lies within, during a callback from the engine's module.
 		let message = unsafe { raw::read_message(self.kind.raw(), self.handler, self.raw) }?;
 
 		Some(Incoming::from_raw(message))
@@ -550,6 +564,141 @@ impl<'s> IncomingMessage<'s> {
 	pub fn name(self) -> Option<CString> {
 		// SAFETY: As for `id`, and the name is copied at once.
 		unsafe { copy_cstr(vcall!(self.as_const() => INetMessage_GetName())) }
+	}
+}
+
+impl<'s> GameClient<'s> {
+	/// Passes `command` to the client's message handler as a `NET_StringCmd`,
+	/// as though the client sent it: the message's `Process` passes it to the
+	/// handler's `ProcessStringCmd`, as the engine processes the commands the
+	/// client types, so hooks on either method, such as those that pass the
+	/// client's messages to [`route_incoming`], see it as they see those, then
+	/// the engine runs it as the client's, as [`Self::execute_string_command`]
+	/// does. Returns what `Process` returned: `true` for every command the
+	/// engine runs, or what a hook that blocked the command decided.
+	///
+	/// The engine runs the whole text as one command, without splitting it at
+	/// `;`, and counts it toward `sv_quota_stringcmdspersecond`, as it counts
+	/// the client's own, past which it disconnects the client. Nothing goes
+	/// through the network: hooks on the client's channel do not see the
+	/// command, and the engine processes it outside its processing of the
+	/// client's packets.
+	///
+	/// The message is built with the engine's own vtable of `NET_StringCmd`,
+	/// found once through the run-time type information of the engine module,
+	/// the one the client's vtable lies in, and laid out as
+	/// [`raw::StringCmdMessage`] describes. This fails if that vtable cannot be
+	/// found or does not confirm the layout, if the command does not fit the
+	/// message, and for fake clients, such as bots, which have no channel to
+	/// send messages through, and so never do;
+	/// [`Self::execute_string_command`] runs commands as them.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::execute_string_command`]: the command must not
+	/// disconnect the client or free entities immediately, nor change the
+	/// navigation mesh, and neither may what hooks on the message's `Process`
+	/// or the handler's `ProcessStringCmd` do with it. Outside a packet, the
+	/// engine frees the client's channel at once as it disconnects, while the
+	/// message names the channel. Nor may the command be one of those the
+	/// engine runs for clients itself ([`ENGINE_CLIENT_COMMANDS`]), such as
+	/// `status`, whose handlers print to the client whose packet the engine is
+	/// processing, and there is none.
+	///
+	/// [`ENGINE_CLIENT_COMMANDS`]: sdk_raw::commands::ENGINE_CLIENT_COMMANDS
+	#[doc(alias("ProcessStringCmd", "NET_StringCmd"))]
+	pub unsafe fn process_string_command(self, command: &CStr) -> Result<bool, StringCommandError> {
+		if command.count_bytes() > raw::MAX_STRING_CMD_LEN {
+			return Err(StringCommandError::TooLong);
+		}
+
+		if self.is_fake() {
+			return Err(StringCommandError::FakeClient);
+		}
+
+		let channel = self
+			.net_channel()
+			.and_then(|channel| NonNull::new(channel.as_ptr()))
+			.ok_or(StringCommandError::NoChannel)?;
+
+		let client = NonNull::new(self.as_ptr()).ok_or(StringCommandError::UnexpectedLayout)?;
+
+		// SAFETY: The client is one of the engine's live clients, which the engine
+		// built with run-time type information, like each of its bases. The
+		// engine's module stays loaded during the server's callback.
+		let handler = unsafe { raw::handler_of_client(client) }?;
+
+		// SAFETY: As above, and the client is a `CGameClient`, as
+		// `handler_of_client` confirmed.
+		let engine = unsafe { raw::engine_factory_of_client(client) }?;
+
+		// SAFETY: The factory is the engine module's `CreateInterface`, which the
+		// server's callback keeps loaded. Source never unloads the engine while
+		// plugins are loaded, as `ModuleCache` assumes.
+		let vtable = unsafe { raw::cached_string_cmd_vtable(engine) }?
+			.ok_or(StringCommandError::NoVtable)?;
+
+		// SAFETY: The vtable is the engine's primary vtable of `NET_StringCmd`,
+		// found through the engine module's run-time type information, and the
+		// module stays loaded while the message lives, within this call. The
+		// class's `GetType` and `GetSize` return constants, its setters,
+		// `CNetMessage`'s, store their argument, and its `Process` passes the
+		// message to the `ProcessStringCmd` method of the handler its fields name,
+		// as the engine's `Process` does for every class of message. The handler
+		// is the client's, and the channel its own.
+		let mut message = unsafe { raw::StringCmdMessage::new(vtable, handler, channel, command) }?;
+
+		// SAFETY: On the main thread, during the server's callback, which keeps
+		// the client, its channel, and the engine module live. The caller vouches
+		// for the command, and for what the hooks on either method do with it.
+		Ok(unsafe { message.process() })
+	}
+}
+
+/// Why [`GameClient::process_string_command`] passed no command.
+#[derive(Debug, thiserror::Error)]
+pub enum StringCommandError {
+	/// The client is a fake client, such as a bot, which has no channel to
+	/// send messages through.
+	#[error("the client is a fake client, such as a bot")]
+	FakeClient,
+
+	/// The client has no channel, as an empty slot does.
+	#[error("the client has no channel")]
+	NoChannel,
+
+	/// The command is longer than
+	/// [`MAX_STRING_CMD_LEN`](raw::MAX_STRING_CMD_LEN) bytes.
+	#[error("the command is longer than {} bytes", raw::MAX_STRING_CMD_LEN)]
+	TooLong,
+
+	/// The engine module's run-time type information names no unique primary
+	/// vtable of `NET_StringCmd`.
+	#[error("the engine has no unique vtable of NET_StringCmd")]
+	NoVtable,
+
+	/// The engine's clients, or its `NET_StringCmd`, are not laid out as
+	/// expected.
+	#[error("the engine's clients or string commands are not laid out as expected")]
+	UnexpectedLayout,
+
+	/// The engine module could not be inspected.
+	#[error("the engine module could not be inspected: {0}")]
+	Image(#[from] util::Error),
+}
+
+impl From<ClientLayoutError> for StringCommandError {
+	fn from(_: ClientLayoutError) -> Self {
+		Self::UnexpectedLayout
+	}
+}
+
+impl From<StringCmdError> for StringCommandError {
+	fn from(error: StringCmdError) -> Self {
+		match error {
+			StringCmdError::TooLong => Self::TooLong,
+			StringCmdError::UnexpectedLayout => Self::UnexpectedLayout,
+		}
 	}
 }
 
@@ -619,8 +768,9 @@ pub(crate) const unsafe fn mock_incoming_message<'s>(
 ///
 /// Call it from a hook on a handler method of the vtable [`hook_target`]
 /// found, before the method runs, on the server's main thread: `kind` indexes
-/// [`IncomingKind::ALL`], `this` is the handler the engine called, and
-/// `message` its argument. Panics are caught, and let the message through.
+/// [`IncomingKind::ALL`], `this` is the handler the engine, or
+/// [`GameClient::process_string_command`], called, and `message` the
+/// argument it passed. Panics are caught, and let the message through.
 pub unsafe fn route_incoming(
 	binding: &ServerBinding,
 	handler: &dyn IncomingHandler,
@@ -640,11 +790,13 @@ pub unsafe fn route_incoming(
 
 	let scope = ();
 
-	// SAFETY: The hook runs during the engine's call into the handler, on the
-	// main thread.
+	// SAFETY: The hook runs on the main thread, during a call into the
+	// handler by the engine, or by `GameClient::process_string_command`
+	// during one of the server's callbacks.
 	let server = unsafe { binding.server(&scope) };
 
-	// SAFETY: The engine keeps its clients while it processes their messages.
+	// SAFETY: The engine keeps its clients while their messages are
+	// processed, by either caller.
 	let client = unsafe { GameClient::from_raw(client) };
 
 	let message = IncomingMessage {
