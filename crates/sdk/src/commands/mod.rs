@@ -61,6 +61,8 @@ pub use route::{ClientRoute, route_client_command};
 pub use source_sdk_2013_declmacros::{commands, convars};
 pub use variable::ConsoleVariable;
 
+pub(crate) use route::drop_payload;
+
 /// A plain function handler, which keeps `ConsoleCommand<CommandFn>` nameable
 /// in a `static`.
 pub type CommandFn = for<'a, 'd> fn(&'a CommandContext<'d>) -> CommandResult;
