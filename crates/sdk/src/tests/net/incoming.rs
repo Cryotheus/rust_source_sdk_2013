@@ -33,11 +33,7 @@ const CLIENTS: [MockClient; 5] = [
 /// Passes `command` to the client in `slot` of `engine`.
 fn process(engine: &MockEngine, slot: usize, command: &CStr) -> Result<bool, StringCommandError> {
 	// SAFETY: Each test's command is refused before any handler runs it.
-	unsafe {
-		engine
-			.game_client(slot)
-			.process_string_command(engine.server(), command)
-	}
+	unsafe { engine.game_client(slot).process_string_command(command) }
 }
 
 #[test]

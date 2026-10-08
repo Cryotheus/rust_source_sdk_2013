@@ -13,8 +13,9 @@
 //! its own messages, confirm the expected layout.
 //!
 //! A plugin can also pass a client's handler a command of its own, as though
-//! the client sent it, with [`GameClient::process_string_command`]. The hooks
-//! on the handler see it as they see the client's own commands.
+//! the client sent it, with [`GameClient::process_string_command`]. Hooks on
+//! the message's `Process` and on the handler see it as they see the client's
+//! own commands.
 
 #[cfg(test)]
 #[path = "../tests/net/incoming.rs"]
@@ -568,13 +569,13 @@ impl<'s> IncomingMessage<'s> {
 
 impl<'s> GameClient<'s> {
 	/// Passes `command` to the client's message handler as a `NET_StringCmd`,
-	/// as though the client sent it: hooks on the handler's
-	/// `ProcessStringCmd`, such as those that pass the client's messages to
-	/// [`route_incoming`], see it as they see the commands the client types,
-	/// then the engine runs it as the client's, as
-	/// [`Self::execute_string_command`] does. Returns what `ProcessStringCmd`
-	/// returned: `true` for every command the engine runs, or what a hook that
-	/// blocked the command decided.
+	/// as though the client sent it: the message's `Process` passes it to the
+	/// handler's `ProcessStringCmd`, as the engine processes the commands the
+	/// client types, so hooks on either method, such as those that pass the
+	/// client's messages to [`route_incoming`], see it as they see those, then
+	/// the engine runs it as the client's, as [`Self::execute_string_command`]
+	/// does. Returns what `Process` returned: `true` for every command the
+	/// engine runs, or what a hook that blocked the command decided.
 	///
 	/// The engine runs the whole text as one command, without splitting it at
 	/// `;`, and counts it toward `sv_quota_stringcmdspersecond`, as it counts
@@ -584,31 +585,29 @@ impl<'s> GameClient<'s> {
 	/// client's packets.
 	///
 	/// The message is built with the engine's own vtable of `NET_StringCmd`,
-	/// found once through the engine module's run-time type information, and
-	/// laid out as [`raw::StringCmdMessage`] describes. This fails if that
-	/// vtable cannot be found or does not confirm the layout, if the command
-	/// does not fit the message, and for fake clients, such as bots, which
-	/// have no channel to send messages through, and so never do;
+	/// found once through the run-time type information of the engine module,
+	/// the one the client's vtable lies in, and laid out as
+	/// [`raw::StringCmdMessage`] describes. This fails if that vtable cannot be
+	/// found or does not confirm the layout, if the command does not fit the
+	/// message, and for fake clients, such as bots, which have no channel to
+	/// send messages through, and so never do;
 	/// [`Self::execute_string_command`] runs commands as them.
 	///
 	/// # Safety
 	///
 	/// As for [`Self::execute_string_command`]: the command must not
 	/// disconnect the client or free entities immediately, nor change the
-	/// navigation mesh, and neither may what hooks on the handler do with it.
-	/// Outside a packet, the engine frees the client's channel at once as it
-	/// disconnects, while the message names the channel. Nor may the command
-	/// be one of those the engine runs for clients itself
-	/// ([`ENGINE_CLIENT_COMMANDS`]), such as `status`, whose handlers print to
-	/// the client whose packet the engine is processing, and there is none.
+	/// navigation mesh, and neither may what hooks on the message's `Process`
+	/// or the handler's `ProcessStringCmd` do with it. Outside a packet, the
+	/// engine frees the client's channel at once as it disconnects, while the
+	/// message names the channel. Nor may the command be one of those the
+	/// engine runs for clients itself ([`ENGINE_CLIENT_COMMANDS`]), such as
+	/// `status`, whose handlers print to the client whose packet the engine is
+	/// processing, and there is none.
 	///
 	/// [`ENGINE_CLIENT_COMMANDS`]: sdk_raw::commands::ENGINE_CLIENT_COMMANDS
 	#[doc(alias("ProcessStringCmd", "NET_StringCmd"))]
-	pub unsafe fn process_string_command(
-		self,
-		server: Server<'_>,
-		command: &CStr,
-	) -> Result<bool, StringCommandError> {
+	pub unsafe fn process_string_command(self, command: &CStr) -> Result<bool, StringCommandError> {
 		if command.count_bytes() > raw::MAX_STRING_CMD_LEN {
 			return Err(StringCommandError::TooLong);
 		}
@@ -629,23 +628,29 @@ impl<'s> GameClient<'s> {
 		// engine's module stays loaded during the server's callback.
 		let handler = unsafe { raw::handler_of_client(client) }?;
 
-		// SAFETY: The engine factory is the engine module's `CreateInterface`,
-		// which the server's callback keeps loaded. Source never unloads the
-		// engine while plugins are loaded, as `ModuleCache` assumes.
-		let vtable = unsafe { raw::cached_string_cmd_vtable(server.engine_factory().as_raw()) }?
+		// SAFETY: As above, and the client is a `CGameClient`, as
+		// `handler_of_client` confirmed.
+		let engine = unsafe { raw::engine_factory_of_client(client) }?;
+
+		// SAFETY: The factory is the engine module's `CreateInterface`, which the
+		// server's callback keeps loaded. Source never unloads the engine while
+		// plugins are loaded, as `ModuleCache` assumes.
+		let vtable = unsafe { raw::cached_string_cmd_vtable(engine) }?
 			.ok_or(StringCommandError::NoVtable)?;
 
 		// SAFETY: The vtable is the engine's primary vtable of `NET_StringCmd`,
 		// found through the engine module's run-time type information, and the
 		// module stays loaded while the message lives, within this call. The
-		// class's `GetType` and `GetSize` return constants, and its setters,
-		// `CNetMessage`'s, store their argument. The handler is the client's,
-		// and the channel its own.
+		// class's `GetType` and `GetSize` return constants, its setters,
+		// `CNetMessage`'s, store their argument, and its `Process` passes the
+		// message to the `ProcessStringCmd` method of the handler its fields name,
+		// as the engine's `Process` does for every class of message. The handler
+		// is the client's, and the channel its own.
 		let mut message = unsafe { raw::StringCmdMessage::new(vtable, handler, channel, command) }?;
 
 		// SAFETY: On the main thread, during the server's callback, which keeps
 		// the client, its channel, and the engine module live. The caller vouches
-		// for the command, and for what the hooks on the handler do with it.
+		// for the command, and for what the hooks on either method do with it.
 		Ok(unsafe { message.process() })
 	}
 }
@@ -763,8 +768,9 @@ pub(crate) const unsafe fn mock_incoming_message<'s>(
 ///
 /// Call it from a hook on a handler method of the vtable [`hook_target`]
 /// found, before the method runs, on the server's main thread: `kind` indexes
-/// [`IncomingKind::ALL`], `this` is the handler the engine called, and
-/// `message` its argument. Panics are caught, and let the message through.
+/// [`IncomingKind::ALL`], `this` is the handler the engine, or
+/// [`GameClient::process_string_command`], called, and `message` the
+/// argument it passed. Panics are caught, and let the message through.
 pub unsafe fn route_incoming(
 	binding: &ServerBinding,
 	handler: &dyn IncomingHandler,
@@ -784,11 +790,13 @@ pub unsafe fn route_incoming(
 
 	let scope = ();
 
-	// SAFETY: The hook runs during the engine's call into the handler, on the
-	// main thread.
+	// SAFETY: The hook runs on the main thread, during a call into the
+	// handler by the engine, or by `GameClient::process_string_command`
+	// during one of the server's callbacks.
 	let server = unsafe { binding.server(&scope) };
 
-	// SAFETY: The engine keeps its clients while it processes their messages.
+	// SAFETY: The engine keeps its clients while their messages are
+	// processed, by either caller.
 	let client = unsafe { GameClient::from_raw(client) };
 
 	let message = IncomingMessage {
