@@ -29,7 +29,7 @@ const INSTANCE_OFFSET: usize = 72;
 
 /// The native members the mock entities' script class declares: each one's
 /// name and parameter types. All return nothing, and others are missing.
-const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 13] = [
+const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 14] = [
 	(c"AddSolidFlags", &[INT]),
 	(c"ApplyAbsVelocityImpulse", &[VECTOR]),
 	(c"ApplyLocalAngularVelocityImpulse", &[VECTOR]),
@@ -41,6 +41,7 @@ const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 13] = [
 	(c"SetPhysAngularVelocity", &[VECTOR]),
 	(c"SetPhysVelocity", &[VECTOR]),
 	(c"SetSize", &[VECTOR, VECTOR]),
+	(c"SetSolid", &[INT]),
 	(c"SetSolidFlags", &[INT]),
 	(
 		c"TakeDamageCustom",
@@ -330,6 +331,7 @@ fn members_receive_their_arguments() {
 	entity.add_solid_flags(flags).unwrap();
 	entity.remove_solid_flags(SolidFlags::TRIGGER).unwrap();
 	entity.set_solid_flags(SolidFlags::empty()).unwrap();
+	entity.set_solid(SolidType::BoundingBox).unwrap();
 	entity
 		.set_collision_group(TfCollisionGroup::RespawnRooms)
 		.unwrap();
@@ -368,6 +370,10 @@ fn members_receive_their_arguments() {
 				vec![Argument::Int(c_int::from(SolidFlags::TRIGGER.bits()))]
 			),
 			call(c"SetSolidFlags", vec![Argument::Int(0)]),
+			call(
+				c"SetSolid",
+				vec![Argument::Int(c_int::from(SolidType::BoundingBox.to_raw()))]
+			),
 			call(
 				c"SetCollisionGroup",
 				vec![Argument::Int(TfCollisionGroup::RespawnRooms.to_raw())]

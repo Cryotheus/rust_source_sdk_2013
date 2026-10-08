@@ -1,6 +1,6 @@
 //! The native members TF2 exposes to VScript on every entity, through the
-//! script class of `CBaseEntity`: its solid flags and collision group, its
-//! bounds, its origin, angles, velocity and pushes, and damage.
+//! script class of `CBaseEntity`: its solid type, solid flags and collision
+//! group, its bounds, its origin, angles, velocity and pushes, and damage.
 //!
 //! [`TfEntity`] wraps an entity within one engine callback, and calls the
 //! members' native bindings, found by name and checked against the SDK's
@@ -32,7 +32,7 @@ mod tests;
 use crate::entities::Entity;
 use crate::entities::fields::FieldError;
 use crate::entities::movement::MoveType;
-use crate::entities::solid::SolidFlags;
+use crate::entities::solid::{SolidFlags, SolidType};
 use crate::math::{QAngle, Vector};
 use crate::tf2::collision::TfCollisionGroup;
 use crate::tf2::damage::DamageType;
@@ -410,6 +410,21 @@ impl<'s> TfEntity<'s> {
 		// SAFETY: The member reads the finite, ordered bounds during the call,
 		// and stores them in the entity's collision property.
 		unsafe { self.call(c"SetSize", &mut [vector(&mins), vector(&maxs)]) }
+	}
+
+	/// Sets how the entity collides (`SetSolid`), such as by a box aligned with
+	/// the world's axes, whose size [`set_size`](Self::set_size) sets.
+	///
+	/// The game rechecks what the entity collides with and touches, and ends its
+	/// touches if it is no longer solid. A VPhysics object the entity already
+	/// has is kept as it is, and none is made: an entity that spawns without
+	/// one, such as a prop spawned [not solid](SolidType::None), collides by
+	/// the new type alone.
+	#[doc(alias("SetSolid", "m_nSolidType"))]
+	pub fn set_solid(self, solid: SolidType) -> Result<(), TfEntityError> {
+		// SAFETY: The member stores the solid type in the entity's collision
+		// property, and updates its collision rules, partition and touches.
+		unsafe { self.call(c"SetSolid", &mut [int(c_int::from(solid.to_raw()))]) }
 	}
 
 	/// Sets the entity's solid flags (`SetSolidFlags`): whether it is solid, a
