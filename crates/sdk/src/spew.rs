@@ -175,21 +175,61 @@ impl From<SpewType> for SpewKind {
 ///
 /// Stop it before the plugin unloads, with [`Self::stop`] or by dropping it.
 /// A watch kept in a static is never dropped, so stop that one explicitly.
-/// The watch stays on the server's main thread, where it started.
+/// While [`Self::stop`] returns [`Stopped::Busy`], keep the watch and the
+/// library loaded, and stop it again later. The watch stays on the server's
+/// main thread, where it started.
 #[must_use = "dropping the watch stops it"]
 #[derive(Debug)]
 pub struct SpewWatch {
 	api: SpewApi,
 	stub: JumpStub,
 	previous: Option<SpewOutputFn>,
-	stopped: bool,
+
+	/// How the watch left tier0's chain, once it has.
+	ended: Option<Stopped>,
+
+	/// Whether no thread was left inside the watch's function after it ended.
+	finished: bool,
 	_main_thread: PhantomData<*const ()>,
 }
 
 impl SpewWatch {
+	/// Takes the watch's function out of tier0's chain the first time, then
+	/// waits for the threads still inside it.
 	fn end(&mut self) -> Stopped {
-		self.stopped = true;
+		let ended = match self.ended {
+			Some(ended) => ended,
 
+			None => {
+				let ended = self.leave();
+
+				self.ended = Some(ended);
+				ended
+			}
+		};
+
+		if self.finished {
+			return ended;
+		}
+
+		let start = Instant::now();
+
+		while RUNNING.load(Ordering::SeqCst) != 0 {
+			if start.elapsed() >= STOP_WAIT {
+				return Stopped::Busy;
+			}
+
+			std::thread::yield_now();
+		}
+
+		self.finished = true;
+		WATCHING.store(false, Ordering::SeqCst);
+		ended
+	}
+
+	/// Points the stub at the function the watch replaced, makes that tier0's
+	/// spew function again if the stub still is, and stops calling back.
+	fn leave(&mut self) -> Stopped {
 		let api = self.api;
 
 		// New calls through the stub skip the watch from here on.
@@ -210,14 +250,6 @@ impl SpewWatch {
 		};
 
 		CALLBACK.store(ptr::null_mut(), Ordering::SeqCst);
-
-		let start = Instant::now();
-
-		while RUNNING.load(Ordering::SeqCst) != 0 && start.elapsed() < STOP_WAIT {
-			std::thread::yield_now();
-		}
-
-		WATCHING.store(false, Ordering::SeqCst);
 		stopped
 	}
 
@@ -225,22 +257,26 @@ impl SpewWatch {
 	/// tier0's chain. See the [module](self) for how.
 	///
 	/// Lines other threads are printing through the watch's function
-	/// meanwhile finish first, waiting at most a second. Do not stop a watch
-	/// from inside its callback.
-	pub fn stop(mut self) -> Stopped {
+	/// meanwhile finish first, waiting at most a second. If one is still
+	/// inside it then, this returns [`Stopped::Busy`]: the watch is out of
+	/// the chain, but the library must stay loaded until a later call returns
+	/// how the watch ended. Do not stop a watch from inside its callback.
+	pub fn stop(&mut self) -> Stopped {
 		self.end()
 	}
 }
 
 impl Drop for SpewWatch {
 	fn drop(&mut self) {
-		if !self.stopped {
-			self.end();
+		// A dropped watch cannot be stopped again, so a later one may start,
+		// whose own stop waits for whatever thread is left inside.
+		if !self.finished && self.end() == Stopped::Busy {
+			WATCHING.store(false, Ordering::SeqCst);
 		}
 	}
 }
 
-/// How a watch ended.
+/// How stopping a watch went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Stopped {
 	/// The function the watch replaced is tier0's spew function again.
@@ -250,6 +286,11 @@ pub enum Stopped {
 	/// spew function stays as it is. The watch's stub, which that function
 	/// may call, now jumps straight to the function the watch replaced.
 	Bypassed,
+
+	/// The watch is out of tier0's chain, as for [`Self::Restored`] or
+	/// [`Self::Bypassed`], but a thread was still inside its function after a
+	/// second. Keep the library loaded, and stop the watch again later.
+	Busy,
 }
 
 /// Why console output could not be watched.
@@ -432,7 +473,8 @@ unsafe fn watch_with(api: SpewApi, callback: SpewFn) -> Result<SpewWatch, WatchE
 		api,
 		stub,
 		previous,
-		stopped: false,
+		ended: None,
+		finished: false,
 		_main_thread: PhantomData,
 	})
 }
