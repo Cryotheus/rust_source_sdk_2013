@@ -80,7 +80,11 @@ impl PluginState {
 	}
 }
 
-/// What loaded a plugin.
+/// What loaded a plugin, as `ISmmPluginManager::Query` reports it.
+///
+/// Metamod:Source 1.12 and 2.0 never record it: their plugin manager passes
+/// `Pl_Console` or `Pl_File` to its loads but leaves each plugin's source at
+/// 0, so every plugin reads as `Other(0)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PluginSource {
 	/// `Pl_Console`: `meta load`.
@@ -92,7 +96,7 @@ pub enum PluginSource {
 	/// Another plugin, by its ID.
 	Plugin(PluginId),
 
-	/// A source this crate does not know.
+	/// A source this crate does not know, such as the 0 that Metamod leaves.
 	Other(PluginId),
 }
 
@@ -112,9 +116,13 @@ impl PluginSource {
 pub struct PluginEntry {
 	pub id: PluginId,
 
-	/// The file Metamod loaded it from, with the path it resolved.
+	/// The file Metamod loaded it from, with the path it resolved, as Metamod
+	/// keeps it. On Windows it can be all lowercase.
 	pub file: CString,
 	pub state: PluginState,
+
+	/// What loaded it, which current versions of Metamod never record (see
+	/// [`PluginSource`]).
 	pub source: PluginSource,
 }
 
