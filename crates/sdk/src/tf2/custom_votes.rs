@@ -76,8 +76,8 @@ use sdk_raw::tf2::custom_votes::{
 };
 
 use sdk_raw::tf2::voting::{DEDICATED_SERVER, IssueVtables};
-use sdk_raw::util;
-use std::cell::RefCell;
+use sdk_raw::util::{self, ModuleCache, ModuleKey};
+use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString, c_char, c_int};
 use std::marker::PhantomData;
 use std::mem::offset_of;
@@ -96,9 +96,14 @@ pub const MAX_TEXT_LEN: usize = MAX_VOTE_DETAILS_LENGTH - 1;
 /// have as `%s1`, to show the details string as it is.
 const SHOW_DETAILS: &CStr = c"#TF_playerid_noteam";
 
+/// The primary vtable of `CRestartGameIssue` in the game module, once found.
+static RESTART_VTABLE: ModuleCache<usize> = ModuleCache::new();
+
 thread_local! {
-	/// The votes installed in this module, if any.
-	static REGISTRY: RefCell<Option<Registry>> = const { RefCell::new(None) };
+	/// The votes installed in this module, if any, which [`CustomVotes`]
+	/// leaked and frees as it drops. The pointer has no destructor to run as
+	/// the thread ends, after the module may have unloaded.
+	static REGISTRY: Cell<Option<NonNull<RefCell<Registry>>>> = const { Cell::new(None) };
 }
 
 // The tag fits after the longest name and its NUL.
@@ -254,18 +259,27 @@ impl CustomVotes {
 
 		check_names(&votes)?;
 
+		let factory = server.game_server_factory().as_raw();
+
 		// SAFETY: The game server factory is the game module's
 		// `CreateInterface`, and the Server's callback scope keeps the module
-		// loaded while it is read.
-		let vtables = unsafe { IssueVtables::load(server.game_server_factory().as_raw()) }?;
-		let restart_vtable = vtables
-			.find("CRestartGameIssue")
-			.ok_or(CustomVoteError::NoBaseIssue)?;
+		// loaded while it is read. Source never unloads the game module while
+		// plugins are loaded, as `ModuleCache` assumes.
+		let restart_vtable = unsafe {
+			let key = ModuleKey::of(factory as usize)?;
+
+			RESTART_VTABLE.get_or_resolve(key, || {
+				IssueVtables::load(factory)?
+					.find("CRestartGameIssue")
+					.map(|vtable| vtable.as_ptr() as usize)
+					.ok_or(CustomVoteError::NoBaseIssue)
+			})?
+		};
 
 		Ok(install_with(
 			binding,
 			votes,
-			restart_vtable.as_ptr().cast_const().cast(),
+			restart_vtable as *const IssueVtable,
 		))
 	}
 
@@ -319,13 +333,11 @@ impl Drop for CustomVotes {
 
 		// The votes are dropped after the registry is emptied, in case one of
 		// them reaches the registry as it drops.
-		let registry = REGISTRY.with(|cell| {
-			cell.try_borrow_mut()
-				.ok()
-				.and_then(|mut registry| registry.take())
-		});
-
-		drop(registry);
+		if let Some(registry) = REGISTRY.take() {
+			// SAFETY: `install_with` leaked the registry, and nothing borrows it
+			// past a call into it, none of which is under way as the votes drop.
+			drop(unsafe { Box::from_raw(registry.as_ptr()) });
+		}
 	}
 }
 
@@ -694,13 +706,7 @@ unsafe extern "C" fn destroy_in_place(this: *mut sys::CBaseIssue) {
 
 /// Detaches every issue of the installed votes.
 fn detach_all() {
-	REGISTRY.with(|cell| {
-		let Ok(registry) = cell.try_borrow() else {
-			return;
-		};
-		let Some(registry) = registry.as_ref() else {
-			return;
-		};
+	with_registry(|registry| {
 		let Some(tables) = registry.tables else {
 			return;
 		};
@@ -823,15 +829,15 @@ fn install_with(
 ) -> CustomVotes {
 	let votes = votes.into_iter().map(Rc::from).collect();
 
-	REGISTRY.with_borrow_mut(|registry| {
-		*registry = Some(Registry {
-			binding,
-			votes,
-			restart_vtable,
-			tables: None,
-			issues: Vec::new(),
-		});
-	});
+	let registry = Box::leak(Box::new(RefCell::new(Registry {
+		binding,
+		votes,
+		restart_vtable,
+		tables: None,
+		issues: Vec::new(),
+	})));
+
+	REGISTRY.set(Some(NonNull::from(registry)));
 
 	CustomVotes {
 		_not_thread_safe: PhantomData,
@@ -1333,13 +1339,20 @@ fn with_issue<R>(this: *mut sys::CBaseIssue, f: impl FnOnce(&mut Issue) -> R) ->
 /// Calls `f` with the installed votes, or returns `None` if there are none, or
 /// they are in use.
 fn with_registry<R>(f: impl FnOnce(&Registry) -> R) -> Option<R> {
-	REGISTRY.with(|cell| cell.try_borrow().ok()?.as_ref().map(f))
+	// SAFETY: An installed registry lives until `CustomVotes` drops, which
+	// clears `REGISTRY` first.
+	let registry = unsafe { REGISTRY.get()?.as_ref() };
+
+	Some(f(&*registry.try_borrow().ok()?))
 }
 
 /// Calls `f` with the installed votes, to change them, or returns `None` if
 /// there are none, or they are in use.
 fn with_registry_mut<R>(f: impl FnOnce(&mut Registry) -> R) -> Option<R> {
-	REGISTRY.with(|cell| cell.try_borrow_mut().ok()?.as_mut().map(f))
+	// SAFETY: As for `with_registry`.
+	let registry = unsafe { REGISTRY.get()?.as_ref() };
+
+	Some(f(&mut *registry.try_borrow_mut().ok()?))
 }
 
 /// Writes `text` to the issue's details string, cut to [`MAX_TEXT_LEN`] bytes
