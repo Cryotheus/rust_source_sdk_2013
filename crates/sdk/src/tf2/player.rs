@@ -63,6 +63,10 @@ pub const PLAYER_HULL: (Vector, Vector) = (
 /// The script class that declares the members [`TfPlayer`] calls.
 const SCRIPT_CLASS: &CStr = c"CTFPlayer";
 
+/// The script class that declares the members every player has, such as
+/// `SnapEyeAngles`.
+const BASE_SCRIPT_CLASS: &CStr = c"CBasePlayer";
+
 /// Whether a player's view is forced into third person, as taunts force it
 /// (`m_nForceTauntCam`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -868,6 +872,42 @@ impl<'s> TfPlayer<'s> {
 			self.call(
 				c"SetCustomModelRotation",
 				&mut [qangle(&rotation)],
+				binding::VOID,
+			)
+		}?;
+
+		Ok(())
+	}
+
+	/// Turns the player to look along `angles` at once (`SnapEyeAngles`), as
+	/// teleporters do. The game holds the angles for the player's next
+	/// command: a human's client is turned to them, and a bot's command runs
+	/// with them in place of its own, so the bot's weapon fires along them.
+	/// A bot's own aiming turns it again from there on its next update.
+	///
+	/// Fails with [`PlayerError::NonFinite`] for angles that are not finite.
+	#[doc(alias("SnapEyeAngles"))]
+	pub fn snap_eye_angles(self, angles: QAngle) -> Result<(), PlayerError> {
+		if ![angles.pitch, angles.yaw, angles.roll]
+			.iter()
+			.all(|angle| angle.is_finite())
+		{
+			return Err(PlayerError::NonFinite);
+		}
+
+		self.check_live()?;
+
+		let angles = sys::QAngle::from(angles);
+
+		// SAFETY: The checked member copies the finite angles, which it only
+		// reads during the call, into the player's view angles, and marks them
+		// fixed for the player's next command.
+		unsafe {
+			binding::call(
+				self.player,
+				BASE_SCRIPT_CLASS,
+				c"SnapEyeAngles",
+				&mut [qangle(&angles)],
 				binding::VOID,
 			)
 		}?;

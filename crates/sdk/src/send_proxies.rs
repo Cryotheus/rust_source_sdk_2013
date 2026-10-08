@@ -43,8 +43,11 @@
 //!
 //! While overridden, [`NetProp`](crate::datatables::NetProp) still tells how
 //! the variable is stored by the game's proxy, and reads and writes it as
-//! stored. [`NetProp::value`](crate::datatables::NetProp::value) reads what
-//! clients receive, override included.
+//! stored, as it does under the overrides of other plugins built on these
+//! crates, of any version that exports
+//! [`TRAMPOLINE_ORIGINAL_SYMBOL`](sdk_raw::send_proxies::TRAMPOLINE_ORIGINAL_SYMBOL).
+//! [`NetProp::value`](crate::datatables::NetProp::value) reads what clients
+//! receive, overrides included.
 
 #[cfg(test)]
 #[path = "tests/send_proxies.rs"]
