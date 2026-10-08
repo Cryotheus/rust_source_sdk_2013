@@ -6,12 +6,12 @@
 //! (0), `GetPlayerUserId` (15), `PEntityOfEntIndex` (19), `ServerCommand` (36),
 //! `ServerExecute` (37), `EntityMessageBegin` (42), `UserMessageBegin` (43),
 //! `MessageEnd` (44), `ClientPrintf` (45), `LockNetworkStringTables` (53),
-//! `CreateFakeClient` (54) and `CreateFakeClientEx` (116), counted from
-//! `public/eiface.h`, are checked against the generated vtable, so a
-//! regenerated binding cannot silently dispatch to another method.
+//! `CreateFakeClient` (54), `PlaybackTempEntity` (61) and `CreateFakeClientEx`
+//! (116), counted from `public/eiface.h`, are checked against the generated
+//! vtable, so a regenerated binding cannot silently dispatch to another method.
 
 use crate::vtable_slot;
-use std::ffi::{CStr, c_char, c_int};
+use std::ffi::{CStr, c_char, c_int, c_void};
 
 const _: () = {
 	assert!(
@@ -55,6 +55,7 @@ const _: () = {
 		) == 53
 	);
 	assert!(CREATE_FAKE_CLIENT_SLOT == 54);
+	assert!(PLAYBACK_TEMP_ENTITY_SLOT == 61);
 	assert!(CREATE_FAKE_CLIENT_EX_SLOT == 116);
 };
 
@@ -69,6 +70,8 @@ const _: fn(&sys::IVEngineServer__bindgen_vtable) -> UserMessageBeginFn =
 	|vtable| vtable.IVEngineServer_UserMessageBegin;
 const _: fn(&sys::IVEngineServer__bindgen_vtable) -> MessageEndFn =
 	|vtable| vtable.IVEngineServer_MessageEnd;
+const _: fn(&sys::IVEngineServer__bindgen_vtable) -> PlaybackTempEntityFn =
+	|vtable| vtable.IVEngineServer_PlaybackTempEntity;
 const _: fn(&sys::IVEngineServer__bindgen_vtable) -> ClientPrintfFn =
 	|vtable| vtable.IVEngineServer_ClientPrintf;
 const _: fn(&sys::IVEngineServer__bindgen_vtable) -> ServerCommandFn =
@@ -111,6 +114,14 @@ pub const MESSAGE_END_SLOT: usize = vtable_slot!(
 	IVEngineServer_MessageEnd
 );
 
+/// The slot of `IVEngineServer::PlaybackTempEntity`, from the generated
+/// binding.
+#[doc(alias("PlaybackTempEntity"))]
+pub const PLAYBACK_TEMP_ENTITY_SLOT: usize = vtable_slot!(
+	sys::IVEngineServer__bindgen_vtable,
+	IVEngineServer_PlaybackTempEntity
+);
+
 /// The slot of `IVEngineServer::UserMessageBegin`, from the generated binding.
 #[doc(alias("UserMessageBegin"))]
 pub const USER_MESSAGE_BEGIN_SLOT: usize = vtable_slot!(
@@ -150,6 +161,24 @@ pub type EntityMessageBeginFn = unsafe extern "C" fn(
 /// [`UserMessageBeginFn`] or [`EntityMessageBeginFn`] began.
 #[doc(alias("MessageEnd"))]
 pub type MessageEndFn = unsafe extern "C" fn(this: *mut sys::IVEngineServer);
+
+/// `IVEngineServer::PlaybackTempEntity`: queues the temporary entity `sender`,
+/// an object of the game's whose networked fields `table` describes and whose
+/// server class has the index `class_id`, for the clients `filter` lists, which
+/// receive it with their next snapshot and play it `delay` seconds later.
+///
+/// The engine encodes the entity's fields as it queues it, so the game can
+/// reuse `sender` for the next, as `CBaseTempEntity::Create` does with each
+/// class's single object.
+#[doc(alias("PlaybackTempEntity"))]
+pub type PlaybackTempEntityFn = unsafe extern "C" fn(
+	this: *mut sys::IVEngineServer,
+	filter: *mut sys::IRecipientFilter,
+	delay: f32,
+	sender: *const c_void,
+	table: *const sys::SendTable,
+	class_id: c_int,
+);
 
 /// `IVEngineServer::UserMessageBegin`: begins a user message of the type
 /// `message_type`, the index the game registered it at, to the clients
