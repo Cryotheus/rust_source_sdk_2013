@@ -18,14 +18,19 @@
 //! the next announced change. [`EngineReplay::recalculate_tags`] has the engine
 //! recalculate them at once instead.
 //!
-//! The engine is not public. What its recalculation does is inferred from the
-//! interface, from TF2's list of the variables that tag the server, which
-//! notes that they need `FCVAR_NOTIFY` "so the tags are recalculated and
-//! uploaded to the master server when the convar is changed"
-//! (`game/shared/tf/tf_gamerules.cpp`), and from how `sv_tags` changes as those
-//! variables do.
+//! The engine is not public. All of the above is inferred, not read in its
+//! source: what its recalculation does, that it runs in the callback that
+//! announces a change, and that the engine exports this interface. It is
+//! inferred from the interface's header, which declares its version, from
+//! TF2's client library, which requests it from the engine, from TF2's list
+//! of the variables that tag the server, which notes that they need
+//! `FCVAR_NOTIFY` "so the tags are recalculated and uploaded to the master
+//! server when the convar is changed" (`game/shared/tf/tf_gamerules.cpp`),
+//! and from how `sv_tags` changes as those variables do. Should the engine
+//! not export the interface, [`Server::engine_replay`] fails.
 //!
 //! [`ConVar::set_string_quietly`]: super::cvar::ConVar::set_string_quietly
+//! [`Server::engine_replay`]: crate::Server::engine_replay
 
 #[cfg(test)]
 #[path = "../../tests/interfaces/engine_replay.rs"]
@@ -36,14 +41,15 @@ use sdk_raw::vcall;
 
 interface! {
 	/// The engine's services for its replay system (`IEngineReplay`), which
-	/// the engine exports as `EngineReplay001`.
+	/// the engine is inferred to export as `EngineReplay001` (see the
+	/// [module documentation](self)).
 	#[doc(alias("IEngineReplay", "CEngineReplay"))]
 	pub struct EngineReplay(IEngineReplay) = Engine VERSION;
 }
 
 impl EngineReplay<'_> {
 	/// Has the game server recalculate its tags (`sv_tags`) now, as the engine
-	/// does as a level starts and as a variable marked
+	/// is inferred to do as a level starts and as a variable marked
 	/// [`NOTIFY`](crate::commands::CommandFlags::NOTIFY) changes; see the
 	/// [module documentation](self).
 	///

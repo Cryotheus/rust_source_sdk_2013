@@ -254,6 +254,11 @@ impl<'s> Server<'s> {
 
 	/// `IEngineReplay`, the engine's services for its replay system, which
 	/// recalculate the server's tags.
+	///
+	/// That the engine exports it as `EngineReplay001` is inferred from the
+	/// header, which declares that version, and from TF2's client library,
+	/// which requests it from the engine; the engine is not public. Like every
+	/// interface, it fails should the engine not export it.
 	pub fn engine_replay(&self) -> Result<EngineReplay<'s>, InterfaceError> {
 		self.interface()
 	}

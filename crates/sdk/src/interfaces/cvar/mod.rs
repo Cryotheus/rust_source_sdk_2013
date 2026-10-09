@@ -358,11 +358,14 @@ impl<'s> ConVar<'s> {
 	/// replicated value.
 	///
 	/// The flag is cleared while the variable's change callbacks run, since
-	/// the engine's callback checks it then, as [`Self::quietly`] does. That
-	/// callback also has the engine recalculate the server's tags (`sv_tags`),
-	/// so a variable that tags the server, such as `sv_gravity`, leaves its tag
-	/// as it was; [`EngineReplay::recalculate_tags`] catches up.
+	/// the engine's callback checks it then, as [`Self::quietly`] does. The
+	/// engine also recalculates the server's tags (`sv_tags`) for an announced
+	/// change, inferred to be in that callback too, since the engine is not
+	/// public (see [`engine_replay`]). So a variable that tags the server, such
+	/// as `sv_gravity`, leaves its tag as it was;
+	/// [`EngineReplay::recalculate_tags`] catches up.
 	///
+	/// [`engine_replay`]: crate::interfaces::engine_replay
 	/// [`EngineReplay::recalculate_tags`]: crate::interfaces::EngineReplay::recalculate_tags
 	pub fn set_string_quietly(self, value: &CStr) {
 		self.quietly(|| self.set_string(value));
