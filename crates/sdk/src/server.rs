@@ -7,9 +7,9 @@ mod tests;
 use crate::NotThreadSafe;
 
 use crate::interfaces::{
-	BotManager, Cvar, EngineSound, EngineTrace, GameEventManager, ModelInfo, NetworkStringTables,
-	PlayerInfoManager, PluginHelpers, ServerGameClients, ServerGameDll, ServerGameEnts,
-	ServerGameTags, ServerTools, ValveEngine, VoiceServer,
+	BotManager, Cvar, EngineReplay, EngineSound, EngineTrace, GameEventManager, ModelInfo,
+	NetworkStringTables, PlayerInfoManager, PluginHelpers, ServerGameClients, ServerGameDll,
+	ServerGameEnts, ServerGameTags, ServerTools, ValveEngine, VoiceServer,
 };
 
 use sdk_raw::entities::TeleportSlot;
@@ -250,6 +250,17 @@ impl<'s> Server<'s> {
 	/// The engine module's interface factory, as passed to [`Server::new`].
 	pub const fn engine_factory(&self) -> InterfaceFactory {
 		self.engine
+	}
+
+	/// `IEngineReplay`, the engine's services for its replay system, which
+	/// recalculate the server's tags.
+	///
+	/// That the engine exports it as `EngineReplay001` is inferred from the
+	/// header, which declares that version, and from TF2's client library,
+	/// which requests it from the engine; the engine is not public. Like every
+	/// interface, it fails should the engine not export it.
+	pub fn engine_replay(&self) -> Result<EngineReplay<'s>, InterfaceError> {
+		self.interface()
 	}
 
 	/// `IEngineSound`, the server's sound system.
