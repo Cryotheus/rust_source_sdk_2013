@@ -1,3 +1,16 @@
+//! Plugin descriptors, callback context, and hooks for Metamod:Source.
+//!
+//! The core API selects the supported stable or dev loader ABI. Enable `sdk`
+//! for Source SDK command and hook integration, or `tf2` for the TF2 hooks;
+//! `tf2` also enables `sdk`.
+//!
+//! Engine access remains main-thread-only and callback-scoped. Registered
+//! callbacks and their state must stay valid until the plugin unloads; see the
+//! safety contracts on the individual operations.
+//!
+//! Normal builds compile both native C++17 shells and require the supported
+//! stable and dev source checkouts. Hosted docs.rs builds omit the native
+//! shells and are for documentation only, not linking a plugin.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod api;

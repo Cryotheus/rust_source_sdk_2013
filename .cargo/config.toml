@@ -67,3 +67,15 @@ publish-p4 = [
 	"publish",
 	"--package", "source_sdk_2013",
 ]
+
+# Metamod release order, after its SDK dependencies are on the registry.
+# cargo publish-metamod-sys && cargo publish-metamod
+publish-metamod-sys = [
+	"publish",
+	"--package", "metamod_source_sys",
+]
+
+publish-metamod = [
+	"publish",
+	"--package", "metamod_source",
+]

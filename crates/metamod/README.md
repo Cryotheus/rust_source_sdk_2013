@@ -11,6 +11,15 @@ builds C++17 shells for both supported Metamod channels, so both
 `METAMOD_SOURCE_STABLE` and `METAMOD_SOURCE_DEV` must be set even when the plugin
 will use only one channel. See that crate's native build prerequisites.
 
+```toml
+[dependencies]
+metamod_source = { version = "0.1.0-alpha.8", features = ["tf2"] }
+```
+
+Omit `tf2` for the core API, or select `sdk` for game-independent SDK hooks.
+docs.rs builds document the Rust API without compiling the native shells;
+ordinary plugin builds still require both external checkouts.
+
 # License
 
 For Valve's Source SDK 2013, see the [SOURCE 1 SDK LICENSE](https://github.com/ValveSoftware/source-sdk-2013/blob/master/LICENSE).

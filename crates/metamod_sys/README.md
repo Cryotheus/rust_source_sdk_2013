@@ -22,6 +22,14 @@ rely on that repository-local file. Neither source checkout is bundled in the
 crate. Valve's C++ SDK and libclang are only needed for separate SDK binding
 generation, not for these native shells.
 
+## Hosted Documentation
+
+docs.rs has no external Metamod checkouts. When its `DOCS_RS` environment
+variable is set, the build script validates the supported target but skips
+native shell compilation and source lookup. Those builds only document the
+Rust declarations and cannot link a plugin. Leave `DOCS_RS` unset for ordinary
+builds, tests, and package verification so both C++ shells are compiled.
+
 # License
 
 For Valve's Source SDK 2013, see the [SOURCE 1 SDK LICENSE](https://github.com/ValveSoftware/source-sdk-2013/blob/master/LICENSE).

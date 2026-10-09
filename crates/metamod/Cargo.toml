@@ -1,6 +1,6 @@
 ﻿[package]
 name = "metamod_source"
-version = "0.1.0-alpha.7"
+version.workspace = true
 edition = "2024"
 rust-version = "1.99.0"
 
@@ -20,17 +20,19 @@ tf2 = ["sdk", "source_sdk_2013/tf2"]
 
 [dependencies]
 crys_bricks.workspace = true
-source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.7", optional = true }
-sys = { path = "../metamod_sys", version = "0.1.0-alpha.7", package = "metamod_source_sys" }
+source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.8", optional = true }
+sys = { path = "../metamod_sys", version = "0.1.0-alpha.8", package = "metamod_source_sys" }
 thiserror.workspace = true
 
 [dev-dependencies]
 # Gives the hooks' tests the SDK's `_test-support` mocks, such as clients that
 # carry the engine's run-time type information.
-source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.7", features = ["_test-support"] }
+source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.8", features = ["_test-support"] }
 
 [package.metadata.docs.rs]
 all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 rustdoc-args = [
 	"-Zunstable-options",
 	"--generate-link-to-definition",

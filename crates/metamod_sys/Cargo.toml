@@ -13,7 +13,7 @@ keywords = []
 
 # Planning on changing this to `0.1.0+metamod-1.12.0-2.0.0`
 # Once this is extracted to its own repository
-version = "0.1.0-alpha.7"
+version.workspace = true
 
 [dependencies]
 
@@ -25,6 +25,8 @@ dotenv = "0.15.0"
 
 [package.metadata.docs.rs]
 all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 rustdoc-args = [
 	"-Zunstable-options",
 	"--generate-link-to-definition",
