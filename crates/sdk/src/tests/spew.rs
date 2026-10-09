@@ -2,6 +2,9 @@ use super::*;
 use std::ffi::c_int;
 use std::sync::{Mutex, MutexGuard};
 
+/// One line a callback saw: kind, text, group, level and colour.
+type Seen = (SpewKind, String, String, i32, Option<SpewColor>);
+
 static COLOR: SpewColor = SpewColor {
 	r: 1,
 	g: 2,
@@ -23,9 +26,6 @@ static PRINTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Whether [`hold`] lets its thread go.
 static RELEASED: AtomicBool = AtomicBool::new(false);
-
-/// One line a callback saw: kind, text, group, level and colour.
-type Seen = (SpewKind, String, String, i32, Option<SpewColor>);
 
 /// What the callbacks saw.
 static SEEN: Mutex<Vec<Seen>> = Mutex::new(Vec::new());
@@ -66,6 +66,20 @@ fn a_busy_stop_can_be_retried() {
 
 #[test]
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn a_filter_does_not_hide_recursive_observer_warnings() {
+	let _serial = setup(Some(engine_output));
+	let mut watch = start(|_| {
+		spew(SpewType::WARNING, c"nested\n");
+	});
+	watch.filter_warnings(Some(|_| false));
+
+	spew(SpewType::WARNING, c"outer\n");
+	assert_eq!(printed(), ["engine: nested\n"]);
+	assert_eq!(watch.stop(), Stopped::Restored);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn a_null_function_means_the_default() {
 	let _serial = setup(None);
 	let mut watch = start(record);
@@ -75,6 +89,41 @@ fn a_null_function_means_the_default() {
 	assert_eq!(printed(), ["default: plain"]);
 	assert_eq!(watch.stop(), Stopped::Restored);
 	assert!(output_function().is_none());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn a_warning_filter_panic_passes_the_warning_on() {
+	let _serial = setup(Some(engine_output));
+	let mut watch = start(record);
+	watch.filter_warnings(Some(|_| panic!("filter panic")));
+
+	assert_eq!(spew(SpewType::WARNING, c"keep\n"), SpewRetval::CONTINUE);
+	assert_eq!(
+		spew(SpewType::WARNING, c"keep again\n"),
+		SpewRetval::CONTINUE
+	);
+	assert_eq!(printed(), ["engine: keep\n", "engine: keep again\n"]);
+	assert_eq!(watch.stop(), Stopped::Restored);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn cleared_and_stopped_filters_do_not_affect_the_next_watch() {
+	let _serial = setup(Some(engine_output));
+	let mut old = start(record);
+	old.filter_warnings(Some(|_| false));
+	spew(SpewType::WARNING, c"hidden\n");
+	old.filter_warnings(None);
+	spew(SpewType::WARNING, c"cleared\n");
+	old.filter_warnings(Some(|_| false));
+	assert_eq!(old.stop(), Stopped::Restored);
+
+	let mut next = start(record);
+	old.filter_warnings(Some(|_| false));
+	spew(SpewType::WARNING, c"new watch\n");
+	assert_eq!(printed(), ["engine: cleared\n", "engine: new watch\n"]);
+	assert_eq!(next.stop(), Stopped::Restored);
 }
 
 extern "C" fn color() -> *const SpewColor {
@@ -110,6 +159,8 @@ extern "C" fn engine_output(kind: SpewType, message: *const c_char) -> SpewRetva
 
 	if kind == SpewType::ASSERT {
 		SpewRetval::DEBUGGER
+	} else if kind == SpewType::ERROR {
+		SpewRetval::ABORT
 	} else {
 		SpewRetval::CONTINUE
 	}
@@ -124,6 +175,64 @@ fn fake_api() -> SpewApi {
 		level,
 		color,
 	}
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn filtering_preserves_later_watchers_and_their_saved_chain() {
+	let _serial = setup(Some(engine_output));
+	let mut watch = start(record);
+	watch.filter_warnings(Some(|spew| spew.text() != c"obsolete\n"));
+	OTHER_PREVIOUS.store(CURRENT.load(Ordering::SeqCst), Ordering::SeqCst);
+	set_output(Some(other_output));
+
+	assert_eq!(spew(SpewType::WARNING, c"obsolete\n"), SpewRetval::CONTINUE);
+	assert_eq!(SEEN.lock().unwrap().len(), 1);
+	assert_eq!(printed(), ["other: obsolete\n"]);
+	assert_eq!(watch.stop(), Stopped::Bypassed);
+
+	spew(SpewType::WARNING, c"obsolete\n");
+	assert_eq!(
+		printed(),
+		[
+			"other: obsolete\n",
+			"other: obsolete\n",
+			"engine: obsolete\n"
+		]
+	);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn filters_only_selected_warnings_and_preserves_other_answers() {
+	let _serial = setup(Some(engine_output));
+	let mut watch = start(record);
+	watch.filter_warnings(Some(|spew| spew.text() != c"obsolete\n"));
+
+	assert_eq!(spew(SpewType::WARNING, c"obsolete\n"), SpewRetval::CONTINUE);
+	assert_eq!(
+		spew(SpewType::WARNING, c"real warning\n"),
+		SpewRetval::CONTINUE
+	);
+	assert_eq!(spew(SpewType::MESSAGE, c"obsolete\n"), SpewRetval::CONTINUE);
+	assert_eq!(spew(SpewType::LOG, c"obsolete\n"), SpewRetval::CONTINUE);
+	assert_eq!(spew(SpewType::ASSERT, c"obsolete\n"), SpewRetval::DEBUGGER);
+	assert_eq!(spew(SpewType::ERROR, c"obsolete\n"), SpewRetval::ABORT);
+	assert_eq!(spew(SpewType(99), c"obsolete\n"), SpewRetval::CONTINUE);
+
+	assert_eq!(SEEN.lock().unwrap().len(), 7);
+	assert_eq!(
+		printed(),
+		[
+			"engine: real warning\n",
+			"engine: obsolete\n",
+			"engine: obsolete\n",
+			"engine: obsolete\n",
+			"engine: obsolete\n",
+			"engine: obsolete\n",
+		]
+	);
+	assert_eq!(watch.stop(), Stopped::Restored);
 }
 
 extern "C" fn group() -> *const c_char {
@@ -362,6 +471,32 @@ fn start(callback: SpewFn) -> SpewWatch {
 	// from any thread, and the tests change the spew function on one thread
 	// at a time.
 	unsafe { watch_with(fake_api(), callback) }.expect("the watch starts")
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn stopping_waits_for_warning_filters_in_flight() {
+	let _serial = setup(Some(engine_output));
+	let mut watch = start(record);
+	watch.filter_warnings(Some(|spew| {
+		hold(spew);
+		true
+	}));
+	let thread = std::thread::spawn(|| spew(SpewType::WARNING, c"held\n"));
+
+	while !HELD.load(Ordering::SeqCst) {
+		std::thread::yield_now();
+	}
+
+	assert_eq!(watch.stop(), Stopped::Busy);
+	assert_eq!(
+		output_function().map(function_address),
+		Some(function_address(engine_output))
+	);
+	RELEASED.store(true, Ordering::SeqCst);
+	assert_eq!(thread.join().unwrap(), SpewRetval::CONTINUE);
+	assert_eq!(watch.stop(), Stopped::Restored);
+	assert_eq!(printed(), ["engine: held\n"]);
 }
 
 fn text(message: *const c_char) -> String {
