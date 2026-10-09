@@ -1,22 +1,38 @@
 //! `ICvar`, the registry of console variables and commands.
 
 use crate::NotThreadSafe;
-use crate::commands::{CommandBaseKind, CommandFlags};
+use crate::commands::{CommandBaseKind, CommandFlags, drop_payload};
+use crate::server::{Server, ServerBinding};
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use sdk_raw::vcall;
-use std::ffi::{CStr, CString, c_int};
+use std::cell::Cell;
+use std::ffi::{CStr, CString, c_char, c_int};
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::NonNull;
 
 /// The most entries [`Cvar::command_bases`] lists.
 const MAX_LISTED: usize = 1 << 16;
+
+thread_local! {
+	/// The watch of this library's, if one runs, kept on the server's main
+	/// thread, where it started. Other threads find none, so the engine's
+	/// calls on them pass nothing on. It needs no destructor, so no thread,
+	/// the engine's included, gets one registered from this library.
+	static WATCHING: Cell<Option<Watching>> = const { Cell::new(None) };
+}
 
 interface! {
 	/// The registry of console variables and commands (`ICvar`).
 	#[doc(alias("ICvar"))]
 	pub struct Cvar(sys::ICvar) = Engine sdk_raw::interfaces::cvar::VERSION;
 }
+
+/// Runs for each change of a console variable's value while a [`ConVarWatch`]
+/// exists, inside the change, on the server's main thread. See
+/// [`Cvar::watch_changes`] for which changes it sees, and what it may do.
+pub type ConVarChangeFn = for<'s> fn(server: Server<'s>, change: ConVarChange<'s>);
 
 /// A console variable or command the registry lists (`ConCommandBase`), from
 /// [`Cvar::command_bases`].
@@ -330,6 +346,110 @@ impl<'s> ConVar<'s> {
 	}
 }
 
+/// A change of a console variable's value, which [`Cvar::watch_changes`]
+/// passes to its callback.
+#[derive(Debug, Clone, Copy)]
+pub struct ConVarChange<'s> {
+	name: &'s CStr,
+	var: Option<ConVar<'s>>,
+	old_string: &'s CStr,
+	old_float: f32,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl<'s> ConVarChange<'s> {
+	/// The name of the variable that changed.
+	#[doc(alias("GetName"))]
+	pub const fn name(self) -> &'s CStr {
+		self.name
+	}
+
+	/// The value as a float before the change.
+	pub const fn old_float(self) -> f32 {
+		self.old_float
+	}
+
+	/// The value as a string before the change, or empty if the engine passed
+	/// none.
+	pub const fn old_string(self) -> &'s CStr {
+		self.old_string
+	}
+
+	/// The variable that changed, which already holds its new value, or `None`
+	/// if the registry does not list it under its name, as for a variable that
+	/// a module declared but has not registered yet, or has unregistered.
+	pub const fn var(self) -> Option<ConVar<'s>> {
+		self.var
+	}
+}
+
+/// A watch of every console variable's changes, which [`Cvar::watch_changes`]
+/// starts, until it is dropped.
+///
+/// Drop it, or [stop](Self::stop) it, before the plugin's library unloads:
+/// until then the engine keeps calling the function the watch installed, and
+/// would call into the unloaded library at the next change. Nothing stops it
+/// for the plugin, neither this crate nor Metamod:Source, which only removes
+/// the hooks it installed itself. A watch that is never dropped, such as one
+/// leaked or kept in a `static`, stays installed for as long as the process
+/// runs.
+///
+/// Under Metamod:Source, stop it in the plugin's `Unload` whatever `Unload`
+/// returns. A forced unload, such as `meta force_unload`, unloads the library
+/// even when `Unload` refuses, without calling the plugin again, so a plugin
+/// that refuses runs on without the watch, and may start another. A `Load`
+/// that started a watch and then refuses must stop it before returning, since
+/// Metamod unloads the library after a refused `Load` without calling
+/// `Unload`.
+///
+/// Do not unload the plugin from inside a variable's change either, such as
+/// from another module's change callback: a change that is already calling
+/// its callbacks may still call the function once after the watch stops, as
+/// [`Self::stop`] describes, and would find it gone.
+///
+/// The watch stays on the server's main thread, where it started.
+#[must_use = "dropping the watch stops it"]
+#[derive(Debug)]
+pub struct ConVarWatch {
+	cvar: NonNull<sys::ICvar>,
+
+	/// The function installed, passed back unchanged to remove it.
+	installed: sys::FnChangeCallback_t,
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl ConVarWatch {
+	/// Stops the watch, as dropping it does: the engine no longer calls the
+	/// function it installed, except perhaps once more during a change whose
+	/// callbacks it is calling already. `CCvar` counts them before calling the
+	/// first, and removing the function leaves it in the list's old last slot if
+	/// it was installed last, so the change still calls it there, though that
+	/// call no longer reaches this watch's callback.
+	#[doc(alias("RemoveGlobalChangeCallback"))]
+	pub fn stop(self) {
+		drop(self);
+	}
+}
+
+impl Drop for ConVarWatch {
+	fn drop(&mut self) {
+		// SAFETY: The registry is the engine's, which outlives every plugin, and
+		// the watch is dropped on the main thread it started on, since it is
+		// neither `Send` nor `Sync`. The engine removes the function it was
+		// given.
+		unsafe { vcall!(self.cvar.as_ptr() => ICvar_RemoveGlobalChangeCallback(self.installed)) };
+		WATCHING.set(None);
+	}
+}
+
+/// Why console variables' changes could not be watched.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ConVarWatchError {
+	/// A watch of this library's already exists.
+	#[error("console variable changes are already being watched")]
+	AlreadyWatching,
+}
+
 impl<'s> Cvar<'s> {
 	/// Reserves an identifier, which `ICvar::UnregisterConCommands` uses to
 	/// unlink every command a module registered.
@@ -476,4 +596,175 @@ impl<'s> Cvar<'s> {
 	pub fn vars(self) -> impl DoubleEndedIterator<Item = ConVar<'s>> + FusedIterator {
 		self.command_bases().filter_map(CommandBase::as_var)
 	}
+
+	/// Calls `callback` for each change of a console variable's value from now
+	/// until the returned watch stops: of the engine's, the game's and other
+	/// plugins' variables alike, and of this crate's [`ConsoleVariable`]s. Each
+	/// call gets a server scoped to it, from `binding`, and the change: the
+	/// variable, and its value before.
+	///
+	/// This installs one function of this library with
+	/// `ICvar::InstallGlobalChangeCallback`, which the engine calls after each
+	/// change of a variable's string, after the variable's own change callback.
+	/// Setting a variable to the string it holds changes nothing, and a variable
+	/// marked [`CommandFlags::NEVER_AS_STRING`] never changes its string, so
+	/// neither is seen.
+	///
+	/// One watch per library may exist at a time: another fails with
+	/// [`ConVarWatchError::AlreadyWatching`] until it stops.
+	///
+	/// # Unloading
+	///
+	/// The engine calls the function until the watch stops, even while the
+	/// plugin is paused, so stop it before the plugin's library unloads, as
+	/// [`ConVarWatch`] describes. Under Metamod:Source, that means in the
+	/// plugin's `Unload` whatever `Unload` returns, since a forced unload goes
+	/// on after a refusal without calling the plugin again, and before a `Load`
+	/// that refuses returns, since no `Unload` follows it. Do not unload the
+	/// plugin from inside a variable's change either.
+	///
+	/// # Threads
+	///
+	/// The engine calls the function on the thread that changed the variable,
+	/// inside that change. A server changes its variables on its main thread,
+	/// where the console, rcon, configs, the game and plugins all set them. A
+	/// change made on another thread, such as one a plugin started, is skipped,
+	/// and not passed on later either, since a [`Server`] only exists on the main
+	/// thread, where the watch started.
+	///
+	/// # Inside the callback
+	///
+	/// The callback runs inside the engine's change of the variable, which
+	/// already holds its new value. It may read and set variables, but each
+	/// change it makes runs it again, nested inside this call, before that change
+	/// returns. Setting the variable that just changed starts another change of
+	/// it, nested in this one, so do so only when it does not already hold the
+	/// value wanted, or the changes repeat until the stack overflows.
+	///
+	/// Do not stop the watch from inside its callback: the engine counts its
+	/// callbacks before calling the first, so removing one while it calls them
+	/// can make it skip the one after it and call the last one twice. A panic is
+	/// caught, and the change goes on as though the callback returned.
+	///
+	/// [`ConsoleVariable`]: crate::commands::ConsoleVariable
+	#[doc(alias("InstallGlobalChangeCallback"))]
+	pub fn watch_changes(
+		self,
+		binding: ServerBinding,
+		callback: ConVarChangeFn,
+	) -> Result<ConVarWatch, ConVarWatchError> {
+		if WATCHING.get().is_some() {
+			return Err(ConVarWatchError::AlreadyWatching);
+		}
+
+		let installed: sys::FnChangeCallback_t = Some(changed);
+
+		WATCHING.set(Some(Watching {
+			binding,
+			callback,
+			cvar: self.raw,
+		}));
+
+		// SAFETY: As for `find_var`. The engine may call the function until the
+		// watch removes it, which `ConVarWatch` requires of the plugin before this
+		// library unloads.
+		unsafe { vcall!(self.as_ptr() => ICvar_InstallGlobalChangeCallback(installed)) };
+
+		Ok(ConVarWatch {
+			cvar: self.raw,
+			installed,
+			_not_thread_safe: PhantomData,
+		})
+	}
+}
+
+/// What the function a watch installed passes changes to.
+#[derive(Clone, Copy)]
+struct Watching {
+	binding: ServerBinding,
+	callback: ConVarChangeFn,
+	cvar: NonNull<sys::ICvar>,
+}
+
+/// The function [`Cvar::watch_changes`] installs, which the engine calls
+/// after each change of a variable's string, with the variable's `IConVar`,
+/// and the string and float it held.
+unsafe extern "C" fn changed(var: *mut sys::IConVar, old_string: *const c_char, old_float: f32) {
+	// Only the main thread, where the watch started, finds it.
+	let (Ok(Some(watching)), Some(var)) = (WATCHING.try_with(Cell::get), NonNull::new(var)) else {
+		return;
+	};
+
+	catch_unwind(AssertUnwindSafe(|| {
+		let scope = ();
+
+		// SAFETY: The engine calls this inside its change of a variable, on the
+		// main thread, as finding the watch shows, and `scope` ends with the
+		// call.
+		let server = unsafe { watching.binding.server(&scope) };
+
+		// SAFETY: The registry is the engine's, which stays alive for the call,
+		// and the server confines it to the main thread.
+		let cvar = unsafe { Cvar::from_raw(watching.cvar) };
+
+		// SAFETY: The engine passes the variable that changed, which stays alive
+		// for the call, and the string it held, or null.
+		unsafe { notify(server, cvar, var, old_string, old_float, watching.callback) };
+	}))
+	.map_err(drop_payload)
+	.ok();
+}
+
+/// Passes a change to `callback`, with the variable that changed if the
+/// registry lists it.
+///
+/// # Safety
+///
+/// `var` must be the `IConVar` of a live variable whose value just changed
+/// from `old_string`, a string or null, and both must stay alive for `'s`.
+unsafe fn notify<'s>(
+	server: Server<'s>,
+	cvar: Cvar<'s>,
+	var: NonNull<sys::IConVar>,
+	old_string: *const c_char,
+	old_float: f32,
+	callback: ConVarChangeFn,
+) {
+	// SAFETY: As the caller promises. `GetName` is called through the
+	// interface's own vtable, as C++ calls it, so whatever class implements it
+	// finds itself from the interface, on either ABI.
+	let name =
+		unsafe { borrow_cstr(vcall!(var.as_ptr() => IConVar_GetName())) }.unwrap_or_default();
+
+	// The variable the registry lists under the name is the one that changed
+	// only if its `IConVar` is the one the engine passed, which C++'s
+	// conversion of the `ConVar *` it changed gave it. The registry's pointer
+	// is only converted, never the engine's.
+	let listed = cvar
+		.find_var(name)
+		.filter(|listed| listed.interface() == var.as_ptr());
+
+	// An unlisted variable's name is copied, since nothing keeps it alive.
+	let unlisted;
+	let name = match listed {
+		Some(listed) => listed.name(),
+
+		None => {
+			unlisted = name.to_owned();
+			unlisted.as_c_str()
+		}
+	};
+
+	callback(
+		server,
+		ConVarChange {
+			name,
+			var: listed,
+
+			// SAFETY: As the caller promises.
+			old_string: unsafe { borrow_cstr(old_string) }.unwrap_or_default(),
+			old_float,
+			_not_thread_safe: PhantomData,
+		},
+	);
 }
