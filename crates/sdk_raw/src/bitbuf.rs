@@ -68,6 +68,35 @@ impl BfRead {
 		buffer.cast()
 	}
 
+	/// A buffer for the engine to read the first `bits` bits of `words` from
+	/// their start, as `bf_read::StartReading` sets one up.
+	///
+	/// The buffer points to `words` without borrowing them: they must stay
+	/// alive, and unchanged, while the engine reads it.
+	///
+	/// # Panics
+	///
+	/// If `words` holds fewer than `bits` bits, or more than `c_int::MAX` bits.
+	pub fn new(words: &[u32], bits: usize) -> Self {
+		assert!(
+			bits.div_ceil(32) <= words.len(),
+			"{bits} bits exceed the words given"
+		);
+
+		let (data_bytes, _) = sizes(words.len());
+
+		Self {
+			data: words.as_ptr().cast(),
+			data_bytes,
+			// `bits` is at most the storage's bits, which fit in a `c_int`.
+			data_bits: bits as c_int,
+			cur_bit: 0,
+			overflow: 0,
+			assert_on_overflow: 0,
+			debug_name: BfWrite::DEBUG_NAME.as_ptr(),
+		}
+	}
+
 	/// The engine's type for the buffer, for the calls that take one.
 	pub fn as_raw(&mut self) -> *mut sys::bf_read {
 		(&raw mut *self).cast()

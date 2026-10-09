@@ -165,6 +165,8 @@ pub(crate) struct ShState {
 	/// The delegates, in the order they run.
 	pub(crate) hooks: Vec<ShHook>,
 	contexts: Vec<*mut MockContext>,
+	/// How many hook loops hook functions set up.
+	pub(crate) loops: usize,
 	next_id: c_int,
 }
 
@@ -462,5 +464,6 @@ unsafe extern "C" fn setup_hook_loop(
 	}));
 
 	state.contexts.push(context);
+	state.loops += 1;
 	context.cast()
 }

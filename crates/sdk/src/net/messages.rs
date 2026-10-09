@@ -17,10 +17,10 @@ use sdk_raw::edicts::MAX_EDICT_BITS;
 use std::ffi::CStr;
 
 /// Bits in each of a [`FixAngle`]'s angles.
-const ANGLE_BITS: u32 = 16;
+pub(super) const ANGLE_BITS: u32 = 16;
 
 /// Bits in a decal's texture index (`MAX_DECAL_INDEX_BITS`).
-const DECAL_INDEX_BITS: u32 = 9;
+pub(super) const DECAL_INDEX_BITS: u32 = 9;
 
 /// The longest command a client accepts, less its terminator.
 pub const MAX_COMMAND_LEN: usize = 1023;
@@ -44,19 +44,19 @@ pub const MAX_QUERY_NAME_LEN: usize = 255;
 pub const MAX_VOICE_DATA_BYTES: usize = ((1 << VOICE_LENGTH_BITS) - 1) / 8;
 
 /// Bits in a model index (`SP_MODEL_INDEX_BITS`).
-const MODEL_INDEX_BITS: u32 = 13;
+pub(super) const MODEL_INDEX_BITS: u32 = 13;
 
 /// Bits in the length, in bits, of an embedded payload.
-const PAYLOAD_LENGTH_BITS: u32 = 11;
+pub(super) const PAYLOAD_LENGTH_BITS: u32 = 11;
 
 /// Bits in a server class's ID (`MAX_SERVER_CLASS_BITS`).
-const SERVER_CLASS_BITS: u32 = 9;
+pub(super) const SERVER_CLASS_BITS: u32 = 9;
 
 /// Bits in a sound's precache index (`MAX_SOUND_INDEX_BITS`).
-const SOUND_INDEX_BITS: u32 = 14;
+pub(super) const SOUND_INDEX_BITS: u32 = 14;
 
 /// Bits in the length, in bits, of a [`VoiceData`]'s voice.
-const VOICE_LENGTH_BITS: u32 = 16;
+pub(super) const VOICE_LENGTH_BITS: u32 = 16;
 
 /// Places a decal on the world or a brush entity (`svc_BSPDecal`).
 #[doc(alias("SVC_BSPDecal"))]

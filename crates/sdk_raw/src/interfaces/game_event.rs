@@ -97,6 +97,24 @@ const _: () = {
 		) == destructor + 4
 	);
 	assert!(FIRE_EVENT_SLOT == destructor + 6);
+	assert!(
+		vtable_slot!(
+			sys::IGameEventManager2__bindgen_vtable,
+			IGameEventManager2_FreeEvent
+		) == destructor + 9
+	);
+	assert!(
+		vtable_slot!(
+			sys::IGameEventManager2__bindgen_vtable,
+			IGameEventManager2_SerializeEvent
+		) == destructor + 10
+	);
+	assert!(
+		vtable_slot!(
+			sys::IGameEventManager2__bindgen_vtable,
+			IGameEventManager2_UnserializeEvent
+		) == destructor + 11
+	);
 };
 
 // The generated bindings have these signatures.
@@ -124,6 +142,11 @@ pub const FIRE_GAME_EVENT_SLOT: usize = vtable_slot!(
 	sys::IGameEventListener2__bindgen_vtable,
 	IGameEventListener2_FireGameEvent
 );
+
+/// The bits of the ID that starts each event the engine serializes.
+///
+/// This is `MAX_EVENT_BITS` from `public/igameevents.h`.
+pub const MAX_EVENT_BITS: u32 = 9;
 
 /// The most bytes the engine serializes of one event.
 ///
