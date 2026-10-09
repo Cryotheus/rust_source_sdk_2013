@@ -9,6 +9,12 @@
 //! others, `mp_respawnwavetime` as `respawntimes`, and the `tf_gamemode_*`
 //! variables it sets for a level's mode as `cp`, `ctf` or `payload`
 //! (`game/shared/tf/tf_gamerules.cpp`).
+//!
+//! The engine recalculates the tags as levels start and as variables marked
+//! `FCVAR_NOTIFY` change, and [`EngineReplay::recalculate_tags`] has it
+//! recalculate them at once.
+//!
+//! [`EngineReplay::recalculate_tags`]: super::EngineReplay::recalculate_tags
 
 #[cfg(test)]
 #[path = "../../tests/interfaces/server_game_tags.rs"]

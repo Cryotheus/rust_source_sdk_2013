@@ -3,6 +3,7 @@
 
 pub mod bot_manager;
 pub mod cvar;
+pub mod engine_replay;
 pub mod engine_sound;
 pub mod engine_trace;
 pub mod game_event;
