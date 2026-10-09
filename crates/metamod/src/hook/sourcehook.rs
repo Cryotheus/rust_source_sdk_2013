@@ -12,6 +12,11 @@
 //! The hook managers are this library's, and only in use while its hooks are:
 //! Metamod removes a plugin's hooks and hook managers when it unloads the
 //! plugin, before unloading the library.
+//!
+//! SourceHook runs every hook loop on one stack of contexts, which is not safe
+//! to use from two threads at once. A hook function called from any thread
+//! but the main one calls the slot's original function directly instead, so
+//! that call skips the delegates of every plugin hooking the slot.
 
 use super::signature::{HOOK_MANAGERS, Signature, nothing};
 use super::site::{Site, on_main_thread};
@@ -29,6 +34,7 @@ use std::ffi::{c_int, c_void};
 use std::mem::size_of;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
+use std::sync::{PoisonError, RwLock};
 
 const PUBLIC_FUNCTIONS: [HookManagerPubFunc; HOOK_MANAGERS] = hook_managers!(public_function);
 
@@ -38,6 +44,24 @@ static HOOK_MANAGERS_IN_USE: [HookManager; HOOK_MANAGERS] =
 /// Metamod's SourceHook, for the hook functions, which run whenever their
 /// function is called. It lasts as long as Metamod, so it is never cleared.
 static SOURCEHOOK: AtomicPtr<ISourceHook> = AtomicPtr::new(ptr::null_mut());
+
+/// The functions the vtable slots this library hooked held before, for calls
+/// from other threads, which skip SourceHook's hook loop.
+static ORIGINALS: RwLock<Vec<Original>> = RwLock::new(Vec::new());
+
+/// A vtable slot SourceHook patched, and the function it held before.
+#[derive(Debug, Clone, Copy)]
+struct Original {
+	slot: *mut c_void,
+	function: NonNull<c_void>,
+}
+
+// SAFETY: They are only addresses: of a vtable slot, which is only compared,
+// and of a function, which any thread may call.
+unsafe impl Send for Original {}
+
+// SAFETY: As above.
+unsafe impl Sync for Original {}
 
 /// One of this library's delegates, the handler of one of a site's hooks.
 #[repr(C)]
@@ -291,6 +315,18 @@ pub(super) unsafe fn hook_function<S: Signature>(
 			.cast::<c_void>()
 	};
 
+	// SourceHook keeps one stack of hook loops for every thread, which only
+	// the main thread may use, so calls from other threads, such as the
+	// engine's snapshot workers, go straight to the original function.
+	if !on_main_thread() {
+		return match original_function(sourcehook, vfnptr) {
+			// SAFETY: It is the function the slot held before SourceHook hooked
+			// it, of signature `S`.
+			Some(original) => unsafe { S::invoke(S::from_address(original), this, args) },
+			None => nothing(),
+		};
+	}
+
 	let mut original_entry: *mut c_void = ptr::null_mut();
 	let mut status = MetaRes::IGNORED;
 	let mut previous = MetaRes::IGNORED;
@@ -379,6 +415,50 @@ pub(super) unsafe fn hook_function<S: Signature>(
 	value
 }
 
+/// The function the vtable slot at `vfnptr` held before SourceHook hooked it,
+/// for a call from another thread.
+///
+/// `install` notes each slot it hooks. Another plugin's hook may have
+/// SourceHook patch other slots with this library's hook functions, which are
+/// looked up in SourceHook's list of patched slots. Only the main thread
+/// changes that list, as it adds or removes hooks, and the engine's main thread
+/// waits for the work it gives other threads.
+fn original_function(sourcehook: *mut ISourceHook, vfnptr: *mut c_void) -> Option<NonNull<c_void>> {
+	let noted = ORIGINALS
+		.read()
+		.unwrap_or_else(PoisonError::into_inner)
+		.iter()
+		.find(|original| original.slot == vfnptr)
+		.map(|original| original.function);
+
+	if noted.is_some() {
+		return noted;
+	}
+
+	// SAFETY: SourceHook lasts as long as Metamod, and only reads its list of
+	// patched slots here.
+	let function = unsafe {
+		let functions = &*(*sourcehook).vtable;
+
+		(functions.get_orig_vfn_ptr_entry)(sourcehook, vfnptr)
+	};
+
+	let function = NonNull::new(function)?;
+
+	note_original(vfnptr, function);
+	Some(function)
+}
+
+/// Notes the function a vtable slot held before SourceHook hooked it.
+fn note_original(slot: *mut c_void, function: NonNull<c_void>) {
+	let mut originals = ORIGINALS.write().unwrap_or_else(PoisonError::into_inner);
+
+	match originals.iter_mut().find(|original| original.slot == slot) {
+		Some(original) => original.function = function,
+		None => originals.push(Original { slot, function }),
+	}
+}
+
 /// The hook manager of `S` at a vtable slot, assigned on first use.
 pub(super) fn hook_manager<S: Signature>(
 	assigned: &mut [Option<(TypeId, c_int)>; HOOK_MANAGERS],
@@ -449,6 +529,20 @@ pub(super) unsafe fn install<S: Signature>(
 		// SAFETY: SourceHook keeps no delegate of a hook it refused.
 		drop(unsafe { Box::from_raw(delegate) });
 		return Err(HookError::Refused);
+	}
+
+	// SAFETY: As the caller promises, the vtable has the slot.
+	let slot = unsafe { site.vtable().as_ptr().add(site.index()) }.cast::<c_void>();
+
+	// SAFETY: SourceHook lasts as long as Metamod, and has the slot patched.
+	let original = unsafe {
+		let functions = &*(*sourcehook.as_ptr()).vtable;
+
+		(functions.get_orig_vfn_ptr_entry)(sourcehook.as_ptr(), slot)
+	};
+
+	if let Some(original) = NonNull::new(original) {
+		note_original(slot, original);
 	}
 
 	Ok(())
@@ -574,13 +668,18 @@ unsafe extern "C" fn public_function<const MANAGER: usize>(
 	0
 }
 
-/// Forgets the hook managers' assignments, as Metamod removed them when it
-/// last unloaded the plugin.
+/// Forgets the hook managers' assignments and the slots they hooked, as
+/// Metamod removed them when it last unloaded the plugin.
 pub(super) fn reset_hook_managers() {
 	for manager in &HOOK_MANAGERS_IN_USE {
 		manager.index.store(-1, Ordering::Relaxed);
 		manager.info.store(ptr::null_mut(), Ordering::Relaxed);
 	}
+
+	ORIGINALS
+		.write()
+		.unwrap_or_else(PoisonError::into_inner)
+		.clear();
 }
 
 /// Where the value the call returns so far is kept, or null.

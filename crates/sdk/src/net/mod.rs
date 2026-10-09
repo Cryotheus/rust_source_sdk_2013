@@ -7,12 +7,14 @@
 //!
 //! [`ValveEngine::net_channel`](crate::interfaces::ValveEngine::net_channel)
 //! returns a client's channel. Typed messages are in [`messages`]; any other
-//! message can be sent as a [`messages::Raw`].
+//! message can be sent as a [`messages::Raw`]. [`outgoing`] reads what the
+//! engine itself sends.
 
 pub mod cheats;
 pub mod events;
 pub mod incoming;
 pub mod messages;
+pub mod outgoing;
 
 pub mod steam_voice;
 
@@ -320,12 +322,15 @@ pub struct NetChannel<'s> {
 }
 
 impl<'s> NetChannel<'s> {
-	/// Wraps a client's channel.
+	/// Wraps one of the engine's channels, such as the one a hook on the
+	/// channel's methods was called on.
 	///
 	/// # Safety
 	///
-	/// `raw` must be a client's channel, which stays allocated for `'s`.
-	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::INetChannel>) -> Self {
+	/// `raw` must be a live channel of the engine's, such as a client's, which
+	/// stays allocated for `'s`, and the handle must be made on the server's main
+	/// thread.
+	pub const unsafe fn from_raw(raw: NonNull<sys::INetChannel>) -> Self {
 		Self {
 			raw,
 			_scope: PhantomData,

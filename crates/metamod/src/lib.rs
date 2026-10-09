@@ -22,6 +22,10 @@ pub mod bot_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod building_hooks;
 
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod channel_hooks;
+
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod chat_hooks;

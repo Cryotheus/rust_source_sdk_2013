@@ -11,7 +11,8 @@
 //! # Behavior on both libraries
 //!
 //! - Handlers run only for calls on the server's main thread, the one Metamod
-//!   runs the plugin on. Calls from other threads pass through untouched.
+//!   runs the plugin on. Calls from other threads go to the function as if
+//!   the plugin had no hooks on it.
 //! - Handlers stop running while the plugin is paused, and once it unloads.
 //! - A plugin's hooks stay installed until Metamod unloads it, which removes
 //!   them before unloading the library: removing a hook only stops its
@@ -28,6 +29,12 @@
 //! - Between plugins, SourceHook returns the value of the last hook that
 //!   overrode or superseded the call, and KHook that of the first hook with
 //!   the greatest action.
+//! - SourceHook's hook loop is not safe to run on two threads at once, so on
+//!   other threads this library's hooks call the original function without
+//!   entering it. Other plugins' SourceHook hooks on the same function are
+//!   skipped there too when SourceHook patched the slot with one of this
+//!   library's hook functions, and enter the loop as they always do when it
+//!   patched it with theirs.
 
 /// An array of `function::<0>` up to `function::<63>`, one per SourceHook hook
 /// manager.

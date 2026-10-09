@@ -326,6 +326,19 @@ impl<'a> BitReader<'a> {
 	pub const fn remaining(&self) -> usize {
 		self.len - self.position
 	}
+
+	/// Moves past `bits` bits without reading them, as `SeekRelative` does.
+	///
+	/// Moves nothing if fewer than `bits` bits remain.
+	#[doc(alias("SeekRelative"))]
+	pub fn skip(&mut self, bits: usize) -> Result<(), Overflow> {
+		if self.remaining() < bits {
+			return Err(Overflow);
+		}
+
+		self.position += bits;
+		Ok(())
+	}
 }
 
 /// A growable buffer of bits, written the way `bf_write` writes them.

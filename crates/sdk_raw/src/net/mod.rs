@@ -3,6 +3,7 @@
 
 pub mod events;
 pub mod incoming;
+pub mod outgoing;
 
 use std::ffi::c_int;
 
