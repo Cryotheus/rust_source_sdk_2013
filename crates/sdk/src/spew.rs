@@ -7,7 +7,8 @@
 //! spew function shows each line in the server's window, in rcon's reply while
 //! rcon runs a command, in `con_logfile`, and in the server's log. [`watch`]
 //! puts a function of the plugin's in front of it, which sees every line and
-//! then passes it on unchanged.
+//! then passes it on unchanged unless [`SpewWatch::filter_warnings`] refuses that
+//! particular warning. All other kinds always pass through unchanged.
 //!
 //! # What a watch sees
 //!
@@ -54,15 +55,15 @@ use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-/// How long [`SpewWatch::stop`] waits for lines other threads are still
-/// passing through the watch's function.
-const STOP_WAIT: Duration = Duration::from_secs(1);
-
 /// How long [`SpewWatch::stop`] waits once no call counts itself inside the
 /// watch's function, for any call between the stub and that count: one that
 /// jumped through the stub before it was retargeted but has not counted
 /// itself yet, or one that has counted itself out but not yet returned.
 const SETTLE: Duration = Duration::from_millis(100);
+
+/// How long [`SpewWatch::stop`] waits for lines other threads are still
+/// passing through the watch's function.
+const STOP_WAIT: Duration = Duration::from_secs(1);
 
 /// The tier0 functions of the latest watch, leaked so that any thread can read
 /// them without a lock.
@@ -78,6 +79,9 @@ static PREVIOUS: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
 /// How many calls are inside [`output`], on any thread.
 static RUNNING: AtomicUsize = AtomicUsize::new(0);
 
+/// An optional warning filter, as a pointer, or null to pass every warning on.
+static WARNING_FILTER: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
+
 /// Whether a watch exists.
 static WATCHING: AtomicBool = AtomicBool::new(false);
 
@@ -92,6 +96,14 @@ thread_local! {
 /// thread printed it. It must be quick, and should not print: output printed
 /// from inside it passes straight on, unseen by it.
 pub type SpewFn = fn(spew: &Spew<'_>);
+
+/// Decides whether a warning is passed to the previous spew function. Returning
+/// `true` keeps it; `false` omits that warning alone. Other kinds are never
+/// filtered. A panic passes the warning on, as does output from inside a callback.
+///
+/// Runs on whichever thread printed the warning; do not access engine objects
+/// or retain the callback-scoped text. Keep it quick and do not print.
+pub type WarningFilterFn = fn(spew: &Spew<'_>) -> bool;
 
 /// Counts a call out of [`output`] when it returns.
 struct Running;
@@ -243,6 +255,25 @@ impl SpewWatch {
 		ended
 	}
 
+	/// Sets a filter for warnings, or clears it with `None`. The watch's observer
+	/// still sees them first; only warnings the filter refuses are kept from the
+	/// previous spew function. Observers chained in front of this watch may also
+	/// have recorded a refused warning already. Every other kind, including
+	/// assertions and fatal errors, passes through with the previous function's
+	/// answer unchanged.
+	///
+	/// A stopped watch cannot change the current watch's filter. Stopping clears
+	/// the filter and waits for its calls, as for the observer; keep the library
+	/// loaded while `stop` returns [`Stopped::Busy`].
+	pub fn filter_warnings(&mut self, filter: Option<WarningFilterFn>) {
+		if self.ended.is_none() {
+			WARNING_FILTER.store(
+				filter.map_or(ptr::null_mut(), |filter| filter as *mut ()),
+				Ordering::SeqCst,
+			);
+		}
+	}
+
 	/// Points the stub at the function the watch replaced, makes that tier0's
 	/// spew function again if the stub still is, and stops calling back.
 	fn leave(&mut self) -> Stopped {
@@ -265,6 +296,7 @@ impl SpewWatch {
 			Stopped::Bypassed
 		};
 
+		WARNING_FILTER.store(ptr::null_mut(), Ordering::SeqCst);
 		CALLBACK.store(ptr::null_mut(), Ordering::SeqCst);
 		stopped
 	}
@@ -339,21 +371,22 @@ fn function_address(function: SpewOutputFn) -> NonNull<c_void> {
 	NonNull::new(function as *mut c_void).expect("functions have addresses")
 }
 
-/// Passes a line to the callback, unless this thread is already running it.
+/// Passes a line to the observer and its warning filter, unless this thread is
+/// already running either. Returns whether to pass it to the previous function.
 ///
 /// # Safety
 ///
 /// `message` must be null or point to a string that lasts for the call.
-unsafe fn notify(kind: SpewType, message: *const c_char) {
+unsafe fn notify(kind: SpewType, message: *const c_char) -> bool {
 	let callback = CALLBACK.load(Ordering::SeqCst);
 
 	if callback.is_null() || message.is_null() {
-		return;
+		return true;
 	}
 
 	// A thread being torn down counts as inside, and is skipped.
 	if IN_CALLBACK.try_with(|inside| inside.replace(true)) != Ok(false) {
-		return;
+		return true;
 	}
 
 	// SAFETY: `watch` stored a `SpewFn`.
@@ -390,9 +423,29 @@ unsafe fn notify(kind: SpewType, message: *const c_char) {
 		color,
 	};
 
-	catch_unwind(AssertUnwindSafe(|| callback(&spew))).ok();
+	let forward = catch_unwind(AssertUnwindSafe(|| {
+		callback(&spew);
+
+		if kind != SpewType::WARNING {
+			return true;
+		}
+
+		let filter = WARNING_FILTER.load(Ordering::SeqCst);
+
+		if filter.is_null() {
+			return true;
+		}
+
+		// SAFETY: `filter_warnings` stores a WarningFilterFn, whose calls the
+		// watch's stop counts and waits for before the library may unload.
+		let filter = unsafe { std::mem::transmute::<*mut (), WarningFilterFn>(filter) };
+
+		filter(&spew)
+	}))
+	.unwrap_or(true);
 
 	IN_CALLBACK.try_with(|inside| inside.set(false)).ok();
+	forward
 }
 
 /// The watch's spew function, which the stub jumps to while the watch runs.
@@ -402,7 +455,9 @@ unsafe extern "C" fn output(kind: SpewType, message: *const c_char) -> SpewRetva
 	let _running = Running;
 
 	// SAFETY: tier0 passes the line it is spewing, which lasts for the call.
-	unsafe { notify(kind, message) };
+	if !unsafe { notify(kind, message) } {
+		return SpewRetval::CONTINUE;
+	}
 
 	let Some(api) = current_api() else {
 		return SpewRetval::CONTINUE;
@@ -476,6 +531,7 @@ unsafe fn watch_with(api: SpewApi, callback: SpewFn) -> Result<SpewWatch, WatchE
 	);
 
 	API.store(Box::into_raw(Box::new(api)), Ordering::SeqCst);
+	WARNING_FILTER.store(ptr::null_mut(), Ordering::SeqCst);
 	CALLBACK.store(callback as *mut (), Ordering::SeqCst);
 
 	// SAFETY: As above. The stub jumps to `output`, a spew function, until the
