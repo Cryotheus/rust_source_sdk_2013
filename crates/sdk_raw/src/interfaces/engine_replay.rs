@@ -22,7 +22,8 @@ const _: () = assert!(vtable_slot!(IEngineReplayVtable, recalculate_tags) == REC
 #[doc(alias("RecalculateTags"))]
 pub const RECALCULATE_TAGS_SLOT: usize = CppDestructors::VTABLE_SLOTS + 23;
 
-/// The version string `IEngineReplay` is exported and requested under.
+/// The version string `IEngineReplay` is expected to be exported and is
+/// requested under.
 ///
 /// This is `ENGINE_REPLAY_INTERFACE_VERSION` from
 /// `common/replay/ienginereplay.h`.
@@ -30,7 +31,10 @@ pub const RECALCULATE_TAGS_SLOT: usize = CppDestructors::VTABLE_SLOTS + 23;
 pub const VERSION: &CStr = c"EngineReplay001";
 
 /// `IEngineReplay`, the engine's services for its replay system, which the
-/// engine module exports.
+/// engine module is expected to export: the header declares its version,
+/// and TF2's client library requests it from the engine's factory. The
+/// engine is not public, so this is inferred, and finding the interface can
+/// fail.
 #[doc(alias("CEngineReplay"))]
 #[repr(C)]
 pub struct IEngineReplay {
