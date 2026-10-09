@@ -64,6 +64,7 @@ macro_rules! interface {
 
 pub mod bot_manager;
 pub mod cvar;
+pub mod engine_replay;
 pub mod engine_sound;
 pub mod engine_trace;
 pub mod game_event;
@@ -83,6 +84,7 @@ pub mod voice_server;
 
 pub use bot_manager::BotManager;
 pub use cvar::Cvar;
+pub use engine_replay::EngineReplay;
 pub use engine_sound::EngineSound;
 pub use engine_trace::EngineTrace;
 pub use game_event::GameEventManager;

@@ -1,5 +1,9 @@
 //! `ICvar`, the registry of console variables and commands.
 
+#[cfg(test)]
+#[path = "../../tests/interfaces/cvar.rs"]
+mod tests;
+
 use crate::NotThreadSafe;
 use crate::commands::{CommandBaseKind, CommandFlags, drop_payload};
 use crate::server::{Server, ServerBinding};
@@ -289,6 +293,42 @@ impl<'s> ConVar<'s> {
 		}
 	}
 
+	/// Runs `f` with the variable's `FCVAR_NOTIFY` flag cleared, then sets the
+	/// flag back if it was set, even if `f` panics. The engine announces a
+	/// change to players and the server log only for a variable with the flag,
+	/// so what `f` changes of this variable, through any handle to it, is not
+	/// announced, as for [`Self::set_string_quietly`]. Flags `f` adds are kept.
+	pub fn quietly<R>(self, f: impl FnOnce() -> R) -> R {
+		/// Sets the flag back as it drops.
+		struct Announce {
+			flags: *mut c_int,
+			announced: c_int,
+		}
+
+		impl Drop for Announce {
+			fn drop(&mut self) {
+				// SAFETY: As for `quietly`'s reads.
+				unsafe { self.flags.write(self.flags.read() | self.announced) };
+			}
+		}
+
+		let notify = CommandFlags::NOTIFY.bits();
+
+		// SAFETY: As for `name`. The flags are read and written without forming
+		// references, since C++ writes them too.
+		let flags = unsafe { &raw mut (*self.parent())._base.m_nFlags };
+
+		// SAFETY: As above.
+		let announced = unsafe { flags.read() } & notify;
+
+		// SAFETY: As above.
+		unsafe { flags.write(flags.read() & !notify) };
+
+		let _announce = Announce { flags, announced };
+
+		f()
+	}
+
 	/// Sets the value from a float, which the string then shows with six
 	/// decimals. Nothing happens if the float value is unchanged.
 	#[doc(alias("SetValue"))]
@@ -318,23 +358,14 @@ impl<'s> ConVar<'s> {
 	/// replicated value.
 	///
 	/// The flag is cleared while the variable's change callbacks run, since
-	/// the engine's callback checks it then.
+	/// the engine's callback checks it then, as [`Self::quietly`] does. That
+	/// callback also has the engine recalculate the server's tags (`sv_tags`),
+	/// so a variable that tags the server, such as `sv_gravity`, leaves its tag
+	/// as it was; [`EngineReplay::recalculate_tags`] catches up.
+	///
+	/// [`EngineReplay::recalculate_tags`]: crate::interfaces::EngineReplay::recalculate_tags
 	pub fn set_string_quietly(self, value: &CStr) {
-		let notify = CommandFlags::NOTIFY.bits();
-
-		// SAFETY: As for `name`. The flags are read and written without forming
-		// references, since C++ writes them too.
-		let flags = unsafe { &raw mut (*self.parent())._base.m_nFlags };
-
-		// SAFETY: As above.
-		let announced = unsafe { flags.read() } & notify;
-
-		// SAFETY: As above.
-		unsafe { flags.write(flags.read() & !notify) };
-		self.set_string(value);
-
-		// SAFETY: As above. Flags the callbacks added are kept.
-		unsafe { flags.write(flags.read() | announced) };
+		self.quietly(|| self.set_string(value));
 	}
 
 	/// The current value as a string.
