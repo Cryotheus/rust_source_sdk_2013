@@ -14,6 +14,13 @@ fn main() -> anyhow::Result<()> {
 		"unsupported Metamod target: {arch}-{os}-{env}"
 	);
 
+	println!("cargo:rerun-if-env-changed=DOCS_RS");
+	// docs.rs needs declarations, not linkable plugin shells, and has no
+	// external Metamod source checkouts.
+	if std::env::var_os("DOCS_RS").is_some() {
+		return Ok(());
+	}
+
 	let manifest_dir = PathBuf::from(cargo_var_os("CARGO_MANIFEST_DIR")?.into_inner());
 	let env_file = manifest_dir.join("../../.env");
 
