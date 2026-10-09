@@ -16,6 +16,7 @@ use source_sdk_2013::commands::{
 	ConsoleCommand, ConsoleVariable, Invoker, RegisterCommandError, RegisterCommandErrorKind,
 	UnlinksBeforeUnload, UnregisterCommandErrorKind, route_client_command,
 };
+use source_sdk_2013::interfaces::cvar::ConVarChange;
 use source_sdk_2013::interfaces::{Cvar, ValveEngine};
 use source_sdk_2013::test_support::edicts::edict_table;
 use source_sdk_2013::test_support::interfaces::cvar::mock_base;
@@ -52,6 +53,10 @@ thread_local! {
 
 	/// What the engine's global change callbacks saw.
 	static CHANGES: RefCell<Vec<Change>> = const { RefCell::new(Vec::new()) };
+
+	/// The global change callbacks installed, in order, which run after the
+	/// engine's own.
+	static GLOBAL_CALLBACKS: RefCell<Vec<sys::FnChangeCallback_t>> = const { RefCell::new(Vec::new()) };
 
 	/// How many changes the engine's global change callbacks would announce.
 	static ANNOUNCED: Cell<usize> = const { Cell::new(0) };
@@ -117,7 +122,11 @@ fn base_of<T>(object: &T) -> *mut sys::ConCommandBase {
 
 /// `ICvar::CallGlobalChangeCallbacks`, which records a change as the engine's
 /// own global callback would see it, reading the new value through the
-/// variable.
+/// variable, then calls the callbacks installed as `CCvar` does: counted
+/// before the first runs, with the variable's `IConVar` subobject. As in the
+/// test support's mock registry, one removed meanwhile ends the walk here,
+/// where `CCvar` would go on past the end of its list, to what its old last
+/// slot still holds.
 unsafe extern "C" fn call_global_change_callbacks(
 	_: *mut sys::ICvar,
 	var: *mut sys::ConVar,
@@ -142,6 +151,23 @@ unsafe extern "C" fn call_global_change_callbacks(
 		vcall!(var.cast::<sys::ConCommandBase>() => ConCommandBase_IsFlagSet(CommandFlags::NOTIFY.bits()))
 	} {
 		ANNOUNCED.set(ANNOUNCED.get() + 1);
+	}
+
+	let count = GLOBAL_CALLBACKS.with_borrow(Vec::len);
+
+	for index in 0..count {
+		// The list is not borrowed while a callback runs, since the callback may
+		// change variables, which call back here.
+		let Some(callback) =
+			GLOBAL_CALLBACKS.with_borrow(|callbacks| callbacks.get(index).copied())
+		else {
+			break;
+		};
+
+		if let Some(callback) = callback {
+			// SAFETY: As above, and the subobject lies within the variable.
+			unsafe { callback(&raw mut (*var)._base_1, old, old_float) };
+		}
 	}
 }
 
@@ -622,6 +648,15 @@ fn in_slot_1(_: Server<'_>, client: Client<'_>) -> bool {
 	client.slot() == 1
 }
 
+/// `ICvar::InstallGlobalChangeCallback`, which adds a callback at the end of
+/// the list, as `CCvar` does.
+unsafe extern "C" fn install_global_change_callback(
+	_: *mut sys::ICvar,
+	callback: sys::FnChangeCallback_t,
+) {
+	GLOBAL_CALLBACKS.with_borrow_mut(|callbacks| callbacks.push(callback));
+}
+
 /// Leaks a command or variable, pinned, as plugins keep theirs in statics.
 fn leak_pinned<T>(object: T) -> Pin<&'static T> {
 	Pin::static_ref(Box::leak(Box::new(object)))
@@ -662,6 +697,10 @@ fn mock_engine() {
 				(&raw mut (*vtable).ICvar_FindVar).write(find_var);
 				(&raw mut (*vtable).ICvar_GetCommands).write(get_commands);
 				(&raw mut (*vtable).ICvar_ConsolePrintf).write(console_printf);
+				(&raw mut (*vtable).ICvar_InstallGlobalChangeCallback)
+					.write(install_global_change_callback);
+				(&raw mut (*vtable).ICvar_RemoveGlobalChangeCallback)
+					.write(remove_global_change_callback);
 				(&raw mut (*vtable).ICvar_CallGlobalChangeCallbacks)
 					.write(call_global_change_callbacks);
 			}),
@@ -995,6 +1034,24 @@ fn remove_self(command: &CommandContext<'_>) -> CommandResult {
 	Ok(())
 }
 
+/// `ICvar::RemoveGlobalChangeCallback`, which removes the first entry of a
+/// callback, by address, as `CCvar` does.
+unsafe extern "C" fn remove_global_change_callback(
+	_: *mut sys::ICvar,
+	callback: sys::FnChangeCallback_t,
+) {
+	let address = |callback: sys::FnChangeCallback_t| callback.map(|callback| callback as usize);
+
+	GLOBAL_CALLBACKS.with_borrow_mut(|callbacks| {
+		if let Some(index) = callbacks
+			.iter()
+			.position(|&listed| address(listed) == address(callback))
+		{
+			callbacks.remove(index);
+		}
+	});
+}
+
 /// Runs `line` as the string command of the client whose edict is `edict`, a
 /// slot of a mock edict table, as the game's `ClientCommand` hook would.
 fn route(edict: *mut sys::edict_t, line: &str) -> ClientRoute {
@@ -1248,4 +1305,83 @@ fn variables_hold_their_default_and_register_as_variables() {
 		.unwrap();
 	assert!(listed().is_empty());
 	assert!(server.cvar().unwrap().find_var(c"sb_rounds").is_none());
+}
+
+#[test]
+fn watches_see_this_crates_variables_change() {
+	thread_local! {
+		/// Each change [`mirror`] saw: the name, the variable, and its old and
+		/// new strings.
+		static WATCHED: RefCell<Vec<(String, *mut sys::ConVar, String, String)>> =
+			const { RefCell::new(Vec::new()) };
+
+		/// The variable [`mirror`] copies `sb_speed` into.
+		static ECHO: Cell<Option<Pin<&'static ConsoleVariable>>> = const { Cell::new(None) };
+	}
+
+	/// Records each change, and copies `sb_speed`'s new value into `sb_echo`.
+	fn mirror(server: Server<'_>, change: ConVarChange<'_>) {
+		let var = change.var().unwrap();
+		let new = var.string();
+
+		WATCHED.with_borrow_mut(|watched| {
+			watched.push((
+				change.name().to_str().unwrap().to_owned(),
+				var.as_ptr(),
+				change.old_string().to_str().unwrap().to_owned(),
+				new.to_str().unwrap().to_owned(),
+			));
+		});
+
+		if change.name() == c"sb_speed" {
+			ECHO.get().unwrap().set_string(server, &new);
+		}
+	}
+
+	mock_engine();
+
+	let speed = leak_pinned(ConsoleVariable::new(c"sb_speed", c"1.5"));
+	let echo = leak_pinned(ConsoleVariable::new(c"sb_echo", c""));
+	let scope = ();
+	let server = mock_server(&scope);
+
+	register_variable(speed).unwrap();
+	register_variable(echo).unwrap();
+	ECHO.set(Some(echo));
+
+	let watch = server
+		.cvar()
+		.unwrap()
+		.watch_changes(mock_binding(), mirror)
+		.unwrap();
+
+	speed.set_float(server, 2.0);
+
+	// The change made inside the callback is seen too, nested inside the first.
+	assert_eq!(
+		WATCHED.take(),
+		[
+			(
+				"sb_speed".to_owned(),
+				base_of(speed.get_ref()).cast(),
+				"1.5".to_owned(),
+				"2.000000".to_owned()
+			),
+			(
+				"sb_echo".to_owned(),
+				base_of(echo.get_ref()).cast(),
+				String::new(),
+				"2.000000".to_owned()
+			),
+		]
+	);
+	assert_eq!(changes().len(), 2);
+	assert_eq!(echo.string(server).as_c_str(), c"2.000000");
+
+	// Once stopped, the watch sees nothing.
+	watch.stop();
+	speed.set_float(server, 3.0);
+	assert!(WATCHED.take().is_empty());
+	assert_eq!(changes().len(), 1);
+	assert_eq!(echo.string(server).as_c_str(), c"2.000000");
 }
