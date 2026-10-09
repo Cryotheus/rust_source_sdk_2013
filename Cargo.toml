@@ -7,7 +7,7 @@ members = ["crates/*"]
 authors = ["Cryotheum"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Cryotheus/rust_source_sdk_2013"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 
 [workspace.dependencies]
 anyhow = "1.0.104"

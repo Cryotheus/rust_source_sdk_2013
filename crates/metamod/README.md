@@ -1,10 +1,15 @@
 # Metamod:Source (High-level Rust Bindings)
 
-Set your environment variables or the crate will fail to compile [`metamod_source_sys`](/crates/metamod_sys):
-```
-METAMOD_SOURCE_DEV=path/to/latest-dev-commit-of/metamod-source
-METAMOD_SOURCE_STABLE=path/to/latest-stable-commit-of/metamod-source
-```
+The core crate provides plugin descriptors, callback context, and loader API
+selection. The opt-in `sdk` feature adds Source SDK command and hook integration;
+`tf2` enables `sdk` and TF2-specific hooks. Engine handles remain callback-scoped
+and main-thread-only, including when hook registration persists between calls.
+
+Use nightly Rust on `x86_64-pc-windows-msvc` or `x86_64-unknown-linux-gnu`.
+The dependency [`metamod_source_sys`](https://github.com/Cryotheus/rust_source_sdk_2013/blob/master/crates/metamod_sys/README.md)
+builds C++17 shells for both supported Metamod channels, so both
+`METAMOD_SOURCE_STABLE` and `METAMOD_SOURCE_DEV` must be set even when the plugin
+will use only one channel. See that crate's native build prerequisites.
 
 # License
 
@@ -13,7 +18,7 @@ For AlliedModders' Metamod:Source, see their ["zLib/libpng" license](https://git
 
 This project is licensed under either of
 
-* Apache License, Version 2.0, ([LICENSE-APACHE](/LICENSE-APACHE) or
+* Apache License, Version 2.0, ([LICENSE-APACHE](https://github.com/Cryotheus/rust_source_sdk_2013/blob/master/LICENSE-APACHE) or
   https://www.apache.org/licenses/LICENSE-2.0)
-* MIT license ([LICENSE-MIT](/LICENSE-MIT) or
+* MIT license ([LICENSE-MIT](https://github.com/Cryotheus/rust_source_sdk_2013/blob/master/LICENSE-MIT) or
   https://opensource.org/licenses/MIT)

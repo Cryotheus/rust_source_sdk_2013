@@ -13,7 +13,7 @@ keywords = []
 
 # Planning on changing this to `0.1.0+metamod-1.12.0-2.0.0`
 # Once this is extracted to its own repository
-version.workspace = true
+version = "0.1.0-alpha.7"
 
 [dependencies]
 
