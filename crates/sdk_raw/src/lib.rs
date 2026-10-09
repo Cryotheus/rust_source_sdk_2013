@@ -19,6 +19,13 @@
 //! - `source_sdk_2013` is the safe, idiomatic API over both, scoped to the
 //!   engine callback a plugin runs in.
 //!
+//! # Features and targets
+//!
+//! Use nightly Rust on `x86_64-pc-windows-msvc` or
+//! `x86_64-unknown-linux-gnu`. The `tf2` feature enables the game-specific raw
+//! bindings; `_test-support` exposes doc-hidden fakes for tests only. Builds
+//! use the pre-generated platform bindings, without running the generator.
+//!
 //! # Soundness
 //!
 //! Resolving an address, whether through a signature, a symbol, or run-time

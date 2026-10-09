@@ -13,10 +13,10 @@ categories = ["external-ffi-bindings"]
 keywords = []
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-source_sdk_2013_sys_x64_linux = { path = "../sdk_sys_linux64", version = "0.1.0-alpha.7" }
+source_sdk_2013_sys_x64_linux = { path = "../sdk_sys_linux64", version = "0.1.0-alpha.8" }
 
 [target.x86_64-pc-windows-msvc.dependencies]
-source_sdk_2013_sys_x64_windows = { path = "../sdk_sys_win64", version = "0.1.0-alpha.7" }
+source_sdk_2013_sys_x64_windows = { path = "../sdk_sys_win64", version = "0.1.0-alpha.8" }
 
 [package.metadata.docs.rs]
 all-features = true

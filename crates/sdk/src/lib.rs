@@ -10,6 +10,16 @@
 //! such as entity spawning or schema-dependent attribute writes, document
 //! their own `unsafe` contracts.
 //!
+//! # Features and build inputs
+//!
+//! Use nightly Rust on `x86_64-pc-windows-msvc` or
+//! `x86_64-unknown-linux-gnu`. Ordinary builds use pre-generated bindings;
+//! Valve's C++ SDK and libclang are needed only for intentional regeneration.
+//!
+//! - `tf2` enables the game-specific wrappers in `tf2`.
+//! - `tf2_loadout` enables `tf2` and the loadout re-applier in `tf2::loadout`.
+//! - `_test-support` exposes doc-hidden fakes for tests only.
+//!
 //! # Handles and aliasing
 //!
 //! The engine and game own their objects and mutate them through their own
@@ -25,7 +35,8 @@
 //!   engine keeps its own pointers.
 //! - Handles carry the scope lifetime of the `Server` they came from, so none
 //!   outlives the callback in which the engine keeps the object alive.
-//! - Handles are `!Send` and `!Sync`, since the engine is single-threaded.
+//! - Handles are `!Send` and `!Sync`: access through them is restricted to the
+//!   server's main thread, even when the engine does other work on workers.
 //! - Data read out of the engine is copied unless it stays unchanged for the
 //!   whole scope, such as class names or static strings.
 //!

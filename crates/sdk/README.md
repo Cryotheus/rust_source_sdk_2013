@@ -5,8 +5,11 @@ Safer and more ergonomic API over `source_sdk_2013_sys`.
 
 Everything starts from a `Server`, created once per engine callback from the
 engine's and game server's interface factories. `Server::new` is the one
-`unsafe` call needed to reach the engine; every interface is a safe accessor
-on it from there.
+`unsafe` entry point whose contract underpins the wrappers. Interface accessors
+are safe within that scope, but operations with additional requirements, such
+as entity spawning and schema-dependent attribute writes, have their own
+`unsafe` contracts. No frame, level change, shutdown, immediate entity deletion,
+or round restart may invalidate the callback's handles.
 
 As of right now, this is designed for developing Team Fortress 2 server plugins only.
 
@@ -16,10 +19,21 @@ More general use cases are planned:
 - Source engine game mods
 - Client mods/plugins
 
+## Features and Targets
+
+Use nightly Rust with Rust 1.99.0 or newer. The supported runtime targets are
+`x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu`; Windows GNU, Linux musl,
+and 32-bit runtime builds are not supported. Ordinary builds use pre-generated
+bindings without a C++ SDK or libclang installation.
+
+- `tf2` enables TF2-specific wrappers in `tf2`.
+- `tf2_loadout` enables `tf2` and re-applies plugin-chosen wearables and weapon
+  attributes when TF2 rebuilds a player's loadout.
+- `_test-support` exposes doc-hidden fakes for tests only.
+
 Keep in mind:
 
-- Coverage is not 100%, it's probably less than 5%
-	- The SDK is huge, I'm adding things as I need them
+- Coverage is incomplete and grows with plugin-development needs
 - Soundness rests on `Server::new`'s contract
 	- Binds an unsound code base (cough: written in an unsafe language), so the
 	  contract assumes the engine, game, and other plugins behave
@@ -32,7 +46,7 @@ For Valve's Source SDK 2013, see the [SOURCE 1 SDK LICENSE](https://github.com/V
 
 This project is licensed under either of
 
-* Apache License, Version 2.0, ([LICENSE-APACHE](/LICENSE-APACHE) or
+* Apache License, Version 2.0, ([LICENSE-APACHE](https://github.com/Cryotheus/rust_source_sdk_2013/blob/master/LICENSE-APACHE) or
   https://www.apache.org/licenses/LICENSE-2.0)
-* MIT license ([LICENSE-MIT](/LICENSE-MIT) or
+* MIT license ([LICENSE-MIT](https://github.com/Cryotheus/rust_source_sdk_2013/blob/master/LICENSE-MIT) or
   https://opensource.org/licenses/MIT)

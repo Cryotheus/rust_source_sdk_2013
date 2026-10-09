@@ -45,12 +45,10 @@ rscodefmt = [
 	"--all-features",
 ]
 
-# cargo publish-p1 && cargo publish-p2 && cargo publish-p3 && cargo publish-p4 && cargo publish-p5
+# Runtime SDK release order. Other workspace packages are released separately.
+# cargo publish-p1 && cargo publish-p2 && cargo publish-p3 && cargo publish-p4
 publish-p1 = [
 	"publish",
-	"--package", "metamod_source_sys",
-	"--package", "source_sdk_2013_bindgen",
-	"--package", "source_sdk_2013_declmacros",
 	"--package", "source_sdk_2013_sys_x64_linux",
 	"--package", "source_sdk_2013_sys_x64_windows",
 ]
@@ -68,9 +66,4 @@ publish-p3 = [
 publish-p4 = [
 	"publish",
 	"--package", "source_sdk_2013",
-]
-
-publish-p5 = [
-	"publish",
-	"--package", "metamod_source",
 ]
