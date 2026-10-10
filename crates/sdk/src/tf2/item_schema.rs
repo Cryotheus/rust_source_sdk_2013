@@ -26,6 +26,11 @@
 //! Mildly Disturbing Halloween Mask (115) and the Pet Balloonicorn, and only
 //! the methods reading them fail with them.
 //!
+//! Equip-region and conflict masks are checked independently on the Rocket
+//! Launcher, Football Helmet and Pet Balloonicorn. An unavailable or
+//! incompatible layout makes [`ItemDefinition::equip_regions`] fail; it is
+//! never interpreted as a definition with zero restrictions.
+//!
 //! [`ItemSchema::definitions`] walks the schema's sorted map of its
 //! definitions, whose tree the bindings leave opaque, and checks it on each
 //! walk: as [`sdk_raw::tf2::item_schema`] describes, and against the game's
@@ -101,185 +106,6 @@ const CHECKED_DETAILS: [Details; 4] = [
 		holiday: None,
 	},
 ];
-
-/// Whether the layout of the definitions' details passed its checks, once it
-/// did or failed them.
-static DETAILS: OnceLock<bool> = OnceLock::new();
-
-/// What the shipped schema says of a [checked definition](CHECKED_DETAILS).
-struct Details {
-	/// The definition's index.
-	index: u16,
-
-	/// The one class that uses it, or `None` for all nine.
-	class: Option<PlayerClass>,
-
-	/// Its loadout position, for every class that uses it.
-	position: LoadoutPosition,
-
-	/// Its quality.
-	quality: ItemQuality,
-
-	/// Its lowest and highest levels, unless the schema's defaults.
-	levels: Option<(u8, u8)>,
-
-	/// Its holiday restriction.
-	holiday: Option<&'static CStr>,
-}
-
-/// The fields of a definition its details are read from, as they are read,
-/// before their layout is known to be checked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RawDetails {
-	/// `m_vbClassUsability`, a bit per class number.
-	classes: u32,
-
-	/// `m_iDefaultLoadoutSlot`.
-	default_position: c_int,
-
-	/// `m_unMaxItemLevel`.
-	max_level: u8,
-
-	/// `m_unMinItemLevel`.
-	min_level: u8,
-
-	/// `m_iLoadoutSlots`, by class number.
-	positions: [c_int; 11],
-
-	/// `m_nItemQuality`.
-	quality: u8,
-}
-
-/// A position in a player's loadout (`loadout_positions_t`), which an item is
-/// equipped in, such as a weapon slot or a cosmetic one.
-///
-/// Its numbers are those of TF2's loadouts, not of [weapon
-/// slots](crate::tf2::weapons::WeaponSlot): the Engineer's construction PDA
-/// is in [`Self::Pda`] (5), but in weapon slot 3.
-#[doc(alias("loadout_positions_t", "LOADOUT_POSITION"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum LoadoutPosition {
-	/// `LOADOUT_POSITION_PRIMARY`: 0.
-	#[doc(alias("LOADOUT_POSITION_PRIMARY"))]
-	Primary,
-
-	/// `LOADOUT_POSITION_SECONDARY`: 1.
-	#[doc(alias("LOADOUT_POSITION_SECONDARY"))]
-	Secondary,
-
-	/// `LOADOUT_POSITION_MELEE`: 2.
-	#[doc(alias("LOADOUT_POSITION_MELEE"))]
-	Melee,
-
-	/// `LOADOUT_POSITION_UTILITY`: 3, the PASS Time gun's.
-	#[doc(alias("LOADOUT_POSITION_UTILITY"))]
-	Utility,
-
-	/// `LOADOUT_POSITION_BUILDING`: 4, the Engineer's builder and the Spy's
-	/// sappers.
-	#[doc(alias("LOADOUT_POSITION_BUILDING"))]
-	Building,
-
-	/// `LOADOUT_POSITION_PDA`: 5, such as the Engineer's construction PDA or
-	/// the Spy's disguise kit.
-	#[doc(alias("LOADOUT_POSITION_PDA"))]
-	Pda,
-
-	/// `LOADOUT_POSITION_PDA2`: 6, such as the Engineer's destruction PDA or
-	/// the Spy's watch.
-	#[doc(alias("LOADOUT_POSITION_PDA2"))]
-	Pda2,
-
-	/// `LOADOUT_POSITION_HEAD`: 7, which the game no longer gives items: it
-	/// reads an item's `head` slot as [`Self::Misc`].
-	#[doc(alias("LOADOUT_POSITION_HEAD"))]
-	Head,
-
-	/// `LOADOUT_POSITION_MISC`: 8, the cosmetics.
-	#[doc(alias("LOADOUT_POSITION_MISC"))]
-	Misc,
-
-	/// `LOADOUT_POSITION_ACTION`: 9, such as spellbooks and noise makers.
-	#[doc(alias("LOADOUT_POSITION_ACTION"))]
-	Action,
-
-	/// `LOADOUT_POSITION_MISC2`: 10.
-	#[doc(alias("LOADOUT_POSITION_MISC2"))]
-	Misc2,
-
-	/// `LOADOUT_POSITION_TAUNT`: 11, the first taunt.
-	#[doc(alias("LOADOUT_POSITION_TAUNT"))]
-	Taunt,
-
-	/// `LOADOUT_POSITION_TAUNT2`: 12.
-	#[doc(alias("LOADOUT_POSITION_TAUNT2"))]
-	Taunt2,
-
-	/// `LOADOUT_POSITION_TAUNT3`: 13.
-	#[doc(alias("LOADOUT_POSITION_TAUNT3"))]
-	Taunt3,
-
-	/// `LOADOUT_POSITION_TAUNT4`: 14.
-	#[doc(alias("LOADOUT_POSITION_TAUNT4"))]
-	Taunt4,
-
-	/// `LOADOUT_POSITION_TAUNT5`: 15.
-	#[doc(alias("LOADOUT_POSITION_TAUNT5"))]
-	Taunt5,
-
-	/// `LOADOUT_POSITION_TAUNT6`: 16.
-	#[doc(alias("LOADOUT_POSITION_TAUNT6"))]
-	Taunt6,
-
-	/// `LOADOUT_POSITION_TAUNT7`: 17.
-	#[doc(alias("LOADOUT_POSITION_TAUNT7"))]
-	Taunt7,
-
-	/// `LOADOUT_POSITION_TAUNT8`: 18, the last taunt.
-	#[doc(alias("LOADOUT_POSITION_TAUNT8"))]
-	Taunt8,
-}
-
-impl LoadoutPosition {
-	/// Every position, in the game's order.
-	pub const ALL: [Self; 19] = [
-		Self::Primary,
-		Self::Secondary,
-		Self::Melee,
-		Self::Utility,
-		Self::Building,
-		Self::Pda,
-		Self::Pda2,
-		Self::Head,
-		Self::Misc,
-		Self::Action,
-		Self::Misc2,
-		Self::Taunt,
-		Self::Taunt2,
-		Self::Taunt3,
-		Self::Taunt4,
-		Self::Taunt5,
-		Self::Taunt6,
-		Self::Taunt7,
-		Self::Taunt8,
-	];
-
-	/// The position with this `loadout_positions_t` number, or `None` for any
-	/// other number, including `LOADOUT_POSITION_INVALID` (-1).
-	pub const fn from_raw(raw: c_int) -> Option<Self> {
-		if raw >= 0 && raw < Self::ALL.len() as c_int {
-			Some(Self::ALL[raw as usize])
-		} else {
-			None
-		}
-	}
-
-	/// The position's `loadout_positions_t` number.
-	pub const fn to_raw(self) -> c_int {
-		self as c_int
-	}
-}
 
 /// The definitions whose name and item class the shipped schema fixes, to
 /// check the strings' layout with.
@@ -409,31 +235,37 @@ const CLASS_ITEM_CLASSES: [(&CStr, [Option<&CStr>; 9]); 8] = [
 	),
 ];
 
-/// The class the game creates an item of `item_class` as for a player of
-/// `class` (`TranslateWeaponEntForClass`): another class for the
-/// [item classes it translates](CLASS_ITEM_CLASSES), compared ignoring ASCII
-/// case as the game does, or `item_class` itself for any other. `None` for an
-/// item class the game translates, but not for `class`.
-#[doc(alias("TranslateWeaponEntForClass"))]
-fn class_item_class(item_class: &CStr, class: PlayerClass) -> Option<&CStr> {
-	let translated = CLASS_ITEM_CLASSES.iter().find(|(generic, _)| {
-		generic
-			.to_bytes()
-			.eq_ignore_ascii_case(item_class.to_bytes())
-	});
+/// Whether the layout of the definitions' details passed its checks, once it
+/// did or failed them.
+static DETAILS: OnceLock<bool> = OnceLock::new();
 
-	match translated {
-		Some((_, classes)) => classes[class.to_raw() as usize - 1],
-		None => Some(item_class),
-	}
-}
+/// Whether the layout passed its checks, once it did or failed them.
+static LAYOUT: OnceLock<bool> = OnceLock::new();
 
 /// Whether the layout of the definitions' strings passed its checks, once it
 /// did or failed them.
 static STRINGS: OnceLock<bool> = OnceLock::new();
 
-/// Whether the layout passed its checks, once it did or failed them.
-static LAYOUT: OnceLock<bool> = OnceLock::new();
+/// What the shipped schema says of a [checked definition](CHECKED_DETAILS).
+struct Details {
+	/// The definition's index.
+	index: u16,
+
+	/// The one class that uses it, or `None` for all nine.
+	class: Option<PlayerClass>,
+
+	/// Its loadout position, for every class that uses it.
+	position: LoadoutPosition,
+
+	/// Its quality.
+	quality: ItemQuality,
+
+	/// Its lowest and highest levels, unless the schema's defaults.
+	levels: Option<(u8, u8)>,
+
+	/// Its holiday restriction.
+	holiday: Option<&'static CStr>,
+}
 
 /// One of the item schema's definitions, scoped to one engine callback: the
 /// schema frees its definitions when the game applies a newer one.
@@ -443,163 +275,6 @@ pub struct ItemDefinition<'s> {
 	raw: NonNull<sys::CEconItemDefinition>,
 	_scope: PhantomData<&'s ()>,
 	_not_thread_safe: NotThreadSafe,
-}
-
-/// An item's level (`m_iEntityLevel`), which clients show in its description,
-/// such as "Level 10 Rocket Launcher".
-///
-/// Clients receive the level as a signed 8-bit number, so it runs from 0 to
-/// [`Self::MAX`].
-#[doc(alias("m_iEntityLevel"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ItemLevel(u8);
-
-impl ItemLevel {
-	/// Level 1, which the game gives the items it creates for players.
-	pub const DEFAULT: Self = Self(1);
-
-	/// The highest level clients receive unchanged: 127.
-	pub const MAX: Self = Self(i8::MAX as u8);
-
-	/// The level, or `None` above [`Self::MAX`].
-	pub const fn new(level: u8) -> Option<Self> {
-		if level <= Self::MAX.0 {
-			Some(Self(level))
-		} else {
-			None
-		}
-	}
-
-	/// The level as a number.
-	pub const fn get(self) -> u8 {
-		self.0
-	}
-}
-
-impl Default for ItemLevel {
-	fn default() -> Self {
-		Self::DEFAULT
-	}
-}
-
-/// An item's quality (`EEconItemQuality`), which clients color its name by,
-/// and show in it, such as a Strange or Vintage weapon.
-///
-/// A quality changes only how clients show the item: a Strange item counts
-/// nothing without a kill-counting attribute (`kill eater`), and an Unusual
-/// one has no effect without an effect attribute.
-///
-/// Clients receive the quality as a signed 5-bit number, so only the
-/// qualities up to [`Self::DecoratedWeapon`] reach them unchanged. The
-/// schema's unused qualities and its rarity grades are left out.
-#[doc(alias("EEconItemQuality", "entityquality_t", "m_iEntityQuality"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum ItemQuality {
-	/// Normal (`AE_NORMAL`): the stock items.
-	#[doc(alias("AE_NORMAL"))]
-	Normal,
-
-	/// Genuine (`AE_RARITY1`), such as items from promotions.
-	#[doc(alias("AE_RARITY1"))]
-	Genuine,
-
-	/// Vintage (`AE_VINTAGE`), the items found before the Mann-Conomy update.
-	#[doc(alias("AE_VINTAGE"))]
-	Vintage,
-
-	/// Unusual (`AE_UNUSUAL`).
-	#[doc(alias("AE_UNUSUAL"))]
-	Unusual,
-
-	/// Unique (`AE_UNIQUE`), which the game gives the items it creates for
-	/// players.
-	#[doc(alias("AE_UNIQUE"))]
-	Unique,
-
-	/// Community (`AE_COMMUNITY`).
-	#[doc(alias("AE_COMMUNITY"))]
-	Community,
-
-	/// Valve (`AE_DEVELOPER`).
-	#[doc(alias("AE_DEVELOPER"))]
-	Valve,
-
-	/// Self-Made (`AE_SELFMADE`).
-	#[doc(alias("AE_SELFMADE"))]
-	SelfMade,
-
-	/// Strange (`AE_STRANGE`).
-	#[doc(alias("AE_STRANGE"))]
-	Strange,
-
-	/// Haunted (`AE_HAUNTED`).
-	#[doc(alias("AE_HAUNTED"))]
-	Haunted,
-
-	/// Collector's (`AE_COLLECTORS`).
-	#[doc(alias("AE_COLLECTORS"))]
-	Collectors,
-
-	/// Decorated Weapon (`AE_PAINTKITWEAPON`).
-	#[doc(alias("AE_PAINTKITWEAPON"))]
-	DecoratedWeapon,
-}
-
-impl ItemQuality {
-	/// Every quality, in the game's order.
-	pub const ALL: [Self; 12] = [
-		Self::Normal,
-		Self::Genuine,
-		Self::Vintage,
-		Self::Unusual,
-		Self::Unique,
-		Self::Community,
-		Self::Valve,
-		Self::SelfMade,
-		Self::Strange,
-		Self::Haunted,
-		Self::Collectors,
-		Self::DecoratedWeapon,
-	];
-
-	/// The quality with this `EEconItemQuality` number, or `None` for one
-	/// left out.
-	pub const fn from_raw(raw: sys::entityquality_t) -> Option<Self> {
-		Some(match raw {
-			sys::EEconItemQuality_AE_NORMAL => Self::Normal,
-			sys::EEconItemQuality_AE_RARITY1 => Self::Genuine,
-			sys::EEconItemQuality_AE_VINTAGE => Self::Vintage,
-			sys::EEconItemQuality_AE_UNUSUAL => Self::Unusual,
-			sys::EEconItemQuality_AE_UNIQUE => Self::Unique,
-			sys::EEconItemQuality_AE_COMMUNITY => Self::Community,
-			sys::EEconItemQuality_AE_DEVELOPER => Self::Valve,
-			sys::EEconItemQuality_AE_SELFMADE => Self::SelfMade,
-			sys::EEconItemQuality_AE_STRANGE => Self::Strange,
-			sys::EEconItemQuality_AE_HAUNTED => Self::Haunted,
-			sys::EEconItemQuality_AE_COLLECTORS => Self::Collectors,
-			sys::EEconItemQuality_AE_PAINTKITWEAPON => Self::DecoratedWeapon,
-			_ => return None,
-		})
-	}
-
-	/// The quality's `EEconItemQuality` number.
-	pub const fn to_raw(self) -> sys::entityquality_t {
-		match self {
-			Self::Normal => sys::EEconItemQuality_AE_NORMAL,
-			Self::Genuine => sys::EEconItemQuality_AE_RARITY1,
-			Self::Vintage => sys::EEconItemQuality_AE_VINTAGE,
-			Self::Unusual => sys::EEconItemQuality_AE_UNUSUAL,
-			Self::Unique => sys::EEconItemQuality_AE_UNIQUE,
-			Self::Community => sys::EEconItemQuality_AE_COMMUNITY,
-			Self::Valve => sys::EEconItemQuality_AE_DEVELOPER,
-			Self::SelfMade => sys::EEconItemQuality_AE_SELFMADE,
-			Self::Strange => sys::EEconItemQuality_AE_STRANGE,
-			Self::Haunted => sys::EEconItemQuality_AE_HAUNTED,
-			Self::Collectors => sys::EEconItemQuality_AE_COLLECTORS,
-			Self::DecoratedWeapon => sys::EEconItemQuality_AE_PAINTKITWEAPON,
-		}
-	}
 }
 
 impl<'s> ItemDefinition<'s> {
@@ -790,6 +465,7 @@ impl<'s> ItemDefinition<'s> {
 			// SAFETY: The schema keeps its definition through the callback, and the
 			// layout of its details was checked.
 			Some(true) => Ok(unsafe { self.read_details() }),
+
 			_ => Err(ItemSchemaError::UnsupportedLayout),
 		}
 	}
@@ -815,6 +491,201 @@ impl<'s> ItemDefinition<'s> {
 				positions: (&raw const (*tf).m_iLoadoutSlots).read(),
 				quality: (&raw const (*base).m_nItemQuality).read(),
 			}
+		}
+	}
+
+	/// The item's occupied equip regions and all regions they exclude
+	/// (`m_unEquipRegionMask` and `m_unEquipRegionConflictMask`).
+	///
+	/// Fails with [`ItemSchemaError::UnsupportedLayout`] unless those fields
+	/// passed the shipped-schema checks independently of the other fields.
+	/// Zero masks describe an item without equip-region restrictions.
+	#[doc(alias(
+		"m_unEquipRegionMask",
+		"m_unEquipRegionConflictMask",
+		"GetEquipRegionMask",
+		"GetEquipRegionConflictMask"
+	))]
+	pub fn equip_regions(self) -> Result<EquipRegions, ItemSchemaError> {
+		checked_equip_regions(EQUIP_REGIONS.get().copied(), || {
+			// SAFETY: The schema keeps its definition through the callback, and
+			// checked_equip_regions runs this only after layout checks succeeded.
+			unsafe { self.read_equip_regions() }
+		})
+	}
+
+	/// Reads the definition's equip masks before their layout is checked.
+	///
+	/// # Safety
+	///
+	/// The schema keeps the definition live through this callback.
+	unsafe fn read_equip_regions(self) -> EquipRegions {
+		let raw = self.raw.as_ptr();
+
+		// SAFETY: The caller vouches for the definition. These are plain copied
+		// fields at the target-specific offsets of the generated bindings.
+		unsafe {
+			EquipRegions::from_masks(
+				(&raw const (*raw).m_unEquipRegionMask).read(),
+				(&raw const (*raw).m_unEquipRegionConflictMask).read(),
+			)
+		}
+	}
+}
+
+/// An item's level (`m_iEntityLevel`), which clients show in its description,
+/// such as "Level 10 Rocket Launcher".
+///
+/// Clients receive the level as a signed 8-bit number, so it runs from 0 to
+/// [`Self::MAX`].
+#[doc(alias("m_iEntityLevel"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ItemLevel(u8);
+
+impl ItemLevel {
+	/// Level 1, which the game gives the items it creates for players.
+	pub const DEFAULT: Self = Self(1);
+
+	/// The highest level clients receive unchanged: 127.
+	pub const MAX: Self = Self(i8::MAX as u8);
+
+	/// The level, or `None` above [`Self::MAX`].
+	pub const fn new(level: u8) -> Option<Self> {
+		if level <= Self::MAX.0 {
+			Some(Self(level))
+		} else {
+			None
+		}
+	}
+
+	/// The level as a number.
+	pub const fn get(self) -> u8 {
+		self.0
+	}
+}
+
+impl Default for ItemLevel {
+	fn default() -> Self {
+		Self::DEFAULT
+	}
+}
+
+/// An item's quality (`EEconItemQuality`), which clients color its name by,
+/// and show in it, such as a Strange or Vintage weapon.
+///
+/// A quality changes only how clients show the item: a Strange item counts
+/// nothing without a kill-counting attribute (`kill eater`), and an Unusual
+/// one has no effect without an effect attribute.
+///
+/// Clients receive the quality as a signed 5-bit number, so only the
+/// qualities up to [`Self::DecoratedWeapon`] reach them unchanged. The
+/// schema's unused qualities and its rarity grades are left out.
+#[doc(alias("EEconItemQuality", "entityquality_t", "m_iEntityQuality"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ItemQuality {
+	/// Normal (`AE_NORMAL`): the stock items.
+	#[doc(alias("AE_NORMAL"))]
+	Normal,
+
+	/// Genuine (`AE_RARITY1`), such as items from promotions.
+	#[doc(alias("AE_RARITY1"))]
+	Genuine,
+
+	/// Vintage (`AE_VINTAGE`), the items found before the Mann-Conomy update.
+	#[doc(alias("AE_VINTAGE"))]
+	Vintage,
+
+	/// Unusual (`AE_UNUSUAL`).
+	#[doc(alias("AE_UNUSUAL"))]
+	Unusual,
+
+	/// Unique (`AE_UNIQUE`), which the game gives the items it creates for
+	/// players.
+	#[doc(alias("AE_UNIQUE"))]
+	Unique,
+
+	/// Community (`AE_COMMUNITY`).
+	#[doc(alias("AE_COMMUNITY"))]
+	Community,
+
+	/// Valve (`AE_DEVELOPER`).
+	#[doc(alias("AE_DEVELOPER"))]
+	Valve,
+
+	/// Self-Made (`AE_SELFMADE`).
+	#[doc(alias("AE_SELFMADE"))]
+	SelfMade,
+
+	/// Strange (`AE_STRANGE`).
+	#[doc(alias("AE_STRANGE"))]
+	Strange,
+
+	/// Haunted (`AE_HAUNTED`).
+	#[doc(alias("AE_HAUNTED"))]
+	Haunted,
+
+	/// Collector's (`AE_COLLECTORS`).
+	#[doc(alias("AE_COLLECTORS"))]
+	Collectors,
+
+	/// Decorated Weapon (`AE_PAINTKITWEAPON`).
+	#[doc(alias("AE_PAINTKITWEAPON"))]
+	DecoratedWeapon,
+}
+
+impl ItemQuality {
+	/// Every quality, in the game's order.
+	pub const ALL: [Self; 12] = [
+		Self::Normal,
+		Self::Genuine,
+		Self::Vintage,
+		Self::Unusual,
+		Self::Unique,
+		Self::Community,
+		Self::Valve,
+		Self::SelfMade,
+		Self::Strange,
+		Self::Haunted,
+		Self::Collectors,
+		Self::DecoratedWeapon,
+	];
+
+	/// The quality with this `EEconItemQuality` number, or `None` for one
+	/// left out.
+	pub const fn from_raw(raw: sys::entityquality_t) -> Option<Self> {
+		Some(match raw {
+			sys::EEconItemQuality_AE_NORMAL => Self::Normal,
+			sys::EEconItemQuality_AE_RARITY1 => Self::Genuine,
+			sys::EEconItemQuality_AE_VINTAGE => Self::Vintage,
+			sys::EEconItemQuality_AE_UNUSUAL => Self::Unusual,
+			sys::EEconItemQuality_AE_UNIQUE => Self::Unique,
+			sys::EEconItemQuality_AE_COMMUNITY => Self::Community,
+			sys::EEconItemQuality_AE_DEVELOPER => Self::Valve,
+			sys::EEconItemQuality_AE_SELFMADE => Self::SelfMade,
+			sys::EEconItemQuality_AE_STRANGE => Self::Strange,
+			sys::EEconItemQuality_AE_HAUNTED => Self::Haunted,
+			sys::EEconItemQuality_AE_COLLECTORS => Self::Collectors,
+			sys::EEconItemQuality_AE_PAINTKITWEAPON => Self::DecoratedWeapon,
+			_ => return None,
+		})
+	}
+
+	/// The quality's `EEconItemQuality` number.
+	pub const fn to_raw(self) -> sys::entityquality_t {
+		match self {
+			Self::Normal => sys::EEconItemQuality_AE_NORMAL,
+			Self::Genuine => sys::EEconItemQuality_AE_RARITY1,
+			Self::Vintage => sys::EEconItemQuality_AE_VINTAGE,
+			Self::Unusual => sys::EEconItemQuality_AE_UNUSUAL,
+			Self::Unique => sys::EEconItemQuality_AE_UNIQUE,
+			Self::Community => sys::EEconItemQuality_AE_COMMUNITY,
+			Self::Valve => sys::EEconItemQuality_AE_DEVELOPER,
+			Self::SelfMade => sys::EEconItemQuality_AE_SELFMADE,
+			Self::Strange => sys::EEconItemQuality_AE_STRANGE,
+			Self::Haunted => sys::EEconItemQuality_AE_HAUNTED,
+			Self::Collectors => sys::EEconItemQuality_AE_COLLECTORS,
+			Self::DecoratedWeapon => sys::EEconItemQuality_AE_PAINTKITWEAPON,
 		}
 	}
 }
@@ -885,6 +756,14 @@ impl<'s> ItemSchema<'s> {
 			&& let Ok(Some(checked)) = schema.check_details()
 		{
 			DETAILS.set(checked).ok();
+		}
+
+		// Equip masks are checked apart too: a missing or incompatible mask
+		// layout must never turn into an unrestricted item.
+		if EQUIP_REGIONS.get().is_none()
+			&& let Ok(Some(checked)) = schema.check_equip_regions()
+		{
+			EQUIP_REGIONS.set(checked).ok();
 		}
 
 		Ok(schema)
@@ -1085,6 +964,24 @@ impl<'s> ItemSchema<'s> {
 			.map(|(_, raw)| ItemDefinition::new(raw))
 			.collect())
 	}
+
+	/// Whether the equip masks read as the shipped schema has them, or
+	/// `None` when a sentinel definition is unavailable.
+	fn check_equip_regions(self) -> Result<Option<bool>, ItemSchemaError> {
+		for (index, expected) in CHECKED_EQUIP_REGIONS {
+			let Some(definition) = self.find(index)? else {
+				return Ok(None);
+			};
+
+			// SAFETY: The lookup returned a definition owned by the live schema,
+			// which keeps it through this callback.
+			if unsafe { definition.read_equip_regions() } != expected {
+				return Ok(Some(false));
+			}
+		}
+
+		Ok(Some(true))
+	}
 }
 
 /// Why the item schema could not be read.
@@ -1104,6 +1001,179 @@ pub enum ItemSchemaError {
 	UnsupportedLayout,
 }
 
+/// A position in a player's loadout (`loadout_positions_t`), which an item is
+/// equipped in, such as a weapon slot or a cosmetic one.
+///
+/// Its numbers are those of TF2's loadouts, not of [weapon
+/// slots](crate::tf2::weapons::WeaponSlot): the Engineer's construction PDA
+/// is in [`Self::Pda`] (5), but in weapon slot 3.
+#[doc(alias("loadout_positions_t", "LOADOUT_POSITION"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum LoadoutPosition {
+	/// `LOADOUT_POSITION_PRIMARY`: 0.
+	#[doc(alias("LOADOUT_POSITION_PRIMARY"))]
+	Primary,
+
+	/// `LOADOUT_POSITION_SECONDARY`: 1.
+	#[doc(alias("LOADOUT_POSITION_SECONDARY"))]
+	Secondary,
+
+	/// `LOADOUT_POSITION_MELEE`: 2.
+	#[doc(alias("LOADOUT_POSITION_MELEE"))]
+	Melee,
+
+	/// `LOADOUT_POSITION_UTILITY`: 3, the PASS Time gun's.
+	#[doc(alias("LOADOUT_POSITION_UTILITY"))]
+	Utility,
+
+	/// `LOADOUT_POSITION_BUILDING`: 4, the Engineer's builder and the Spy's
+	/// sappers.
+	#[doc(alias("LOADOUT_POSITION_BUILDING"))]
+	Building,
+
+	/// `LOADOUT_POSITION_PDA`: 5, such as the Engineer's construction PDA or
+	/// the Spy's disguise kit.
+	#[doc(alias("LOADOUT_POSITION_PDA"))]
+	Pda,
+
+	/// `LOADOUT_POSITION_PDA2`: 6, such as the Engineer's destruction PDA or
+	/// the Spy's watch.
+	#[doc(alias("LOADOUT_POSITION_PDA2"))]
+	Pda2,
+
+	/// `LOADOUT_POSITION_HEAD`: 7, which the game no longer gives items: it
+	/// reads an item's `head` slot as [`Self::Misc`].
+	#[doc(alias("LOADOUT_POSITION_HEAD"))]
+	Head,
+
+	/// `LOADOUT_POSITION_MISC`: 8, the cosmetics.
+	#[doc(alias("LOADOUT_POSITION_MISC"))]
+	Misc,
+
+	/// `LOADOUT_POSITION_ACTION`: 9, such as spellbooks and noise makers.
+	#[doc(alias("LOADOUT_POSITION_ACTION"))]
+	Action,
+
+	/// `LOADOUT_POSITION_MISC2`: 10.
+	#[doc(alias("LOADOUT_POSITION_MISC2"))]
+	Misc2,
+
+	/// `LOADOUT_POSITION_TAUNT`: 11, the first taunt.
+	#[doc(alias("LOADOUT_POSITION_TAUNT"))]
+	Taunt,
+
+	/// `LOADOUT_POSITION_TAUNT2`: 12.
+	#[doc(alias("LOADOUT_POSITION_TAUNT2"))]
+	Taunt2,
+
+	/// `LOADOUT_POSITION_TAUNT3`: 13.
+	#[doc(alias("LOADOUT_POSITION_TAUNT3"))]
+	Taunt3,
+
+	/// `LOADOUT_POSITION_TAUNT4`: 14.
+	#[doc(alias("LOADOUT_POSITION_TAUNT4"))]
+	Taunt4,
+
+	/// `LOADOUT_POSITION_TAUNT5`: 15.
+	#[doc(alias("LOADOUT_POSITION_TAUNT5"))]
+	Taunt5,
+
+	/// `LOADOUT_POSITION_TAUNT6`: 16.
+	#[doc(alias("LOADOUT_POSITION_TAUNT6"))]
+	Taunt6,
+
+	/// `LOADOUT_POSITION_TAUNT7`: 17.
+	#[doc(alias("LOADOUT_POSITION_TAUNT7"))]
+	Taunt7,
+
+	/// `LOADOUT_POSITION_TAUNT8`: 18, the last taunt.
+	#[doc(alias("LOADOUT_POSITION_TAUNT8"))]
+	Taunt8,
+}
+
+impl LoadoutPosition {
+	/// Every position, in the game's order.
+	pub const ALL: [Self; 19] = [
+		Self::Primary,
+		Self::Secondary,
+		Self::Melee,
+		Self::Utility,
+		Self::Building,
+		Self::Pda,
+		Self::Pda2,
+		Self::Head,
+		Self::Misc,
+		Self::Action,
+		Self::Misc2,
+		Self::Taunt,
+		Self::Taunt2,
+		Self::Taunt3,
+		Self::Taunt4,
+		Self::Taunt5,
+		Self::Taunt6,
+		Self::Taunt7,
+		Self::Taunt8,
+	];
+
+	/// The position with this `loadout_positions_t` number, or `None` for any
+	/// other number, including `LOADOUT_POSITION_INVALID` (-1).
+	pub const fn from_raw(raw: c_int) -> Option<Self> {
+		if raw >= 0 && raw < Self::ALL.len() as c_int {
+			Some(Self::ALL[raw as usize])
+		} else {
+			None
+		}
+	}
+
+	/// The position's `loadout_positions_t` number.
+	pub const fn to_raw(self) -> c_int {
+		self as c_int
+	}
+}
+
+/// The fields of a definition its details are read from, as they are read,
+/// before their layout is known to be checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawDetails {
+	/// `m_vbClassUsability`, a bit per class number.
+	classes: u32,
+
+	/// `m_iDefaultLoadoutSlot`.
+	default_position: c_int,
+
+	/// `m_unMaxItemLevel`.
+	max_level: u8,
+
+	/// `m_unMinItemLevel`.
+	min_level: u8,
+
+	/// `m_iLoadoutSlots`, by class number.
+	positions: [c_int; 11],
+
+	/// `m_nItemQuality`.
+	quality: u8,
+}
+
+/// The class the game creates an item of `item_class` as for a player of
+/// `class` (`TranslateWeaponEntForClass`): another class for the
+/// [item classes it translates](CLASS_ITEM_CLASSES), compared ignoring ASCII
+/// case as the game does, or `item_class` itself for any other. `None` for an
+/// item class the game translates, but not for `class`.
+#[doc(alias("TranslateWeaponEntForClass"))]
+fn class_item_class(item_class: &CStr, class: PlayerClass) -> Option<&CStr> {
+	let translated = CLASS_ITEM_CLASSES.iter().find(|(generic, _)| {
+		generic
+			.to_bytes()
+			.eq_ignore_ascii_case(item_class.to_bytes())
+	});
+
+	match translated {
+		Some((_, classes)) => classes[class.to_raw() as usize - 1],
+		None => Some(item_class),
+	}
+}
+
 bitflags::bitflags! {
 	/// The visions in which clients draw an item (`TF_VISION_FILTER_*`).
 	/// Unknown bits are preserved.
@@ -1120,6 +1190,71 @@ bitflags::bitflags! {
 		/// Romevision, which dresses Mann vs. Machine's robots as Romans.
 		#[doc(alias("TF_VISION_FILTER_ROME"))]
 		const ROME = 1 << 2;
+	}
+}
+
+/// The definitions whose equip masks the shipped schema fixes, checked
+/// separately from the definition's other fields. TF2's `equip_regions_list`
+/// starts with whole_head (bit 0), hat (bit 1), and places
+/// disconnected_floating_item at bit 20. `equip_conflicts` makes hat conflict
+/// with whole_head; the floating region conflicts only with itself.
+const CHECKED_EQUIP_REGIONS: [(u16, EquipRegions); 3] = [
+	(18, EquipRegions::from_masks(0, 0)), // Rocket Launcher
+	(49, EquipRegions::from_masks(1 << 1, (1 << 0) | (1 << 1))), // Football Helmet
+	(738, EquipRegions::from_masks(1 << 20, 1 << 20)), // Pet Balloonicorn
+];
+
+/// Whether the layout of the definition's equip masks passed its checks.
+static EQUIP_REGIONS: OnceLock<bool> = OnceLock::new();
+
+/// Copied equip-region masks from the item schema.
+///
+/// `regions` names the regions occupied by an item; `conflicts` includes
+/// those regions and any others they exclude. Their bit assignments belong
+/// to the running schema, so compare masks from that same schema only.
+///
+/// Zero masks are valid: a definition without equip-region restrictions.
+/// An unavailable or unchecked native layout is an error from
+/// [`ItemDefinition::equip_regions`], never replaced with zero masks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct EquipRegions {
+	regions: u32,
+	conflicts: u32,
+}
+
+impl EquipRegions {
+	/// Copied masks, whose bit assignments must come from the same schema as
+	/// the other masks they will be compared with.
+	pub const fn from_masks(regions: u32, conflicts: u32) -> Self {
+		Self { regions, conflicts }
+	}
+
+	/// The regions the item occupies.
+	pub const fn regions(self) -> u32 {
+		self.regions
+	}
+
+	/// The regions the item excludes.
+	pub const fn conflicts(self) -> u32 {
+		self.conflicts
+	}
+
+	/// Whether neither item's occupied regions intersects the other's
+	/// exclusions. Checking both directions also handles asymmetric masks.
+	pub const fn is_compatible_with(self, other: Self) -> bool {
+		self.regions & other.conflicts == 0 && other.regions & self.conflicts == 0
+	}
+}
+
+/// Keeps unavailable native metadata distinct from a schema's valid zero
+/// masks, and never evaluates the native read before validation succeeds.
+fn checked_equip_regions(
+	checked: Option<bool>,
+	read: impl FnOnce() -> EquipRegions,
+) -> Result<EquipRegions, ItemSchemaError> {
+	match checked {
+		Some(true) => Ok(read()),
+		_ => Err(ItemSchemaError::UnsupportedLayout),
 	}
 }
 
