@@ -7,11 +7,11 @@
 //! also applies an [`AttributeSet`], and [`Weapon::attributes`] reads and
 //! changes a weapon's attributes afterwards, through [`ItemAttributes`].
 
+pub mod identity;
+
 #[cfg(test)]
 #[path = "../../tests/tf2/weapons.rs"]
 mod tests;
-
-pub mod identity;
 
 use crate::datatables::NetPropError;
 use crate::entities::{Entity, EntityHandle};
@@ -906,6 +906,37 @@ impl<'s> Weapon<'s> {
 		Ok((max >= 0).then_some(max))
 	}
 
+	/// Traces this melee weapon's current swing through native `DoSwingTrace`,
+	/// including its range/bounds attributes and the game's collision filters.
+	/// Returns the live hit entity, or `None` for a miss. Surface storage does
+	/// not escape the call. This does not start lag compensation or deal damage.
+	/// Fails with [`WeaponError::NotMelee`] unless its datamaps include
+	/// `CTFWeaponBaseMelee`, and refuses a weapon marked for deletion.
+	#[doc(alias("DoSwingTrace"))]
+	pub fn melee_hit(self) -> Result<Option<Entity<'s>>, WeaponError> {
+		check_live(self.entity)?;
+		if !self.entity.has_data_map_class(c"CTFWeaponBaseMelee") {
+			return Err(WeaponError::NotMelee);
+		}
+		let this = self.entity.as_ptr();
+		// SAFETY: Zero initializes the native out-parameter; DoSwingTrace
+		// fills it before returning a hit. The verified melee primary vtable
+		// has bool(this, trace_t*) under both supported 64-bit ABIs.
+		let mut trace: sys::trace_t = unsafe { std::mem::zeroed() };
+		// SAFETY: The live validated melee stays allocated for this callback.
+		// Native tracing only reads collision state and attributes.
+		let hit = unsafe {
+			sdk_raw::vcall!(this as sys::CTFWeaponBaseMelee__bindgen_vtable => CTFWeaponBaseMelee_DoSwingTrace(&raw mut trace))
+		};
+		if !hit {
+			return Ok(None);
+		}
+		// SAFETY: The native trace's hit pointer names a live entity during
+		// this callback, including the world for brushes/static props.
+		Ok(NonNull::new(trace.m_pEnt)
+			.map(|entity| unsafe { Entity::from_live(self.server, entity) }))
+	}
+
 	/// Its combat owner's handle (`m_hOwner`), or None for a detached weapon.
 	/// The separate base-entity `m_hOwnerEntity` can remain set after detaching
 	/// and is not the authority for membership in a player's weapon inventory.
@@ -1048,6 +1079,10 @@ pub enum WeaponError {
 	/// shots in energy.
 	#[error("the weapon has no clip")]
 	NoClip,
+
+	/// The weapon does not derive from `CTFWeaponBaseMelee`.
+	#[error("the weapon is not a TF2 melee weapon")]
+	NotMelee,
 
 	/// The entity is not a TF2 player, or the server does not run TF2.
 	#[error("weapon operations require a TF2 player")]
