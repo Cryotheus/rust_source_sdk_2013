@@ -43,6 +43,7 @@ struct FakeEntity {
 	mode: c_int,
 	target: u32,
 	view_offset: [f32; 3],
+	forced_mode: bool,
 	class: *mut sys::ServerClass,
 	edict: *mut sys::edict_t,
 }
@@ -104,10 +105,17 @@ impl World {
 		flags.fieldSizeInBytes = size_of::<c_int>() as c_int;
 
 		let base_map = data_map(c"CBaseEntity", vec![flags], null_mut());
+		let mut forced_mode = field(
+			c"m_bForcedObserverMode",
+			sys::_fieldtypes_FIELD_BOOLEAN,
+			offset_of!(FakeEntity, forced_mode),
+		);
+		forced_mode.fieldSize = 1;
+		forced_mode.fieldSizeInBytes = size_of::<bool>() as c_int;
 		let player_map = data_map(
 			c"CTFPlayer",
 			vec![],
-			data_map(c"CBasePlayer", vec![], base_map),
+			data_map(c"CBasePlayer", vec![forced_mode], base_map),
 		);
 		let prop_map = data_map(c"CDynamicProp", vec![], base_map);
 
@@ -184,6 +192,7 @@ impl World {
 				mode: raw::OBS_MODE_IN_EYE,
 				target: NULL,
 				view_offset: STANDING,
+				forced_mode: false,
 				class,
 				edict: leak(mock_edict(index.cast_signed(), false)),
 			});
@@ -238,6 +247,23 @@ impl World {
 		// SAFETY: As for the target's handle in `new`.
 		unsafe { (*self.player).mode = mode };
 	}
+}
+
+#[test]
+fn already_roaming_clears_only_the_forced_mode_flag() {
+	let world = World::new();
+	let scope = ();
+	let observer = PlayerObserver::new(mock_server(&scope), entity(world.player)).unwrap();
+	world.set_mode(raw::OBS_MODE_ROAMING);
+	// SAFETY: The fake player is leaked, and no engine runs during this test.
+	unsafe { (*world.player).forced_mode = true };
+	let initial = world.player_state();
+	observer.roam().unwrap();
+	assert_eq!(world.player_state(), initial);
+	// SAFETY: As above.
+	assert!(!unsafe { (*world.player).forced_mode });
+	assert!(world.player_changed());
+	assert!(TARGETED.take().is_empty());
 }
 
 unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const c_char {
@@ -321,6 +347,48 @@ unsafe extern "C" fn handle_proxy(
 	_: c_int,
 ) {
 	unexpected_call();
+}
+
+#[test]
+fn missing_or_mistyped_forced_mode_leaves_the_view_unchanged() {
+	let world = World::new();
+	let scope = ();
+	let observer = PlayerObserver::new(mock_server(&scope), entity(world.player)).unwrap();
+	let initial = world.player_state();
+	// SAFETY: World builds this leaked CTFPlayer/CBasePlayer/CBaseEntity chain.
+	let base_map = unsafe { (*(*(*world.player).map).baseMap).baseMap };
+	// SAFETY: The fake player's storage is leaked.
+	unsafe { (*world.player).forced_mode = true };
+	for field_type in [None, Some(sys::_fieldtypes_FIELD_INTEGER)] {
+		let fields = field_type
+			.map(|kind| {
+				let mut description = field(
+					c"m_bForcedObserverMode",
+					kind,
+					offset_of!(FakeEntity, forced_mode),
+				);
+				description.fieldSize = 1;
+				description.fieldSizeInBytes = size_of::<bool>() as c_int;
+				description
+			})
+			.into_iter()
+			.collect();
+		// SAFETY: The fake player and its datamaps are leaked; changing its
+		// map emulates a game image missing or changing the declared field.
+		unsafe {
+			(*world.player).map = data_map(
+				c"CTFPlayer",
+				vec![],
+				data_map(c"CBasePlayer", fields, base_map),
+			);
+		}
+		assert!(matches!(observer.roam(), Err(ObserverError::Field(_))));
+		assert_eq!(world.player_state(), initial);
+		// SAFETY: The fake player's storage remains live.
+		assert!(unsafe { (*world.player).forced_mode });
+		assert!(!world.player_changed());
+		assert!(TARGETED.take().is_empty());
+	}
 }
 
 #[test]
@@ -426,6 +494,8 @@ fn roaming_switches_the_mode_and_moves_behind_the_target() {
 		Some(world.target.cast())
 	);
 
+	// SAFETY: The fake player's storage is leaked.
+	unsafe { (*world.player).forced_mode = true };
 	observer.roam().unwrap();
 	assert_eq!(observer.mode().unwrap(), ObserverMode::Roaming);
 	assert_eq!(
@@ -433,6 +503,8 @@ fn roaming_switches_the_mode_and_moves_behind_the_target() {
 		(raw::OBS_MODE_ROAMING, target, [0.0; 3])
 	);
 	assert!(world.player_changed());
+	// SAFETY: The fake player is leaked and no engine runs during this test.
+	assert!(!unsafe { (*world.player).forced_mode });
 
 	// The game moves the player behind the target as they roam already.
 	assert_eq!(
@@ -450,6 +522,7 @@ fn roaming_switches_the_mode_and_moves_behind_the_target() {
 		unsafe {
 			(*world.player).target = NULL;
 			(*world.player).view_offset = STANDING;
+			(*world.player).forced_mode = true;
 		}
 		world.set_mode(mode);
 
@@ -459,6 +532,8 @@ fn roaming_switches_the_mode_and_moves_behind_the_target() {
 			world.player_state(),
 			(raw::OBS_MODE_ROAMING, NULL, [0.0; 3])
 		);
+		// SAFETY: As above.
+		assert!(!unsafe { (*world.player).forced_mode });
 	}
 
 	assert!(TARGETED.take().is_empty());
