@@ -22,6 +22,7 @@ pub mod collision;
 pub mod conditions;
 pub mod custom_votes;
 pub mod damage;
+pub mod dispenser_hooks;
 pub mod dominations;
 pub mod duels;
 pub mod effects;
