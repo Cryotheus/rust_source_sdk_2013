@@ -92,6 +92,14 @@ pub enum BuildingError {
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
 
+	/// Construction work must be finite and nonnegative.
+	#[error("construction health must be finite and nonnegative")]
+	InvalidHealth,
+
+	/// A dispenser cannot hold a negative amount of metal.
+	#[error("dispenser metal must be nonnegative, not {0}")]
+	InvalidMetal(c_int),
+
 	/// The level asked for is not one of 1 to 3, those of TF2's buildings.
 	#[error("buildings have levels 1 to 3, not {0}")]
 	InvalidLevel(u8),
@@ -331,6 +339,32 @@ impl<'s> Building<'s> {
 	#[doc(alias("m_flPercentageConstructed", "GetPercentageConstructed"))]
 	pub fn construction_progress(self) -> Result<f32, BuildingError> {
 		self.get(c"m_flPercentageConstructed")
+	}
+
+	/// Applies native construction work (`CBaseObject::Construct`).
+	/// `health` is a nonnegative finite health increment before the game's
+	/// construction multiplier. During construction it also advances stored
+	/// build time and may invoke `FinishedBuilding`; its bool means complete
+	/// construction/full health, not whether this call did useful work.
+	///
+	/// This is not an unscaled repair API: active construction workers, builder
+	/// attributes and reverse-build state affect the result. Finished repairs
+	/// should use `ServerTools::send_health_input` with `HealthInput::Add`.
+	/// It never explicitly upgrades a building. Blueprints and dying/deleted
+	/// buildings are refused before calling native code.
+	#[doc(alias("Construct"))]
+	pub fn construct(self, health: f32) -> Result<bool, BuildingError> {
+		if !health.is_finite() || health < 0.0 {
+			return Err(BuildingError::InvalidHealth);
+		}
+		self.check_removable()?;
+		let this = self.entity.as_ptr();
+		// SAFETY: Building::new checked the CBaseObject primary base. The
+		// generated virtual is bool(this, float) on both supported platforms;
+		// native completion removes entities only through deferred deletion.
+		Ok(unsafe {
+			sdk_raw::vcall!(this as sys::CBaseObject__bindgen_vtable => CBaseObject_Construct(health))
+		})
 	}
 
 	/// Removes the building silently, as its builder's leaving the game does
@@ -1171,6 +1205,30 @@ impl<'s> Dispenser<'s> {
 	#[doc(alias("m_iAmmoMetal"))]
 	pub fn metal(self) -> Result<c_int, BuildingError> {
 		self.0.int(c"m_iAmmoMetal")
+	}
+
+	/// Sets the dispenser's real stored metal (`m_iAmmoMetal`) and records
+	/// the change for clients, as native dispensing/regeneration does.
+	/// Any nonnegative stock is accepted; TF2 normally caps regenerated stock
+	/// at 400. This is inventory accounting, not giving a player metal.
+	/// Payload carts normally retain their native infinite supply semantics.
+	#[doc(alias("m_iAmmoMetal"))]
+	pub fn set_metal(self, metal: c_int) -> Result<(), BuildingError> {
+		if metal < 0 {
+			return Err(BuildingError::InvalidMetal(metal));
+		}
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+		let engine = self.0.server.valve_engine()?;
+		// SAFETY: Native dispensing and regeneration store nonnegative inventory
+		// in m_iAmmoMetal, independently of a player's own metal reserve.
+		unsafe {
+			self.0
+				.net_prop(c"m_iAmmoMetal")?
+				.set(engine, self.0.entity, metal)
+		}?;
+		Ok(())
 	}
 
 	/// What the dispenser is doing (`m_iState`).
