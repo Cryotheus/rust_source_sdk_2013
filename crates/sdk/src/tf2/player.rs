@@ -675,7 +675,11 @@ impl<'s> TfPlayer<'s> {
 	/// loadout's weapons and cosmetics again, keeps any overheal, and, with
 	/// `refill_health_and_ammo`, refills their health and ammo and ends the
 	/// conditions a resupply cabinet cures, such as burning and bleeding.
-	/// Without it, their health and ammo stay as they are.
+	/// Without it, reserve ammo is preserved, but TF2 still raises health to
+	/// at least the recomputed maximum (retaining a higher overheal) and
+	/// rebuilds the loadout, including its weapon clips. It does not preserve
+	/// a wounded player's health. This follows `CTFPlayer::Regenerate` in
+	/// Valve's SDK commit `b8cfb12c0e083a2ef5b2f9f9b50f3902fa034474`.
 	///
 	/// Handing out items creates entities, which runs entity-creation and
 	/// spawn callbacks synchronously, before this returns: the game's, other
