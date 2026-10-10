@@ -280,6 +280,26 @@ impl<'s> TfEntity<'s> {
 		Ok(ScriptInstance::of(self.server, entity)?.as_raw())
 	}
 
+	/// Recomputes a dirty absolute transform through the native
+	/// `CBaseEntity::GetVectors` virtual, without allocating a script result.
+	/// After this returns, [`Entity::abs_angles`] includes the move parent's
+	/// current attachment transform. This may set up the parent's bones.
+	///
+	/// All three vector outputs are optional in Valve's implementation. Their
+	/// null pointers request only its `EntityToWorldTransform()` refresh.
+	#[doc(alias("GetVectors", "EntityToWorldTransform"))]
+	pub fn refresh_transform(self) -> Result<(), TfEntityError> {
+		self.check_live()?;
+		// SAFETY: A live TF2 CBaseEntity has the generated primary vtable layout
+		// through GetVectors on both 64-bit platforms. It computes the transform
+		// before testing each optional output pointer, and frees no entities.
+		unsafe {
+			let this = self.entity.as_ptr();
+			sdk_raw::vcall!(this as sys::CBaseEntity__bindgen_vtable => CBaseEntity_GetVectors(null_mut(), null_mut(), null_mut()));
+		}
+		Ok(())
+	}
+
 	/// Removes `flags` from the entity's solid flags, as
 	/// [`set_solid_flags`](Self::set_solid_flags) does.
 	#[doc(alias("RemoveSolidFlags"))]
@@ -309,6 +329,25 @@ impl<'s> TfEntity<'s> {
 		// them, the entity's local angles, which it computes from its move
 		// parent's, and the time of the change, which clients interpolate from.
 		unsafe { self.call(c"SetAbsAngles", &mut [qangle(&angles)]) }
+	}
+
+	/// Turns the entity relative to its move parent (`SetLocalAngles`).
+	/// Unlike [`Self::set_abs_angles`], this preserves an attachment-relative
+	/// orientation as the parent moves. Clients interpolate the turn.
+	/// Fails with [`TfEntityError::NonFinite`] before calling the game when any
+	/// angle is not finite.
+	#[doc(alias("SetLocalAngles"))]
+	pub fn set_local_angles(self, angles: QAngle) -> Result<(), TfEntityError> {
+		if ![angles.pitch, angles.yaw, angles.roll]
+			.iter()
+			.all(|angle| angle.is_finite())
+		{
+			return Err(TfEntityError::NonFinite);
+		}
+		let angles = sys::QAngle::from(angles);
+		// SAFETY: SetLocalAngles reads and copies the finite angles during the
+		// call, updating derived absolute angles and interpolation state.
+		unsafe { self.call(c"SetLocalAngles", &mut [qangle(&angles)]) }
 	}
 
 	/// Moves the entity in the world (`SetAbsOrigin`), and its origin relative
