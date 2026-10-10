@@ -1,7 +1,9 @@
 //! Hooks before TF2 dispensers supply a player with ammunition and metal.
 //!
-//! [`MetamodApi::hook_dispenser_ammo`] targets only the four classes derived
-//! from `CObjectDispenser`, including map dispensers. A callback can keep
+//! [`MetamodApi::hook_dispenser_ammo`] targets the three classes sharing
+//! `CObjectDispenser::DispenseAmmo`, including map dispensers. Robot
+//! dispensers override it to supply no ammunition and are left untouched.
+//! A callback can keep
 //! stock supply or replace the complete `DispenseAmmo` call, reporting its
 //! own result to the game's existing resupply timing. Healing is separate.
 //!
@@ -45,16 +47,16 @@ pub type DispenserAmmoFn = for<'s> fn(Server<'s>, DispenserAmmoEvent<'s>) -> Dis
 
 const DISPENSE_AMMO: VirtualFunction<DispenseAmmo> = VirtualFunction::new(DISPENSE_AMMO_SLOT);
 
-/// Only these building classes derive from `CObjectDispenser`. They keep
-/// its `DispenseAmmo`; the cart overrides `DispenseMetal` instead.
-const DISPENSER_CLASSES: [BuildingClass; 4] = [
+/// These dispenser-derived classes share `CObjectDispenser::DispenseAmmo`.
+/// The cart overrides `DispenseMetal` instead. `CRobotDispenser` overrides
+/// `DispenseAmmo` to return false, so it is deliberately not hooked.
+const DISPENSER_CLASSES: [BuildingClass; 3] = [
 	BuildingClass::CartDispenser,
 	BuildingClass::Dispenser,
 	BuildingClass::PlayerDestructionDispenser,
-	BuildingClass::RobotDispenser,
 ];
 
-static AMMO_ROUTES: [DispenserRoute; 4] = [const { DispenserRoute::new() }; 4];
+static AMMO_ROUTES: [DispenserRoute; 3] = [const { DispenserRoute::new() }; 3];
 
 /// What happens to one dispenser resupply attempt.
 #[must_use]
@@ -89,8 +91,8 @@ pub enum DispenserHookError {
 	/// A dispenser class could not be found, or the binding is for another game.
 	#[error(transparent)]
 	Target(#[from] BuildingVtableError),
-	/// The four classes do not have distinct vtables sharing the native
-	/// `CObjectDispenser::DispenseAmmo` implementation.
+	/// The three targeted classes do not have distinct vtables sharing the
+	/// native `CObjectDispenser::DispenseAmmo` implementation.
 	#[error("the dispenser classes' vtables do not have the expected layout")]
 	UnexpectedLayout,
 }
@@ -185,10 +187,9 @@ impl MetamodApi<'_> {
 	/// # Safety
 	///
 	/// `targets` and `binding` must describe the same TF2 server. The classes
-	/// [`BuildingClass::name`] names for the four dispenser classes must be
-	/// TF2's dispenser-derived classes from `tf_obj_dispenser.h`,
-	/// `tf_logic_player_destruction.h` and `tf_robot_destruction_robot.h`, with
-	/// `CObjectDispenser` as their primary base. Their primary vtables must
+	/// [`BuildingClass::name`] names for the three targeted classes must be
+	/// TF2's dispenser-derived classes from `tf_obj_dispenser.h` and
+	/// `tf_logic_player_destruction.h`, with `CObjectDispenser` as their primary base. Their primary vtables must
 	/// hold `bool DispenseAmmo(CTFPlayer *)` at [`DISPENSE_AMMO_SLOT`] and stay
 	/// loaded until the plugin unloads. RTTI and shared-function checks do not
 	/// prove inheritance or the native signature by themselves.
@@ -206,7 +207,7 @@ impl MetamodApi<'_> {
 		}
 		let names = DISPENSER_CLASSES.map(BuildingClass::name);
 		let found = targets.find_all(&names, DISPENSE_AMMO_SLOT);
-		let mut vtables = [NonNull::dangling(); 4];
+		let mut vtables = [NonNull::dangling(); 3];
 		for ((vtable, found), class) in vtables.iter_mut().zip(found).zip(DISPENSER_CLASSES) {
 			*vtable = found.ok_or(BuildingVtableError::NotFound(class))?.as_ptr();
 		}
@@ -221,7 +222,7 @@ impl MetamodApi<'_> {
 	/// slot, on dispenser objects of the corresponding `DISPENSER_CLASSES`.
 	unsafe fn install_dispenser_ammo(
 		self,
-		vtables: [NonNull<*mut c_void>; 4],
+		vtables: [NonNull<*mut c_void>; 3],
 		binding: ServerBinding,
 		callback: DispenserAmmoFn,
 	) -> Result<DispenserHooks, DispenserHookError> {
@@ -231,7 +232,7 @@ impl MetamodApi<'_> {
 		if dispenser_hooked(self) {
 			return Err(HookError::AlreadyInstalled.into());
 		}
-		let mut functions = [NonNull::dangling(); 4];
+		let mut functions = [NonNull::dangling(); 3];
 		for (function, vtable) in functions.iter_mut().zip(vtables) {
 			// SAFETY: As the caller promises; native hooks are unwrapped.
 			*function =
@@ -239,7 +240,7 @@ impl MetamodApi<'_> {
 					.address();
 		}
 		let distinct =
-			(0..4).all(|first| (first + 1..4).all(|second| vtables[first] != vtables[second]));
+			(0..3).all(|first| (first + 1..3).all(|second| vtables[first] != vtables[second]));
 		if !distinct || functions.iter().any(|&function| function != functions[0]) {
 			return Err(DispenserHookError::UnexpectedLayout);
 		}
