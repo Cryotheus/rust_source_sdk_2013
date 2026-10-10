@@ -16,8 +16,6 @@
 mod api;
 mod context;
 pub mod hook;
-#[cfg(feature = "tf2")]
-pub mod input_hooks;
 mod plugin;
 mod plugins;
 
@@ -85,6 +83,10 @@ pub mod delivery_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod dispenser_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod duel_hooks;
 
 #[cfg(feature = "sdk")]
@@ -106,6 +108,9 @@ pub mod gc_hooks;
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod give_item_hooks;
+
+#[cfg(feature = "tf2")]
+pub mod input_hooks;
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
