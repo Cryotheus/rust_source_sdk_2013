@@ -55,7 +55,7 @@ impl Dispenser {
 fn aliased_class_tables_are_rejected_before_registration() {
 	on_both(|harness| {
 		let mut vtables = classes();
-		vtables[3] = vtables[1];
+		vtables[2] = vtables[1];
 		assert!(matches!(
 			install(harness, vtables),
 			Err(DispenserHookError::UnexpectedLayout)
@@ -65,8 +65,8 @@ fn aliased_class_tables_are_rejected_before_registration() {
 	});
 }
 
-fn classes() -> [NonNull<*mut c_void>; 4] {
-	[native_supply as DispenseAmmo; 4].map(Dispenser::new_class)
+fn classes() -> [NonNull<*mut c_void>; 3] {
+	[native_supply as DispenseAmmo; 3].map(Dispenser::new_class)
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn generated_slot_matches_both_platform_contracts() {
 	assert_eq!(DISPENSE_AMMO_SLOT, 411);
 	#[cfg(target_os = "linux")]
 	assert_eq!(DISPENSE_AMMO_SLOT, 425);
-	assert_eq!(DISPENSER_CLASSES.len(), 4);
+	assert_eq!(DISPENSER_CLASSES.len(), 3);
 	assert!(
 		DISPENSER_CLASSES
 			.iter()
@@ -113,7 +113,7 @@ fn generated_slot_matches_both_platform_contracts() {
 
 fn install(
 	harness: &Harness,
-	vtables: [NonNull<*mut c_void>; 4],
+	vtables: [NonNull<*mut c_void>; 3],
 ) -> Result<DispenserHooks, DispenserHookError> {
 	// SAFETY: Every leaked mock table has the exact native signature at the
 	// slot, and mock objects belong to its corresponding dispenser class.
@@ -288,6 +288,62 @@ fn replacement_preserves_supplied_and_empty_results_without_native_grants() {
 			supply(harness, &mut dispenser, ptr::without_provenance_mut(PLAYER)),
 			(true, vec!["on supply", "stock supply"])
 		);
+	});
+}
+
+// The pinned CRobotDispenser override deliberately gives no ammo or metal.
+unsafe extern "C" fn robot_no_supply(
+	_this: *mut sys::CBaseEntity,
+	_player: *mut sys::CBaseEntity,
+) -> bool {
+	CALLS.with_borrow_mut(|calls| calls.push("robot no supply"));
+	false
+}
+
+#[test]
+fn robot_override_stays_native_without_disabling_shared_supply_routes() {
+	on_both(|harness| {
+		assert!(!DISPENSER_CLASSES.contains(&BuildingClass::RobotDispenser));
+		let robot_table = Dispenser::new_class(robot_no_supply);
+		let vtables = classes();
+		// The robot has a legitimate distinct original, not a bad layout in
+		// the three-class cohort that shares the stock supplying method.
+		// SAFETY: Each leaked mock table has the typed method at its live slot.
+		let robot_original = unsafe {
+			harness
+				.api()
+				.original_function(DISPENSE_AMMO, HookTarget::vtable(robot_table))
+		}
+		.unwrap()
+		.address();
+		for vtable in vtables {
+			// SAFETY: Each mock table stays live and has the same typed slot.
+			let original = unsafe {
+				harness
+					.api()
+					.original_function(DISPENSE_AMMO, HookTarget::vtable(vtable))
+			}
+			.unwrap()
+			.address();
+			assert_ne!(original, robot_original);
+		}
+		let _hooks = install(harness, vtables).unwrap();
+		ACTION.set(DispenserAmmoAction::Supply(true));
+		for (class, vtable) in DISPENSER_CLASSES.into_iter().zip(vtables) {
+			let mut dispenser = Dispenser::of_class(vtable);
+			let address = dispenser.ptr().addr();
+			assert_eq!(
+				supply(harness, &mut dispenser, ptr::without_provenance_mut(PLAYER)),
+				(true, vec!["on supply"])
+			);
+			assert_eq!(SEEN.take(), Some((class, address, PLAYER)));
+		}
+		let mut robot = Dispenser::of_class(robot_table);
+		assert_eq!(
+			supply(harness, &mut robot, ptr::without_provenance_mut(PLAYER)),
+			(false, vec!["robot no supply"])
+		);
+		assert_eq!(SEEN.take(), None);
 	});
 }
 
