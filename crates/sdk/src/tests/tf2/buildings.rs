@@ -1119,6 +1119,72 @@ fn class_views_read_what_their_kinds_add() {
 	));
 }
 
+#[test]
+fn construction_native_preserves_completion_result_and_refuses_invalid_lifecycle() {
+	thread_local! {
+		static WORK: RefCell<Vec<(usize, f32)>> = const { RefCell::new(Vec::new()) };
+		static COMPLETE: Cell<bool> = const { Cell::new(false) };
+	}
+	unsafe extern "C" fn construct(this: *mut sys::CBaseObject, amount: f32) -> bool {
+		WORK.with_borrow_mut(|work| work.push((this as usize, amount)));
+		COMPLETE.get()
+	}
+	let world = World::new();
+	let slot = vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_Construct);
+	let last = vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_IsDying);
+	assert!(slot <= last, "World's mock table includes IsDying");
+	// SAFETY: World allocates a leaked mutable function table through at
+	// least IsDying; only this test's table slot is replaced.
+	unsafe {
+		(*world.dispenser)
+			.vtable
+			.cast_mut()
+			.add(slot)
+			.write(construct as *const ());
+	}
+	let scope = ();
+	let server = mock_server(&scope);
+	let dispenser = building(server, world.dispenser);
+	assert!(!dispenser.construct(20.0).unwrap());
+	COMPLETE.set(true);
+	assert!(dispenser.construct(5.0).unwrap());
+	assert_eq!(
+		WORK.take(),
+		[
+			(world.dispenser as usize, 20.0),
+			(world.dispenser as usize, 5.0)
+		]
+	);
+	for amount in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0] {
+		assert!(matches!(
+			dispenser.construct(amount),
+			Err(BuildingError::InvalidHealth)
+		));
+	}
+	world.set(world.dispenser, |entity| entity.placing = 1);
+	assert!(matches!(
+		dispenser.construct(20.0),
+		Err(BuildingError::Blueprint)
+	));
+	world.set(world.dispenser, |entity| {
+		entity.placing = 0;
+		entity.dying = true;
+	});
+	assert!(matches!(
+		dispenser.construct(20.0),
+		Err(BuildingError::Dying)
+	));
+	world.set(world.dispenser, |entity| {
+		entity.dying = false;
+		entity.flags |= EFL_KILLME;
+	});
+	assert!(matches!(
+		dispenser.construct(20.0),
+		Err(BuildingError::MarkedForDeletion)
+	));
+	assert!(WORK.take().is_empty());
+}
+
 unsafe extern "C" fn datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
 	// SAFETY: Only fake entities have this method in their vtables.
 	unsafe { (*entity.cast::<FakeEntity>()).map }
@@ -1183,6 +1249,41 @@ fn detonating_and_destroying_refuse_buildings_being_removed() {
 		Err(BuildingError::Blueprint)
 	));
 	assert!(CALLS.take().is_empty());
+}
+
+#[test]
+fn dispenser_stock_writes_keep_nonnegative_inventory_and_refuse_deleted_entities() {
+	let world = World::new();
+	let scope = ();
+	let engine = crate::test_support::sdk_core::change_tracking_engine();
+	export(
+		Module::Engine,
+		crate::interfaces::ValveEngine::VERSION,
+		engine.as_ptr(),
+	);
+	let server = mock_server(&scope);
+	let dispenser = Dispenser::new(building(server, world.dispenser)).unwrap();
+	dispenser.set_metal(40).unwrap();
+	assert_eq!(dispenser.metal().unwrap(), 40);
+	// SAFETY: The fake edict is leaked with the world.
+	assert_ne!(
+		unsafe { (*(*world.dispenser).edict)._base.m_fStateFlags } & 1,
+		0
+	);
+	assert!(matches!(
+		dispenser.set_metal(-1),
+		Err(BuildingError::InvalidMetal(-1))
+	));
+	assert_eq!(dispenser.metal().unwrap(), 40);
+	dispenser.set_metal(0).unwrap();
+	assert_eq!(dispenser.metal().unwrap(), 0);
+	world.set(world.dispenser, |entity| entity.flags |= EFL_KILLME);
+	assert!(matches!(
+		dispenser.set_metal(400),
+		Err(BuildingError::MarkedForDeletion)
+	));
+	// SAFETY: The fake object is leaked and remains allocated after marking.
+	assert_eq!(unsafe { (*world.dispenser).metal }, 0);
 }
 
 unsafe extern "C" fn edict(this: *const sys::IServerNetworkable) -> *mut sys::edict_t {
