@@ -83,6 +83,7 @@ impl Sink for LogQueue {
 		// queue's byte bound through unused allocation capacity.
 		let record = OwnedRecord {
 			level: record.level,
+			prefix_bytes: record.prefix_bytes,
 			text: record.text.into_boxed_str().into_string(),
 		};
 		state.bytes += record.text.len();

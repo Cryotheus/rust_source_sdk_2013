@@ -36,8 +36,10 @@
 //! ```
 //!
 //! Metamod's log sink can replicate to destinations without a verified terminal
-//! identity. Keep those records plain. Pretty console output is for an independently
-//! routed console sink; stdout capability is not an RCON client's capability.
+//! identity. Keep ANSI out of those strings. The native renderer retains readable
+//! metadata while passing RGB colors separately to Source's console API. ANSI
+//! console output requires an independently routed sink; stdout capability is
+//! not an RCON client's capability.
 
 pub mod queue;
 
@@ -86,6 +88,18 @@ impl<S> Logger<S> {
 		}
 	}
 
+	/// Creates ANSI-free level/target metadata for Source's native console colors.
+	/// The owned prefix boundary survives worker queueing. Native sinks can color
+	/// it without placing terminal escapes in replicated strings or file logs.
+	#[cfg(feature = "logger_pretty")]
+	pub const fn pretty_native(sink: S, max_level: LevelFilter, root_target: &'static str) -> Self {
+		Self {
+			sink,
+			max_level,
+			rendering: Rendering::Native(root_target),
+		}
+	}
+
 	/// Returns the host-owned sink, for example to inspect or drain a queue.
 	pub const fn sink(&self) -> &S {
 		&self.sink
@@ -106,14 +120,18 @@ impl<S: Sink> Log for Logger<S> {
 			return;
 		}
 
-		let text = match &self.rendering {
-			Rendering::Plain => record.args().to_string(),
+		let (text, prefix_bytes) = match &self.rendering {
+			Rendering::Plain => (record.args().to_string(), 0),
 
 			#[cfg(feature = "logger_pretty")]
-			Rendering::Pretty(options) => options.render(record),
+			Rendering::Pretty(options) => (options.render(record), 0),
+
+			#[cfg(feature = "logger_pretty")]
+			Rendering::Native(root_target) => pretty::render_native(record, root_target),
 		};
 		self.sink.write(OwnedRecord {
 			level: record.level(),
+			prefix_bytes,
 			text,
 		});
 	}
@@ -127,6 +145,9 @@ pub struct OwnedRecord {
 	pub level: Level,
 	/// Rendered text, without an automatically appended newline.
 	pub text: String,
+	/// UTF-8 bytes of an ANSI-free pretty prefix, or zero for a plain record.
+	/// Native console sinks use this boundary without parsing custom targets.
+	pub prefix_bytes: usize,
 }
 
 impl OwnedRecord {
@@ -143,6 +164,8 @@ enum Rendering {
 	Plain,
 	#[cfg(feature = "logger_pretty")]
 	Pretty(pretty::PrettyOptions),
+	#[cfg(feature = "logger_pretty")]
+	Native(&'static str),
 }
 
 /// A host-provided Rust destination safe to invoke from every logging thread.
