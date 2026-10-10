@@ -29,7 +29,7 @@ const INSTANCE_OFFSET: usize = 72;
 
 /// The native members the mock entities' script class declares: each one's
 /// name and parameter types. All return nothing, and others are missing.
-const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 14] = [
+const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 15] = [
 	(c"AddSolidFlags", &[INT]),
 	(c"ApplyAbsVelocityImpulse", &[VECTOR]),
 	(c"ApplyLocalAngularVelocityImpulse", &[VECTOR]),
@@ -38,6 +38,7 @@ const MEMBERS: [(&CStr, &[sys::ScriptDataType_t]); 14] = [
 	(c"SetAbsOrigin", &[VECTOR]),
 	(c"SetAbsVelocity", &[VECTOR]),
 	(c"SetCollisionGroup", &[INT]),
+	(c"SetLocalAngles", &[QANGLE]),
 	(c"SetPhysAngularVelocity", &[VECTOR]),
 	(c"SetPhysVelocity", &[VECTOR]),
 	(c"SetSize", &[VECTOR, VECTOR]),
@@ -68,6 +69,55 @@ thread_local! {
 
 	/// Each call of a native member, in order.
 	static CALLS: RefCell<Vec<Call>> = const { RefCell::new(Vec::new()) };
+}
+
+#[test]
+fn attachment_relative_angles_are_copied_and_nonfinite_angles_are_refused() {
+	let mut mock = MockEntity::new(1);
+	let object = mock.as_ptr().cast::<c_void>();
+	set_maps();
+	describe();
+	let scope = ();
+	let server = mock_server(&scope);
+	let entity = TfEntity::new(server, mock.entity()).unwrap();
+	entity
+		.set_local_angles(QAngle {
+			pitch: 0.0,
+			yaw: 90.0,
+			roll: 0.0,
+		})
+		.unwrap();
+	assert_eq!(
+		CALLS.take(),
+		[(
+			object,
+			c"SetLocalAngles".to_owned(),
+			vec![Argument::Angles([0.0, 90.0, 0.0])]
+		)]
+	);
+	for angles in [
+		QAngle {
+			pitch: f32::NAN,
+			yaw: 0.0,
+			roll: 0.0,
+		},
+		QAngle {
+			pitch: 0.0,
+			yaw: f32::INFINITY,
+			roll: 0.0,
+		},
+		QAngle {
+			pitch: 0.0,
+			yaw: 0.0,
+			roll: f32::NEG_INFINITY,
+		},
+	] {
+		assert!(matches!(
+			entity.set_local_angles(angles),
+			Err(TfEntityError::NonFinite)
+		));
+	}
+	assert!(CALLS.take().is_empty());
 }
 
 #[test]
@@ -543,6 +593,48 @@ fn set_maps() {
 /// The names of the members called since the last call of this, in order.
 fn take_names() -> Vec<CString> {
 	CALLS.take().into_iter().map(|(_, name, _)| name).collect()
+}
+
+#[test]
+fn transform_refresh_uses_native_virtual_and_refuses_deleted_entities() {
+	thread_local! { static REFRESHES: Cell<usize> = const { Cell::new(0) }; }
+	unsafe extern "C" fn refresh(
+		_object: *const sys::CBaseEntity,
+		forward: *mut sys::Vector,
+		right: *mut sys::Vector,
+		up: *mut sys::Vector,
+	) {
+		assert!(forward.is_null() && right.is_null() && up.is_null());
+		REFRESHES.set(REFRESHES.get() + 1);
+	}
+	let mut mock = MockEntity::new(1);
+	let slot = sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_GetVectors);
+	// SAFETY: MockEntity allocates this many initialized function-pointer
+	// slots. Copy into a larger owned mock table before adding GetVectors.
+	unsafe {
+		let object = mock.as_ptr().cast::<*const *const ()>();
+		let mut vtable =
+			std::slice::from_raw_parts(object.read(), MockEntity::vtable_slots()).to_vec();
+		vtable.resize(vtable.len().max(slot + 1), refresh as *const ());
+		vtable[slot] = refresh as *const ();
+		object.write(vtable.leak().as_ptr());
+	}
+	set_maps();
+	let scope = ();
+	let server = mock_server(&scope);
+	TfEntity::new(server, mock.entity())
+		.unwrap()
+		.refresh_transform()
+		.unwrap();
+	assert_eq!(REFRESHES.get(), 1);
+	mock.set_eflags(EFL_KILLME);
+	assert_eq!(
+		TfEntity::new(server, mock.entity())
+			.unwrap()
+			.refresh_transform(),
+		Err(TfEntityError::MarkedForDeletion)
+	);
+	assert_eq!(REFRESHES.get(), 1);
 }
 
 #[test]
