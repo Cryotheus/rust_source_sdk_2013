@@ -27,6 +27,15 @@ and message-only output. `logger_pretty` adds console level/target formatting
 and the existing severity palette. The plain logger has no styling dependency.
 Neither feature installs a global logger or retains engine state.
 
+`Logger::pretty_native` renders ANSI-free level/target metadata and retains an
+owned prefix boundary for native console sinks. `pretty::write_native` emits
+foreground RGB separately from text, keeping custom UTF-8 targets intact;
+combine its callback with `Server::console_color_print` during a main-thread
+callback. Source's `ConColorMsg` API supports foreground colors but not the
+historical error tag's background. Engine windows choose their presentation.
+File logs and replicated output can keep the same metadata without terminal
+escape sequences. Plain `Logger::new` still emits message text only.
+
 Use `logger::queue::LogQueue` for worker messages. It limits retained records and
 UTF-8 text bytes, rejects new records on overflow, and exposes drop counts.
 Draining takes an owned batch and releases the lock before forwarding. The host
@@ -36,9 +45,10 @@ and global forwarding state before unloading. Close each load's queue and create
 a new one for the next generation; closing does not make unloadable global logger
 references safe. See the module's callback forwarding example.
 
-Pretty output needs an independently routed console destination. Unknown,
-replicated engine, file and RCON destinations stay message-only, even when the
-console override is `always`. Console precedence is explicit `always`/`never`,
+The ANSI `Logger::pretty` renderer needs an independently routed console
+destination. Its unknown, replicated engine, file and RCON destinations stay
+message-only, even when the console override is `always`. Native RGB requests
+are separate from text and do not require ANSI capability. Console precedence is explicit `always`/`never`,
 then presence of `NO_COLOR`, presence of `CLICOLOR_FORCE`, `CLICOLOR` zero/nonzero,
 then supplied Windows VT-enabled or Unix TTY state. Presence includes empty
 values and `CLICOLOR_FORCE=0`, following this policy literally. Inputs are

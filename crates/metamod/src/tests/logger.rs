@@ -42,6 +42,7 @@ unsafe extern "C" fn capture(
 	REENTER.with(|queue| {
 		if let Some(queue) = queue.borrow().as_ref() {
 			queue.write(OwnedRecord {
+				prefix_bytes: 0,
 				level: Level::Info,
 				text: "during native callback".into(),
 			});
@@ -53,11 +54,13 @@ unsafe extern "C" fn capture(
 fn closing_old_queue_rejects_late_workers_and_new_load_is_independent() {
 	let old = queue::LogQueue::new(8, 1024);
 	old.write(OwnedRecord {
+		prefix_bytes: 0,
 		level: Level::Info,
 		text: "old pending".into(),
 	});
 	assert_eq!(old.close().front().unwrap().text, "old pending");
 	old.write(OwnedRecord {
+		prefix_bytes: 0,
 		level: Level::Info,
 		text: "late old worker".into(),
 	});
@@ -72,6 +75,7 @@ fn closing_old_queue_rejects_late_workers_and_new_load_is_independent() {
 	);
 	let new = queue::LogQueue::new(8, 1024);
 	new.write(OwnedRecord {
+		prefix_bytes: 0,
 		level: Level::Info,
 		text: "new callback".into(),
 	});
@@ -212,15 +216,197 @@ fn forced_console_palette_is_independent_of_style_globals_and_resets_after_messa
 	}
 }
 
+#[cfg(feature = "logger_pretty")]
+#[test]
+fn malformed_native_boundaries_fall_back_without_panicking_or_inserting_ansi() {
+	use super::pretty::write_native;
+	for (text, prefix_bytes) in [
+		("[INFO] café", 0),
+		("[INFO] café", usize::MAX),
+		("[INFO] café", 11),
+		("[WARN] message", 7),
+		("arbitrary", 9),
+	] {
+		let record = OwnedRecord {
+			level: Level::Info,
+			prefix_bytes,
+			text: text.to_owned(),
+		};
+		let mut parts = Vec::new();
+		write_native(&record, "Sample", true, |color, text| {
+			parts.push((color, text.to_owned()))
+		});
+		assert_eq!(parts, [(None, format!("[Sample] {text}\n"))]);
+	}
+}
+
+#[cfg(feature = "logger_pretty")]
+#[test]
+fn native_color_policy_preserves_environment_precedence_without_ansi_capability() {
+	use super::pretty::{ColorEnvironment, ColorMode, native_color_enabled};
+	assert!(native_color_enabled(
+		ColorMode::Auto,
+		ColorEnvironment::default()
+	));
+	assert!(!native_color_enabled(
+		ColorMode::Never,
+		ColorEnvironment {
+			clicolor_force: true,
+			..Default::default()
+		}
+	));
+	assert!(native_color_enabled(
+		ColorMode::Always,
+		ColorEnvironment {
+			no_color: true,
+			..Default::default()
+		}
+	));
+	assert!(!native_color_enabled(
+		ColorMode::Auto,
+		ColorEnvironment {
+			no_color: true,
+			clicolor_force: true,
+			clicolor: Some(true)
+		}
+	));
+	assert!(native_color_enabled(
+		ColorMode::Auto,
+		ColorEnvironment {
+			clicolor_force: true,
+			clicolor: Some(false),
+			..Default::default()
+		}
+	));
+	assert!(!native_color_enabled(
+		ColorMode::Auto,
+		ColorEnvironment {
+			clicolor: Some(false),
+			..Default::default()
+		}
+	));
+}
+
 #[test]
 fn native_conversion_rejects_nul_instead_of_truncating_or_panicking() {
 	let record = OwnedRecord {
+		prefix_bytes: 0,
 		level: Level::Warn,
 		text: "first\0second".into(),
 	};
 	let error = record.into_c_string().unwrap_err();
 	assert_eq!(error.nul_position(), 5);
 	assert_eq!(error.into_vec(), b"first\0second");
+}
+
+#[cfg(feature = "logger_pretty")]
+#[test]
+fn native_metadata_survives_queueing_and_custom_target_delimiters() {
+	use super::pretty::{ConsoleColor, write_native};
+	let logger = Logger::pretty_native(queue::LogQueue::new(8, 1024), LevelFilter::Trace, "sample");
+	for (target, tag) in [
+		("sample", ""),
+		("sample::worker", " worker"),
+		("foreign", " ::foreign"),
+		("sampleish", " ::sampleish"),
+		("sample::雪] target", " 雪] target"),
+	] {
+		logger.log(
+			&Record::builder()
+				.level(Level::Debug)
+				.target(target)
+				.args(format_args!("message ] 100% Ω"))
+				.build(),
+		);
+		let record = logger.sink().drain().pop_front().unwrap();
+		let prefix = format!("[DEBUG{tag}] ");
+		assert_eq!(record.prefix_bytes, prefix.len());
+		assert_eq!(record.text, format!("{prefix}message ] 100% Ω"));
+		let mut pieces = Vec::new();
+		write_native(&record, "Sample", true, |color, text| {
+			pieces.push((color, text.to_owned()))
+		});
+		assert_eq!(
+			pieces
+				.iter()
+				.map(|(_, text)| text.as_str())
+				.collect::<String>(),
+			format!("[Sample] {prefix}message ] 100% Ω\n")
+		);
+		assert_eq!(
+			pieces.iter().map(|(color, _)| *color).collect::<Vec<_>>(),
+			[
+				Some(ConsoleColor(128, 128, 128)),
+				Some(ConsoleColor(192, 192, 192)),
+				Some(ConsoleColor(128, 128, 128)),
+				Some(ConsoleColor(128, 128, 128))
+			]
+		);
+		assert!(pieces.iter().all(|(_, text)| !text.contains('\u{1b}')));
+	}
+}
+
+#[cfg(feature = "logger_pretty")]
+#[test]
+fn native_palette_matches_historical_foregrounds_at_every_level() {
+	use super::pretty::{ConsoleColor, write_native};
+	let logger = Logger::pretty_native(queue::LogQueue::new(8, 1024), LevelFilter::Trace, "sample");
+	for (level, expected) in [
+		(
+			Level::Error,
+			[
+				ConsoleColor(255, 255, 255),
+				ConsoleColor(255, 255, 255),
+				ConsoleColor(255, 0, 0),
+			],
+		),
+		(
+			Level::Warn,
+			[
+				ConsoleColor(128, 128, 0),
+				ConsoleColor(128, 128, 0),
+				ConsoleColor(255, 255, 0),
+			],
+		),
+		(
+			Level::Info,
+			[
+				ConsoleColor(0, 0, 255),
+				ConsoleColor(0, 0, 255),
+				ConsoleColor(192, 192, 192),
+			],
+		),
+		(
+			Level::Debug,
+			[
+				ConsoleColor(192, 192, 192),
+				ConsoleColor(128, 128, 128),
+				ConsoleColor(128, 128, 128),
+			],
+		),
+		(
+			Level::Trace,
+			[
+				ConsoleColor(128, 128, 128),
+				ConsoleColor(128, 128, 128),
+				ConsoleColor(128, 128, 128),
+			],
+		),
+	] {
+		logger.log(
+			&Record::builder()
+				.level(level)
+				.target("sample")
+				.args(format_args!("literal % text"))
+				.build(),
+		);
+		let record = logger.sink().drain().pop_front().unwrap();
+		let mut colors = Vec::new();
+		write_native(&record, "Sample", true, |color, _| {
+			colors.push(color.unwrap())
+		});
+		assert_eq!(colors, [expected[1], expected[0], expected[1], expected[2]]);
+	}
 }
 
 #[test]
@@ -416,6 +602,7 @@ fn queue_limits_bound_utf8_bytes_and_count_without_losing_accepted_order() {
 	let queue = queue::LogQueue::new(3, 4);
 	for text in ["é", "é", "x"] {
 		queue.write(OwnedRecord {
+			prefix_bytes: 0,
 			level: Level::Info,
 			text: text.into(),
 		});
@@ -438,12 +625,14 @@ fn queue_limits_bound_utf8_bytes_and_count_without_losing_accepted_order() {
 		["é", "é"]
 	);
 	queue.write(OwnedRecord {
+		prefix_bytes: 0,
 		level: Level::Warn,
 		text: "longer".into(),
 	});
 	assert_eq!(queue.stats().dropped, 2);
 	for text in ["", "", "", ""] {
 		queue.write(OwnedRecord {
+			prefix_bytes: 0,
 			level: Level::Info,
 			text: text.into(),
 		});
@@ -517,6 +706,7 @@ fn short_message_cannot_retain_an_oversized_string_reservation() {
 	let mut text = String::with_capacity(65536);
 	text.push('x');
 	queue.write(OwnedRecord {
+		prefix_bytes: 0,
 		level: Level::Info,
 		text,
 	});
@@ -530,6 +720,7 @@ fn zero_limits_reject_even_empty_records() {
 	for (max_records, max_bytes) in [(0, 1024), (8, 0), (0, 0)] {
 		let queue = queue::LogQueue::new(max_records, max_bytes);
 		queue.write(OwnedRecord {
+			prefix_bytes: 0,
 			level: Level::Info,
 			text: String::new(),
 		});

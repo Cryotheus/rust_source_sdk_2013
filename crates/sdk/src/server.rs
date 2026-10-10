@@ -379,6 +379,18 @@ impl<'s> Server<'s> {
 	pub fn voice_server(&self) -> Result<VoiceServer<'s>, InterfaceError> {
 		self.interface()
 	}
+
+	/// Prints a foreground-colored console message through tier0. Color travels
+	/// separately from the text; replicated/RCON strings contain no ANSI escapes.
+	/// Engine windows may choose their own presentation of the requested color.
+	/// Falls back to ordinary console output when tier0 lacks `ConColorMsg`.
+	#[doc(alias("ConColorMsg"))]
+	pub fn console_color_print(&self, color: sdk_raw::tier0::SpewColor, message: &CStr) {
+		// SAFETY: Server's callback/main-thread contract keeps tier0 live here.
+		if !unsafe { sdk_raw::tier0::color_print(color, message) } {
+			self.console_print(message);
+		}
+	}
 }
 
 #[cfg(test)]
