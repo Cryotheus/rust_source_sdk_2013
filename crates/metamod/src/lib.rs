@@ -77,13 +77,13 @@ pub mod damage_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod death_hooks;
 
-#[cfg(feature = "tf2")]
-#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
-pub mod duel_hooks;
-
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod delivery_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod duel_hooks;
 
 #[cfg(feature = "sdk")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
@@ -116,6 +116,9 @@ pub mod logger;
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod max_health_hooks;
+
+#[cfg(feature = "tf2")]
+pub mod melee_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
@@ -172,17 +175,13 @@ mod server_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod sound_hooks;
 
-#[cfg(feature = "sdk")]
-#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
-pub mod tag_hooks;
-
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod spawn_hooks;
 
-#[cfg(feature = "tf2")]
-#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
-pub mod touch_hooks;
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod tag_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
@@ -192,13 +191,17 @@ pub mod team_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod temp_entity_hooks;
 
-#[cfg(feature = "sdk")]
-#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
-pub mod transmit_hooks;
-
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod think_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod touch_hooks;
+
+#[cfg(feature = "sdk")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
+pub mod transmit_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
