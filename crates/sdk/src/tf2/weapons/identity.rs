@@ -524,6 +524,9 @@ impl ItemDefinitionIndex {
 	/// The Dragon's Fury, the Pyro's flame thrower that fires fireballs.
 	pub const DRAGONS_FURY: Self = Self(1178);
 
+	/// The Fists of Steel, the Heavy's defensive fists.
+	pub const FISTS_OF_STEEL: Self = Self(331);
+
 	/// The Homewrecker, the Pyro's fire axe that removes sappers.
 	pub const HOMEWRECKER: Self = Self(153);
 
