@@ -118,6 +118,9 @@ pub mod logger;
 pub mod max_health_hooks;
 
 #[cfg(feature = "tf2")]
+pub mod melee_hooks;
+
+#[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod observer_hooks;
 
