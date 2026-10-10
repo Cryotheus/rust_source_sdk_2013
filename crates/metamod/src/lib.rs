@@ -16,6 +16,8 @@
 mod api;
 mod context;
 pub mod hook;
+#[cfg(feature = "tf2")]
+pub mod input_hooks;
 mod plugin;
 mod plugins;
 
