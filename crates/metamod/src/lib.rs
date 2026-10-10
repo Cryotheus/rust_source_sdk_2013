@@ -79,6 +79,10 @@ pub mod death_hooks;
 
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
+pub mod dispenser_hooks;
+
+#[cfg(feature = "tf2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod duel_hooks;
 
 #[cfg(feature = "sdk")]
