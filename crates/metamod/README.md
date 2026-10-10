@@ -24,8 +24,8 @@ ordinary plugin builds still require both external checkouts.
 
 `logger` provides a direct `log::Log` implementation with an injected Rust sink
 and message-only output. `logger_pretty` adds console level/target formatting
-and the existing severity palette; it has no styling dependency. Neither feature
-installs a global logger or retains engine state.
+and the existing severity palette. The plain logger has no styling dependency.
+Neither feature installs a global logger or retains engine state.
 
 Use `logger::queue::LogQueue` for worker messages. It limits retained records and
 UTF-8 text bytes, rejects new records on overflow, and exposes drop counts.
