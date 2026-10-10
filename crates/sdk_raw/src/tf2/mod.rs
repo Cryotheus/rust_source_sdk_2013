@@ -33,6 +33,7 @@ pub mod god;
 pub mod host_timescale;
 pub mod item_generation;
 pub mod item_schema;
+pub mod melee;
 pub mod nav;
 pub mod next_bot;
 pub mod objectives;
