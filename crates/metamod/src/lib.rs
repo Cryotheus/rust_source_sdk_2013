@@ -109,6 +109,10 @@ pub mod give_item_hooks;
 #[cfg_attr(docsrs, doc(cfg(feature = "sdk")))]
 pub mod key_values_hooks;
 
+#[cfg(feature = "logger")]
+#[cfg_attr(docsrs, doc(cfg(feature = "logger")))]
+pub mod logger;
+
 #[cfg(feature = "tf2")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tf2")))]
 pub mod max_health_hooks;

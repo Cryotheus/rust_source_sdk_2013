@@ -13,13 +13,19 @@ categories = ["api-bindings"]
 keywords = ["gamedev", "source-engine", "metamod"]
 
 [features]
+## Reusable message-only logger and bounded owned-record queue; no global installation.
+logger = ["dep:log"]
+## Destination-aware pretty console rendering, with injected color policy.
+logger_pretty = ["logger", "dep:anstyle"]
 ## Console commands and hooks for `source_sdk_2013`.
 sdk = ["dep:source_sdk_2013"]
 ## TF2's entity, player, weapon, round, game and chat hooks, through `source_sdk_2013`'s `tf2` module.
 tf2 = ["sdk", "source_sdk_2013/tf2"]
 
 [dependencies]
+anstyle = { version = "1.0.14", default-features = false, optional = true }
 crys_bricks.workspace = true
+log = { workspace = true, optional = true }
 source_sdk_2013 = { path = "../sdk", version = "0.1.0-alpha.8", optional = true }
 sys = { path = "../metamod_sys", version = "0.1.0-alpha.8", package = "metamod_source_sys" }
 thiserror.workspace = true

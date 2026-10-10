@@ -20,6 +20,35 @@ Omit `tf2` for the core API, or select `sdk` for game-independent SDK hooks.
 docs.rs builds document the Rust API without compiling the native shells;
 ordinary plugin builds still require both external checkouts.
 
+## Optional Logging
+
+`logger` provides a direct `log::Log` implementation with an injected Rust sink
+and message-only output. `logger_pretty` adds console level/target formatting
+and the existing severity palette; it has no styling dependency. Neither feature
+installs a global logger or retains engine state.
+
+Use `logger::queue::LogQueue` for worker messages. It limits retained records and
+UTF-8 text bytes, rejects new records on overflow, and exposes drop counts.
+Draining takes an owned batch and releases the lock before forwarding. The host
+must drain through a current main-thread callback, reject interior NULs before
+calling `MetamodApi::log_cstr`, restore its own callback TLS, and join/retire worker
+and global forwarding state before unloading. Close each load's queue and create
+a new one for the next generation; closing does not make unloadable global logger
+references safe. See the module's callback forwarding example.
+
+Pretty output needs an independently routed console destination. Unknown,
+replicated engine, file and RCON destinations stay message-only, even when the
+console override is `always`. Console precedence is explicit `always`/`never`,
+then presence of `NO_COLOR`, presence of `CLICOLOR_FORCE`, `CLICOLOR` zero/nonzero,
+then supplied Windows VT-enabled or Unix TTY state. Presence includes empty
+values and `CLICOLOR_FORCE=0`, following this policy literally. Inputs are
+injected; rendering does not read or change process environment or console modes.
+The optional `anstyle` dependency renders the indexed severity palette and ANSI
+resets identically on Windows and Unix; it has no terminal detection or shared
+color policy. The plain `logger` feature does not depend on this color library.
+Per-RCON socket identity, response routing and a client policy command are not
+provided by this first logging foundation.
+
 # License
 
 For Valve's Source SDK 2013, see the [SOURCE 1 SDK LICENSE](https://github.com/ValveSoftware/source-sdk-2013/blob/master/LICENSE).
