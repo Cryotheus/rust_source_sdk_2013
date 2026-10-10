@@ -38,6 +38,11 @@ pub enum ColorMode {
 	Always,
 }
 
+/// Foreground RGB sent separately from console text. Native Source colors
+/// cannot express the historical error tag's red background.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConsoleColor(pub u8, pub u8, pub u8);
+
 /// Identity of a separately routed output destination.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
@@ -136,6 +141,58 @@ pub enum TerminalColor {
 	Unknown,
 }
 
+/// Determines native console styling without requiring ANSI/VT support.
+/// Explicit overrides and the original environment precedence still apply.
+pub fn native_color_enabled(mode: ColorMode, environment: ColorEnvironment) -> bool {
+	match mode {
+		ColorMode::Never => false,
+		ColorMode::Always => true,
+		ColorMode::Auto if environment.no_color => false,
+		ColorMode::Auto if environment.clicolor_force => true,
+		ColorMode::Auto => environment.clicolor.unwrap_or(true),
+	}
+}
+
+fn native_palette(level: Level) -> (ConsoleColor, ConsoleColor, ConsoleColor) {
+	let grey = ConsoleColor(192, 192, 192);
+	let dark_grey = ConsoleColor(128, 128, 128);
+	match level {
+		Level::Error => (
+			ConsoleColor(255, 255, 255),
+			ConsoleColor(255, 255, 255),
+			ConsoleColor(255, 0, 0),
+		),
+
+		Level::Warn => (
+			ConsoleColor(128, 128, 0),
+			ConsoleColor(128, 128, 0),
+			ConsoleColor(255, 255, 0),
+		),
+
+		Level::Info => (ConsoleColor(0, 0, 255), ConsoleColor(0, 0, 255), grey),
+		Level::Debug => (grey, dark_grey, dark_grey),
+		Level::Trace => (dark_grey, dark_grey, dark_grey),
+	}
+}
+
+/// Renders owned native-console metadata while retaining its exact boundary.
+/// Targets equal to the plugin root are omitted, descendants are shortened,
+/// and foreign targets retain the historical leading `::`.
+pub(super) fn render_native(record: &Record<'_>, root_target: &str) -> (String, usize) {
+	let target = record.target();
+	let tag = if target == root_target {
+		String::new()
+	} else if let Some(local) = target.strip_prefix(&format!("{root_target}::")) {
+		format!(" {local}")
+	} else {
+		format!(" ::{target}")
+	};
+	let mut text = format!("[{}{tag}] ", record.level());
+	let prefix_bytes = text.len();
+	text.push_str(&record.args().to_string());
+	(text, prefix_bytes)
+}
+
 // Fixed indexed equivalents of the console's existing severity palette.
 // The caller has already selected a known console and enabled styling.
 fn styles(level: Level) -> (Style, Style, Style) {
@@ -152,4 +209,41 @@ fn styles(level: Level) -> (Style, Style, Style) {
 		Level::Debug => (foreground(7), foreground(8), foreground(8)),
 		Level::Trace => (foreground(8), foreground(8), foreground(8)),
 	}
+}
+
+/// Emits a native-console record as colored text fragments, followed by one
+/// newline. All colors are out-of-band; concatenating the fragments gives the
+/// exact ANSI-free line for capture/RCON. Call the supplied writer only within
+/// a valid main-thread engine callback and outside the worker queue lock.
+/// Malformed public prefix boundaries fall back to one uncolored fragment.
+pub fn write_native(
+	record: &super::OwnedRecord,
+	plugin_tag: &str,
+	colored: bool,
+	mut write: impl FnMut(Option<ConsoleColor>, &str),
+) {
+	let prefix = format!("[{plugin_tag}] ");
+	let level = record.level.to_string();
+	let valid = record.prefix_bytes >= level.len() + 3
+		&& record.text.is_char_boundary(record.prefix_bytes)
+		&& record.text.starts_with(&format!("[{level}"))
+		&& record
+			.text
+			.get(record.prefix_bytes.saturating_sub(2)..record.prefix_bytes)
+			== Some("] ");
+	if !colored || !valid {
+		write(None, &format!("{prefix}{}\n", record.text));
+		return;
+	}
+	let (level_color, tag_color, message_color) = native_palette(record.level);
+	write(Some(tag_color), &format!("{prefix}["));
+	write(Some(level_color), &record.text[1..1 + level.len()]);
+	write(
+		Some(tag_color),
+		&record.text[1 + level.len()..record.prefix_bytes],
+	);
+	write(
+		Some(message_color),
+		&format!("{}\n", &record.text[record.prefix_bytes..]),
+	);
 }

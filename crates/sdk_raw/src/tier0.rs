@@ -10,6 +10,12 @@ use crate::util::loaded_symbol;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::sync::OnceLock;
 
+/// tier0's exported C `ConColorMsg`: level, pointer to the four-byte `Color`,
+/// then a printf format. The C++ color reference has pointer representation.
+#[doc(alias("ConColorMsg"))]
+pub type ConColorMsgFn =
+	unsafe extern "C" fn(level: c_int, color: *const SpewColor, format: *const c_char, ...);
+
 /// `Msg` from `public/tier0/dbg.h`, which tier0 exports with C linkage, and
 /// which prints a `printf`-style format and its arguments to the console.
 #[doc(alias("Msg"))]
@@ -131,6 +137,48 @@ impl SpewType {
 
 	/// `SPEW_WARNING`: a warning, such as `Warning`'s and `DevWarning`'s.
 	pub const WARNING: Self = Self(1);
+}
+
+/// Prints an ordinary console message with an out-of-band foreground color.
+/// No ANSI bytes are added to text received by console capture or RCON.
+/// Returns false without printing when tier0 has no colored console export.
+///
+/// # Safety
+/// The running Source engine's tier0 must remain loaded, and this call must
+/// run on a thread on which console output is valid, normally its main thread.
+pub unsafe fn color_print(color: SpewColor, message: &CStr) -> bool {
+	let Some(function) = con_color_msg() else {
+		return false;
+	};
+	// SAFETY: The resolved export has this ABI; the caller supplies its scope.
+	unsafe { color_print_through(function, color, message) };
+	true
+}
+
+/// Prints literal text through the level-taking `ConColorMsg` ABI at level 0,
+/// so console-group filtering does not hide logger records. This is message
+/// output, never a fatal-error or assertion spew.
+///
+/// # Safety
+/// `function` must have tier0's `ConColorMsg` contract and be callable here.
+pub unsafe fn color_print_through(function: ConColorMsgFn, color: SpewColor, message: &CStr) {
+	// SAFETY: This fixed format consumes precisely the one supplied C string.
+	unsafe { function(0, &color, c"%s".as_ptr(), message.as_ptr()) };
+}
+
+/// Resolves the level-taking C export, not the C++ overload.
+pub fn con_color_msg() -> Option<ConColorMsgFn> {
+	static FUNCTION: OnceLock<Option<ConColorMsgFn>> = OnceLock::new();
+	*FUNCTION.get_or_init(|| {
+		if cfg!(miri) {
+			return None;
+		}
+		let address = LIBRARIES
+			.iter()
+			.find_map(|library| loaded_symbol(library, c"ConColorMsg"))?;
+		// SAFETY: public/tier0/dbg.h declares this C export with this signature.
+		Some(unsafe { std::mem::transmute::<*mut c_void, ConColorMsgFn>(address.as_ptr()) })
+	})
 }
 
 /// Looks up `Msg` in the tier0 library the process has already loaded.
