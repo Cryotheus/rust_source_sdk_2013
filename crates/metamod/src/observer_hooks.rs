@@ -1,9 +1,10 @@
 //! TF2 observer mode hooks, which run after the game's
-//! `CTFPlayer::SetObserverMode` turned a player's roaming into first person.
+//! `CTFPlayer::SetObserverMode` turned a player's roaming into first person
+//! or a map-camera chase view.
 //!
 //! TF2 lets only spectators roam: when a player on a team asks to roam, as
 //! cycling through the observer modes with the jump key does, the game follows
-//! a teammate in first person instead (see
+//! a teammate in first person or a non-player target in chase view instead (see
 //! [`source_sdk_2013::tf2::observer`]). The hook's callback may then let the
 //! player roam anyway, with
 //! [`PlayerObserver::roam`](source_sdk_2013::tf2::observer::PlayerObserver::roam).
@@ -24,10 +25,10 @@ use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
-use source_sdk_2013::entities::Entity;
+use source_sdk_2013::entities::{Entity, EntityHandle};
 
 use source_sdk_2013::raw::tf2::observer::{
-	OBS_MODE_IN_EYE, OBS_MODE_POI, OBS_MODE_ROAMING, SET_OBSERVER_MODE_SLOT,
+	OBS_MODE_CHASE, OBS_MODE_IN_EYE, OBS_MODE_POI, OBS_MODE_ROAMING, SET_OBSERVER_MODE_SLOT,
 	SetObserverModeFn as SetObserverMode,
 };
 
@@ -39,8 +40,8 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 
 /// A callback-scoped server and a player whom the game just put in first
-/// person when they asked to roam. A panic is contained by the hook
-/// dispatcher.
+/// person, or chase view of a non-player target, when they asked to roam.
+/// A panic is contained by the hook dispatcher.
 pub type RoamingRefusedFn = for<'s> fn(Server<'s>, Entity<'s>);
 
 /// `SetObserverMode` in a TF2 player's primary vtable.
@@ -101,7 +102,7 @@ impl Handler<SetObserverMode> for RoamingRoute {
 			vcall!(this as sys::CTFPlayer__bindgen_vtable => CTFPlayer_GetObserverMode())
 		};
 
-		if mode != OBS_MODE_IN_EYE {
+		if !matches!(mode, OBS_MODE_IN_EYE | OBS_MODE_CHASE) {
 			return HookAction::Ignore;
 		}
 
@@ -112,6 +113,31 @@ impl Handler<SetObserverMode> for RoamingRoute {
 		// SAFETY: The class hook supplies the live player whose method just
 		// ran, which stays in the entity list through the call.
 		let player = unsafe { Entity::from_live(server, player) };
+
+		if mode == OBS_MODE_CHASE {
+			// TF2 forces in-eye views of non-player targets, including map
+			// cameras, into chase. A chase view of another player remains the
+			// game's policy; unresolved targets are left alone.
+			let Ok(handle) = player.data_field::<EntityHandle>(c"m_hObserverTarget") else {
+				return HookAction::Ignore;
+			};
+			let Some(target) = server
+				.server_tools()
+				.ok()
+				.and_then(|tools| tools.entity_by_handle(handle))
+			else {
+				return HookAction::Ignore;
+			};
+			// SAFETY: The current handle resolved to a live CBaseEntity during
+			// this callback; IsPlayer is its generated primary-vtable method
+			// and does not delete entities or restart the round.
+			let target = target.as_ptr();
+			if unsafe {
+				vcall!(target as sys::CBaseEntity__bindgen_vtable => CBaseEntity_IsPlayer())
+			} {
+				return HookAction::Ignore;
+			}
+		}
 
 		(route.callback)(server, player);
 		HookAction::Ignore
@@ -133,9 +159,10 @@ struct RoutedRoaming {
 impl MetamodApi<'_> {
 	/// Runs `callback` after each `CTFPlayer::SetObserverMode` of a TF2 player
 	/// of this player's class that asked to roam, accepted the change, and
-	/// left the player following their target in first person: a player on a
-	/// team, whom the game does not let roam, or one whose match settings
-	/// forbid choosing a mode (`CTFPlayer::SetObserverMode`).
+	/// left the player following their target in first person, or a non-player
+	/// target in chase view: a player on a team, whom the game does not let
+	/// roam, or one whose match settings forbid choosing a mode
+	/// (`CTFPlayer::SetObserverMode`).
 	///
 	/// `player` must come from this server, and `binding` must describe the
 	/// same running server. Returns a removable hook ID. Install on each

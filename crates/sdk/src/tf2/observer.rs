@@ -19,15 +19,15 @@
 //!
 //! [`PlayerObserver::roam`] lets such a player roam anyway, as the game lets a
 //! spectator. `metamod_source`'s `observer_hooks` call it for the players a
-//! plugin chooses, each time the game turns their roaming into first person.
+//! plugin chooses, each time the game turns their roaming into first person
+//! or a map-camera chase view.
 //!
 //! [`sdk_raw::tf2::observer`] holds the observer modes' values, and the vtable
 //! slots of the player's observer methods.
 //!
-//! # Unverified
-//!
-//! The slots agree with SourceMod's TF2 gamedata around them, but no running
-//! server has roamed a player on a team yet.
+//! The game declares `m_bForcedObserverMode` in `CBasePlayer`'s datamap.
+//! Clearing it avoids `CheckObserverSettings` restoring a forced chase view
+//! after `ValidateCurrentObserverTarget` rejected a map camera in first person.
 
 #[cfg(test)]
 #[path = "../tests/tf2/observer.rs"]
@@ -35,6 +35,7 @@ mod tests;
 
 use crate::datatables::{NetProp, NetPropError};
 use crate::entities::Entity;
+use crate::entities::fields::FieldError;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::observer as raw;
 use sdk_raw::vcall;
@@ -52,6 +53,10 @@ pub(crate) const VIEW_OFFSET: [&CStr; 3] = [
 /// Why an observer operation failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ObserverError {
+	/// A datamap variable could not be read or written.
+	#[error(transparent)]
+	Field(#[from] FieldError),
+
 	/// A required engine interface is unavailable.
 	#[error(transparent)]
 	Interface(#[from] InterfaceError),
@@ -194,7 +199,10 @@ impl<'s> PlayerObserver<'s> {
 	/// player who spectates in any mode following a target, or from a fixed
 	/// position, to [`ObserverMode::Roaming`], and moves them behind their
 	/// target, if any, as the game does (`CBasePlayer::SetObserverTarget`).
-	/// A player already roaming is left alone.
+	/// A player already roaming keeps their position and view offset.
+	/// The game's forced-mode flag (`m_bForcedObserverMode`) is cleared so
+	/// its next observer-settings check
+	/// does not return the player to the mode forced by a map camera.
 	///
 	/// This is meant for players on a team, whom the game itself never lets
 	/// roam. They roam until the game changes their mode again, as it does
@@ -205,14 +213,24 @@ impl<'s> PlayerObserver<'s> {
 	/// spectating, or still watches the death or freeze cam that follows a
 	/// death, and with [`ObserverError::MarkedForDeletion`] for a player
 	/// marked for deletion. Nothing is changed unless every networked
-	/// variable it writes resolves.
+	/// variable it writes resolves and the datamap declares the forced-mode
+	/// flag as a boolean.
 	pub fn roam(self) -> Result<(), ObserverError> {
 		if self.player.is_marked_for_deletion() {
 			return Err(ObserverError::MarkedForDeletion);
 		}
 
 		match self.mode()? {
-			ObserverMode::Roaming => return Ok(()),
+			ObserverMode::Roaming => {
+				if self.player.data_field::<bool>(c"m_bForcedObserverMode")? {
+					self.player.set_data_field(
+						self.server.valve_engine()?,
+						c"m_bForcedObserverMode",
+						false,
+					)?;
+				}
+				return Ok(());
+			}
 
 			ObserverMode::Fixed
 			| ObserverMode::InEye
@@ -227,6 +245,10 @@ impl<'s> PlayerObserver<'s> {
 		let [x, y, z] = VIEW_OFFSET;
 		let view_offset = [self.net_prop(x)?, self.net_prop(y)?, self.net_prop(z)?];
 		let target = self.target()?;
+		// Validate the server-only field before changing the player's view.
+		self.player.data_field::<bool>(c"m_bForcedObserverMode")?;
+		self.player
+			.set_data_field(engine, c"m_bForcedObserverMode", false)?;
 
 		// SAFETY: The game assigns the mode itself, as `CTFPlayer::SetObserverMode`
 		// does for spectators.
