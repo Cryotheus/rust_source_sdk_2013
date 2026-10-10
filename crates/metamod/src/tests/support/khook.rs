@@ -85,6 +85,9 @@ pub(crate) struct KhState {
 	contexts: Vec<*mut c_void>,
 	/// How many times `RemoveHook` was called.
 	pub(crate) removed: u32,
+	/// Opt-in model of accepted registrations awaiting the worker's insertion.
+	pub(crate) defer_virtual_hooks: bool,
+	pending_virtual_hooks: Vec<(*mut *mut c_void, c_int, KhHook)>,
 }
 
 impl KhState {
@@ -270,6 +273,17 @@ impl MockKHook {
 	}
 }
 
+impl MockKHook {
+	/// Models successful worker insertion without any wall-clock timing.
+	pub(crate) fn activate_pending_hooks(&self) {
+		let mut state = self.state.borrow_mut();
+		let pending = std::mem::take(&mut state.pending_virtual_hooks);
+		for (vtable, index, hook) in pending {
+			state.slot(vtable, index).insert(hook);
+		}
+	}
+}
+
 unsafe extern "C" fn destroy_return_value(this: *mut IKHook) {
 	// The values' `deinit_op`s run as they drop.
 	let last = mock_khook(this).state.borrow_mut().last.take();
@@ -438,9 +452,8 @@ unsafe extern "C" fn setup_hook(
 	crate::sys::khook::INVALID_HOOK
 }
 
-/// Inserts the hook at once, ignoring `async`. KHook adds a hook from its
-/// worker thread unless it created the slot's detour for it, so unlike in
-/// these tests, a hook added to a detoured slot can miss the next calls.
+/// Accepts a registration, optionally delaying callback insertion until the
+/// test explicitly advances the worker. Existing tests retain eager insertion.
 unsafe extern "C" fn setup_virtual_hook(
 	this: *mut IKHook,
 	vtable: *mut *mut c_void,
@@ -456,18 +469,22 @@ unsafe extern "C" fn setup_virtual_hook(
 ) -> KHookId {
 	let mut state = mock_khook(this).state.borrow_mut();
 	let id = state.next_id;
-
 	state.next_id += 1;
-
-	state.slot(vtable, index).insert(KhHook {
+	let hook = KhHook {
 		context,
 		pre,
 		post,
 		make_return,
 		call_original,
 		stack_size,
-	});
-
+	};
+	// The detour exists before this registration's callback enters its list.
+	state.slot(vtable, index);
+	if state.defer_virtual_hooks {
+		state.pending_virtual_hooks.push((vtable, index, hook));
+	} else {
+		state.slot(vtable, index).insert(hook);
+	}
 	id
 }
 
