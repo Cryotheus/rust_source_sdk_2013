@@ -741,6 +741,74 @@ fn native_inventory_slots_use_validated_classes_and_refuse_deleted_entities() {
 	));
 }
 
+#[test]
+fn native_melee_trace_returns_only_the_hit_entity_and_checks_melee_lifecycle() {
+	thread_local! { static HIT: Cell<bool> = const { Cell::new(true) }; static TRACES: Cell<usize> = const { Cell::new(0) }; }
+	unsafe extern "C" fn swing(
+		this: *mut sys::CTFWeaponBaseMelee,
+		trace: *mut sys::trace_t,
+	) -> bool {
+		TRACES.set(TRACES.get() + 1);
+		// SAFETY: The wrapper supplied one initialized native out-parameter.
+		unsafe {
+			(*trace).m_pEnt = this.cast();
+		}
+		HIT.get()
+	}
+	let base = data_map(c"CBaseEntity", Vec::from(base_entity_fields()), null_mut());
+	let ordinary = weapon_map(base);
+	let melee_map = data_map(c"CTFWeaponBaseMelee", vec![], ordinary);
+	let slot = sdk_raw::vtable_slot!(
+		sys::CTFWeaponBaseMelee__bindgen_vtable,
+		CTFWeaponBaseMelee_DoSwingTrace
+	);
+	let mut table = vec![std::ptr::null(); slot + 1];
+	table[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
+	table[slot] = swing as *const ();
+	let mut fake = FakeEntity {
+		vtable: table.as_ptr(),
+		map: melee_map,
+		weapon: null_mut(),
+		slot: 2,
+		padding: 0,
+		flags: 0,
+		owner: 1,
+		handle: 2,
+		owner_entity: 1,
+		second_weapon: null_mut(),
+		equip_calls: 0,
+	};
+	let scope = ();
+	let server = mock_server(&scope);
+	// SAFETY: The fake entity and function table outlive all calls.
+	let entity = unsafe { Entity::from_raw(NonNull::from(&mut fake).cast()) };
+	let weapon = Weapon::new(server, entity).unwrap();
+	assert_eq!(
+		weapon.melee_hit().unwrap().map(Entity::as_ptr),
+		Some(entity.as_ptr())
+	);
+	HIT.set(false);
+	assert!(
+		weapon.melee_hit().unwrap().is_none(),
+		"a false native result discards its out-parameter"
+	);
+	assert_eq!(TRACES.get(), 2);
+	// SAFETY: The fake datamap field remains allocated and is updated as native code would.
+	unsafe {
+		(&raw mut fake.map).write(ordinary);
+	}
+	assert!(matches!(weapon.melee_hit(), Err(WeaponError::NotMelee)));
+	unsafe {
+		(&raw mut fake.map).write(melee_map);
+		(&raw mut fake.flags).write(1);
+	}
+	assert!(matches!(
+		weapon.melee_hit(),
+		Err(WeaponError::MarkedForDeletion)
+	));
+	assert_eq!(TRACES.get(), 2);
+}
+
 unsafe extern "C" fn networkable(_: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
 	NETWORKABLE.get()
 }
