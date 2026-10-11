@@ -34,6 +34,20 @@ unsafe extern "C" fn game_can_hear(
 	(listener.addr(), talker.addr()) == (LISTENER, TALKER)
 }
 
+/// The callback, which notes the call and decides [`ACTION`].
+fn on_voice_chat(
+	_server: Server<'_>,
+	listener: Entity<'_>,
+	talker: Entity<'_>,
+	hears: bool,
+) -> VoiceChatAction {
+	SEEN.with_borrow_mut(|seen| {
+		seen.push((listener.as_ptr().addr(), talker.as_ptr().addr(), hears));
+	});
+
+	ACTION.get()
+}
+
 #[test]
 fn the_helper_is_found_in_the_class_targets() {
 	on_both(|harness| {
@@ -84,7 +98,7 @@ fn voice_chat_decisions_are_changed_after_the_game() {
 					&raw mut proximity,
 				),
 			);
-			(hears, SEEN.take())
+			(hears, proximity, SEEN.take())
 		};
 
 		// SAFETY: The test only calls the hooked slot, which holds a method of
@@ -102,41 +116,34 @@ fn voice_chat_decisions_are_changed_after_the_game() {
 		ACTION.set(VoiceChatAction::Continue);
 		assert_eq!(
 			hears(LISTENER, TALKER),
-			(true, vec![(LISTENER, TALKER, true)])
+			(true, false, vec![(LISTENER, TALKER, true)])
 		);
 		assert_eq!(
 			hears(TALKER, LISTENER),
-			(false, vec![(TALKER, LISTENER, false)])
+			(false, false, vec![(TALKER, LISTENER, false)])
 		);
 
 		ACTION.set(VoiceChatAction::Mute);
 		assert_eq!(
 			hears(LISTENER, TALKER),
-			(false, vec![(LISTENER, TALKER, true)])
+			(false, false, vec![(LISTENER, TALKER, true)])
 		);
 
+		ACTION.set(VoiceChatAction::HearProximity);
+		assert_eq!(
+			hears(TALKER, LISTENER),
+			(true, true, vec![(TALKER, LISTENER, false)])
+		);
+
+		// A global decision must reset the out-parameter reused by the manager.
 		ACTION.set(VoiceChatAction::Hear);
 		assert_eq!(
 			hears(TALKER, LISTENER),
-			(true, vec![(TALKER, LISTENER, false)])
+			(true, false, vec![(TALKER, LISTENER, false)])
 		);
 
 		// Removed, the hook no longer runs.
 		hooks.remove(api);
-		assert_eq!(hears(TALKER, LISTENER), (false, vec![]));
+		assert_eq!(hears(TALKER, LISTENER), (false, false, vec![]));
 	});
-}
-
-/// The callback, which notes the call and decides [`ACTION`].
-fn on_voice_chat(
-	_server: Server<'_>,
-	listener: Entity<'_>,
-	talker: Entity<'_>,
-	hears: bool,
-) -> VoiceChatAction {
-	SEEN.with_borrow_mut(|seen| {
-		seen.push((listener.as_ptr().addr(), talker.as_ptr().addr(), hears));
-	});
-
-	ACTION.get()
 }
