@@ -21,6 +21,9 @@ pub const TF_CLASS_MEDIC: c_int = 5;
 /// The Pyro.
 pub const TF_CLASS_PYRO: c_int = 7;
 
+/// A Random selection, which resolves to a playable class at each respawn.
+pub const TF_CLASS_RANDOM: c_int = 12;
+
 /// The Scout, the first class players can choose.
 pub const TF_CLASS_SCOUT: c_int = 1;
 
