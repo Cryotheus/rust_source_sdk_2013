@@ -1631,6 +1631,61 @@ unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sy
 	unsafe { (*fake_of(this)).class }
 }
 
+#[test]
+fn service_suspension_preserves_stock_level_and_avoids_activation() {
+	let world = World::new();
+	let scope = ();
+	let engine = crate::test_support::sdk_core::change_tracking_engine();
+	export(
+		Module::Engine,
+		crate::interfaces::ValveEngine::VERSION,
+		engine.as_ptr(),
+	);
+	let server = mock_server(&scope);
+	world.set(world.dispenser, |entity| {
+		entity.level = 3;
+		entity.highest_level = 3;
+		entity.metal = 287;
+		entity.upgrade_metal = 123;
+	});
+	let dispenser = Dispenser::new(building(server, world.dispenser)).unwrap();
+	for disabled in [true, true, false] {
+		dispenser.set_service_disabled(disabled).unwrap();
+		assert_eq!(
+			building(server, world.dispenser).is_disabled().unwrap(),
+			disabled
+		);
+		// SAFETY: The fake dispenser remains allocated for the test.
+		let native = unsafe { &*world.dispenser };
+		assert_eq!(
+			(
+				native.level,
+				native.highest_level,
+				native.metal,
+				native.upgrade_metal
+			),
+			(3, 3, 287, 123)
+		);
+		assert_ne!(unsafe { (*native.edict)._base.m_fStateFlags } & 1, 0);
+	}
+	assert!(
+		INPUTS.take().is_empty(),
+		"suspension must not call Enable/OnGoActive"
+	);
+	assert!(CALLS.take().is_empty());
+	let cart = Dispenser::new(building(server, world.cart)).unwrap();
+	assert!(matches!(
+		cart.set_service_disabled(true),
+		Err(BuildingError::NotStockDispenser)
+	));
+	world.set(world.dispenser, |entity| entity.flags |= EFL_KILLME);
+	assert!(matches!(
+		dispenser.set_service_disabled(true),
+		Err(BuildingError::MarkedForDeletion)
+	));
+	assert!(!building(server, world.dispenser).is_disabled().unwrap());
+}
+
 /// `CBaseObject::StartBuilding`, which notes the call and the builder, and
 /// starts building.
 unsafe extern "C" fn start_building(
