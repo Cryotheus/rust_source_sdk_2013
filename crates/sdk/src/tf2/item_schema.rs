@@ -1264,15 +1264,28 @@ bitflags::bitflags! {
 	}
 }
 
-/// The definitions whose equip masks the shipped schema fixes, checked
-/// separately from the definition's other fields. TF2's `equip_regions_list`
-/// starts with whole_head (bit 0), hat (bit 1), and places
-/// disconnected_floating_item at bit 20. `equip_conflicts` makes hat conflict
-/// with whole_head; the floating region conflicts only with itself.
-const CHECKED_EQUIP_REGIONS: [(u16, EquipRegions); 3] = [
-	(18, EquipRegions::from_masks(0, 0)), // Rocket Launcher
-	(49, EquipRegions::from_masks(1 << 1, (1 << 0) | (1 << 1))), // Football Helmet
-	(738, EquipRegions::from_masks(1 << 20, 1 << 20)), // Pet Balloonicorn
+/// Definitions whose occupied and conflicting equip masks independently check
+/// the fields' layout and every shipped bit used by staged bot outfits. The
+/// schema names whole_head (0), hat (1), face (2), pants (5), shirt (7),
+/// disconnected_floating_item (20), and the class-specific Pyro/Demoman head
+/// replacements (shared bit 28). Shared aliases are interpreted by class by
+/// callers; bit 28 also names other classes' wings, hair, pipe and legs.
+const CHECKED_EQUIP_REGIONS: [(u16, EquipRegions); 9] = [
+	(18, EquipRegions::from_masks(0, 0)), // Rocket Launcher.
+	(49, EquipRegions::from_masks(1 << 1, (1 << 0) | (1 << 1))), // Football Helmet: hat.
+	(
+		115,
+		EquipRegions::from_masks(1 << 0, (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3)),
+	), // Halloween Mask: whole_head.
+	(
+		315,
+		EquipRegions::from_masks(1 << 2, (1 << 0) | (1 << 2) | (1 << 3)),
+	), // Blighted Beak: face.
+	(335, EquipRegions::from_masks(1 << 28, 1 << 28)), // KF Pyro Mask: pyro_head_replacement.
+	(446, EquipRegions::from_masks(1 << 7, 1 << 7)), // Fancy Dress Uniform: shirt.
+	(738, EquipRegions::from_masks(1 << 20, 1 << 20)), // Pet Balloonicorn: disconnected_floating_item.
+	(755, EquipRegions::from_masks(1 << 5, 1 << 5)),   // Texas Half-Pants: pants.
+	(31307, EquipRegions::from_masks(1 << 28, 1 << 28)), // Alcoholic Automaton: demo_head_replacement.
 ];
 
 /// Whether the layout of the definition's equip masks passed its checks.
