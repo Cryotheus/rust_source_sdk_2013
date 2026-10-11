@@ -20,6 +20,7 @@
 	#define RUST_SHELL_IS_LOADED cpp_metamod_plugin_stable_is_loaded
 	#define RUST_SHELL_STATUS cpp_metamod_plugin_stable_status
 	#define RUST_SHELL_LISTEN_LEVELS cpp_metamod_listen_levels_stable
+	#define RUST_SHELL_LEVEL_GENERATION cpp_metamod_level_generation_stable
 #else
 	#if METAMOD_PLAPI_VERSION != 18
 		#error "The dev Metamod shell requires the plugin API 18 headers of 2.0, as in builds 1469 through 1472"
@@ -33,6 +34,7 @@
 	#define RUST_SHELL_IS_LOADED cpp_metamod_plugin_dev_is_loaded
 	#define RUST_SHELL_STATUS cpp_metamod_plugin_dev_status
 	#define RUST_SHELL_LISTEN_LEVELS cpp_metamod_listen_levels_dev
+	#define RUST_SHELL_LEVEL_GENERATION cpp_metamod_level_generation_dev
 #endif
 
 // Just for now.
@@ -269,6 +271,15 @@ namespace {
 		RustLevelShutdownFn shutdown = nullptr;
 		void *context = nullptr;
 		bool paused = false;
+		std::uint64_t generation = 0;
+		bool exhausted = false;
+
+		void advance() noexcept {
+			if (generation == UINT64_MAX)
+				exhausted = true;
+			else
+				++generation;
+		}
 	};
 
 	LevelRoute level_route;
@@ -278,6 +289,7 @@ namespace {
 	class RustLevelListener final : public SourceMM::IMetamodListener {
 	public:
 		void OnLevelInit(char const *map, char const *, char const *, char const *, bool, bool) override {
+			level_route.advance();
 			const LevelRoute &route = level_route;
 
 			if (route.init != nullptr && !route.paused)
@@ -285,6 +297,7 @@ namespace {
 		}
 
 		void OnLevelShutdown() override {
+			level_route.advance();
 			const LevelRoute &route = level_route;
 
 			if (route.shutdown != nullptr && !route.paused)
@@ -447,4 +460,13 @@ extern "C" int RUST_SHELL_LISTEN_LEVELS(RustLevelInitFn init, RustLevelShutdownF
 	level_listener_added = true;
 
 	return RUST_HOOK_INSTALLED;
+}
+
+// Main-thread-only owned counter: notifications advance it even while paused.
+// Unavailable before registration, after unload, or after exhausting the counter.
+extern "C" bool RUST_SHELL_LEVEL_GENERATION(std::uint64_t *generation) noexcept {
+	if (generation == nullptr || !plugin.loaded() || !level_listener_added || level_route.exhausted)
+		return false;
+	*generation = level_route.generation;
+	return true;
 }
