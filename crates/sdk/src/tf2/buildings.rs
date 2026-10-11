@@ -673,8 +673,9 @@ impl<'s> Building<'s> {
 		self.input(c"SetSolidToPlayer", InputValue::Int(solid.to_raw()))
 	}
 
-	/// Shows a hidden building, as its `Show` input does, and enables it as
-	/// [`Self::enable`] does.
+	/// Shows a hidden building through its `Show` input and recalculates its
+	/// disabled flag from native conditions. Unlike [`Self::enable`], this does
+	/// not call `OnGoActive` or reinitialize a dispenser's model and inventory.
 	#[doc(alias("Show", "InputShow"))]
 	pub fn show(self) -> Result<(), BuildingError> {
 		self.input(c"Show", InputValue::Void)
@@ -1223,7 +1224,9 @@ impl<'s> Dispenser<'s> {
 	///
 	/// The caller owns this temporary suspension and must preserve any previous
 	/// disabled state and native sapper, plasma, or losing-round disable reasons
-	/// before clearing it. Native disabled-state updates may change the flag.
+	/// before clearing it. Native disabled-state updates may change the flag; an
+	/// uninterrupted suspension also needs a guard at `UpdateDisabledState`. A
+	/// per-frame write alone does not prevent service later in the same frame.
 	pub fn set_service_disabled(self, disabled: bool) -> Result<(), BuildingError> {
 		if self.0.entity.class_name() != c"obj_dispenser" {
 			return Err(BuildingError::NotStockDispenser);
