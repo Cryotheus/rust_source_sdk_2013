@@ -8,6 +8,7 @@ pub mod building;
 pub mod chat;
 pub mod class;
 pub mod collision;
+pub mod construction;
 pub mod crit;
 pub mod damage;
 pub mod damage_effect;
