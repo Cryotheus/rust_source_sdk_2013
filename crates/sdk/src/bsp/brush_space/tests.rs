@@ -1428,3 +1428,184 @@ fn equality_only_nonsolid_ownership_stays_explicit_across_a_geometric_interface(
 		PointRelation::Unrepresented
 	));
 }
+
+/// Query budgets are separate from construction. A built atlas alone does not
+/// certify that this research stage completed its independent witness checks.
+fn ladder_witness_components(
+	space: &BrushSpace,
+	inside: [f32; 3],
+	free: [[f32; 3]; 2],
+) -> Result<[usize; 2], Error> {
+	assert!(matches!(space.locate(inside)?, PointRelation::Solid));
+	let mut components = [0; 2];
+	for (index, point) in free.into_iter().enumerate() {
+		let PointRelation::Free { fragments } = space.locate(point)? else {
+			panic!("known free wall witness was not represented at {point:?}");
+		};
+		assert!(!fragments.is_empty());
+		let component = space.fragments()[fragments[0]].component();
+		assert!(component < space.components().len());
+		assert!(
+			fragments
+				.iter()
+				.all(|&id| space.fragments()[id].component() == component)
+		);
+		components[index] = component;
+	}
+	Ok(components)
+}
+
+/// Five deterministic nested domains, with unchanged production limits. Geometry
+/// budget refusal is a reported research result after the qualified local stage;
+/// it is not a successful analysis of that domain or any subsequent domain.
+fn brush_space_domain_ladder(
+	map: &str,
+	geometry: &super::super::brushes::BrushGeometry,
+	brush: usize,
+	leaf: usize,
+	detail: AnalysisDomain,
+	inside: [f32; 3],
+	free: [[f32; 3]; 2],
+) {
+	assert_eq!(
+		geometry.brushes()[brush].contents & 0x0800_0001,
+		0x0800_0001
+	);
+	assert_eq!(geometry.bsp().leaves()[leaf].contents & 1, 0);
+	for point in [inside, free[0], free[1]] {
+		assert_eq!(geometry.bsp().locate(point).unwrap(), leaf);
+	}
+	let centered = |half_extent| {
+		AnalysisDomain::new(
+			inside.map(|value| value - half_extent),
+			inside.map(|value| value + half_extent),
+		)
+		.unwrap()
+	};
+	let stages = [
+		("detail", detail),
+		("half_extent_64", centered(64.0)),
+		("half_extent_256", centered(256.0)),
+		("half_extent_1024", centered(1024.0)),
+		(
+			"artificial_65536",
+			AnalysisDomain::new([-65536.0; 3], [65536.0; 3]).unwrap(),
+		),
+	];
+	println!(
+		"brush-space ladder map={map} planned_stages={} limits={:?} source_traversal_limits=input_bsp coverage=BoundedSourceSolids",
+		stages.len(),
+		Limits::default()
+	);
+	for (stage, &(name, domain)) in stages.iter().enumerate() {
+		println!(
+			"brush-space ladder map={map} stage={stage} name={name} outcome=begin domain_min={:?} domain_max={:?}",
+			domain.min(),
+			domain.max()
+		);
+		let build_started = std::time::Instant::now();
+		let result = BrushSpace::build(geometry, domain, Limits::default());
+		let build_us = build_started.elapsed().as_micros();
+		let space = match result {
+			Ok(space) => space,
+
+			Err(error @ Error::Budget { .. }) => {
+				println!(
+					"brush-space ladder map={map} stage={stage} name={name} outcome=budget_refusal phase=build error={error:?} build_us={build_us} completed_stages={stage} unrun_stages={}",
+					stages.len() - stage - 1
+				);
+				assert!(
+					stage > 0,
+					"qualified local baseline unexpectedly refused: {error:?}"
+				);
+				return;
+			}
+
+			Err(error) => panic!(
+				"ladder map={map} stage={stage} name={name}: unexpected build failure {error:?}"
+			),
+		};
+		assert_eq!(space.coverage(), Coverage::BoundedSourceSolids);
+		assert!(
+			space
+				.solids()
+				.iter()
+				.any(|solid| solid.source() == SolidSource::WorldBrush(brush))
+		);
+		println!(
+			"brush-space ladder map={map} stage={stage} name={name} outcome=constructed build_us={build_us} source={:?} geometry={:?} fragments={} interfaces={} components={}",
+			space.source_statistics(),
+			space.statistics(),
+			space.fragments().len(),
+			space.interfaces().len(),
+			space.components().len()
+		);
+		let query_started = std::time::Instant::now();
+		let result = ladder_witness_components(&space, inside, free);
+		let query_us = query_started.elapsed().as_micros();
+		let components = match result {
+			Ok(components) => components,
+
+			Err(error @ Error::Budget { .. }) => {
+				println!(
+					"brush-space ladder map={map} stage={stage} name={name} outcome=budget_refusal phase=query error={error:?} query_us={query_us} completed_stages={stage} unrun_stages={}",
+					stages.len() - stage - 1
+				);
+				assert!(
+					stage > 0,
+					"qualified local witness query unexpectedly refused: {error:?}"
+				);
+				return;
+			}
+
+			Err(error) => panic!(
+				"ladder map={map} stage={stage} name={name}: unexpected query failure {error:?}"
+			),
+		};
+		if stage == 0 {
+			// Only the local slab spans the entire domain cross-section. In a
+			// larger box, a free path may legitimately pass around its ends.
+			assert_ne!(components[0], components[1]);
+		}
+		println!(
+			"brush-space ladder map={map} stage={stage} name={name} outcome=success query_us={query_us} wall_witnesses_same_component={}",
+			components[0] == components[1]
+		);
+	}
+	println!(
+		"brush-space ladder map={map} outcome=all_requested_domains_complete completed_stages={} unrun_stages=0 enclosure_claim=false native_collision_parity_claim=false",
+		stages.len()
+	);
+}
+
+/// SHA-256: 8e61224f8bdcc6c461589b85dc4a0823abcc430a66513a1bbcc131777b49ee50.
+#[test]
+#[ignore = "research ladder; set SOURCE_BSP_ARENA_BYRE to the externally SHA-256-verified pinned fixture"]
+fn pinned_arena_byre_brush_space_domain_ladder() {
+	let geometry = verified_brush_fixture("SOURCE_BSP_ARENA_BYRE", 16_843_394);
+	brush_space_domain_ladder(
+		"arena_byre",
+		&geometry,
+		484,
+		699,
+		AnalysisDomain::new([-452.0, 632.0, 333.5], [-420.0, 648.0, 344.5]).unwrap(),
+		[-436.0, 640.0, 339.0],
+		[[-436.0, 634.0, 339.0], [-436.0, 646.0, 339.0]],
+	);
+}
+
+/// SHA-256: cbd191411c0be57099da73458167001ec80d58bf37c71cb3c36b2911b6e80fd7.
+#[test]
+#[ignore = "research ladder; set SOURCE_BSP_CTF_2FORT to the externally SHA-256-verified pinned fixture"]
+fn pinned_ctf_2fort_brush_space_domain_ladder() {
+	let geometry = verified_brush_fixture("SOURCE_BSP_CTF_2FORT", 22_751_863);
+	brush_space_domain_ladder(
+		"ctf_2fort",
+		&geometry,
+		3547,
+		681,
+		AnalysisDomain::new([713.5, 2285.0, 148.0], [732.5, 2297.0, 180.0]).unwrap(),
+		[723.0, 2291.0, 164.0],
+		[[723.0, 2287.0, 164.0], [723.0, 2295.0, 164.0]],
+	);
+}
