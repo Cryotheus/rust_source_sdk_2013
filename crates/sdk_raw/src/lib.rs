@@ -50,6 +50,7 @@ compile_error!("source_sdk_2013_raw requires Windows x64 MSVC or Linux x64 GNU")
 pub mod abi;
 pub mod ambient_sounds;
 pub mod bitbuf;
+pub mod bsp;
 pub mod commands;
 pub mod datatables;
 pub mod edicts;
