@@ -94,3 +94,75 @@ fn tf_players_respawn_through_the_generated_vtable() {
 	// SAFETY: The player came from `Box::into_raw`, and is not used again.
 	unsafe { drop(Box::from_raw(player)) };
 }
+
+thread_local! {
+	static READY_FLAGS: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
+	static READY_CALLS: RefCell<Vec<(&'static str, *mut c_void)>> = const { RefCell::new(Vec::new()) };
+}
+
+#[test]
+fn native_readiness_is_queried_without_forcing_a_respawn() {
+	let play_slot = sdk_raw::vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_IsReadyToPlay);
+	let spawn_slot =
+		sdk_raw::vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_IsReadyToSpawn);
+	let mut vtable = vec![null(); play_slot.max(spawn_slot).max(FORCE_RESPAWN_SLOT) + 1];
+	vtable[sdk_raw::entities::GET_DATA_DESC_MAP_SLOT] = get_datamap as *const ();
+	vtable[play_slot] = ready_to_play_entry as *const ();
+	vtable[spawn_slot] = ready_to_spawn_entry as *const ();
+	vtable[FORCE_RESPAWN_SLOT] = force_respawn_entry as *const ();
+	let player = Box::into_raw(Box::new(FakePlayer {
+		vtable: vtable.as_ptr(),
+		padding: [0; 3],
+		eflags: 0,
+	}));
+	// SAFETY: The mock stays allocated through the last call below. Its
+	// vtable implements datamap lookup and both native readiness methods.
+	let entity = unsafe { Entity::from_raw(NonNull::new(player.cast()).unwrap()) };
+	let scope = ();
+	let server = mock_server(&scope);
+	set_datamap(maps(c"CTFPlayer"));
+	RESPAWNED.take();
+	for (play, spawn) in [(false, false), (false, true), (true, false), (true, true)] {
+		READY_FLAGS.set((play, spawn));
+		READY_CALLS.take();
+		assert_eq!(is_ready_to_spawn(server, entity), Ok(play && spawn));
+		let expected = if play {
+			vec![("play", player.cast()), ("spawn", player.cast())]
+		} else {
+			vec![("play", player.cast())]
+		};
+		assert_eq!(READY_CALLS.take(), expected);
+		assert!(RESPAWNED.take().is_empty());
+	}
+	set_datamap(maps(c"CBaseCombatCharacter"));
+	assert_eq!(
+		is_ready_to_spawn(server, entity),
+		Err(RespawnError::NotTfPlayer)
+	);
+	assert!(READY_CALLS.take().is_empty());
+	set_datamap(maps(c"CTFPlayer"));
+	assert_eq!(
+		is_ready_to_spawn(null_server(Game::SourceSdk2013, &scope), entity),
+		Err(RespawnError::NotTfPlayer)
+	);
+	assert!(READY_CALLS.take().is_empty());
+	// SAFETY: The mock is allocated, and no reference to its fields is live.
+	unsafe { (&raw mut (*player).eflags).write(1) };
+	assert_eq!(
+		is_ready_to_spawn(server, entity),
+		Err(RespawnError::MarkedForDeletion)
+	);
+	assert!(READY_CALLS.take().is_empty());
+	// SAFETY: This pointer came from Box::into_raw and is not used again.
+	unsafe { drop(Box::from_raw(player)) };
+}
+
+unsafe extern "C" fn ready_to_play_entry(player: *mut sys::CTFPlayer) -> bool {
+	READY_CALLS.with_borrow_mut(|calls| calls.push(("play", player.cast())));
+	READY_FLAGS.get().0
+}
+
+unsafe extern "C" fn ready_to_spawn_entry(player: *mut sys::CTFPlayer) -> bool {
+	READY_CALLS.with_borrow_mut(|calls| calls.push(("spawn", player.cast())));
+	READY_FLAGS.get().1
+}
