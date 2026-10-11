@@ -73,7 +73,7 @@ impl Bounds {
 		})
 	}
 
-	fn overlaps(self, other: Self) -> bool {
+	pub(super) fn overlaps(self, other: Self) -> bool {
 		(0..3).all(|axis| self.min[axis] <= other.max[axis] && other.min[axis] <= self.max[axis])
 	}
 
