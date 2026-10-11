@@ -22,6 +22,18 @@ use crate::entities::Entity;
 use crate::{Game, Server};
 use sdk_raw::vcall;
 
+/// Why a respawn or readiness check could not use a player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RespawnError {
+	/// The player is marked for deletion.
+	#[error("the player is marked for deletion")]
+	MarkedForDeletion,
+
+	/// The entity is not a TF2 player, or the server does not run TF2.
+	#[error("respawning requires a TF2 player")]
+	NotTfPlayer,
+}
+
 /// Respawns a TF2 player or bot as the game's own respawns do, through its
 /// `CTFPlayer::ForceRespawn`, dead or alive.
 ///
@@ -32,7 +44,9 @@ use sdk_raw::vcall;
 /// or while it waits for players without arena's queue (`tf_arena_use_queue`
 /// 0). Otherwise it spawns them whatever the round's state, arena's stalemate
 /// included, and whatever their team: it does not check that they are on a
-/// playing team, so check that first, as the game's own callers do.
+/// playing team, so check that first, as the game's own callers do. It does
+/// not apply the readiness gates of normal waves either;
+/// [`is_ready_to_spawn`] exposes those without changing native state.
 ///
 /// Hooks of `ForceRespawn` see the call as they see the game's own respawns,
 /// and may refuse it, as `metamod_source`'s `respawn_hooks` can. Spawning runs
@@ -69,14 +83,38 @@ pub fn force_respawn(server: Server<'_>, player: Entity<'_>) -> Result<(), Respa
 	Ok(())
 }
 
-/// Why [`force_respawn`] could not respawn a player.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum RespawnError {
-	/// The player is marked for deletion.
-	#[error("the player is marked for deletion")]
-	MarkedForDeletion,
-
-	/// The entity is not a TF2 player, or the server does not run TF2.
-	#[error("respawning requires a TF2 player")]
-	NotTfPlayer,
+/// Whether TF2's native readiness gates allow this player to spawn.
+///
+/// Calls `CTFPlayer::IsReadyToPlay` and `CTFPlayer::IsReadyToSpawn`: the
+/// game's chosen team/class and training gates, open class menu, active
+/// revive marker, per-player respawn-time override, and dying state.
+/// [`force_respawn`] does not check these gates itself; use this when
+/// emulating a respawn wave.
+///
+/// This does not test whether the player is dead or whether a team's minimum
+/// respawn time or next wave has arrived. Those remain the caller's policy.
+/// It does not change the player's state, menus or timing.
+///
+/// # Errors
+///
+/// Fails with [`RespawnError::NotTfPlayer`] unless this is TF2 and the
+/// entity's datamaps include `CTFPlayer`, and with
+/// [`RespawnError::MarkedForDeletion`] for an entity marked for deletion.
+#[doc(alias("IsReadyToPlay", "IsReadyToSpawn"))]
+pub fn is_ready_to_spawn(server: Server<'_>, player: Entity<'_>) -> Result<bool, RespawnError> {
+	if server.game() != Game::TeamFortress2 || !player.has_data_map_class(c"CTFPlayer") {
+		return Err(RespawnError::NotTfPlayer);
+	}
+	if player.is_marked_for_deletion() {
+		return Err(RespawnError::MarkedForDeletion);
+	}
+	let player = player.as_ptr().cast::<sys::CTFPlayer>();
+	// SAFETY: The datamap identified a live CTFPlayer, whose entity base is at
+	// offset zero as sdk_raw::tf2 checks. Both generated target vtables carry
+	// these methods with a CTFPlayer receiver and bool return. The callback
+	// keeps the player allocated; native readiness reads its current state.
+	Ok(unsafe {
+		vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_IsReadyToPlay())
+			&& vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_IsReadyToSpawn())
+	})
 }
