@@ -72,15 +72,20 @@ const SET_TRANSMIT: VirtualFunction<SetTransmit> = VirtualFunction::new(SET_TRAN
 /// `ShouldTransmit` in an entity's primary vtable.
 const SHOULD_TRANSMIT: VirtualFunction<ShouldTransmit> = VirtualFunction::new(SHOULD_TRANSMIT_SLOT);
 
-static CHECK_ROUTE: CheckTransmitRoute = CheckTransmitRoute {
-	state: Cell::new(None),
-};
-
+static CHECK_ROUTES: [CheckTransmitRoute; 32] = [const { CheckTransmitRoute::new() }; 32];
 static SET_ROUTES: [TransmitRoute<SetTransmitFn>; 32] = [const { TransmitRoute::new() }; 32];
 static SHOULD_ROUTES: [TransmitRoute<ShouldTransmitFn>; 32] = [const { TransmitRoute::new() }; 32];
 
 struct CheckTransmitRoute {
 	state: Cell<Option<RoutedCheckTransmit>>,
+}
+
+impl CheckTransmitRoute {
+	const fn new() -> Self {
+		Self {
+			state: Cell::new(None),
+		}
+	}
 }
 
 impl Handler<CheckTransmit> for CheckTransmitRoute {
@@ -122,6 +127,7 @@ unsafe impl Sync for CheckTransmitRoute {}
 struct RoutedCheckTransmit {
 	binding: ServerBinding,
 	callback: CheckTransmitFn,
+	game: usize,
 	hook: HookId,
 }
 
@@ -318,12 +324,16 @@ impl MetamodApi<'_> {
 	/// This does not change server entities or their transmit flags. The
 	/// callback must keep the dependencies of entities left in the snapshot;
 	/// [`TransmitCheck::withhold`] protects the world and the client's own
-	/// player. This hook uses one hook manager and runs once per client snapshot.
-	/// It stops calling back while paused and is removed on unload. A later
-	/// plugin's post-hook can still alter the same set.
+	/// player. All snapshot callbacks share one generated signature and hook
+	/// manager, and run in installation order once per client snapshot. Multiple
+	/// callbacks can compose by clearing bits. A later post-hook can still alter
+	/// the same set. Callbacks stop while paused and are removed on unload.
 	///
-	/// `game` and `binding` must describe the same live server. A second
-	/// installation returns [`HookError::AlreadyInstalled`] until removed.
+	/// `game` and `binding` must describe the same live server. Installing the
+	/// same callback on the same interface again returns
+	/// [`HookError::AlreadyInstalled`] until removed. At most 32 snapshot routes
+	/// can be active; exceeding this returns [`HookError::TooManyFunctions`].
+	/// Removed routes can be reused.
 	pub fn hook_check_transmit(
 		self,
 		game: ServerGameEnts<'_>,
@@ -419,25 +429,40 @@ impl MetamodApi<'_> {
 		binding: ServerBinding,
 		callback: CheckTransmitFn,
 	) -> Result<HookId, HookError> {
-		if CHECK_ROUTE
-			.state
-			.get()
-			.is_some_and(|route| self.has_hook(route.hook))
-		{
+		let address = game.as_ptr().addr();
+		if CHECK_ROUTES.iter().any(|route| {
+			route.state.get().is_some_and(|state| {
+				state.game == address
+					&& ptr::fn_addr_eq(state.callback, callback)
+					&& self.has_hook(state.hook)
+			})
+		}) {
 			return Err(HookError::AlreadyInstalled);
 		}
+		let route = CHECK_ROUTES
+			.iter()
+			.find(|route| {
+				route
+					.state
+					.get()
+					.is_none_or(|state| !self.has_hook(state.hook))
+			})
+			.ok_or(HookError::TooManyFunctions)?;
 		// SAFETY: As promised by the caller; installation is main-thread only.
+		// Routes share one generated signature and hook manager, while the
+		// instance target keeps callbacks for different interfaces separate.
 		let hook = unsafe {
 			self.add_hook(
 				CHECK_TRANSMIT,
 				HookTarget::instance(game),
 				HookTiming::Post,
-				&CHECK_ROUTE,
+				route,
 			)
 		}?;
-		CHECK_ROUTE.state.set(Some(RoutedCheckTransmit {
+		route.state.set(Some(RoutedCheckTransmit {
 			binding,
 			callback,
+			game: address,
 			hook,
 		}));
 		Ok(hook)

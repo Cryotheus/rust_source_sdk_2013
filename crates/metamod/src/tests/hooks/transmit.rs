@@ -74,6 +74,11 @@ fn decide(_: Server<'_>, _: Entity<'_>, check: TransmitCheck<'_>) -> TransmitDec
 	DECISION.get()
 }
 
+fn filter_nine(_: Server<'_>, check: TransmitCheck<'_>, _: &[u16]) {
+	note("filter nine");
+	assert!(check.withhold(9));
+}
+
 fn filter_snapshot(_: Server<'_>, check: TransmitCheck<'_>, candidates: &[u16]) {
 	note("filter snapshot");
 	assert_eq!(candidates, &[1, 9]);
@@ -84,6 +89,11 @@ fn filter_snapshot(_: Server<'_>, check: TransmitCheck<'_>, candidates: &[u16]) 
 	}
 	assert!(!check.withhold(1));
 	assert!(!check.withhold(0));
+}
+
+fn filter_twelve(_: Server<'_>, check: TransmitCheck<'_>, _: &[u16]) {
+	note("filter twelve");
+	assert!(check.withhold(12));
 }
 
 /// Simulates game marks, including ones that skipped entity transmit hooks.
@@ -260,6 +270,58 @@ fn should_transmit_hooks_decide_in_place_of_the_game() {
 }
 
 #[test]
+fn snapshot_callbacks_compose_and_can_be_removed_independently() {
+	on_both(|harness| {
+		let api = harness.api();
+		let slots = Vec::leak(vec![
+			game_check_transmit as *mut c_void;
+			CHECK_TRANSMIT_SLOT + 1
+		]);
+		let mut interface = Mock {
+			vtable: slots.as_mut_ptr(),
+		};
+		let game = NonNull::from(&mut interface).cast::<sys::IServerGameEnts>();
+		let mut client = mock_edict(1, false);
+		let mut info = check_info(&mut client);
+		let mut sent = [0_u32; source_sdk_2013::edicts::MAX_EDICTS as usize / 32];
+		let mut always = sent;
+		info.m_pTransmitEdict = sent.as_mut_ptr().cast();
+		info.m_pTransmitAlways = always.as_mut_ptr().cast();
+		let candidates = [1_u16, 9];
+		// SAFETY: The mock interface has the generated slot signature and
+		// stays live until all its hooks are removed.
+		let nine =
+			unsafe { api.install_check_transmit(game, tf2_binding(no_interfaces), filter_nine) }
+				.unwrap();
+		let twelve =
+			unsafe { api.install_check_transmit(game, tf2_binding(no_interfaces), filter_twelve) }
+				.unwrap();
+		assert!(matches!(
+			unsafe { api.install_check_transmit(game, tf2_binding(no_interfaces), filter_twelve) },
+			Err(HookError::AlreadyInstalled)
+		));
+		let mut run = || {
+			CALLS.take();
+			harness.call::<CheckTransmit>(
+				game.as_ptr(),
+				CHECK_TRANSMIT_SLOT,
+				(ptr::from_mut(&mut *info), candidates.as_ptr(), 2),
+			);
+			CALLS.take()
+		};
+		assert_eq!(run(), ["game snapshot", "filter nine", "filter twelve"]);
+		assert_eq!(sent[0], 1 | (1 << 1));
+		assert_eq!(always[0], sent[0]);
+		assert!(api.remove_hook(nine));
+		assert_eq!(run(), ["game snapshot", "filter twelve"]);
+		assert_eq!(sent[0], 1 | (1 << 1) | (1 << 9));
+		assert_eq!(always[0], sent[0]);
+		assert!(api.remove_hook(twelve));
+		assert_eq!(run(), ["game snapshot"]);
+	});
+}
+
+#[test]
 fn snapshot_post_hooks_filter_final_marks_and_follow_pause_removal_and_panics() {
 	on_both(|harness| {
 		let api = harness.api();
@@ -318,5 +380,45 @@ fn snapshot_post_hooks_filter_final_marks_and_follow_pause_removal_and_panics() 
 		assert_eq!(run(), ["game snapshot"]);
 		assert_eq!(sent[0], 1 | (1 << 1) | (1 << 9) | (1 << 12));
 		assert!(api.remove_hook(hook));
+	});
+}
+
+#[test]
+fn snapshot_route_capacity_is_bounded_and_removed_routes_are_reused() {
+	on_both(|harness| {
+		let api = harness.api();
+		let slots = Vec::leak(vec![
+			game_check_transmit as *mut c_void;
+			CHECK_TRANSMIT_SLOT + 1
+		]);
+		let mut interfaces: Vec<_> = (0..=CHECK_ROUTES.len())
+			.map(|_| Mock {
+				vtable: slots.as_mut_ptr(),
+			})
+			.collect();
+		let mut hooks = Vec::new();
+		for interface in &mut interfaces[..CHECK_ROUTES.len()] {
+			let game = NonNull::from(interface).cast::<sys::IServerGameEnts>();
+			// SAFETY: The allocated mock interfaces do not move while their
+			// generated-slot hooks remain installed.
+			hooks.push(
+				unsafe {
+					api.install_check_transmit(game, tf2_binding(no_interfaces), filter_nine)
+				}
+				.unwrap(),
+			);
+		}
+		let game = NonNull::from(interfaces.last_mut().unwrap()).cast::<sys::IServerGameEnts>();
+		assert!(matches!(
+			unsafe { api.install_check_transmit(game, tf2_binding(no_interfaces), filter_nine) },
+			Err(HookError::TooManyFunctions)
+		));
+		for hook in hooks {
+			assert!(api.remove_hook(hook));
+		}
+		let reused =
+			unsafe { api.install_check_transmit(game, tf2_binding(no_interfaces), filter_nine) }
+				.unwrap();
+		assert!(api.remove_hook(reused));
 	});
 }
