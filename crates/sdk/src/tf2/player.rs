@@ -497,7 +497,9 @@ impl<'s> TfPlayer<'s> {
 	/// which they spawn as, or `None` if they have chosen none.
 	///
 	/// Fails with [`PlayerError::UnknownClass`] for a value that is neither
-	/// `TF_CLASS_UNDEFINED` nor a playable class.
+	/// `TF_CLASS_UNDEFINED` nor a playable class, including `TF_CLASS_RANDOM`.
+	/// Use [`has_desired_class`](Self::has_desired_class) to include Random
+	/// when checking whether the player has selected a class.
 	#[doc(alias("m_iDesiredPlayerClass", "GetDesiredPlayerClassIndex"))]
 	pub fn desired_class(self) -> Result<Option<PlayerClass>, PlayerError> {
 		self.read_class(c"m_iDesiredPlayerClass")
@@ -573,6 +575,27 @@ impl<'s> TfPlayer<'s> {
 		}?;
 
 		Ok(())
+	}
+
+	/// Whether the player selected a playable class or Random
+	/// (`m_iDesiredPlayerClass`).
+	///
+	/// The game keeps a Random selection after choosing a concrete class for
+	/// a respawn, so [`desired_class`](Self::desired_class) cannot represent
+	/// every selected class. This returns `false` for `TF_CLASS_UNDEFINED`
+	/// and fails with [`PlayerError::UnknownClass`] for unknown values.
+	#[doc(alias("m_iDesiredPlayerClass", "GetDesiredPlayerClassIndex"))]
+	pub fn has_desired_class(self) -> Result<bool, PlayerError> {
+		let raw = self
+			.net_prop(c"m_iDesiredPlayerClass")?
+			.get::<c_int>(self.player)?;
+
+		match raw {
+			sdk_raw::tf2::class::TF_CLASS_UNDEFINED => Ok(false),
+			sdk_raw::tf2::class::TF_CLASS_RANDOM => Ok(true),
+			raw if PlayerClass::from_raw(raw).is_some() => Ok(true),
+			raw => Err(PlayerError::UnknownClass(raw)),
+		}
 	}
 
 	/// Hides both teams' class menus from the player, if shown.
