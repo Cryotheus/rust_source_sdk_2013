@@ -19,6 +19,146 @@ interface! {
 	pub struct ValveEngine(sys::IVEngineServer) = Engine sdk_raw::interfaces::valve_engine::VERSION;
 }
 
+#[cfg(test)]
+mod tests;
+
+/// Bytes that hold a bit for each cluster a map can have, `MAX_MAP_CLUSTERS`
+/// in `public/bspfile.h`, as the game's own callers of `GetPVSForCluster`
+/// size their buffers.
+const PVS_CAPACITY: usize = 65536 / 8;
+
+/// A visibility cluster of the level's map: leaves of its BSP tree that the
+/// map's compiler computed visibility for together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Cluster(c_int);
+
+impl Cluster {
+	/// The cluster's index, which is also its bit in a [`Pvs`].
+	pub const fn index(self) -> usize {
+		self.0 as usize
+	}
+}
+
+/// Owned bounds enclosing every BSP leaf in a visibility cluster.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClusterBounds {
+	cluster: Cluster,
+	mins: Vector,
+	maxs: Vector,
+}
+
+impl ClusterBounds {
+	/// The cluster whose PVS corresponds to these bounds.
+	pub const fn cluster(self) -> Cluster {
+		self.cluster
+	}
+
+	/// Whether these bounds overlap the finite, ordered box, including its
+	/// boundary. This can include extra leaves; it cannot omit an intersecting
+	/// leaf merely because no sampled point lies inside that leaf.
+	pub fn intersects(self, mins: Vector, maxs: Vector) -> bool {
+		mins.is_finite()
+			&& maxs.is_finite()
+			&& mins.cmple(*maxs).all()
+			&& self.mins.cmple(*maxs).all()
+			&& self.maxs.cmpge(*mins).all()
+	}
+}
+
+/// Why the engine's complete visibility-cluster bounds could not be copied.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ClusterBoundsError {
+	/// The cluster count exceeds the BSP format's maximum, or is negative.
+	#[error("invalid visibility cluster count {0}")]
+	InvalidCount(c_int),
+	/// The bounds query did not return the count reported for this level.
+	#[error("visibility cluster count changed from {expected} to {actual}")]
+	ChangedCount {
+		/// The complete count returned before the bounds query.
+		expected: c_int,
+		/// The count returned by the bounds query.
+		actual: c_int,
+	},
+	/// A cluster has nonfinite or reversed bounds, or was not filled.
+	#[error("invalid bounds for visibility cluster {0}")]
+	InvalidBounds(usize),
+}
+
+/// How [`ValveEngine::find_map`] found a map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[doc(alias("eFindMapResult"))]
+pub enum FoundMap {
+	/// A map of exactly the name.
+	Exact,
+
+	/// A map whose name starts with the name, such as `cp_dustbowl` for
+	/// `cp_dust`.
+	Fuzzy,
+
+	/// A map the name is another name of, such as
+	/// `workshop/cp_qualified_name.ugc1234` for `workshop/1234`.
+	NonCanonical,
+
+	/// No map yet, but one the server may be able to download as a level
+	/// changes to it.
+	PossiblyAvailable,
+}
+
+/// A potentially visible set: a bit for each visibility cluster of the level's
+/// map, set for the clusters that can be seen from where the set was taken.
+///
+/// The engine networks an entity to a client only while the entity is in the
+/// set of the client's view, or is always sent. A set describes the map of
+/// the level it was taken in, so it cannot outlive the call from the engine.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Pvs<'s> {
+	bits: Box<[u8]>,
+	_level: PhantomData<ValveEngine<'s>>,
+}
+
+impl Pvs<'_> {
+	/// The set's bits, eight clusters to a byte, starting from the lowest bit.
+	pub fn as_bytes(&self) -> &[u8] {
+		&self.bits
+	}
+
+	/// Whether the set holds a cluster.
+	pub fn contains(&self, cluster: Cluster) -> bool {
+		let index = cluster.index();
+
+		self.bits
+			.get(index / 8)
+			.is_some_and(|byte| byte & (1 << (index % 8)) != 0)
+	}
+
+	/// Whether the set holds no cluster, as for a view outside the world.
+	pub fn is_empty(&self) -> bool {
+		self.bits.iter().all(|&byte| byte == 0)
+	}
+
+	/// The set's length for the engine, which a map's cluster count keeps far
+	/// below `c_int::MAX`.
+	fn len_c_int(&self) -> c_int {
+		self.bits.len() as c_int
+	}
+
+	/// Adds every cluster of `other` to this set, as the engine merges the sets
+	/// of a client's views.
+	pub fn union_with(&mut self, other: &Pvs<'_>) {
+		// An empty set can be shorter than one taken from a cluster.
+		if other.bits.len() > self.bits.len() {
+			let mut bits = vec![0u8; other.bits.len()].into_boxed_slice();
+
+			bits[..self.bits.len()].copy_from_slice(&self.bits);
+			self.bits = bits;
+		}
+
+		for (byte, other) in self.bits.iter_mut().zip(&other.bits) {
+			*byte |= other;
+		}
+	}
+}
+
 impl<'s> ValveEngine<'s> {
 	/// The engine's change-tracking record for an edict.
 	#[doc(alias("GetChangeAccessor"))]
@@ -131,6 +271,68 @@ impl<'s> ValveEngine<'s> {
 		is_valid_steam_id(steam_id).then_some(steam_id)
 	}
 
+	/// Copies every visibility cluster's world-space bounds in index order.
+	/// These bounds enclose all leaves belonging to their cluster, so box
+	/// intersection can conservatively cover an expanded visibility origin.
+	///
+	/// The returned data is owned. Discard cached bounds when the level ends;
+	/// a cluster index has meaning only in the map that supplied it. No native
+	/// accumulated PVS pointer or buffer is changed by this query.
+	#[doc(alias("GetClusterCount", "GetAllClusterBounds"))]
+	pub fn cluster_bounds(self) -> Result<Vec<ClusterBounds>, ClusterBoundsError> {
+		// SAFETY: The interface lives through this engine callback, and the
+		// query takes no pointers and does not change levels or free entities.
+		let count = unsafe { vcall!(self.as_ptr() => IVEngineServer_GetClusterCount()) };
+		if !(0..=PVS_CAPACITY as c_int * 8).contains(&count) {
+			return Err(ClusterBoundsError::InvalidCount(count));
+		}
+		if count == 0 {
+			return Ok(Vec::new());
+		}
+		let mut bounds: Vec<_> = (0..count)
+			.map(|_| sys::bbox_t {
+				mins: sys::Vector {
+					x: f32::NAN,
+					y: f32::NAN,
+					z: f32::NAN,
+				},
+				maxs: sys::Vector {
+					x: f32::NAN,
+					y: f32::NAN,
+					z: f32::NAN,
+				},
+			})
+			.collect();
+		// SAFETY: GetAllClusterBounds writes at most the passed capacity of
+		// bbox_t entries; every entry has initialized storage, kept through
+		// the call. A level cannot change within this callback.
+		let actual = unsafe {
+			vcall!(self.as_ptr() => IVEngineServer_GetAllClusterBounds(bounds.as_mut_ptr(), count))
+		};
+		if actual != count {
+			return Err(ClusterBoundsError::ChangedCount {
+				expected: count,
+				actual,
+			});
+		}
+		bounds
+			.into_iter()
+			.enumerate()
+			.map(|(index, bounds)| {
+				let mins = Vector::from(bounds.mins);
+				let maxs = Vector::from(bounds.maxs);
+				if !mins.is_finite() || !maxs.is_finite() || mins.cmpgt(*maxs).any() {
+					return Err(ClusterBoundsError::InvalidBounds(index));
+				}
+				Ok(ClusterBounds {
+					cluster: Cluster(index as c_int),
+					mins,
+					maxs,
+				})
+			})
+			.collect()
+	}
+
 	/// The visibility cluster of the level's map a point lies in, or `None` for a
 	/// point outside the world or inside its solid parts.
 	#[doc(alias("GetClusterForOrigin"))]
@@ -235,9 +437,11 @@ impl<'s> ValveEngine<'s> {
 			sys::IVEngineServer_eFindMapResult_eFindMap_Found => FoundMap::Exact,
 			sys::IVEngineServer_eFindMapResult_eFindMap_FuzzyMatch => FoundMap::Fuzzy,
 			sys::IVEngineServer_eFindMapResult_eFindMap_NonCanonical => FoundMap::NonCanonical,
+
 			sys::IVEngineServer_eFindMapResult_eFindMap_PossiblyAvailable => {
 				FoundMap::PossiblyAvailable
 			}
+
 			_ => return None,
 		};
 
@@ -368,9 +572,14 @@ impl<'s> ValveEngine<'s> {
 		}
 	}
 
-	/// The potentially visible set of the cluster a point lies in, as the engine
-	/// networks entities to a client whose view is at the point. Empty for a
-	/// point outside the world or inside its solid parts.
+	/// The potentially visible set of the single cluster a point lies in.
+	/// Empty for a point outside the world or inside its solid parts.
+	///
+	/// Native `AddOriginToPVS` also includes clusters within eight world units
+	/// of the origin. To conservatively reproduce that envelope, union the
+	/// PVS of every [`cluster_bounds`](Self::cluster_bounds) entry intersecting
+	/// the origin's eight-unit box. A center or corner sample alone can miss
+	/// an intervening BSP leaf.
 	pub fn pvs_for_origin(self, origin: Vector) -> Pvs<'s> {
 		self.pvs_for_cluster_index(
 			self.cluster_for_origin(origin)
@@ -466,98 +675,6 @@ impl<'s> ValveEngine<'s> {
 		};
 
 		f()
-	}
-}
-
-/// Bytes that hold a bit for each cluster a map can have, `MAX_MAP_CLUSTERS`
-/// in `public/bspfile.h`, as the game's own callers of `GetPVSForCluster`
-/// size their buffers.
-const PVS_CAPACITY: usize = 65536 / 8;
-
-/// A visibility cluster of the level's map: leaves of its BSP tree that the
-/// map's compiler computed visibility for together.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Cluster(c_int);
-
-impl Cluster {
-	/// The cluster's index, which is also its bit in a [`Pvs`].
-	pub const fn index(self) -> usize {
-		self.0 as usize
-	}
-}
-
-/// How [`ValveEngine::find_map`] found a map.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[doc(alias("eFindMapResult"))]
-pub enum FoundMap {
-	/// A map of exactly the name.
-	Exact,
-
-	/// A map whose name starts with the name, such as `cp_dustbowl` for
-	/// `cp_dust`.
-	Fuzzy,
-
-	/// A map the name is another name of, such as
-	/// `workshop/cp_qualified_name.ugc1234` for `workshop/1234`.
-	NonCanonical,
-
-	/// No map yet, but one the server may be able to download as a level
-	/// changes to it.
-	PossiblyAvailable,
-}
-
-/// A potentially visible set: a bit for each visibility cluster of the level's
-/// map, set for the clusters that can be seen from where the set was taken.
-///
-/// The engine networks an entity to a client only while the entity is in the
-/// set of the client's view, or is always sent. A set describes the map of
-/// the level it was taken in, so it cannot outlive the call from the engine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Pvs<'s> {
-	bits: Box<[u8]>,
-	_level: PhantomData<ValveEngine<'s>>,
-}
-
-impl Pvs<'_> {
-	/// The set's bits, eight clusters to a byte, starting from the lowest bit.
-	pub fn as_bytes(&self) -> &[u8] {
-		&self.bits
-	}
-
-	/// Whether the set holds a cluster.
-	pub fn contains(&self, cluster: Cluster) -> bool {
-		let index = cluster.index();
-
-		self.bits
-			.get(index / 8)
-			.is_some_and(|byte| byte & (1 << (index % 8)) != 0)
-	}
-
-	/// Whether the set holds no cluster, as for a view outside the world.
-	pub fn is_empty(&self) -> bool {
-		self.bits.iter().all(|&byte| byte == 0)
-	}
-
-	/// The set's length for the engine, which a map's cluster count keeps far
-	/// below `c_int::MAX`.
-	fn len_c_int(&self) -> c_int {
-		self.bits.len() as c_int
-	}
-
-	/// Adds every cluster of `other` to this set, as the engine merges the sets
-	/// of a client's views.
-	pub fn union_with(&mut self, other: &Pvs<'_>) {
-		// An empty set can be shorter than one taken from a cluster.
-		if other.bits.len() > self.bits.len() {
-			let mut bits = vec![0u8; other.bits.len()].into_boxed_slice();
-
-			bits[..self.bits.len()].copy_from_slice(&self.bits);
-			self.bits = bits;
-		}
-
-		for (byte, other) in self.bits.iter_mut().zip(&other.bits) {
-			*byte |= other;
-		}
 	}
 }
 
