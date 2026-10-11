@@ -12,6 +12,7 @@
 pub mod airblast;
 pub mod ammo;
 pub mod attributes;
+pub mod blocked;
 pub mod bosses;
 pub mod bots;
 pub mod buildings;

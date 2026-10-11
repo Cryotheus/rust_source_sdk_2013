@@ -1,4 +1,4 @@
-//! Checked brush-door state and a reversible Editor opening policy.
+//! Checked brush/prop-door identity and a reversible brush-door Editor opening policy.
 //!
 //! `func_door` and `func_door_rotating` share `CBaseDoor`. Endpoint inputs
 //! run the game's movement, collision and area-portal behavior; raw origins
@@ -380,5 +380,35 @@ mod tests {
 		});
 		assert!(matches!(result, Err(DoorError::Interrupted)));
 		assert!(sent.is_empty());
+	}
+}
+
+/// A rotating prop door with checked `CBasePropDoor` datamap lineage.
+/// Native blocking callbacks own its linked-door stop and resume behavior.
+#[derive(Debug, Clone, Copy)]
+pub struct PropDoor<'s>(Objective<'s>);
+
+impl<'s> PropDoor<'s> {
+	/// Checks the map class and native lineage without changing door state.
+	pub fn new(server: Server<'s>, entity: Entity<'s>) -> Result<Self, DoorError> {
+		if entity.class_name() != c"prop_door_rotating" {
+			return Err(ObjectiveError::WrongClass {
+				expected: "prop_door_rotating",
+			}
+			.into());
+		}
+		let door = Self(Objective::new(
+			server,
+			entity,
+			c"CBasePropDoor",
+			"prop_door_rotating",
+		)?);
+		door.0.check_live()?;
+		Ok(door)
+	}
+
+	/// The underlying checked prop door.
+	pub fn entity(self) -> Entity<'s> {
+		self.0.entity()
 	}
 }
