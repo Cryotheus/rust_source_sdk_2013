@@ -62,6 +62,7 @@ macro_rules! interface {
 	};
 }
 
+pub mod base_file_system;
 pub mod bot_manager;
 pub mod cvar;
 pub mod engine_replay;
@@ -82,6 +83,7 @@ pub mod temp_entities;
 pub mod valve_engine;
 pub mod voice_server;
 
+pub use base_file_system::BaseFileSystem;
 pub use bot_manager::BotManager;
 pub use cvar::Cvar;
 pub use engine_replay::EngineReplay;
