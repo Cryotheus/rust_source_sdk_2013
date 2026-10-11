@@ -4,6 +4,8 @@
 //! [`TempEntities::dispatch_particle_effect`] plays a particle system on an
 //! entity, as the game's `DispatchParticleEffect` does.
 
+pub mod sparks;
+
 #[cfg(test)]
 #[path = "../../tests/interfaces/temp_entities.rs"]
 mod tests;
