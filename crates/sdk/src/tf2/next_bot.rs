@@ -45,81 +45,6 @@ use std::ffi::{CStr, c_int, c_uint};
 use std::marker::PhantomData;
 use std::ptr::{NonNull, null, null_mut};
 
-/// Finds an entity's `INextBot`, or `None` if it is not a NextBot actor.
-///
-/// # Safety
-///
-/// The server must be running TF2, whose game DLL is built with `NEXT_BOT`,
-/// as the generated vtable of `CBaseEntity` is.
-pub(crate) unsafe fn next_bot_pointer(entity: Entity<'_>) -> Option<NonNull<sys::INextBot>> {
-	let raw = entity.as_ptr();
-
-	// SAFETY: The entity is live for its scope, and the caller vouches that its
-	// vtable has the entry at the slot `sdk_raw::tf2::next_bot` reads from the
-	// generated binding. The method returns the entity itself, adjusted to its
-	// `INextBot` base, or null.
-	NonNull::new(unsafe {
-		vcall!(raw as sys::CBaseEntity__bindgen_vtable => CBaseEntity_MyNextBotPointer())
-	})
-}
-
-/// Wraps an entity a component returned, or `None` for null.
-///
-/// # Safety
-///
-/// A non-null `raw` must point to a live entity of the server's.
-unsafe fn entity_of<'s>(server: Server<'s>, raw: *mut sys::CBaseEntity) -> Option<Entity<'s>> {
-	// SAFETY: The caller vouches for the entity.
-	NonNull::new(raw).map(|raw| unsafe { Entity::from_live(server, raw) })
-}
-
-/// How a body stands (`IBody::PostureType`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Posture {
-	/// Standing (`STAND`).
-	Stand,
-
-	/// Crouching (`CROUCH`).
-	Crouch,
-
-	/// Sitting (`SIT`).
-	Sit,
-
-	/// Crawling (`CRAWL`).
-	Crawl,
-
-	/// Lying down (`LIE`).
-	Lie,
-}
-
-impl Posture {
-	/// Every posture, in native order.
-	pub const ALL: [Self; 5] = [Self::Stand, Self::Crouch, Self::Sit, Self::Crawl, Self::Lie];
-
-	/// The posture with this number, or `None` for any other.
-	pub const fn from_raw(raw: sys::IBody_PostureType) -> Option<Self> {
-		match raw {
-			sys::IBody_PostureType_STAND => Some(Self::Stand),
-			sys::IBody_PostureType_CROUCH => Some(Self::Crouch),
-			sys::IBody_PostureType_SIT => Some(Self::Sit),
-			sys::IBody_PostureType_CRAWL => Some(Self::Crawl),
-			sys::IBody_PostureType_LIE => Some(Self::Lie),
-			_ => None,
-		}
-	}
-
-	/// The posture's number.
-	pub const fn to_raw(self) -> sys::IBody_PostureType {
-		match self {
-			Self::Stand => sys::IBody_PostureType_STAND,
-			Self::Crouch => sys::IBody_PostureType_CROUCH,
-			Self::Sit => sys::IBody_PostureType_SIT,
-			Self::Crawl => sys::IBody_PostureType_CRAWL,
-			Self::Lie => sys::IBody_PostureType_LIE,
-		}
-	}
-}
-
 /// How excited a body is (`IBody::ArousalType`), which some actors' bodies
 /// animate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -193,16 +118,6 @@ impl LookAtPriority {
 	}
 }
 
-/// The `IVision::FieldOfViewCheckType` for whether a check of sight counts
-/// the field of view.
-const fn field_of_view_check(use_field_of_view: bool) -> sys::IVision_FieldOfViewCheckType {
-	if use_field_of_view {
-		sys::IVision_FieldOfViewCheckType_USE_FOV
-	} else {
-		sys::IVision_FieldOfViewCheckType_DISREGARD_FOV
-	}
-}
-
 /// A NextBot actor's `INextBot`, within the engine callback `'s`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NextBotInterface<'s> {
@@ -236,6 +151,11 @@ impl<'s> NextBotInterface<'s> {
 		// SAFETY: The server runs TF2, and the actor frees its `INextBot` only
 		// with itself, which `Server::new`'s contract defers past `'s`.
 		Ok(unsafe { next_bot_pointer(entity) }.map(|bot| unsafe { Self::from_raw(bot) }))
+	}
+
+	/// The actor's raw pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut sys::INextBot {
+		self.bot.as_ptr()
 	}
 
 	/// The actor's body (`GetBodyInterface`).
@@ -299,11 +219,91 @@ impl<'s> NextBotInterface<'s> {
 			_scope: PhantomData,
 		}
 	}
+}
 
-	/// The actor's raw pointer, for calls this crate does not wrap.
-	pub const fn as_ptr(self) -> *mut sys::INextBot {
-		self.bot.as_ptr()
+/// How a body stands (`IBody::PostureType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Posture {
+	/// Standing (`STAND`).
+	Stand,
+
+	/// Crouching (`CROUCH`).
+	Crouch,
+
+	/// Sitting (`SIT`).
+	Sit,
+
+	/// Crawling (`CRAWL`).
+	Crawl,
+
+	/// Lying down (`LIE`).
+	Lie,
+}
+
+impl Posture {
+	/// Every posture, in native order.
+	pub const ALL: [Self; 5] = [Self::Stand, Self::Crouch, Self::Sit, Self::Crawl, Self::Lie];
+
+	/// The posture with this number, or `None` for any other.
+	pub const fn from_raw(raw: sys::IBody_PostureType) -> Option<Self> {
+		match raw {
+			sys::IBody_PostureType_STAND => Some(Self::Stand),
+			sys::IBody_PostureType_CROUCH => Some(Self::Crouch),
+			sys::IBody_PostureType_SIT => Some(Self::Sit),
+			sys::IBody_PostureType_CRAWL => Some(Self::Crawl),
+			sys::IBody_PostureType_LIE => Some(Self::Lie),
+			_ => None,
+		}
 	}
+
+	/// The posture's number.
+	pub const fn to_raw(self) -> sys::IBody_PostureType {
+		match self {
+			Self::Stand => sys::IBody_PostureType_STAND,
+			Self::Crouch => sys::IBody_PostureType_CROUCH,
+			Self::Sit => sys::IBody_PostureType_SIT,
+			Self::Crawl => sys::IBody_PostureType_CRAWL,
+			Self::Lie => sys::IBody_PostureType_LIE,
+		}
+	}
+}
+
+/// Wraps an entity a component returned, or `None` for null.
+///
+/// # Safety
+///
+/// A non-null `raw` must point to a live entity of the server's.
+unsafe fn entity_of<'s>(server: Server<'s>, raw: *mut sys::CBaseEntity) -> Option<Entity<'s>> {
+	// SAFETY: The caller vouches for the entity.
+	NonNull::new(raw).map(|raw| unsafe { Entity::from_live(server, raw) })
+}
+
+/// The `IVision::FieldOfViewCheckType` for whether a check of sight counts
+/// the field of view.
+const fn field_of_view_check(use_field_of_view: bool) -> sys::IVision_FieldOfViewCheckType {
+	if use_field_of_view {
+		sys::IVision_FieldOfViewCheckType_USE_FOV
+	} else {
+		sys::IVision_FieldOfViewCheckType_DISREGARD_FOV
+	}
+}
+
+/// Finds an entity's `INextBot`, or `None` if it is not a NextBot actor.
+///
+/// # Safety
+///
+/// The server must be running TF2, whose game DLL is built with `NEXT_BOT`,
+/// as the generated vtable of `CBaseEntity` is.
+pub(crate) unsafe fn next_bot_pointer(entity: Entity<'_>) -> Option<NonNull<sys::INextBot>> {
+	let raw = entity.as_ptr();
+
+	// SAFETY: The entity is live for its scope, and the caller vouches that its
+	// vtable has the entry at the slot `sdk_raw::tf2::next_bot` reads from the
+	// generated binding. The method returns the entity itself, adjusted to its
+	// `INextBot` base, or null.
+	NonNull::new(unsafe {
+		vcall!(raw as sys::CBaseEntity__bindgen_vtable => CBaseEntity_MyNextBotPointer())
+	})
 }
 
 /// Calls a method of a component through its generated vtable.
@@ -329,6 +329,172 @@ macro_rules! component_vector {
 	}};
 }
 
+/// The body of a NextBot actor (`IBody`), within the engine callback `'s`:
+/// where its head aims, how it stands, and its hull.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Body<'s> {
+	body: NonNull<sys::IBody>,
+	_scope: PhantomData<&'s ()>,
+}
+
+impl<'s> Body<'s> {
+	/// The posture the actor is in, or `None` for one the game does not define
+	/// (`GetActualPosture`).
+	#[doc(alias("GetActualPosture"))]
+	pub fn actual_posture(self) -> Option<Posture> {
+		Posture::from_raw(
+			component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetActualPosture()),
+		)
+	}
+
+	/// Aims the actor's head at an entity, following it for `duration`
+	/// seconds (`AimHeadTowards`), unless the head is carrying out a request
+	/// of higher `priority`.
+	#[doc(alias("AimHeadTowards"))]
+	pub fn aim_head_at(self, subject: Entity<'_>, priority: LookAtPriority, duration: f32) {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_AimHeadTowards1(
+			subject.as_ptr(),
+			priority.to_raw(),
+			duration,
+			null_mut(),
+			null(),
+		));
+	}
+
+	/// Aims the actor's head at a position for `duration` seconds
+	/// (`AimHeadTowards`), unless the head is carrying out a request of higher
+	/// `priority`.
+	#[doc(alias("AimHeadTowards"))]
+	pub fn aim_head_towards(self, position: Vector, priority: LookAtPriority, duration: f32) {
+		let position = sys::Vector::from(position);
+
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_AimHeadTowards(
+			&raw const position,
+			priority.to_raw(),
+			duration,
+			null_mut(),
+			null(),
+		));
+	}
+
+	/// How excited the actor is, or `None` for a level the game does not
+	/// define (`GetArousal`).
+	#[doc(alias("GetArousal"))]
+	pub fn arousal(self) -> Option<Arousal> {
+		Arousal::from_raw(
+			component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetArousal()),
+		)
+	}
+
+	/// The body's raw pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut sys::IBody {
+		self.body.as_ptr()
+	}
+
+	/// The collision group the actor moves with (`GetCollisionGroup`).
+	#[doc(alias("GetCollisionGroup"))]
+	pub fn collision_group(self) -> c_uint {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetCollisionGroup())
+	}
+
+	/// The height of the actor's hull while it crouches
+	/// (`GetCrouchHullHeight`).
+	#[doc(alias("GetCrouchHullHeight"))]
+	pub fn crouch_hull_height(self) -> f32 {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetCrouchHullHeight())
+	}
+
+	/// The posture the actor is trying to take, or `None` for one the game
+	/// does not define (`GetDesiredPosture`).
+	#[doc(alias("GetDesiredPosture"))]
+	pub fn desired_posture(self) -> Option<Posture> {
+		Posture::from_raw(
+			component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetDesiredPosture()),
+		)
+	}
+
+	/// Where the actor sees from (`GetEyePosition`).
+	#[doc(alias("GetEyePosition"))]
+	pub fn eye_position(self) -> Vector {
+		component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetEyePosition())
+	}
+
+	/// The corners of the actor's hull in its current posture, relative to its
+	/// feet (`GetHullMins` and `GetHullMaxs`).
+	#[doc(alias("GetHullMins", "GetHullMaxs"))]
+	pub fn hull(self) -> (Vector, Vector) {
+		(
+			component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullMins()),
+			component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullMaxs()),
+		)
+	}
+
+	/// The height of the actor's hull in its current posture
+	/// (`GetHullHeight`).
+	#[doc(alias("GetHullHeight"))]
+	pub fn hull_height(self) -> f32 {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullHeight())
+	}
+
+	/// The width of the actor's hull in the x-y plane (`GetHullWidth`).
+	#[doc(alias("GetHullWidth"))]
+	pub fn hull_width(self) -> f32 {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullWidth())
+	}
+
+	/// Whether the actor's head has reached the target it was last asked to
+	/// aim at (`IsHeadAimingOnTarget`).
+	#[doc(alias("IsHeadAimingOnTarget"))]
+	pub fn is_head_aiming_on_target(self) -> bool {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_IsHeadAimingOnTarget())
+	}
+
+	/// Whether the actor is in the posture it is trying to take
+	/// (`IsInDesiredPosture`).
+	#[doc(alias("IsInDesiredPosture"))]
+	pub fn is_in_desired_posture(self) -> bool {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_IsInDesiredPosture())
+	}
+
+	/// Whether the actor's posture lets it move (`IsPostureMobile`).
+	#[doc(alias("IsPostureMobile"))]
+	pub fn is_posture_mobile(self) -> bool {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_IsPostureMobile())
+	}
+
+	/// Sets how excited the actor is (`SetArousal`). Bodies that do not
+	/// animate it ignore it.
+	#[doc(alias("SetArousal"))]
+	pub fn set_arousal(self, arousal: Arousal) {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_SetArousal(arousal.to_raw()));
+	}
+
+	/// Asks the actor to take a posture (`SetDesiredPosture`). Bodies with
+	/// one posture ignore it.
+	#[doc(alias("SetDesiredPosture"))]
+	pub fn set_desired_posture(self, posture: Posture) {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_SetDesiredPosture(posture.to_raw()));
+	}
+
+	/// The contents the actor's movement collides with (`GetSolidMask`).
+	#[doc(alias("GetSolidMask"))]
+	pub fn solid_mask(self) -> c_uint {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetSolidMask())
+	}
+
+	/// The height of the actor's hull while it stands (`GetStandHullHeight`).
+	#[doc(alias("GetStandHullHeight"))]
+	pub fn stand_hull_height(self) -> f32 {
+		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetStandHullHeight())
+	}
+
+	/// The direction the actor looks in, as a unit vector (`GetViewVector`).
+	#[doc(alias("GetViewVector"))]
+	pub fn view_vector(self) -> Vector {
+		component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetViewVector())
+	}
+}
+
 /// How a NextBot actor moves (`ILocomotion`), within the engine callback
 /// `'s`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -347,6 +513,11 @@ impl<'s> Locomotion<'s> {
 		let goal = sys::Vector::from(goal);
 
 		component_call!(self.locomotion as sys::ILocomotion__bindgen_vtable => ILocomotion_Approach(&raw const goal, weight));
+	}
+
+	/// The locomotion's raw pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut sys::ILocomotion {
+		self.locomotion.as_ptr()
 	}
 
 	/// Clears the actor's stuck status (`ClearStuckStatus`), giving `reason`
@@ -581,177 +752,6 @@ impl<'s> Locomotion<'s> {
 	pub fn walk_speed(self) -> f32 {
 		component_call!(self.locomotion as sys::ILocomotion__bindgen_vtable => ILocomotion_GetWalkSpeed())
 	}
-
-	/// The locomotion's raw pointer, for calls this crate does not wrap.
-	pub const fn as_ptr(self) -> *mut sys::ILocomotion {
-		self.locomotion.as_ptr()
-	}
-}
-
-/// The body of a NextBot actor (`IBody`), within the engine callback `'s`:
-/// where its head aims, how it stands, and its hull.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Body<'s> {
-	body: NonNull<sys::IBody>,
-	_scope: PhantomData<&'s ()>,
-}
-
-impl<'s> Body<'s> {
-	/// Aims the actor's head at an entity, following it for `duration`
-	/// seconds (`AimHeadTowards`), unless the head is carrying out a request
-	/// of higher `priority`.
-	#[doc(alias("AimHeadTowards"))]
-	pub fn aim_head_at(self, subject: Entity<'_>, priority: LookAtPriority, duration: f32) {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_AimHeadTowards1(
-			subject.as_ptr(),
-			priority.to_raw(),
-			duration,
-			null_mut(),
-			null(),
-		));
-	}
-
-	/// Aims the actor's head at a position for `duration` seconds
-	/// (`AimHeadTowards`), unless the head is carrying out a request of higher
-	/// `priority`.
-	#[doc(alias("AimHeadTowards"))]
-	pub fn aim_head_towards(self, position: Vector, priority: LookAtPriority, duration: f32) {
-		let position = sys::Vector::from(position);
-
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_AimHeadTowards(
-			&raw const position,
-			priority.to_raw(),
-			duration,
-			null_mut(),
-			null(),
-		));
-	}
-
-	/// How excited the actor is, or `None` for a level the game does not
-	/// define (`GetArousal`).
-	#[doc(alias("GetArousal"))]
-	pub fn arousal(self) -> Option<Arousal> {
-		Arousal::from_raw(
-			component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetArousal()),
-		)
-	}
-
-	/// The posture the actor is in, or `None` for one the game does not define
-	/// (`GetActualPosture`).
-	#[doc(alias("GetActualPosture"))]
-	pub fn actual_posture(self) -> Option<Posture> {
-		Posture::from_raw(
-			component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetActualPosture()),
-		)
-	}
-
-	/// The collision group the actor moves with (`GetCollisionGroup`).
-	#[doc(alias("GetCollisionGroup"))]
-	pub fn collision_group(self) -> c_uint {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetCollisionGroup())
-	}
-
-	/// The height of the actor's hull while it crouches
-	/// (`GetCrouchHullHeight`).
-	#[doc(alias("GetCrouchHullHeight"))]
-	pub fn crouch_hull_height(self) -> f32 {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetCrouchHullHeight())
-	}
-
-	/// The posture the actor is trying to take, or `None` for one the game
-	/// does not define (`GetDesiredPosture`).
-	#[doc(alias("GetDesiredPosture"))]
-	pub fn desired_posture(self) -> Option<Posture> {
-		Posture::from_raw(
-			component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetDesiredPosture()),
-		)
-	}
-
-	/// Where the actor sees from (`GetEyePosition`).
-	#[doc(alias("GetEyePosition"))]
-	pub fn eye_position(self) -> Vector {
-		component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetEyePosition())
-	}
-
-	/// The corners of the actor's hull in its current posture, relative to its
-	/// feet (`GetHullMins` and `GetHullMaxs`).
-	#[doc(alias("GetHullMins", "GetHullMaxs"))]
-	pub fn hull(self) -> (Vector, Vector) {
-		(
-			component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullMins()),
-			component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullMaxs()),
-		)
-	}
-
-	/// The height of the actor's hull in its current posture
-	/// (`GetHullHeight`).
-	#[doc(alias("GetHullHeight"))]
-	pub fn hull_height(self) -> f32 {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullHeight())
-	}
-
-	/// The width of the actor's hull in the x-y plane (`GetHullWidth`).
-	#[doc(alias("GetHullWidth"))]
-	pub fn hull_width(self) -> f32 {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetHullWidth())
-	}
-
-	/// Whether the actor's head has reached the target it was last asked to
-	/// aim at (`IsHeadAimingOnTarget`).
-	#[doc(alias("IsHeadAimingOnTarget"))]
-	pub fn is_head_aiming_on_target(self) -> bool {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_IsHeadAimingOnTarget())
-	}
-
-	/// Whether the actor is in the posture it is trying to take
-	/// (`IsInDesiredPosture`).
-	#[doc(alias("IsInDesiredPosture"))]
-	pub fn is_in_desired_posture(self) -> bool {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_IsInDesiredPosture())
-	}
-
-	/// Whether the actor's posture lets it move (`IsPostureMobile`).
-	#[doc(alias("IsPostureMobile"))]
-	pub fn is_posture_mobile(self) -> bool {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_IsPostureMobile())
-	}
-
-	/// Sets how excited the actor is (`SetArousal`). Bodies that do not
-	/// animate it ignore it.
-	#[doc(alias("SetArousal"))]
-	pub fn set_arousal(self, arousal: Arousal) {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_SetArousal(arousal.to_raw()));
-	}
-
-	/// Asks the actor to take a posture (`SetDesiredPosture`). Bodies with
-	/// one posture ignore it.
-	#[doc(alias("SetDesiredPosture"))]
-	pub fn set_desired_posture(self, posture: Posture) {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_SetDesiredPosture(posture.to_raw()));
-	}
-
-	/// The contents the actor's movement collides with (`GetSolidMask`).
-	#[doc(alias("GetSolidMask"))]
-	pub fn solid_mask(self) -> c_uint {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetSolidMask())
-	}
-
-	/// The height of the actor's hull while it stands (`GetStandHullHeight`).
-	#[doc(alias("GetStandHullHeight"))]
-	pub fn stand_hull_height(self) -> f32 {
-		component_call!(self.body as sys::IBody__bindgen_vtable => IBody_GetStandHullHeight())
-	}
-
-	/// The direction the actor looks in, as a unit vector (`GetViewVector`).
-	#[doc(alias("GetViewVector"))]
-	pub fn view_vector(self) -> Vector {
-		component_vector!(self.body as sys::IBody__bindgen_vtable => IBody_GetViewVector())
-	}
-
-	/// The body's raw pointer, for calls this crate does not wrap.
-	pub const fn as_ptr(self) -> *mut sys::IBody {
-		self.body.as_ptr()
-	}
 }
 
 /// What a NextBot actor sees (`IVision`), within the engine callback `'s`:
@@ -768,6 +768,11 @@ impl<'s> Vision<'s> {
 	#[doc(alias("AddKnownEntity"))]
 	pub fn add_known_entity(self, entity: Entity<'_>) {
 		component_call!(self.vision as sys::IVision__bindgen_vtable => IVision_AddKnownEntity(entity.as_ptr()));
+	}
+
+	/// The vision's raw pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut sys::IVision {
+		self.vision.as_ptr()
 	}
 
 	/// The actor's field of view, in degrees (`GetFieldOfView`).
@@ -879,10 +884,5 @@ impl<'s> Vision<'s> {
 	#[doc(alias("SetFieldOfView"))]
 	pub fn set_field_of_view(self, degrees: f32) {
 		component_call!(self.vision as sys::IVision__bindgen_vtable => IVision_SetFieldOfView(degrees));
-	}
-
-	/// The vision's raw pointer, for calls this crate does not wrap.
-	pub const fn as_ptr(self) -> *mut sys::IVision {
-		self.vision.as_ptr()
 	}
 }

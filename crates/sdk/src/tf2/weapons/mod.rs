@@ -81,6 +81,51 @@ impl<'s> PlayerWeapons<'s> {
 		Ok(Self { server, player })
 	}
 
+	/// The weapon the player holds (`m_hActiveWeapon`), or `None` if they hold
+	/// none, or hold an entity that is no TF2 combat weapon.
+	#[doc(alias("m_hActiveWeapon", "GetActiveWeapon"))]
+	pub fn active(self) -> Result<Option<Weapon<'s>>, WeaponError> {
+		let handle = self
+			.server
+			.server_game_dll()?
+			.entity_net_prop(self.player, c"m_hActiveWeapon")?
+			.get_handle(self.player)?;
+
+		match self.server.server_tools()?.entity_by_handle(handle) {
+			Some(weapon) => weapon_of(self.server, weapon),
+			None => Ok(None),
+		}
+	}
+
+	/// The weapons the player carries (`m_hMyWeapons`), in the order of their
+	/// inventory, which is not that of their slots. Entities in it that are no
+	/// TF2 combat weapon are skipped.
+	#[doc(alias("m_hMyWeapons", "GetWeapon"))]
+	pub fn all(self) -> Result<Vec<Weapon<'s>>, WeaponError> {
+		let weapons = self
+			.server
+			.server_game_dll()?
+			.entity_net_prop(self.player, c"m_hMyWeapons")?;
+		let tools = self.server.server_tools()?;
+		let count = weapons
+			.element_count()
+			.ok_or_else(|| NetPropError::NotAnArray {
+				name: String::from("m_hMyWeapons"),
+				kind: weapons.prop().kind(),
+			})?;
+		let mut all = Vec::new();
+
+		for index in 0..count {
+			let handle = weapons.element(index)?.get_handle(self.player)?;
+
+			if let Some(weapon) = tools.entity_by_handle(handle) {
+				all.extend(weapon_of(self.server, weapon)?);
+			}
+		}
+
+		Ok(all)
+	}
+
 	/// Detaches this player's weapon without deleting it. The detached entity
 	/// can be equipped again or passed to `ServerTools::remove` for deletion.
 	/// This is an inventory operation: native `RemovePlayerItem` can leave
@@ -400,24 +445,6 @@ impl<'s> PlayerWeapons<'s> {
 		unsafe { self.give_item_with_quality(definition, ItemQuality::Unique, ItemLevel::DEFAULT) }
 	}
 
-	/// As [`Self::give_item`], but creates the weapon at `level` and with
-	/// `quality`, which clients show in its description and color its name
-	/// by, such as a level 100 Strange weapon. Neither changes how the weapon
-	/// plays, as [`ItemQuality`] describes.
-	///
-	/// # Safety
-	/// The guarantees of `give_item` apply.
-	#[doc(alias("SpawnItem"))]
-	pub unsafe fn give_item_with_quality(
-		self,
-		definition: ItemDefinitionIndex,
-		quality: ItemQuality,
-		level: ItemLevel,
-	) -> Result<Weapon<'s>, WeaponError> {
-		// SAFETY: The caller supplies the native creation guarantees.
-		unsafe { self.spawn_item(definition, None, quality, level, |_| Ok(())) }
-	}
-
 	/// As [`Self::give_item`], using an exact classname instead of the schema's
 	/// classname. For example, a generic shotgun definition can use
 	/// `tf_weapon_shotgun_soldier`. The definition's static attributes are retained.
@@ -479,6 +506,24 @@ impl<'s> PlayerWeapons<'s> {
 				|weapon| apply_attributes(token, weapon, attributes),
 			)
 		}
+	}
+
+	/// As [`Self::give_item`], but creates the weapon at `level` and with
+	/// `quality`, which clients show in its description and color its name
+	/// by, such as a level 100 Strange weapon. Neither changes how the weapon
+	/// plays, as [`ItemQuality`] describes.
+	///
+	/// # Safety
+	/// The guarantees of `give_item` apply.
+	#[doc(alias("SpawnItem"))]
+	pub unsafe fn give_item_with_quality(
+		self,
+		definition: ItemDefinitionIndex,
+		quality: ItemQuality,
+		level: ItemLevel,
+	) -> Result<Weapon<'s>, WeaponError> {
+		// SAFETY: The caller supplies the native creation guarantees.
+		unsafe { self.spawn_item(definition, None, quality, level, |_| Ok(())) }
 	}
 
 	/// `create` must return a newly created entity, live through this callback.
@@ -698,51 +743,6 @@ impl<'s> PlayerWeapons<'s> {
 		}
 	}
 
-	/// The weapon the player holds (`m_hActiveWeapon`), or `None` if they hold
-	/// none, or hold an entity that is no TF2 combat weapon.
-	#[doc(alias("m_hActiveWeapon", "GetActiveWeapon"))]
-	pub fn active(self) -> Result<Option<Weapon<'s>>, WeaponError> {
-		let handle = self
-			.server
-			.server_game_dll()?
-			.entity_net_prop(self.player, c"m_hActiveWeapon")?
-			.get_handle(self.player)?;
-
-		match self.server.server_tools()?.entity_by_handle(handle) {
-			Some(weapon) => weapon_of(self.server, weapon),
-			None => Ok(None),
-		}
-	}
-
-	/// The weapons the player carries (`m_hMyWeapons`), in the order of their
-	/// inventory, which is not that of their slots. Entities in it that are no
-	/// TF2 combat weapon are skipped.
-	#[doc(alias("m_hMyWeapons", "GetWeapon"))]
-	pub fn all(self) -> Result<Vec<Weapon<'s>>, WeaponError> {
-		let weapons = self
-			.server
-			.server_game_dll()?
-			.entity_net_prop(self.player, c"m_hMyWeapons")?;
-		let tools = self.server.server_tools()?;
-		let count = weapons
-			.element_count()
-			.ok_or_else(|| NetPropError::NotAnArray {
-				name: String::from("m_hMyWeapons"),
-				kind: weapons.prop().kind(),
-			})?;
-		let mut all = Vec::new();
-
-		for index in 0..count {
-			let handle = weapons.element(index)?.get_handle(self.player)?;
-
-			if let Some(weapon) = tools.entity_by_handle(handle) {
-				all.extend(weapon_of(self.server, weapon)?);
-			}
-		}
-
-		Ok(all)
-	}
-
 	/// Switches the player to `weapon`, one of theirs, as choosing it does
 	/// (`Weapon_Switch`), and returns whether they hold it now.
 	///
@@ -960,28 +960,6 @@ impl<'s> Weapon<'s> {
 		Ok(handle.is_valid().then_some(handle))
 	}
 
-	/// The native weapon slot, which can depend on its item definition, or
-	/// `None` for a slot outside [`WeaponSlot`] (see [`Self::slot_raw`]).
-	#[doc(alias("GetSlot"))]
-	pub fn slot(self) -> Result<Option<WeaponSlot>, WeaponError> {
-		self.slot_raw().map(WeaponSlot::from_raw)
-	}
-
-	/// The native weapon slot number, including those [`WeaponSlot`] does not name.
-	#[doc(alias("GetSlot"))]
-	pub fn slot_raw(self) -> Result<c_int, WeaponError> {
-		check_live(self.entity)?;
-
-		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
-
-		// SAFETY: `new` found `CTFWeaponBase` in the weapon's datamaps, so it
-		// is one, whose entity base `sdk_raw::tf2::weapons` asserts is at offset
-		// zero. The generated GetSlot entry leaves the weapon alive.
-		Ok(unsafe {
-			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetSlot())
-		})
-	}
-
 	/// Sets the rounds in the weapon's clip (`m_iClip1`), and records the change
 	/// so the engine sends it to the weapon's owner.
 	///
@@ -1020,6 +998,28 @@ impl<'s> Weapon<'s> {
 		edict.state_changed(engine, changed);
 
 		Ok(())
+	}
+
+	/// The native weapon slot, which can depend on its item definition, or
+	/// `None` for a slot outside [`WeaponSlot`] (see [`Self::slot_raw`]).
+	#[doc(alias("GetSlot"))]
+	pub fn slot(self) -> Result<Option<WeaponSlot>, WeaponError> {
+		self.slot_raw().map(WeaponSlot::from_raw)
+	}
+
+	/// The native weapon slot number, including those [`WeaponSlot`] does not name.
+	#[doc(alias("GetSlot"))]
+	pub fn slot_raw(self) -> Result<c_int, WeaponError> {
+		check_live(self.entity)?;
+
+		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
+
+		// SAFETY: `new` found `CTFWeaponBase` in the weapon's datamaps, so it
+		// is one, whose entity base `sdk_raw::tf2::weapons` asserts is at offset
+		// zero. The generated GetSlot entry leaves the weapon alive.
+		Ok(unsafe {
+			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetSlot())
+		})
 	}
 }
 

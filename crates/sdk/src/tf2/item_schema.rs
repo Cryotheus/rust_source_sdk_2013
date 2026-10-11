@@ -295,6 +295,77 @@ pub struct ItemDefinition<'s> {
 }
 
 impl<'s> ItemDefinition<'s> {
+	/// Wraps one of the schema's definitions.
+	fn new(raw: NonNull<sys::CEconItemDefinition>) -> Self {
+		Self {
+			raw,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// The fields the definition's details are read from, once their layout
+	/// passed its checks.
+	fn checked_details(self) -> Result<RawDetails, ItemSchemaError> {
+		match DETAILS.get() {
+			// SAFETY: The schema keeps its definition through the callback, and the
+			// layout of its details was checked.
+			Some(true) => Ok(unsafe { self.read_details() }),
+
+			_ => Err(ItemSchemaError::UnsupportedLayout),
+		}
+	}
+
+	/// The loadout position the definition's items are equipped in
+	/// (`m_iDefaultLoadoutSlot`, the `item_slot` of `items_game.txt`), unless a
+	/// class equips them elsewhere, or `None` for a definition without one, such
+	/// as a tool.
+	///
+	/// Fails with [`ItemSchemaError::UnsupportedLayout`] unless the definitions'
+	/// details passed their check, as the
+	/// [module documentation](crate::tf2::item_schema#layout) describes.
+	#[doc(alias("m_iDefaultLoadoutSlot", "GetDefaultLoadoutSlot", "item_slot"))]
+	pub fn default_loadout_position(self) -> Result<Option<LoadoutPosition>, ItemSchemaError> {
+		Ok(LoadoutPosition::from_raw(
+			self.checked_details()?.default_position,
+		))
+	}
+
+	/// The item's occupied equip regions and all regions they exclude
+	/// (`m_unEquipRegionMask` and `m_unEquipRegionConflictMask`).
+	///
+	/// Fails with [`ItemSchemaError::UnsupportedLayout`] unless those fields
+	/// passed the shipped-schema checks independently of the other fields.
+	/// Zero masks describe an item without equip-region restrictions.
+	#[doc(alias(
+		"m_unEquipRegionMask",
+		"m_unEquipRegionConflictMask",
+		"GetEquipRegionMask",
+		"GetEquipRegionConflictMask"
+	))]
+	pub fn equip_regions(self) -> Result<EquipRegions, ItemSchemaError> {
+		checked_equip_regions(EQUIP_REGIONS.get().copied(), || {
+			// SAFETY: The schema keeps its definition through the callback, and
+			// checked_equip_regions runs this only after layout checks succeeded.
+			unsafe { self.read_equip_regions() }
+		})
+	}
+
+	/// The holiday the definition's items are restricted to
+	/// (`m_pszHolidayRestriction`), as the schema names it, such as
+	/// `halloween_or_fullmoon`, or `None` for items of any day. The game refuses
+	/// to equip a restricted item outside its holiday.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_pszHolidayRestriction", "GetHolidayRestriction"))]
+	pub fn holiday_restriction(self) -> Result<Option<&'s CStr>, ItemSchemaError> {
+		self.checked_details()?;
+
+		// SAFETY: The schema keeps its definition, and the string, through the
+		// callback, and the layout of its details was checked.
+		Ok(unsafe { self.read_string(|raw| &raw const (*raw).m_pszHolidayRestriction) })
+	}
+
 	/// The definition's index (`m_nDefIndex`).
 	#[doc(alias("m_nDefIndex", "GetDefinitionIndex"))]
 	pub fn index(self) -> u16 {
@@ -303,16 +374,13 @@ impl<'s> ItemDefinition<'s> {
 		unsafe { (&raw const (*self.raw.as_ptr()).m_nDefIndex).read() }
 	}
 
-	/// The visions in which clients draw the items of the definition
-	/// (`vision_filter_flags`), or none for items every viewer sees. A client
-	/// draws an item with any flag only for viewers with one of the visions,
-	/// such as a Pyro with Pyrovision goggles.
-	#[doc(alias("m_nVisionFilterFlags", "GetVisionFilterFlags", "vision_filter_flags"))]
-	pub fn vision_filter(self) -> VisionFilter {
-		// SAFETY: As for `index`.
-		VisionFilter::from_bits_retain(unsafe {
-			(&raw const (*self.raw.as_ptr()).m_nVisionFilterFlags).read()
-		})
+	/// Whether `class` can use the definition's items (`m_vbClassUsability`, the
+	/// `used_by_classes` of `items_game.txt`).
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_vbClassUsability", "CanBeUsedByClass", "used_by_classes"))]
+	pub fn is_used_by(self, class: PlayerClass) -> Result<bool, ItemSchemaError> {
+		Ok(self.checked_details()?.classes & 1 << class.to_raw() != 0)
 	}
 
 	/// The entity class the game creates the definition's items as
@@ -365,6 +433,37 @@ impl<'s> ItemDefinition<'s> {
 		})
 	}
 
+	/// The levels the definition's items can have (`m_unMinItemLevel` and
+	/// `m_unMaxItemLevel`), among which the game rolls one when asked for the
+	/// definition's own level. The items the SDK gives are at the level they
+	/// are given.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_unMinItemLevel", "m_unMaxItemLevel", "GetMinLevel", "GetMaxLevel"))]
+	pub fn levels(self) -> Result<RangeInclusive<u8>, ItemSchemaError> {
+		let details = self.checked_details()?;
+
+		Ok(details.min_level..=details.max_level)
+	}
+
+	/// The loadout position `class` equips the definition's items in
+	/// (`m_iLoadoutSlots`), such as the Engineer's shotgun in
+	/// [`LoadoutPosition::Primary`] where other classes have it in
+	/// [`LoadoutPosition::Secondary`], or `None` if `class` does not use them.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_iLoadoutSlots", "GetLoadoutSlot"))]
+	pub fn loadout_position(
+		self,
+		class: PlayerClass,
+	) -> Result<Option<LoadoutPosition>, ItemSchemaError> {
+		let positions = self.checked_details()?.positions;
+
+		Ok(positions
+			.get(class.to_raw() as usize)
+			.and_then(|&position| LoadoutPosition::from_raw(position)))
+	}
+
 	/// The definition's name (`m_pszDefinitionName`, the `name` of
 	/// `items_game.txt`), such as `Pet Balloonicorn` or
 	/// `TF_WEAPON_ROCKETLAUNCHER`, which [`ItemSchema::definition_by_name`] finds
@@ -379,12 +478,58 @@ impl<'s> ItemDefinition<'s> {
 		Ok(unsafe { self.read_string(|raw| &raw const (*raw).m_pszDefinitionName) })
 	}
 
-	/// Wraps one of the schema's definitions.
-	fn new(raw: NonNull<sys::CEconItemDefinition>) -> Self {
-		Self {
-			raw,
-			_scope: PhantomData,
-			_not_thread_safe: PhantomData,
+	/// The quality the schema gives the definition's items (`m_nItemQuality`,
+	/// the `item_quality` of `items_game.txt`), such as [`ItemQuality::Normal`]
+	/// for the stock weapons, or `None` for a quality [`ItemQuality`] leaves out.
+	/// The items the SDK gives have the quality they are given.
+	///
+	/// Fails as [`Self::default_loadout_position`] does.
+	#[doc(alias("m_nItemQuality", "GetQuality", "item_quality"))]
+	pub fn quality(self) -> Result<Option<ItemQuality>, ItemSchemaError> {
+		Ok(ItemQuality::from_raw(c_int::from(
+			self.checked_details()?.quality,
+		)))
+	}
+
+	/// Reads the fields the definition's details are read from.
+	///
+	/// # Safety
+	///
+	/// The schema keeps the definition, a `CTFItemDefinition` as all of TF2's
+	/// are, through the callback.
+	unsafe fn read_details(self) -> RawDetails {
+		let base = self.raw.as_ptr();
+		let tf = base.cast::<sys::CTFItemDefinition>();
+
+		// SAFETY: The caller vouches for the definition. The fields are plain data
+		// within it.
+		unsafe {
+			RawDetails {
+				classes: (&raw const (*tf).m_vbClassUsability).read(),
+				default_position: (&raw const (*tf).m_iDefaultLoadoutSlot).read(),
+				max_level: (&raw const (*base).m_unMaxItemLevel).read(),
+				min_level: (&raw const (*base).m_unMinItemLevel).read(),
+				positions: (&raw const (*tf).m_iLoadoutSlots).read(),
+				quality: (&raw const (*base).m_nItemQuality).read(),
+			}
+		}
+	}
+
+	/// Reads the definition's equip masks before their layout is checked.
+	///
+	/// # Safety
+	///
+	/// The schema keeps the definition live through this callback.
+	unsafe fn read_equip_regions(self) -> EquipRegions {
+		let raw = self.raw.as_ptr();
+
+		// SAFETY: The caller vouches for the definition. These are plain copied
+		// fields at the target-specific offsets of the generated bindings.
+		unsafe {
+			EquipRegions::from_masks(
+				(&raw const (*raw).m_unEquipRegionMask).read(),
+				(&raw const (*raw).m_unEquipRegionConflictMask).read(),
+			)
 		}
 	}
 
@@ -419,161 +564,16 @@ impl<'s> ItemDefinition<'s> {
 		}
 	}
 
-	/// The loadout position the definition's items are equipped in
-	/// (`m_iDefaultLoadoutSlot`, the `item_slot` of `items_game.txt`), unless a
-	/// class equips them elsewhere, or `None` for a definition without one, such
-	/// as a tool.
-	///
-	/// Fails with [`ItemSchemaError::UnsupportedLayout`] unless the definitions'
-	/// details passed their check, as the
-	/// [module documentation](crate::tf2::item_schema#layout) describes.
-	#[doc(alias("m_iDefaultLoadoutSlot", "GetDefaultLoadoutSlot", "item_slot"))]
-	pub fn default_loadout_position(self) -> Result<Option<LoadoutPosition>, ItemSchemaError> {
-		Ok(LoadoutPosition::from_raw(
-			self.checked_details()?.default_position,
-		))
-	}
-
-	/// The holiday the definition's items are restricted to
-	/// (`m_pszHolidayRestriction`), as the schema names it, such as
-	/// `halloween_or_fullmoon`, or `None` for items of any day. The game refuses
-	/// to equip a restricted item outside its holiday.
-	///
-	/// Fails as [`Self::default_loadout_position`] does.
-	#[doc(alias("m_pszHolidayRestriction", "GetHolidayRestriction"))]
-	pub fn holiday_restriction(self) -> Result<Option<&'s CStr>, ItemSchemaError> {
-		self.checked_details()?;
-
-		// SAFETY: The schema keeps its definition, and the string, through the
-		// callback, and the layout of its details was checked.
-		Ok(unsafe { self.read_string(|raw| &raw const (*raw).m_pszHolidayRestriction) })
-	}
-
-	/// Whether `class` can use the definition's items (`m_vbClassUsability`, the
-	/// `used_by_classes` of `items_game.txt`).
-	///
-	/// Fails as [`Self::default_loadout_position`] does.
-	#[doc(alias("m_vbClassUsability", "CanBeUsedByClass", "used_by_classes"))]
-	pub fn is_used_by(self, class: PlayerClass) -> Result<bool, ItemSchemaError> {
-		Ok(self.checked_details()?.classes & 1 << class.to_raw() != 0)
-	}
-
-	/// The levels the definition's items can have (`m_unMinItemLevel` and
-	/// `m_unMaxItemLevel`), among which the game rolls one when asked for the
-	/// definition's own level. The items the SDK gives are at the level they
-	/// are given.
-	///
-	/// Fails as [`Self::default_loadout_position`] does.
-	#[doc(alias("m_unMinItemLevel", "m_unMaxItemLevel", "GetMinLevel", "GetMaxLevel"))]
-	pub fn levels(self) -> Result<RangeInclusive<u8>, ItemSchemaError> {
-		let details = self.checked_details()?;
-
-		Ok(details.min_level..=details.max_level)
-	}
-
-	/// The loadout position `class` equips the definition's items in
-	/// (`m_iLoadoutSlots`), such as the Engineer's shotgun in
-	/// [`LoadoutPosition::Primary`] where other classes have it in
-	/// [`LoadoutPosition::Secondary`], or `None` if `class` does not use them.
-	///
-	/// Fails as [`Self::default_loadout_position`] does.
-	#[doc(alias("m_iLoadoutSlots", "GetLoadoutSlot"))]
-	pub fn loadout_position(
-		self,
-		class: PlayerClass,
-	) -> Result<Option<LoadoutPosition>, ItemSchemaError> {
-		let positions = self.checked_details()?.positions;
-
-		Ok(positions
-			.get(class.to_raw() as usize)
-			.and_then(|&position| LoadoutPosition::from_raw(position)))
-	}
-
-	/// The quality the schema gives the definition's items (`m_nItemQuality`,
-	/// the `item_quality` of `items_game.txt`), such as [`ItemQuality::Normal`]
-	/// for the stock weapons, or `None` for a quality [`ItemQuality`] leaves out.
-	/// The items the SDK gives have the quality they are given.
-	///
-	/// Fails as [`Self::default_loadout_position`] does.
-	#[doc(alias("m_nItemQuality", "GetQuality", "item_quality"))]
-	pub fn quality(self) -> Result<Option<ItemQuality>, ItemSchemaError> {
-		Ok(ItemQuality::from_raw(c_int::from(
-			self.checked_details()?.quality,
-		)))
-	}
-
-	/// The fields the definition's details are read from, once their layout
-	/// passed its checks.
-	fn checked_details(self) -> Result<RawDetails, ItemSchemaError> {
-		match DETAILS.get() {
-			// SAFETY: The schema keeps its definition through the callback, and the
-			// layout of its details was checked.
-			Some(true) => Ok(unsafe { self.read_details() }),
-
-			_ => Err(ItemSchemaError::UnsupportedLayout),
-		}
-	}
-
-	/// Reads the fields the definition's details are read from.
-	///
-	/// # Safety
-	///
-	/// The schema keeps the definition, a `CTFItemDefinition` as all of TF2's
-	/// are, through the callback.
-	unsafe fn read_details(self) -> RawDetails {
-		let base = self.raw.as_ptr();
-		let tf = base.cast::<sys::CTFItemDefinition>();
-
-		// SAFETY: The caller vouches for the definition. The fields are plain data
-		// within it.
-		unsafe {
-			RawDetails {
-				classes: (&raw const (*tf).m_vbClassUsability).read(),
-				default_position: (&raw const (*tf).m_iDefaultLoadoutSlot).read(),
-				max_level: (&raw const (*base).m_unMaxItemLevel).read(),
-				min_level: (&raw const (*base).m_unMinItemLevel).read(),
-				positions: (&raw const (*tf).m_iLoadoutSlots).read(),
-				quality: (&raw const (*base).m_nItemQuality).read(),
-			}
-		}
-	}
-
-	/// The item's occupied equip regions and all regions they exclude
-	/// (`m_unEquipRegionMask` and `m_unEquipRegionConflictMask`).
-	///
-	/// Fails with [`ItemSchemaError::UnsupportedLayout`] unless those fields
-	/// passed the shipped-schema checks independently of the other fields.
-	/// Zero masks describe an item without equip-region restrictions.
-	#[doc(alias(
-		"m_unEquipRegionMask",
-		"m_unEquipRegionConflictMask",
-		"GetEquipRegionMask",
-		"GetEquipRegionConflictMask"
-	))]
-	pub fn equip_regions(self) -> Result<EquipRegions, ItemSchemaError> {
-		checked_equip_regions(EQUIP_REGIONS.get().copied(), || {
-			// SAFETY: The schema keeps its definition through the callback, and
-			// checked_equip_regions runs this only after layout checks succeeded.
-			unsafe { self.read_equip_regions() }
+	/// The visions in which clients draw the items of the definition
+	/// (`vision_filter_flags`), or none for items every viewer sees. A client
+	/// draws an item with any flag only for viewers with one of the visions,
+	/// such as a Pyro with Pyrovision goggles.
+	#[doc(alias("m_nVisionFilterFlags", "GetVisionFilterFlags", "vision_filter_flags"))]
+	pub fn vision_filter(self) -> VisionFilter {
+		// SAFETY: As for `index`.
+		VisionFilter::from_bits_retain(unsafe {
+			(&raw const (*self.raw.as_ptr()).m_nVisionFilterFlags).read()
 		})
-	}
-
-	/// Reads the definition's equip masks before their layout is checked.
-	///
-	/// # Safety
-	///
-	/// The schema keeps the definition live through this callback.
-	unsafe fn read_equip_regions(self) -> EquipRegions {
-		let raw = self.raw.as_ptr();
-
-		// SAFETY: The caller vouches for the definition. These are plain copied
-		// fields at the target-specific offsets of the generated bindings.
-		unsafe {
-			EquipRegions::from_masks(
-				(&raw const (*raw).m_unEquipRegionMask).read(),
-				(&raw const (*raw).m_unEquipRegionConflictMask).read(),
-			)
-		}
 	}
 }
 
@@ -821,88 +821,6 @@ impl<'s> ItemSchema<'s> {
 		Ok(schema)
 	}
 
-	/// Whether the [checked definitions](CHECKED) read as the shipped schema
-	/// has them.
-	fn check_layout(self) -> Result<bool, ItemSchemaError> {
-		for (index, flag) in CHECKED {
-			let Some(definition) = self.find(index)? else {
-				return Err(ItemSchemaError::Generation(
-					ItemGenerationError::UnknownDefinition,
-				));
-			};
-
-			let vision_filter = definition.vision_filter();
-
-			let flagged = if flag.is_empty() {
-				vision_filter.is_empty()
-			} else {
-				vision_filter.contains(flag)
-			};
-
-			if definition.index() != index || !flagged {
-				return Ok(false);
-			}
-		}
-
-		Ok(true)
-	}
-
-	/// The schema's definition with the index, or `None` if it has none.
-	#[doc(alias("GetItemDefinition"))]
-	pub fn definition(
-		self,
-		index: ItemDefinitionIndex,
-	) -> Result<Option<ItemDefinition<'s>>, ItemSchemaError> {
-		let definition = self.find(index.get())?;
-
-		// The lookup is by index, so a definition holding another reads past
-		// where the layout was checked.
-		match definition {
-			Some(definition) if definition.index() != index.get() => {
-				Err(ItemSchemaError::UnsupportedLayout)
-			}
-
-			definition => Ok(definition),
-		}
-	}
-
-	/// Looks the definition up, before the layout is known to be checked.
-	fn find(self, index: u16) -> Result<Option<ItemDefinition<'s>>, ItemSchemaError> {
-		// SAFETY: `Server::new` guarantees the game server module stays loaded
-		// through the callback this schema is scoped to, on the main thread.
-		match unsafe { self.generation.definition(index) } {
-			Ok(raw) => Ok(Some(ItemDefinition::new(raw))),
-			Err(ItemGenerationError::UnknownDefinition) => Ok(None),
-			Err(error) => Err(error.into()),
-		}
-	}
-
-	/// Whether the [checked definitions' strings](CHECKED_STRINGS) read as the
-	/// shipped schema has them, or `None` if the schema lacks one of them.
-	fn check_strings(self) -> Result<Option<bool>, ItemSchemaError> {
-		for (index, name, class) in CHECKED_STRINGS {
-			let Some(definition) = self.find(index)? else {
-				return Ok(None);
-			};
-
-			// SAFETY: The definition is the schema's, live through the callback, and
-			// its index and vision filter, on either side of the strings, were
-			// checked.
-			let strings = unsafe {
-				(
-					definition.read_string(|raw| &raw const (*raw).m_pszDefinitionName),
-					definition.read_string(|raw| &raw const (*raw).m_pszItemClassname),
-				)
-			};
-
-			if strings != (Some(name), Some(class)) {
-				return Ok(Some(false));
-			}
-		}
-
-		Ok(Some(true))
-	}
-
 	/// Whether the [checked definitions' details](CHECKED_DETAILS) read as the
 	/// shipped schema has them, or `None` if the schema lacks one of them.
 	fn check_details(self) -> Result<Option<bool>, ItemSchemaError> {
@@ -951,6 +869,24 @@ impl<'s> ItemSchema<'s> {
 		Ok(Some(true))
 	}
 
+	/// Whether the equip masks read as the shipped schema has them, or
+	/// `None` when a sentinel definition is unavailable.
+	fn check_equip_regions(self) -> Result<Option<bool>, ItemSchemaError> {
+		for (index, expected) in CHECKED_EQUIP_REGIONS {
+			let Some(definition) = self.find(index)? else {
+				return Ok(None);
+			};
+
+			// SAFETY: The lookup returned a definition owned by the live schema,
+			// which keeps it through this callback.
+			if unsafe { definition.read_equip_regions() } != expected {
+				return Ok(Some(false));
+			}
+		}
+
+		Ok(Some(true))
+	}
+
 	/// Whether independently checked item-type tokens match the shipped schema,
 	/// or `None` when a sentinel definition is unavailable.
 	fn check_item_types(self) -> Result<Option<bool>, ItemSchemaError> {
@@ -968,6 +904,77 @@ impl<'s> ItemSchema<'s> {
 		}
 
 		Ok(Some(true))
+	}
+
+	/// Whether the [checked definitions](CHECKED) read as the shipped schema
+	/// has them.
+	fn check_layout(self) -> Result<bool, ItemSchemaError> {
+		for (index, flag) in CHECKED {
+			let Some(definition) = self.find(index)? else {
+				return Err(ItemSchemaError::Generation(
+					ItemGenerationError::UnknownDefinition,
+				));
+			};
+
+			let vision_filter = definition.vision_filter();
+
+			let flagged = if flag.is_empty() {
+				vision_filter.is_empty()
+			} else {
+				vision_filter.contains(flag)
+			};
+
+			if definition.index() != index || !flagged {
+				return Ok(false);
+			}
+		}
+
+		Ok(true)
+	}
+
+	/// Whether the [checked definitions' strings](CHECKED_STRINGS) read as the
+	/// shipped schema has them, or `None` if the schema lacks one of them.
+	fn check_strings(self) -> Result<Option<bool>, ItemSchemaError> {
+		for (index, name, class) in CHECKED_STRINGS {
+			let Some(definition) = self.find(index)? else {
+				return Ok(None);
+			};
+
+			// SAFETY: The definition is the schema's, live through the callback, and
+			// its index and vision filter, on either side of the strings, were
+			// checked.
+			let strings = unsafe {
+				(
+					definition.read_string(|raw| &raw const (*raw).m_pszDefinitionName),
+					definition.read_string(|raw| &raw const (*raw).m_pszItemClassname),
+				)
+			};
+
+			if strings != (Some(name), Some(class)) {
+				return Ok(Some(false));
+			}
+		}
+
+		Ok(Some(true))
+	}
+
+	/// The schema's definition with the index, or `None` if it has none.
+	#[doc(alias("GetItemDefinition"))]
+	pub fn definition(
+		self,
+		index: ItemDefinitionIndex,
+	) -> Result<Option<ItemDefinition<'s>>, ItemSchemaError> {
+		let definition = self.find(index.get())?;
+
+		// The lookup is by index, so a definition holding another reads past
+		// where the layout was checked.
+		match definition {
+			Some(definition) if definition.index() != index.get() => {
+				Err(ItemSchemaError::UnsupportedLayout)
+			}
+
+			definition => Ok(definition),
+		}
 	}
 
 	/// The schema's definition with the name, as [`ItemDefinition::name`] gives
@@ -1036,22 +1043,15 @@ impl<'s> ItemSchema<'s> {
 			.collect())
 	}
 
-	/// Whether the equip masks read as the shipped schema has them, or
-	/// `None` when a sentinel definition is unavailable.
-	fn check_equip_regions(self) -> Result<Option<bool>, ItemSchemaError> {
-		for (index, expected) in CHECKED_EQUIP_REGIONS {
-			let Some(definition) = self.find(index)? else {
-				return Ok(None);
-			};
-
-			// SAFETY: The lookup returned a definition owned by the live schema,
-			// which keeps it through this callback.
-			if unsafe { definition.read_equip_regions() } != expected {
-				return Ok(Some(false));
-			}
+	/// Looks the definition up, before the layout is known to be checked.
+	fn find(self, index: u16) -> Result<Option<ItemDefinition<'s>>, ItemSchemaError> {
+		// SAFETY: `Server::new` guarantees the game server module stays loaded
+		// through the callback this schema is scoped to, on the main thread.
+		match unsafe { self.generation.definition(index) } {
+			Ok(raw) => Ok(Some(ItemDefinition::new(raw))),
+			Err(ItemGenerationError::UnknownDefinition) => Ok(None),
+			Err(error) => Err(error.into()),
 		}
-
-		Ok(Some(true))
 	}
 }
 
@@ -1313,11 +1313,6 @@ impl EquipRegions {
 		Self { regions, conflicts }
 	}
 
-	/// The regions the item occupies.
-	pub const fn regions(self) -> u32 {
-		self.regions
-	}
-
 	/// The regions the item excludes.
 	pub const fn conflicts(self) -> u32 {
 		self.conflicts
@@ -1327,6 +1322,11 @@ impl EquipRegions {
 	/// exclusions. Checking both directions also handles asymmetric masks.
 	pub const fn is_compatible_with(self, other: Self) -> bool {
 		self.regions & other.conflicts == 0 && other.regions & self.conflicts == 0
+	}
+
+	/// The regions the item occupies.
+	pub const fn regions(self) -> u32 {
+		self.regions
 	}
 }
 

@@ -19,11 +19,6 @@ thread_local! {
 	static SEEN: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The game's `CanBeAutobalanced`, which allows it.
-unsafe extern "C" fn game_can_be_autobalanced(_: *mut sys::CBaseEntity) -> bool {
-	true
-}
-
 #[test]
 fn autobalance_decisions_are_changed_after_the_game() {
 	/// A player of a C++ class, as far as hooks know it.
@@ -64,6 +59,11 @@ fn autobalance_decisions_are_changed_after_the_game() {
 		ACTION.set(AutobalanceAction::Allow);
 		assert_eq!(check(), (true, vec![true]));
 	});
+}
+
+/// The game's `CanBeAutobalanced`, which allows it.
+unsafe extern "C" fn game_can_be_autobalanced(_: *mut sys::CBaseEntity) -> bool {
+	true
 }
 
 /// The callback, which notes the game's decision and decides [`ACTION`].

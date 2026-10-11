@@ -585,6 +585,14 @@ impl Condition {
 		(0..sys::ETFCond_TF_COND_LAST).map(Self)
 	}
 
+	/// The condition the game names `name`, such as `TF_COND_URINE`, ignoring
+	/// ASCII case as `GetTFConditionFromName` does, or `None` if none has that
+	/// name.
+	#[doc(alias("GetTFConditionFromName"))]
+	pub fn from_name(name: &str) -> Option<Self> {
+		Self::all().find(|condition| condition.name().eq_ignore_ascii_case(name))
+	}
+
 	/// Validates a raw identifier. Returns `None` for negative values and
 	/// values at or above the `TF_COND_LAST` sentinel.
 	pub const fn from_raw(raw: sys::ETFCond) -> Option<Self> {
@@ -652,9 +660,11 @@ impl Condition {
 			sys::ETFCond_TF_COND_MARKEDFORDEATH_SILENT => "TF_COND_MARKEDFORDEATH_SILENT",
 			sys::ETFCond_TF_COND_DISGUISED_AS_DISPENSER => "TF_COND_DISGUISED_AS_DISPENSER",
 			sys::ETFCond_TF_COND_SAPPED => "TF_COND_SAPPED",
+
 			sys::ETFCond_TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED => {
 				"TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED"
 			}
+
 			sys::ETFCond_TF_COND_INVULNERABLE_USER_BUFF => "TF_COND_INVULNERABLE_USER_BUFF",
 			sys::ETFCond_TF_COND_HALLOWEEN_BOMB_HEAD => "TF_COND_HALLOWEEN_BOMB_HEAD",
 			sys::ETFCond_TF_COND_HALLOWEEN_THRILLER => "TF_COND_HALLOWEEN_THRILLER",
@@ -664,9 +674,11 @@ impl Condition {
 			sys::ETFCond_TF_COND_MEDIGUN_UBER_BULLET_RESIST => "TF_COND_MEDIGUN_UBER_BULLET_RESIST",
 			sys::ETFCond_TF_COND_MEDIGUN_UBER_BLAST_RESIST => "TF_COND_MEDIGUN_UBER_BLAST_RESIST",
 			sys::ETFCond_TF_COND_MEDIGUN_UBER_FIRE_RESIST => "TF_COND_MEDIGUN_UBER_FIRE_RESIST",
+
 			sys::ETFCond_TF_COND_MEDIGUN_SMALL_BULLET_RESIST => {
 				"TF_COND_MEDIGUN_SMALL_BULLET_RESIST"
 			}
+
 			sys::ETFCond_TF_COND_MEDIGUN_SMALL_BLAST_RESIST => "TF_COND_MEDIGUN_SMALL_BLAST_RESIST",
 			sys::ETFCond_TF_COND_MEDIGUN_SMALL_FIRE_RESIST => "TF_COND_MEDIGUN_SMALL_FIRE_RESIST",
 			sys::ETFCond_TF_COND_STEALTHED_USER_BUFF => "TF_COND_STEALTHED_USER_BUFF",
@@ -738,14 +750,6 @@ impl Condition {
 			sys::ETFCond_TF_COND_IMMUNE_TO_PUSHBACK => "TF_COND_IMMUNE_TO_PUSHBACK",
 			_ => unreachable!(),
 		}
-	}
-
-	/// The condition the game names `name`, such as `TF_COND_URINE`, ignoring
-	/// ASCII case as `GetTFConditionFromName` does, or `None` if none has that
-	/// name.
-	#[doc(alias("GetTFConditionFromName"))]
-	pub fn from_name(name: &str) -> Option<Self> {
-		Self::all().find(|condition| condition.name().eq_ignore_ascii_case(name))
 	}
 
 	/// The raw `ETFCond` value.

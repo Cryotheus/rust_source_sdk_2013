@@ -3,6 +3,14 @@
 use super::*;
 use std::mem::MaybeUninit;
 
+#[test]
+fn buttons_keep_the_engines_bits() {
+	assert_eq!(Buttons::ATTACK.bits(), 1);
+	assert_eq!(Buttons::ATTACK3.bits(), 1 << 25);
+	assert_eq!(Buttons::MOVE_RIGHT.bits(), raw::IN_MOVERIGHT);
+	assert_eq!(Buttons::all().bits(), !0);
+}
+
 /// A command as a client sends one, with every input set.
 fn command() -> sys::CUserCmd {
 	// SAFETY: Every field of a command is a number, a flag or a pointer, of
@@ -27,14 +35,6 @@ fn command() -> sys::CUserCmd {
 	command.mousedx = -14;
 	command.mousedy = 3;
 	command
-}
-
-#[test]
-fn buttons_keep_the_engines_bits() {
-	assert_eq!(Buttons::ATTACK.bits(), 1);
-	assert_eq!(Buttons::ATTACK3.bits(), 1 << 25);
-	assert_eq!(Buttons::MOVE_RIGHT.bits(), raw::IN_MOVERIGHT);
-	assert_eq!(Buttons::all().bits(), !0);
 }
 
 #[test]

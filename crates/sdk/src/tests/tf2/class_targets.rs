@@ -55,6 +55,16 @@ fn entities_have_the_classes_of_the_kinds_their_maps_chain() {
 }
 
 #[test]
+fn entities_of_other_games_have_no_classes() {
+	let scope = ();
+	let server = null_server(Game::SourceSdk2013, &scope);
+	let mut weapon = MockEntity::new(1);
+	chain_weapon_maps();
+
+	assert_eq!(ClassTarget::<BaseEntity>::of(server, weapon.entity()), None);
+}
+
+#[test]
 fn melee_weapons_are_weapons() {
 	let scope = ();
 	let server = mock_server(&scope);
@@ -76,16 +86,6 @@ fn melee_weapons_are_weapons() {
 		ClassTarget::<CombatWeapon>::of(server, entity),
 		Some(target.upcast())
 	);
-}
-
-#[test]
-fn entities_of_other_games_have_no_classes() {
-	let scope = ();
-	let server = null_server(Game::SourceSdk2013, &scope);
-	let mut weapon = MockEntity::new(1);
-	chain_weapon_maps();
-
-	assert_eq!(ClassTarget::<BaseEntity>::of(server, weapon.entity()), None);
 }
 
 #[test]

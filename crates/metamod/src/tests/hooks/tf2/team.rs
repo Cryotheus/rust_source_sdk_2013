@@ -4,9 +4,8 @@
 use super::*;
 use crate::test_support::harness::{Harness, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
-use std::cell::RefCell;
-
 use source_sdk_2013::sys;
+use std::cell::RefCell;
 
 thread_local! {
 	/// What ran during the calls since the last [`change_team`], in order,
@@ -45,6 +44,32 @@ fn change_team(harness: &Harness, entity: &mut Mock, team: c_int) -> Vec<(&'stat
 	CALLS.take();
 	harness.call::<ChangeTeam>(entity.ptr().as_ptr(), CHANGE_TEAM_SLOT, (team,));
 	CALLS.take()
+}
+
+#[test]
+fn classes_hooked_by_vtable_cover_their_later_entities() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut first = Mock::of_new_class(game_change_team);
+
+		// SAFETY: The mock class has `ChangeTeam` at the slot, and is leaked.
+		unsafe { api.install_team(first.vtable(), tf2_binding(no_interfaces), on_change) }.unwrap();
+
+		// An entity created after the hook, sharing the class's vtable, is
+		// covered too.
+		let mut later = Box::new(Mock {
+			vtable: first.vtable,
+		});
+
+		assert_eq!(
+			change_team(harness, &mut later, 3),
+			[("callback", 3), ("game", 0)]
+		);
+		assert_eq!(
+			change_team(harness, &mut first, 2),
+			[("callback", 2), ("game", 0)]
+		);
+	});
 }
 
 /// The game's `ChangeTeam`, which notes the team it was given.
@@ -128,31 +153,5 @@ fn team_changes_are_allowed_replaced_or_refused() {
 		}
 
 		assert_eq!(change_team(harness, &mut blocked, 2), []);
-	});
-}
-
-#[test]
-fn classes_hooked_by_vtable_cover_their_later_entities() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut first = Mock::of_new_class(game_change_team);
-
-		// SAFETY: The mock class has `ChangeTeam` at the slot, and is leaked.
-		unsafe { api.install_team(first.vtable(), tf2_binding(no_interfaces), on_change) }.unwrap();
-
-		// An entity created after the hook, sharing the class's vtable, is
-		// covered too.
-		let mut later = Box::new(Mock {
-			vtable: first.vtable,
-		});
-
-		assert_eq!(
-			change_team(harness, &mut later, 3),
-			[("callback", 3), ("game", 0)]
-		);
-		assert_eq!(
-			change_team(harness, &mut first, 2),
-			[("callback", 2), ("game", 0)]
-		);
 	});
 }

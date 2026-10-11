@@ -13,13 +13,17 @@
 //! worker rather than treating registration as an activation witness.
 
 use crate::MetamodApi;
+
 use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
+
 use source_sdk_2013::entities::Entity;
+
 use source_sdk_2013::raw::tf2::buildings::{
 	GET_CONSTRUCTION_MULTIPLIER_SLOT, GetConstructionMultiplierFn,
 };
+
 use source_sdk_2013::tf2::buildings::{BuildingClass, BuildingVtableError};
 use source_sdk_2013::tf2::class_targets::ClassTargets;
 use source_sdk_2013::{Game, Server, ServerBinding};
@@ -228,22 +232,28 @@ mod tests {
 		}
 	}
 
-	unsafe extern "C" fn native_multiplier(this: *mut sys::CBaseEntity) -> f32 {
-		// SAFETY: Fixture receivers are NativeDispenser instances.
-		let dispenser = unsafe { &mut *this.cast::<NativeDispenser>() };
-		dispenser.calls += 1;
-		dispenser.multiplier
+	#[test]
+	fn a_callback_panic_retains_native_construction() {
+		on_both(|harness| {
+			let table = table();
+			let hook = install(harness, table);
+			let mut dispenser = NativeDispenser {
+				vtable: table.as_ptr(),
+				multiplier: 2.5,
+				calls: 0,
+			};
+			PANIC.set(true);
+			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
+			assert_eq!(dispenser.calls, 1);
+			PANIC.set(false);
+			hook.remove(harness.api());
+		});
 	}
 
 	fn callback(_: Server<'_>, _: Entity<'_>, native: f32) -> Option<f32> {
 		SEEN.set(Some(native));
 		assert!(!PANIC.get(), "fixture construction callback panic");
 		WORKER.get()
-	}
-
-	fn table() -> NonNull<*mut c_void> {
-		let slots = vec![native_multiplier as *mut c_void; GET_CONSTRUCTION_MULTIPLIER_SLOT + 1];
-		NonNull::new(Vec::leak(slots).as_mut_ptr()).unwrap()
 	}
 
 	fn install(harness: &Harness, table: NonNull<*mut c_void>) -> DispenserConstructionHook {
@@ -288,6 +298,40 @@ mod tests {
 			assert!((health_work - 4.309625).abs() < 0.000001);
 			assert_eq!(dispenser.calls, 2);
 			hook.remove(harness.api());
+		});
+	}
+
+	unsafe extern "C" fn native_multiplier(this: *mut sys::CBaseEntity) -> f32 {
+		// SAFETY: Fixture receivers are NativeDispenser instances.
+		let dispenser = unsafe { &mut *this.cast::<NativeDispenser>() };
+		dispenser.calls += 1;
+		dispenser.multiplier
+	}
+
+	#[test]
+	fn pause_removal_and_reinstallation_preserve_the_original_method() {
+		on_both(|harness| {
+			let table = table();
+			let hook = install(harness, table);
+			let mut dispenser = NativeDispenser {
+				vtable: table.as_ptr(),
+				multiplier: 1.0,
+				calls: 0,
+			};
+			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
+			harness.set_status(true, true, harness.generation);
+			SEEN.set(None);
+			assert_eq!(multiplier(harness, &mut dispenser), 1.0);
+			assert_eq!(SEEN.get(), None);
+			harness.set_status(true, false, harness.generation);
+			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
+			hook.remove(harness.api());
+			SEEN.set(None);
+			assert_eq!(multiplier(harness, &mut dispenser), 1.0);
+			assert_eq!(SEEN.get(), None);
+			let again = install(harness, table);
+			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
+			again.remove(harness.api());
 		});
 	}
 
@@ -346,48 +390,8 @@ mod tests {
 		});
 	}
 
-	#[test]
-	fn a_callback_panic_retains_native_construction() {
-		on_both(|harness| {
-			let table = table();
-			let hook = install(harness, table);
-			let mut dispenser = NativeDispenser {
-				vtable: table.as_ptr(),
-				multiplier: 2.5,
-				calls: 0,
-			};
-			PANIC.set(true);
-			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
-			assert_eq!(dispenser.calls, 1);
-			PANIC.set(false);
-			hook.remove(harness.api());
-		});
-	}
-
-	#[test]
-	fn pause_removal_and_reinstallation_preserve_the_original_method() {
-		on_both(|harness| {
-			let table = table();
-			let hook = install(harness, table);
-			let mut dispenser = NativeDispenser {
-				vtable: table.as_ptr(),
-				multiplier: 1.0,
-				calls: 0,
-			};
-			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
-			harness.set_status(true, true, harness.generation);
-			SEEN.set(None);
-			assert_eq!(multiplier(harness, &mut dispenser), 1.0);
-			assert_eq!(SEEN.get(), None);
-			harness.set_status(true, false, harness.generation);
-			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
-			hook.remove(harness.api());
-			SEEN.set(None);
-			assert_eq!(multiplier(harness, &mut dispenser), 1.0);
-			assert_eq!(SEEN.get(), None);
-			let again = install(harness, table);
-			assert_eq!(multiplier(harness, &mut dispenser), 2.5);
-			again.remove(harness.api());
-		});
+	fn table() -> NonNull<*mut c_void> {
+		let slots = vec![native_multiplier as *mut c_void; GET_CONSTRUCTION_MULTIPLIER_SLOT + 1];
+		NonNull::new(Vec::leak(slots).as_mut_ptr()).unwrap()
 	}
 }

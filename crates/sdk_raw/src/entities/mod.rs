@@ -117,9 +117,7 @@ const _: fn(&sys::CBaseEntity__bindgen_vtable) -> SetOwnerEntityFn =
 	|vtable| vtable.CBaseEntity_SetOwnerEntity;
 
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> SpawnFn = |vtable| vtable.CBaseEntity_Spawn;
-
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TeleportFn = |vtable| vtable.CBaseEntity_Teleport;
-
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> ThinkFn = |vtable| vtable.CBaseEntity_Think;
 
 /// `CBaseEntity::AcceptInput` in the primary vtable. TF2 declares its own

@@ -15,6 +15,7 @@ mod tests;
 use crate::entities::Entity;
 use crate::entities::fields::{BaseField, FieldError};
 use crate::interfaces::ValveEngine;
+
 use sdk_raw::entities::debug_overlays::{
 	OVERLAY_ABSBOX_BIT, OVERLAY_ATTACHMENTS_BIT, OVERLAY_AUTOAIM_BIT, OVERLAY_BBOX_BIT,
 	OVERLAY_BUDDHA_MODE, OVERLAY_MESSAGE_BIT, OVERLAY_NAME_BIT, OVERLAY_NPC_CONDITIONS_BIT,
@@ -25,6 +26,7 @@ use sdk_raw::entities::debug_overlays::{
 	OVERLAY_PROP_DEBUG, OVERLAY_RBOX_BIT, OVERLAY_SHOW_BLOCKSLOS, OVERLAY_TASK_TEXT_BIT,
 	OVERLAY_TEXT_BIT, OVERLAY_VIEWOFFSET, OVERLAY_WC_CHANGE_ENTITY,
 };
+
 use std::ffi::c_int;
 
 /// `m_debugOverlays`.

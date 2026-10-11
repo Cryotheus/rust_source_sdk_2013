@@ -30,12 +30,6 @@ const CLIENTS: [MockClient; 5] = [
 	},
 ];
 
-/// Passes `command` to the client in `slot` of `engine`.
-fn process(engine: &MockEngine, slot: usize, command: &CStr) -> Result<bool, StringCommandError> {
-	// SAFETY: Each test's command is refused before any handler runs it.
-	unsafe { engine.game_client(slot).process_string_command(command) }
-}
-
 #[test]
 fn commands_that_do_not_fit_are_refused_first() {
 	let engine = MockEngine::new(&CLIENTS, c"0", &[]);
@@ -82,6 +76,12 @@ fn only_clients_with_a_channel_are_passed_commands() {
 			"slot {slot}"
 		);
 	}
+}
+
+/// Passes `command` to the client in `slot` of `engine`.
+fn process(engine: &MockEngine, slot: usize, command: &CStr) -> Result<bool, StringCommandError> {
+	// SAFETY: Each test's command is refused before any handler runs it.
+	unsafe { engine.game_client(slot).process_string_command(command) }
 }
 
 #[test]

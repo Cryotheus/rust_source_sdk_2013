@@ -66,23 +66,6 @@ impl PlayerClass {
 		Self::Engineer,
 	];
 
-	/// The class with this `TF_CLASS_*` number, or `None` for any other
-	/// number, including `TF_CLASS_UNDEFINED` (0) and the Civilian (10).
-	pub const fn from_raw(raw: c_int) -> Option<Self> {
-		match raw {
-			TF_CLASS_SCOUT => Some(Self::Scout),
-			TF_CLASS_SNIPER => Some(Self::Sniper),
-			TF_CLASS_SOLDIER => Some(Self::Soldier),
-			TF_CLASS_DEMOMAN => Some(Self::Demoman),
-			TF_CLASS_MEDIC => Some(Self::Medic),
-			TF_CLASS_HEAVYWEAPONS => Some(Self::Heavy),
-			TF_CLASS_PYRO => Some(Self::Pyro),
-			TF_CLASS_SPY => Some(Self::Spy),
-			TF_CLASS_ENGINEER => Some(Self::Engineer),
-			_ => None,
-		}
-	}
-
 	/// The class named `name`, compared ignoring ASCII case, or `None` for any
 	/// other name: the name `joinclass` takes, which [`Self::name`] gives, such
 	/// as `heavyweapons`, or the short name TF2 also uses, such as `heavy` or
@@ -102,31 +85,20 @@ impl PlayerClass {
 		})
 	}
 
-	/// The class's name as TF2's class data and the `joinclass` command spell
-	/// it, such as `heavyweapons` (`g_aRawPlayerClassNames`).
-	#[doc(alias("g_aRawPlayerClassNames"))]
-	pub const fn name(self) -> &'static str {
-		match self {
-			Self::Scout => "scout",
-			Self::Sniper => "sniper",
-			Self::Soldier => "soldier",
-			Self::Demoman => "demoman",
-			Self::Medic => "medic",
-			Self::Heavy => "heavyweapons",
-			Self::Pyro => "pyro",
-			Self::Spy => "spy",
-			Self::Engineer => "engineer",
-		}
-	}
-
-	/// The class's short name, as TF2 names its class icons and default custom
-	/// models, such as `heavy` (`g_aRawPlayerClassNamesShort`).
-	#[doc(alias("g_aRawPlayerClassNamesShort"))]
-	pub const fn short_name(self) -> &'static str {
-		match self {
-			Self::Demoman => "demo",
-			Self::Heavy => "heavy",
-			class => class.name(),
+	/// The class with this `TF_CLASS_*` number, or `None` for any other
+	/// number, including `TF_CLASS_UNDEFINED` (0) and the Civilian (10).
+	pub const fn from_raw(raw: c_int) -> Option<Self> {
+		match raw {
+			TF_CLASS_SCOUT => Some(Self::Scout),
+			TF_CLASS_SNIPER => Some(Self::Sniper),
+			TF_CLASS_SOLDIER => Some(Self::Soldier),
+			TF_CLASS_DEMOMAN => Some(Self::Demoman),
+			TF_CLASS_MEDIC => Some(Self::Medic),
+			TF_CLASS_HEAVYWEAPONS => Some(Self::Heavy),
+			TF_CLASS_PYRO => Some(Self::Pyro),
+			TF_CLASS_SPY => Some(Self::Spy),
+			TF_CLASS_ENGINEER => Some(Self::Engineer),
+			_ => None,
 		}
 	}
 
@@ -155,6 +127,23 @@ impl PlayerClass {
 		}
 	}
 
+	/// The class's name as TF2's class data and the `joinclass` command spell
+	/// it, such as `heavyweapons` (`g_aRawPlayerClassNames`).
+	#[doc(alias("g_aRawPlayerClassNames"))]
+	pub const fn name(self) -> &'static str {
+		match self {
+			Self::Scout => "scout",
+			Self::Sniper => "sniper",
+			Self::Soldier => "soldier",
+			Self::Demoman => "demoman",
+			Self::Medic => "medic",
+			Self::Heavy => "heavyweapons",
+			Self::Pyro => "pyro",
+			Self::Spy => "spy",
+			Self::Engineer => "engineer",
+		}
+	}
+
 	/// The class's directory under `scenes/Player/`, as TF2's response rules
 	/// spell it, such as `Heavy`.
 	pub const fn scene_directory(self) -> &'static str {
@@ -168,6 +157,17 @@ impl PlayerClass {
 			Self::Pyro => "Pyro",
 			Self::Spy => "Spy",
 			Self::Engineer => "Engineer",
+		}
+	}
+
+	/// The class's short name, as TF2 names its class icons and default custom
+	/// models, such as `heavy` (`g_aRawPlayerClassNamesShort`).
+	#[doc(alias("g_aRawPlayerClassNamesShort"))]
+	pub const fn short_name(self) -> &'static str {
+		match self {
+			Self::Demoman => "demo",
+			Self::Heavy => "heavy",
+			class => class.name(),
 		}
 	}
 

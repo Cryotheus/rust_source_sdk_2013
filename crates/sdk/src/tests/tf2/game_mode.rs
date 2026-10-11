@@ -132,28 +132,6 @@ fn holidays_and_scenarios_are_none_unless_the_level_has_one() {
 }
 
 #[test]
-fn spells_are_turned_on_and_off_for_clients() {
-	let world = World::new(Some(round_rules_proxy));
-	let scope = ();
-	let rules = GameRules::get(mock_server(&scope)).unwrap();
-	let engine = change_tracking_engine();
-	let spells = flag(c"m_bIsUsingSpells");
-
-	assert_eq!(rules.uses_spells(), Ok(false));
-
-	world.put_byte(false, spells, 1);
-	assert_eq!(rules.uses_spells(), Ok(true));
-
-	rules.set_uses_spells(engine, false).unwrap();
-	assert_eq!(world.byte(false, spells), 0);
-	assert_eq!(rules.uses_spells(), Ok(false));
-	assert_ne!(world.state_flags() & FL_FULL_EDICT_CHANGED, 0);
-
-	rules.set_uses_spells(engine, true).unwrap();
-	assert_eq!(world.byte(false, spells), 1);
-}
-
-#[test]
 fn rule_overrides_and_the_underworld_are_set_for_clients() {
 	let world = World::new(Some(round_rules_proxy));
 	let scope = ();
@@ -194,6 +172,28 @@ fn rule_overrides_and_the_underworld_are_set_for_clients() {
 	rules.set_players_in_hell(engine, true).unwrap();
 	assert_eq!(world.byte(false, in_hell), 1);
 	assert_eq!(rules.are_players_in_hell(), Ok(true));
+}
+
+#[test]
+fn spells_are_turned_on_and_off_for_clients() {
+	let world = World::new(Some(round_rules_proxy));
+	let scope = ();
+	let rules = GameRules::get(mock_server(&scope)).unwrap();
+	let engine = change_tracking_engine();
+	let spells = flag(c"m_bIsUsingSpells");
+
+	assert_eq!(rules.uses_spells(), Ok(false));
+
+	world.put_byte(false, spells, 1);
+	assert_eq!(rules.uses_spells(), Ok(true));
+
+	rules.set_uses_spells(engine, false).unwrap();
+	assert_eq!(world.byte(false, spells), 0);
+	assert_eq!(rules.uses_spells(), Ok(false));
+	assert_ne!(world.state_flags() & FL_FULL_EDICT_CHANGED, 0);
+
+	rules.set_uses_spells(engine, true).unwrap();
+	assert_eq!(world.byte(false, spells), 1);
 }
 
 #[test]

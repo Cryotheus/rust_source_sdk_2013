@@ -41,25 +41,17 @@ interface! {
 #[cfg(test)]
 mod tests;
 
-/// Budgets for one [`BaseFileSystem::read_file`] call.
-///
-/// These bound the output length and native read-call count. They do not
-/// bound the VFS's internal allocations or how long a native call blocks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReadLimits {
-	/// Maximum output bytes, also capped at `i32::MAX` by the reader.
-	pub bytes: usize,
-	/// Maximum native `Read` calls, including unsuccessful calls.
-	pub read_calls: usize,
+/// Private unique ownership; no native handle escapes read_file.
+struct File<'s> {
+	fs: BaseFileSystem<'s>,
+	handle: NonNull<c_void>,
 }
 
-impl Default for ReadLimits {
-	/// Allows up to 64 MiB and 4096 native read calls.
-	fn default() -> Self {
-		Self {
-			bytes: 64 * 1024 * 1024,
-			read_calls: 4096,
-		}
+impl Drop for File<'_> {
+	fn drop(&mut self) {
+		// SAFETY: This guard owns the live handle. Its interface and handle are
+		// used and closed within the same main-thread callback as Open.
+		unsafe { vcall!(self.fs.as_ptr() => IBaseFileSystem_Close(self.handle.as_ptr())) };
 	}
 }
 
@@ -120,6 +112,28 @@ pub enum ReadError {
 		/// The impossible positive native return value.
 		returned: i32,
 	},
+}
+
+/// Budgets for one [`BaseFileSystem::read_file`] call.
+///
+/// These bound the output length and native read-call count. They do not
+/// bound the VFS's internal allocations or how long a native call blocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadLimits {
+	/// Maximum output bytes, also capped at `i32::MAX` by the reader.
+	pub bytes: usize,
+	/// Maximum native `Read` calls, including unsuccessful calls.
+	pub read_calls: usize,
+}
+
+impl Default for ReadLimits {
+	/// Allows up to 64 MiB and 4096 native read calls.
+	fn default() -> Self {
+		Self {
+			bytes: 64 * 1024 * 1024,
+			read_calls: 4096,
+		}
+	}
 }
 
 impl BaseFileSystem<'_> {
@@ -233,18 +247,4 @@ fn allocate(length: usize) -> Result<Vec<u8>, ReadError> {
 	// Capacity is already reserved; resize initializes every byte before FFI.
 	bytes.resize(length, 0);
 	Ok(bytes)
-}
-
-/// Private unique ownership; no native handle escapes read_file.
-struct File<'s> {
-	fs: BaseFileSystem<'s>,
-	handle: NonNull<c_void>,
-}
-
-impl Drop for File<'_> {
-	fn drop(&mut self) {
-		// SAFETY: This guard owns the live handle. Its interface and handle are
-		// used and closed within the same main-thread callback as Open.
-		unsafe { vcall!(self.fs.as_ptr() => IBaseFileSystem_Close(self.handle.as_ptr())) };
-	}
 }

@@ -5,10 +5,12 @@
 use super::*;
 use crate::interfaces::{ModelInfo, ValveEngine};
 use crate::server::Module;
+
 use crate::test_support::entities::{
 	MOCK_HEALTH_OFFSET, MOCK_MAX_HEALTH_OFFSET, MockEntity, activations, base_entity_fields,
 	health_fields, set_datamap, take_inputs,
 };
+
 use crate::test_support::leak;
 use crate::test_support::sdk_core::change_tracking_engine;
 use crate::test_support::server::{export, mock_server, null_server};
@@ -175,6 +177,39 @@ fn base_bosses_spawn_with_their_key_values_and_take_inputs() {
 	);
 }
 
+/// A `SpawnEvent::Created` of `class`.
+fn created(class: &CStr) -> SpawnEvent {
+	SpawnEvent::Created(class.to_owned())
+}
+
+/// Exports a model registry that has precached [`TANK_MODEL`] alone.
+fn export_model_info() {
+	/// `IVModelInfo::GetModelIndex`.
+	unsafe extern "C" fn model_index(_: *const sys::IVModelInfo, name: *const c_char) -> c_int {
+		// SAFETY: The wrapper passes a NUL-terminated name.
+		if unsafe { CStr::from_ptr(name) } == TANK_MODEL {
+			7
+		} else {
+			-1
+		}
+	}
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes a slot of the vtable
+	// being built.
+	let vtable = Box::leak(unsafe {
+		mock_vtable::<sys::IVModelInfo__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IVModelInfo_GetModelIndex).write(model_index);
+		})
+	});
+
+	export(
+		Module::Engine,
+		ModelInfo::VERSION,
+		leak(sys::IVModelInfo { vtable_: vtable }),
+	);
+}
+
 #[test]
 fn halloween_bosses_spawn_on_their_team_with_their_health() {
 	let scope = ();
@@ -303,6 +338,59 @@ fn halloween_bosses_spawn_on_their_team_with_their_health() {
 		)
 		.err(),
 		Some(BossError::UnsupportedGame)
+	);
+}
+
+/// A `SpawnEvent::KeyValue` of `key` and `value`.
+fn key_value(key: &CStr, value: &CStr) -> SpawnEvent {
+	SpawnEvent::KeyValue(key.to_owned(), value.to_owned())
+}
+
+/// The adapter of the fake `SetResolvePlayerCollisions`, which records its
+/// flag.
+unsafe extern "C" fn resolve_adapter(
+	_: sys::ScriptFunctionBindingStorageType_t,
+	_: *mut c_void,
+	arguments: *mut sys::ScriptVariant_t,
+	count: c_int,
+	result: *mut sys::ScriptVariant_t,
+) -> bool {
+	assert_eq!(count, 1);
+	assert!(result.is_null());
+
+	// SAFETY: `call` checked the argument's type against the binding.
+	let resolve = unsafe { (*arguments).__bindgen_anon_1.m_bool };
+
+	RESOLVES.with_borrow_mut(|resolves| resolves.push(resolve));
+	true
+}
+
+#[test]
+fn skeleton_types_and_boss_teams_map_to_the_games_numbers() {
+	for (kind, raw) in [
+		(SkeletonType::Normal, 0),
+		(SkeletonType::King, 1),
+		(SkeletonType::Mini, 2),
+	] {
+		assert_eq!(kind.to_raw(), raw);
+		assert_eq!(SkeletonType::from_raw(raw), Some(kind));
+	}
+
+	assert_eq!(SkeletonType::from_raw(3), None);
+
+	for (team, raw) in [
+		(BossTeam::Red, 2),
+		(BossTeam::Blue, 3),
+		(BossTeam::Halloween, 5),
+	] {
+		assert_eq!(team.to_raw(), raw);
+		assert_eq!(BossTeam::from_raw(raw), Some(team));
+	}
+
+	assert_eq!(BossTeam::from_raw(4), None);
+	assert_eq!(
+		HalloweenBoss::ALL.map(HalloweenBoss::class_name),
+		[c"headless_hatman", c"eyeball_boss", c"merasmus"]
 	);
 }
 
@@ -436,33 +524,49 @@ fn skeletons_spawn_alone_or_from_spawners() {
 	);
 }
 
-#[test]
-fn skeleton_types_and_boss_teams_map_to_the_games_numbers() {
-	for (kind, raw) in [
-		(SkeletonType::Normal, 0),
-		(SkeletonType::King, 1),
-		(SkeletonType::Mini, 2),
-	] {
-		assert_eq!(kind.to_raw(), raw);
-		assert_eq!(SkeletonType::from_raw(raw), Some(kind));
-	}
+/// A mock entity of the class `class`, declaring `inputs`, that the mock
+/// spawning tools, exported with an engine, create next. Its `ChangeTeam`
+/// records the team, and its `GetScriptDesc` returns a fake `CTFBaseBoss`
+/// class declaring `SetResolvePlayerCollisions`.
+fn spawnable(class: &'static CStr, inputs: Vec<sys::typedescription_t>) -> MockEntity {
+	let mut mock = MockEntity::new(1);
+	let mut fields = base_entity_fields().to_vec();
 
-	assert_eq!(SkeletonType::from_raw(3), None);
-
-	for (team, raw) in [
-		(BossTeam::Red, 2),
-		(BossTeam::Blue, 3),
-		(BossTeam::Halloween, 5),
-	] {
-		assert_eq!(team.to_raw(), raw);
-		assert_eq!(BossTeam::from_raw(raw), Some(team));
-	}
-
-	assert_eq!(BossTeam::from_raw(4), None);
-	assert_eq!(
-		HalloweenBoss::ALL.map(HalloweenBoss::class_name),
-		[c"headless_hatman", c"eyeball_boss", c"merasmus"]
+	fields.extend(health_fields());
+	set_datamap(data_map(
+		class,
+		inputs,
+		data_map(c"CBaseEntity", fields, null_mut()),
+	));
+	patch_slots(
+		&mut mock,
+		&[
+			(CHANGE_TEAM_SLOT, change_team as *const ()),
+			(SCRIPT_DESCRIPTION_SLOT, script_description as *const ()),
+		],
 	);
+
+	let parameters = Vec::leak(vec![BOOL]);
+	let bindings = Vec::leak(vec![member_binding(
+		c"SetResolvePlayerCollisions",
+		VOID,
+		parameters,
+		Some(resolve_adapter),
+	)]);
+
+	set_script_description(leak(class_description(
+		c"CTFBaseBoss",
+		bindings,
+		null_mut(),
+	)));
+	export_spawn_tools();
+	export(
+		Module::Engine,
+		ValveEngine::VERSION,
+		change_tracking_engine().as_ptr(),
+	);
+
+	mock
 }
 
 #[test]
@@ -521,106 +625,4 @@ fn the_boss_bar_holds_its_fractions_as_bytes() {
 	bar.hide().unwrap();
 	assert_eq!((fake.int(HEALTH), fake.int(STUN)), (0, 0));
 	assert_eq!(bar.is_shown(), Ok(false));
-}
-
-/// A `SpawnEvent::Created` of `class`.
-fn created(class: &CStr) -> SpawnEvent {
-	SpawnEvent::Created(class.to_owned())
-}
-
-/// Exports a model registry that has precached [`TANK_MODEL`] alone.
-fn export_model_info() {
-	/// `IVModelInfo::GetModelIndex`.
-	unsafe extern "C" fn model_index(_: *const sys::IVModelInfo, name: *const c_char) -> c_int {
-		// SAFETY: The wrapper passes a NUL-terminated name.
-		if unsafe { CStr::from_ptr(name) } == TANK_MODEL {
-			7
-		} else {
-			-1
-		}
-	}
-
-	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
-	// whichever slot reaches it, and the patch only writes a slot of the vtable
-	// being built.
-	let vtable = Box::leak(unsafe {
-		mock_vtable::<sys::IVModelInfo__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).IVModelInfo_GetModelIndex).write(model_index);
-		})
-	});
-
-	export(
-		Module::Engine,
-		ModelInfo::VERSION,
-		leak(sys::IVModelInfo { vtable_: vtable }),
-	);
-}
-
-/// A `SpawnEvent::KeyValue` of `key` and `value`.
-fn key_value(key: &CStr, value: &CStr) -> SpawnEvent {
-	SpawnEvent::KeyValue(key.to_owned(), value.to_owned())
-}
-
-/// The adapter of the fake `SetResolvePlayerCollisions`, which records its
-/// flag.
-unsafe extern "C" fn resolve_adapter(
-	_: sys::ScriptFunctionBindingStorageType_t,
-	_: *mut c_void,
-	arguments: *mut sys::ScriptVariant_t,
-	count: c_int,
-	result: *mut sys::ScriptVariant_t,
-) -> bool {
-	assert_eq!(count, 1);
-	assert!(result.is_null());
-
-	// SAFETY: `call` checked the argument's type against the binding.
-	let resolve = unsafe { (*arguments).__bindgen_anon_1.m_bool };
-
-	RESOLVES.with_borrow_mut(|resolves| resolves.push(resolve));
-	true
-}
-
-/// A mock entity of the class `class`, declaring `inputs`, that the mock
-/// spawning tools, exported with an engine, create next. Its `ChangeTeam`
-/// records the team, and its `GetScriptDesc` returns a fake `CTFBaseBoss`
-/// class declaring `SetResolvePlayerCollisions`.
-fn spawnable(class: &'static CStr, inputs: Vec<sys::typedescription_t>) -> MockEntity {
-	let mut mock = MockEntity::new(1);
-	let mut fields = base_entity_fields().to_vec();
-
-	fields.extend(health_fields());
-	set_datamap(data_map(
-		class,
-		inputs,
-		data_map(c"CBaseEntity", fields, null_mut()),
-	));
-	patch_slots(
-		&mut mock,
-		&[
-			(CHANGE_TEAM_SLOT, change_team as *const ()),
-			(SCRIPT_DESCRIPTION_SLOT, script_description as *const ()),
-		],
-	);
-
-	let parameters = Vec::leak(vec![BOOL]);
-	let bindings = Vec::leak(vec![member_binding(
-		c"SetResolvePlayerCollisions",
-		VOID,
-		parameters,
-		Some(resolve_adapter),
-	)]);
-
-	set_script_description(leak(class_description(
-		c"CTFBaseBoss",
-		bindings,
-		null_mut(),
-	)));
-	export_spawn_tools();
-	export(
-		Module::Engine,
-		ValveEngine::VERSION,
-		change_tracking_engine().as_ptr(),
-	);
-
-	mock
 }

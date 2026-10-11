@@ -300,6 +300,30 @@ fn decode(bits: &BitWriter) -> Decoded {
 	decoded
 }
 
+/// The adapter of `CBaseEntity::EmitSound`, which records the entity and the
+/// name, unless [`EMIT_REJECTS`] is set.
+unsafe extern "C" fn emit_adapter(
+	_: sys::ScriptFunctionBindingStorageType_t,
+	object: *mut c_void,
+	arguments: *mut sys::ScriptVariant_t,
+	count: c_int,
+	result: *mut sys::ScriptVariant_t,
+) -> bool {
+	assert_eq!(count, 1);
+	assert!(result.is_null(), "a void member gets no result");
+
+	if EMIT_REJECTS.get() {
+		return false;
+	}
+
+	// SAFETY: The binding declares one string parameter, so the caller passes
+	// one string variant, NUL-terminated.
+	let name = unsafe { CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString) };
+
+	EMITTED.with_borrow_mut(|emitted| emitted.push((object, name.to_owned())));
+	true
+}
+
 unsafe extern "C" fn event_is_reliable(_: *const sys::IGameEvent) -> bool {
 	RELIABLE.get()
 }
@@ -410,30 +434,6 @@ fn player_unknown() -> sys::IServerUnknown {
 	sys::IServerUnknown {
 		vtable_: UNKNOWN_VTABLE.with(|vtable| &raw const **vtable),
 	}
-}
-
-/// The adapter of `CBaseEntity::EmitSound`, which records the entity and the
-/// name, unless [`EMIT_REJECTS`] is set.
-unsafe extern "C" fn emit_adapter(
-	_: sys::ScriptFunctionBindingStorageType_t,
-	object: *mut c_void,
-	arguments: *mut sys::ScriptVariant_t,
-	count: c_int,
-	result: *mut sys::ScriptVariant_t,
-) -> bool {
-	assert_eq!(count, 1);
-	assert!(result.is_null(), "a void member gets no result");
-
-	if EMIT_REJECTS.get() {
-		return false;
-	}
-
-	// SAFETY: The binding declares one string parameter, so the caller passes
-	// one string variant, NUL-terminated.
-	let name = unsafe { CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString) };
-
-	EMITTED.with_borrow_mut(|emitted| emitted.push((object, name.to_owned())));
-	true
 }
 
 /// The adapter of `CBaseEntity::PrecacheScriptSound`, which records the name,

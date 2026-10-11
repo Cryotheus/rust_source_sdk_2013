@@ -44,24 +44,6 @@ fn set_as_engine(variable: &ConsoleVariable, text: &CStr, float: f32, int: c_int
 }
 
 #[test]
-fn the_engine_changes_a_variable() {
-	static VARIABLE: ConsoleVariable = ConsoleVariable::new(c"sb_test_changeable", c"idle");
-
-	let scope = ();
-	let server = mock_server(&scope);
-
-	prepare(&VARIABLE);
-	TEST_MSG.set(Some(msg));
-
-	set_as_engine(&VARIABLE, c"calm", 2.5, 3);
-	assert_eq!(VARIABLE.string(server), c"3");
-	assert_eq!(VARIABLE.int(server), 3);
-	assert!(PRINTED.take().is_empty());
-
-	TEST_MSG.set(None);
-}
-
-#[test]
 fn the_engine_cannot_change_a_read_only_variable() {
 	static VARIABLE: ConsoleVariable =
 		ConsoleVariable::new(c"sb_test_read_only", c"idle").read_only();
@@ -84,6 +66,24 @@ fn the_engine_cannot_change_a_read_only_variable() {
 
 	VARIABLE.revert(server);
 	assert_eq!(VARIABLE.string(server), c"idle");
+	assert!(PRINTED.take().is_empty());
+
+	TEST_MSG.set(None);
+}
+
+#[test]
+fn the_engine_changes_a_variable() {
+	static VARIABLE: ConsoleVariable = ConsoleVariable::new(c"sb_test_changeable", c"idle");
+
+	let scope = ();
+	let server = mock_server(&scope);
+
+	prepare(&VARIABLE);
+	TEST_MSG.set(Some(msg));
+
+	set_as_engine(&VARIABLE, c"calm", 2.5, 3);
+	assert_eq!(VARIABLE.string(server), c"3");
+	assert_eq!(VARIABLE.int(server), 3);
 	assert!(PRINTED.take().is_empty());
 
 	TEST_MSG.set(None);

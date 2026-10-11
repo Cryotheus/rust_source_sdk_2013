@@ -87,11 +87,29 @@ impl EventRoute {
 		}
 	}
 
-	/// Whether the route's hooks are installed, for this load of the plugin.
-	fn installed(&self, api: MetamodApi<'_>) -> bool {
-		self.state
-			.get()
-			.is_some_and(|state| state.hooks.iter().any(|&hook| api.has_hook(hook)))
+	/// After the call: frees the event if the callback blocked it.
+	fn after(
+		&self,
+		manager: *mut sys::IGameEventManager2,
+		event: NonNull<sys::IGameEvent>,
+	) -> HookAction<bool> {
+		let blocked = {
+			let mut blocked = self.blocked.borrow_mut();
+
+			blocked
+				.iter()
+				.rposition(|&other| other == event)
+				.map(|index| blocked.remove(index))
+		};
+
+		if let Some(event) = blocked {
+			// SAFETY: The callback blocked the call, so the manager, which the call
+			// was made on, did not take ownership of the event, which no hook
+			// running after this one frees, as the module documentation requires.
+			unsafe { vcall!(manager => IGameEventManager2_FreeEvent(event.as_ptr())) };
+		}
+
+		HookAction::Ignore
 	}
 
 	/// Before the call: runs the callback, unless a hook before this one
@@ -132,29 +150,11 @@ impl EventRoute {
 		}
 	}
 
-	/// After the call: frees the event if the callback blocked it.
-	fn after(
-		&self,
-		manager: *mut sys::IGameEventManager2,
-		event: NonNull<sys::IGameEvent>,
-	) -> HookAction<bool> {
-		let blocked = {
-			let mut blocked = self.blocked.borrow_mut();
-
-			blocked
-				.iter()
-				.rposition(|&other| other == event)
-				.map(|index| blocked.remove(index))
-		};
-
-		if let Some(event) = blocked {
-			// SAFETY: The callback blocked the call, so the manager, which the call
-			// was made on, did not take ownership of the event, which no hook
-			// running after this one frees, as the module documentation requires.
-			unsafe { vcall!(manager => IGameEventManager2_FreeEvent(event.as_ptr())) };
-		}
-
-		HookAction::Ignore
+	/// Whether the route's hooks are installed, for this load of the plugin.
+	fn installed(&self, api: MetamodApi<'_>) -> bool {
+		self.state
+			.get()
+			.is_some_and(|state| state.hooks.iter().any(|&hook| api.has_hook(hook)))
 	}
 }
 

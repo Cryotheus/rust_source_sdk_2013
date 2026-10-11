@@ -5,23 +5,11 @@ use crate::bsp::brush_space::{
 	AnalysisDomain, BrushSpace, Error, Limits, PointRelation, RegionalOverlapLimits, RegionalPair,
 	RegionalPairError, RegionalSplit, Statistics,
 };
+
 use crate::bsp::{Limits as BspLimits, brushes::BrushGeometry};
 use std::io::Read;
 use std::time::Instant;
 
-const GEOMETRY_LIMITS: Limits = Limits {
-	work: 20_000_000,
-	predicates: 5_000_000,
-	exact_predicates: 100_000,
-	cells: 100_000,
-	vertices: 2_000_000,
-	constraints: 2_000_000,
-};
-const OVERLAP_LIMITS: RegionalOverlapLimits = RegionalOverlapLimits {
-	geometry: GEOMETRY_LIMITS,
-	pairs: 100_000,
-	certificates: 100_000,
-};
 const BSP_LIMITS: BspLimits = BspLimits {
 	input_bytes: 67_108_864,
 	expanded_bytes: 67_108_864,
@@ -35,146 +23,27 @@ const BSP_LIMITS: BspLimits = BspLimits {
 	constraints: 1_000_000,
 };
 
+const GEOMETRY_LIMITS: Limits = Limits {
+	work: 20_000_000,
+	predicates: 5_000_000,
+	exact_predicates: 100_000,
+	cells: 100_000,
+	vertices: 2_000_000,
+	constraints: 2_000_000,
+};
+
+const OVERLAP_LIMITS: RegionalOverlapLimits = RegionalOverlapLimits {
+	geometry: GEOMETRY_LIMITS,
+	pairs: 100_000,
+	certificates: 100_000,
+};
+
 #[derive(Clone, Copy)]
 struct Job {
 	name: &'static str,
 	min: [f32; 3],
 	max: [f32; 3],
 	split: [f32; 3],
-}
-
-fn statistics_fields(statistics: Statistics) -> [usize; 6] {
-	[
-		statistics.work,
-		statistics.predicates,
-		statistics.exact_predicates,
-		statistics.cells,
-		statistics.vertices,
-		statistics.constraints,
-	]
-}
-
-fn print_statistics(statistics: Statistics) {
-	for count in statistics_fields(statistics) {
-		print!("\t{count}");
-	}
-}
-
-fn sum_statistics(left: Statistics, right: Statistics, overlap: Statistics) -> Statistics {
-	let sum = |a: usize, b: usize, c: usize| {
-		a.checked_add(b)
-			.and_then(|n| n.checked_add(c))
-			.expect("fixed three-ledger measurement sum must fit usize")
-	};
-	Statistics {
-		work: sum(left.work, right.work, overlap.work),
-		predicates: sum(left.predicates, right.predicates, overlap.predicates),
-		exact_predicates: sum(
-			left.exact_predicates,
-			right.exact_predicates,
-			overlap.exact_predicates,
-		),
-		cells: sum(left.cells, right.cells, overlap.cells),
-		vertices: sum(left.vertices, right.vertices, overlap.vertices),
-		constraints: sum(left.constraints, right.constraints, overlap.constraints),
-	}
-}
-
-fn report_error(job: usize, phase: &str, elapsed_us: u128, error: Error) {
-	match error {
-		Error::Budget { resource, limit } => {
-			println!(
-				"regional-pair-v1\trefusal\t{job}\t{phase}\t{elapsed_us}\t{resource}\t{limit}"
-			);
-		}
-
-		error => {
-			println!("regional-pair-v1\tfailed\t{job}\t{phase}\t{elapsed_us}\t{error:?}");
-			panic!(
-				"unexpected source/arithmetic/invariant/allocation measurement failure: {error:?}"
-			);
-		}
-	}
-}
-
-fn report_atlas(
-	job: usize,
-	side: &str,
-	elapsed_us: Option<u128>,
-	atlas: &BrushSpace,
-	witnesses: [[f32; 3]; 3],
-) {
-	print!("regional-pair-v1\tatlas\t{job}\t{side}\t");
-	match elapsed_us {
-		Some(value) => print!("{value}"),
-		None => print!("unavailable"),
-	}
-	let source = atlas.source_statistics();
-	print!(
-		"\t{}\t{}\t{}\t{}\t{}\t{}",
-		atlas.planes().len(),
-		atlas.fragments().len(),
-		atlas.interfaces().len(),
-		atlas.components().len(),
-		source.partitions,
-		source.world_brushes
-	);
-	print_statistics(atlas.statistics());
-	println!();
-	for (id, component) in atlas.components().iter().enumerate() {
-		println!(
-			"regional-pair-v1\tnode\t{job}\t{side}\t{id}\t{}\t{}",
-			component.touches_domain(),
-			component.fragments().len()
-		);
-	}
-	for (id, point) in witnesses.into_iter().enumerate() {
-		let started = Instant::now();
-		let result = atlas.locate(point);
-		let elapsed_us = started.elapsed().as_micros();
-		match result {
-			Ok(PointRelation::Free { fragments }) => {
-				println!(
-					"regional-pair-v1\tlocate\t{job}\t{side}\t{id}\t{elapsed_us}\tFree\t{}",
-					fragments.len()
-				);
-				for fragment in fragments {
-					let component = atlas
-						.fragments()
-						.get(fragment)
-						.expect("public locate fragment must belong to this atlas")
-						.component();
-					assert!(component < atlas.components().len());
-					println!(
-						"regional-pair-v1\tmember\t{job}\t{side}\t{id}\t{fragment}\t{component}"
-					);
-				}
-			}
-
-			Ok(relation) => {
-				let name = match relation {
-					PointRelation::Solid => "Solid",
-					PointRelation::Unrepresented => "Unrepresented",
-					PointRelation::OutsideDomain => "OutsideDomain",
-					PointRelation::Free { .. } => unreachable!(),
-				};
-				println!("regional-pair-v1\tlocate\t{job}\t{side}\t{id}\t{elapsed_us}\t{name}\t0");
-			}
-
-			Err(Error::Budget { resource, limit }) => {
-				println!(
-					"regional-pair-v1\tlocate_refusal\t{job}\t{side}\t{id}\t{elapsed_us}\t{resource}\t{limit}"
-				);
-			}
-
-			Err(error) => {
-				println!(
-					"regional-pair-v1\tfailed\t{job}\tlocate_{side}_{id}\t{elapsed_us}\t{error:?}"
-				);
-				panic!("unexpected membership measurement failure: {error:?}");
-			}
-		}
-	}
 }
 
 fn measure(
@@ -381,4 +250,138 @@ fn pinned_ctf_2fort_whole_and_regional_pair() {
 			},
 		],
 	);
+}
+
+fn print_statistics(statistics: Statistics) {
+	for count in statistics_fields(statistics) {
+		print!("\t{count}");
+	}
+}
+
+fn report_atlas(
+	job: usize,
+	side: &str,
+	elapsed_us: Option<u128>,
+	atlas: &BrushSpace,
+	witnesses: [[f32; 3]; 3],
+) {
+	print!("regional-pair-v1\tatlas\t{job}\t{side}\t");
+	match elapsed_us {
+		Some(value) => print!("{value}"),
+		None => print!("unavailable"),
+	}
+	let source = atlas.source_statistics();
+	print!(
+		"\t{}\t{}\t{}\t{}\t{}\t{}",
+		atlas.planes().len(),
+		atlas.fragments().len(),
+		atlas.interfaces().len(),
+		atlas.components().len(),
+		source.partitions,
+		source.world_brushes
+	);
+	print_statistics(atlas.statistics());
+	println!();
+	for (id, component) in atlas.components().iter().enumerate() {
+		println!(
+			"regional-pair-v1\tnode\t{job}\t{side}\t{id}\t{}\t{}",
+			component.touches_domain(),
+			component.fragments().len()
+		);
+	}
+	for (id, point) in witnesses.into_iter().enumerate() {
+		let started = Instant::now();
+		let result = atlas.locate(point);
+		let elapsed_us = started.elapsed().as_micros();
+		match result {
+			Ok(PointRelation::Free { fragments }) => {
+				println!(
+					"regional-pair-v1\tlocate\t{job}\t{side}\t{id}\t{elapsed_us}\tFree\t{}",
+					fragments.len()
+				);
+				for fragment in fragments {
+					let component = atlas
+						.fragments()
+						.get(fragment)
+						.expect("public locate fragment must belong to this atlas")
+						.component();
+					assert!(component < atlas.components().len());
+					println!(
+						"regional-pair-v1\tmember\t{job}\t{side}\t{id}\t{fragment}\t{component}"
+					);
+				}
+			}
+
+			Ok(relation) => {
+				let name = match relation {
+					PointRelation::Solid => "Solid",
+					PointRelation::Unrepresented => "Unrepresented",
+					PointRelation::OutsideDomain => "OutsideDomain",
+					PointRelation::Free { .. } => unreachable!(),
+				};
+				println!("regional-pair-v1\tlocate\t{job}\t{side}\t{id}\t{elapsed_us}\t{name}\t0");
+			}
+
+			Err(Error::Budget { resource, limit }) => {
+				println!(
+					"regional-pair-v1\tlocate_refusal\t{job}\t{side}\t{id}\t{elapsed_us}\t{resource}\t{limit}"
+				);
+			}
+
+			Err(error) => {
+				println!(
+					"regional-pair-v1\tfailed\t{job}\tlocate_{side}_{id}\t{elapsed_us}\t{error:?}"
+				);
+				panic!("unexpected membership measurement failure: {error:?}");
+			}
+		}
+	}
+}
+
+fn report_error(job: usize, phase: &str, elapsed_us: u128, error: Error) {
+	match error {
+		Error::Budget { resource, limit } => {
+			println!(
+				"regional-pair-v1\trefusal\t{job}\t{phase}\t{elapsed_us}\t{resource}\t{limit}"
+			);
+		}
+
+		error => {
+			println!("regional-pair-v1\tfailed\t{job}\t{phase}\t{elapsed_us}\t{error:?}");
+			panic!(
+				"unexpected source/arithmetic/invariant/allocation measurement failure: {error:?}"
+			);
+		}
+	}
+}
+
+fn statistics_fields(statistics: Statistics) -> [usize; 6] {
+	[
+		statistics.work,
+		statistics.predicates,
+		statistics.exact_predicates,
+		statistics.cells,
+		statistics.vertices,
+		statistics.constraints,
+	]
+}
+
+fn sum_statistics(left: Statistics, right: Statistics, overlap: Statistics) -> Statistics {
+	let sum = |a: usize, b: usize, c: usize| {
+		a.checked_add(b)
+			.and_then(|n| n.checked_add(c))
+			.expect("fixed three-ledger measurement sum must fit usize")
+	};
+	Statistics {
+		work: sum(left.work, right.work, overlap.work),
+		predicates: sum(left.predicates, right.predicates, overlap.predicates),
+		exact_predicates: sum(
+			left.exact_predicates,
+			right.exact_predicates,
+			overlap.exact_predicates,
+		),
+		cells: sum(left.cells, right.cells, overlap.cells),
+		vertices: sum(left.vertices, right.vertices, overlap.vertices),
+		constraints: sum(left.constraints, right.constraints, overlap.constraints),
+	}
 }

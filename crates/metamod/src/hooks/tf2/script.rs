@@ -31,9 +31,7 @@ use crate::hook::{
 
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::scripts::{RUN_VSCRIPTS_SLOT, RunVScriptsFn as RunVScripts};
-
 use source_sdk_2013::tf2::scripts::ScriptTarget;
-
 use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
 use std::ffi::c_void;

@@ -24,41 +24,24 @@ use sdk_raw::players::TEAM_UNASSIGNED;
 use sdk_raw::tf2::game_rules as raw;
 use std::ffi::c_int;
 
-/// What follows a team's win, beyond who won and why: the options of
-/// `SetWinningTeam`, whose [defaults](Self::default) are the game's.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WinOptions {
-	/// Whether the whole map resets after the bonus round (`bForceMapReset`),
-	/// as at the end of a full round, which counts the round as played,
-	/// rather than only the next mini-round of a level that plays several, as
-	/// multi-stage Attack/Defend levels do.
-	pub reset_map: bool,
+/// Why a round could not be ended.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RoundEndError {
+	/// The game rules could not be read.
+	#[error(transparent)]
+	GameRules(#[from] GameRulesError),
 
-	/// Whether the teams switch sides as the map resets (`bSwitchTeams`).
-	pub switch_teams: bool,
+	/// A team already won the round. TF2 would still crit boost the team and
+	/// count King of the Hill's and Payload Race's progress again, before the
+	/// game rules ignore the win.
+	#[error("a team already won the round")]
+	AlreadyWon,
 
-	/// Whether the winners score the round (the opposite of `bDontAddScore`),
-	/// which they only do if the map resets, or the time limit ran out, and if
-	/// the game scores rounds.
-	pub add_score: bool,
-
-	/// Whether the win ends the game (`bFinal`), which TF2 only uses to time
-	/// the winners' crit boost to the bonus round that ends a game, which
-	/// competitive matches shorten.
-	pub final_round: bool,
-}
-
-impl Default for WinOptions {
-	/// A full round's end, which resets the map and scores the round, without
-	/// switching teams or ending the game.
-	fn default() -> Self {
-		Self {
-			reset_map: true,
-			switch_teams: false,
-			add_score: true,
-			final_round: false,
-		}
-	}
+	/// The level plays King of the Hill, but the team's King of the Hill timer
+	/// does not exist, which the game would read without checking. Its
+	/// `tf_logic_koth` creates the timers as each round spawns.
+	#[error("the {0:?} team's King of the Hill timer does not exist")]
+	NoKothTimer(ScoringTeam),
 }
 
 /// What follows sudden death, or a round's end without a winner while
@@ -124,24 +107,41 @@ impl StalemateReason {
 	}
 }
 
-/// Why a round could not be ended.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum RoundEndError {
-	/// The game rules could not be read.
-	#[error(transparent)]
-	GameRules(#[from] GameRulesError),
+/// What follows a team's win, beyond who won and why: the options of
+/// `SetWinningTeam`, whose [defaults](Self::default) are the game's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WinOptions {
+	/// Whether the whole map resets after the bonus round (`bForceMapReset`),
+	/// as at the end of a full round, which counts the round as played,
+	/// rather than only the next mini-round of a level that plays several, as
+	/// multi-stage Attack/Defend levels do.
+	pub reset_map: bool,
 
-	/// A team already won the round. TF2 would still crit boost the team and
-	/// count King of the Hill's and Payload Race's progress again, before the
-	/// game rules ignore the win.
-	#[error("a team already won the round")]
-	AlreadyWon,
+	/// Whether the teams switch sides as the map resets (`bSwitchTeams`).
+	pub switch_teams: bool,
 
-	/// The level plays King of the Hill, but the team's King of the Hill timer
-	/// does not exist, which the game would read without checking. Its
-	/// `tf_logic_koth` creates the timers as each round spawns.
-	#[error("the {0:?} team's King of the Hill timer does not exist")]
-	NoKothTimer(ScoringTeam),
+	/// Whether the winners score the round (the opposite of `bDontAddScore`),
+	/// which they only do if the map resets, or the time limit ran out, and if
+	/// the game scores rounds.
+	pub add_score: bool,
+
+	/// Whether the win ends the game (`bFinal`), which TF2 only uses to time
+	/// the winners' crit boost to the bonus round that ends a game, which
+	/// competitive matches shorten.
+	pub final_round: bool,
+}
+
+impl Default for WinOptions {
+	/// A full round's end, which resets the map and scores the round, without
+	/// switching teams or ending the game.
+	fn default() -> Self {
+		Self {
+			reset_map: true,
+			switch_teams: false,
+			add_score: true,
+			final_round: false,
+		}
+	}
 }
 
 /// Ending the round, which [the module](self) describes.

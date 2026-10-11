@@ -30,21 +30,6 @@ pub const MONSTER_RESOURCE: &CStr = c"monster_resource";
 /// The data map class of the monster resource.
 pub const MONSTER_RESOURCE_CLASS: &CStr = c"CMonsterResource";
 
-/// `CZombie::SkeletonType_t` (`game/server/tf/halloween/zombie/zombie.h`):
-/// the skeletons' types.
-pub mod skeleton {
-	use std::ffi::c_int;
-
-	/// A skeleton king: twice the size, with 1,000 health and a crown.
-	pub const SKELETON_KING: c_int = 1;
-
-	/// A small skeleton.
-	pub const SKELETON_MINI: c_int = 2;
-
-	/// An ordinary skeleton, with 50 health.
-	pub const SKELETON_NORMAL: c_int = 0;
-}
-
 /// The team the game spawns its own Halloween bosses and skeletons on, which
 /// is neither RED nor BLU (`TF_TEAM_HALLOWEEN` in
 /// `game/shared/tf/tf_shareddefs.h`). It shares its number, 5, with
@@ -61,3 +46,18 @@ pub const TF_ZOMBIE_SPAWNER: &CStr = c"tf_zombie_spawner";
 
 /// The data map class of a skeleton spawner.
 pub const TF_ZOMBIE_SPAWNER_CLASS: &CStr = c"CZombieSpawner";
+
+/// `CZombie::SkeletonType_t` (`game/server/tf/halloween/zombie/zombie.h`):
+/// the skeletons' types.
+pub mod skeleton {
+	use std::ffi::c_int;
+
+	/// A skeleton king: twice the size, with 1,000 health and a crown.
+	pub const SKELETON_KING: c_int = 1;
+
+	/// A small skeleton.
+	pub const SKELETON_MINI: c_int = 2;
+
+	/// An ordinary skeleton, with 50 health.
+	pub const SKELETON_NORMAL: c_int = 0;
+}

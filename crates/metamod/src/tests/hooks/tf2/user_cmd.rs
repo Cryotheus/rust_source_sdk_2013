@@ -18,23 +18,6 @@ thread_local! {
 	static CALLS: RefCell<Vec<(&'static str, Buttons)>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The game's `PlayerRunCommand`, which notes the command's buttons, and
-/// stops the player's movement, as for a taunt.
-unsafe extern "C" fn game_run_command(
-	_: *mut sys::CBaseEntity,
-	command: *mut sys::CUserCmd,
-	_: *mut sys::IMoveHelper,
-) {
-	// SAFETY: The test passes a live command.
-	let command = unsafe { &mut *command };
-
-	CALLS.with_borrow_mut(|calls| {
-		calls.push(("game", Buttons::from_bits_retain(command.buttons)));
-	});
-
-	command.forwardmove = 0.0;
-}
-
 #[test]
 fn commands_are_changed_before_the_game_runs_them() {
 	/// A player of a C++ class, as far as hooks know it.
@@ -86,6 +69,23 @@ fn commands_are_changed_before_the_game_runs_them() {
 		assert_eq!(command.buttons, Buttons::DUCK.bits() | Buttons::JUMP.bits());
 		assert_eq!(command.forwardmove, 0.0);
 	});
+}
+
+/// The game's `PlayerRunCommand`, which notes the command's buttons, and
+/// stops the player's movement, as for a taunt.
+unsafe extern "C" fn game_run_command(
+	_: *mut sys::CBaseEntity,
+	command: *mut sys::CUserCmd,
+	_: *mut sys::IMoveHelper,
+) {
+	// SAFETY: The test passes a live command.
+	let command = unsafe { &mut *command };
+
+	CALLS.with_borrow_mut(|calls| {
+		calls.push(("game", Buttons::from_bits_retain(command.buttons)));
+	});
+
+	command.forwardmove = 0.0;
 }
 
 /// The callback, which notes the buttons it saw, then takes the attack away

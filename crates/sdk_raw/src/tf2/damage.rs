@@ -13,11 +13,33 @@ use std::ffi::c_int;
 
 pub use crate::entities::health::DMG_GENERIC;
 
+/// The signature of `CTFPlayer::DamageEffect`, `void (float, int)`, with the
+/// player as its receiver, the damage taken and its `DMG_*` bits.
+///
+/// The generated method takes a `CTFPlayer` receiver. It is the player's
+/// primary base, `CBaseEntity`, at the same address, so the method can be
+/// called and hooked with an entity receiver.
+#[doc(alias("DamageEffect"))]
+pub type DamageEffectFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, damage: f32, damage_type: c_int);
+
 /// The signature of `CTFPlayer::OnTakeDamage` and `OnTakeDamage_Alive`,
 /// `int (const CTakeDamageInfo &)`, with the player as its receiver.
 #[doc(alias("OnTakeDamage", "OnTakeDamage_Alive"))]
 pub type TakeDamageFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::CTakeDamageInfo) -> c_int;
+
+// `DamageEffect` follows `ForceRespawn` (337 on Windows, see
+// `crate::tf2::respawn`) by nine slots, as `CBasePlayer` declares it after
+// `InitialSpawn`, `InitHUD`, `ShowViewPortPanel`, `PlayerDeathThink`, `Jump`,
+// `Duck`, `PreThink` and `PostThink`, none of them overloaded, so MSVC keeps
+// their order, and `CommitSuicide` (454, which SourceMod's gamedata lists)
+// further on matches the generated vtable too. Linux's Itanium vtables start
+// with two destructor slots instead of MSVC's one.
+const _: () = {
+	assert!(DAMAGE_EFFECT_SLOT == 345 + CppDestructors::VTABLE_SLOTS);
+	assert!(DAMAGE_EFFECT_SLOT == crate::tf2::respawn::FORCE_RESPAWN_SLOT + 9);
+};
 
 // SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists these slots in
 // its `tf` section: 64 and 283 on Windows, one more on Linux, whose Itanium
@@ -36,9 +58,30 @@ const _: () = assert!(
 const _: fn(&sys::CBaseEntity__bindgen_vtable) -> TakeDamageFn =
 	|vtable| vtable.CBaseEntity_OnTakeDamage;
 
+// The generated method has the signature of `DamageEffectFn`.
+const _: fn(
+	&sys::CTFPlayer__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFPlayer, f32, c_int) = |vtable| vtable.CTFPlayer_DamageEffect;
+
 /// The value of `CTakeDamageInfo::m_flBaseDamage` that marks the base damage
 /// as unspecified, `FLT_MAX`.
 pub const BASEDAMAGE_NOT_SPECIFIED: f32 = f32::MAX;
+
+/// The slot of `CTFPlayer::DamageEffect` in a TF2 player's primary vtable,
+/// from the generated binding.
+///
+/// `CTFPlayer::OnTakeDamage` calls it through the vtable for each hit the
+/// player took, after the damage and its rules, and after the player's death
+/// if the hit killed them (`tf_player.cpp:9604`), to show the hit's effects
+/// (`tf_player.cpp:10131-10162`): a red flash of the screen for crushing damage
+/// (`DMG_CRUSH`), a blue one for drowning (`DMG_DROWN`), each a `Fade` user
+/// message, blood for slashing (`DMG_SLASH`), or the sound of a bullet's
+/// impact (`DMG_BULLET`), only the first of these the hit has. The last two
+/// are left out for a disguised Spy. `CTFBot` keeps the same function at the
+/// slot.
+#[doc(alias("DamageEffect"))]
+pub const DAMAGE_EFFECT_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_DamageEffect);
 
 /// Acid, which TF2 aliases as [`DMG_CRITICAL`].
 pub const DMG_ACID: c_int = 1 << 20;
@@ -175,46 +218,3 @@ pub const ON_TAKE_DAMAGE_ALIVE_SLOT: usize =
 #[doc(alias("OnTakeDamage"))]
 pub const ON_TAKE_DAMAGE_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_OnTakeDamage);
-
-/// The signature of `CTFPlayer::DamageEffect`, `void (float, int)`, with the
-/// player as its receiver, the damage taken and its `DMG_*` bits.
-///
-/// The generated method takes a `CTFPlayer` receiver. It is the player's
-/// primary base, `CBaseEntity`, at the same address, so the method can be
-/// called and hooked with an entity receiver.
-#[doc(alias("DamageEffect"))]
-pub type DamageEffectFn =
-	unsafe extern "C" fn(this: *mut sys::CBaseEntity, damage: f32, damage_type: c_int);
-
-// `DamageEffect` follows `ForceRespawn` (337 on Windows, see
-// `crate::tf2::respawn`) by nine slots, as `CBasePlayer` declares it after
-// `InitialSpawn`, `InitHUD`, `ShowViewPortPanel`, `PlayerDeathThink`, `Jump`,
-// `Duck`, `PreThink` and `PostThink`, none of them overloaded, so MSVC keeps
-// their order, and `CommitSuicide` (454, which SourceMod's gamedata lists)
-// further on matches the generated vtable too. Linux's Itanium vtables start
-// with two destructor slots instead of MSVC's one.
-const _: () = {
-	assert!(DAMAGE_EFFECT_SLOT == 345 + CppDestructors::VTABLE_SLOTS);
-	assert!(DAMAGE_EFFECT_SLOT == crate::tf2::respawn::FORCE_RESPAWN_SLOT + 9);
-};
-
-// The generated method has the signature of `DamageEffectFn`.
-const _: fn(
-	&sys::CTFPlayer__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFPlayer, f32, c_int) = |vtable| vtable.CTFPlayer_DamageEffect;
-
-/// The slot of `CTFPlayer::DamageEffect` in a TF2 player's primary vtable,
-/// from the generated binding.
-///
-/// `CTFPlayer::OnTakeDamage` calls it through the vtable for each hit the
-/// player took, after the damage and its rules, and after the player's death
-/// if the hit killed them (`tf_player.cpp:9604`), to show the hit's effects
-/// (`tf_player.cpp:10131-10162`): a red flash of the screen for crushing damage
-/// (`DMG_CRUSH`), a blue one for drowning (`DMG_DROWN`), each a `Fade` user
-/// message, blood for slashing (`DMG_SLASH`), or the sound of a bullet's
-/// impact (`DMG_BULLET`), only the first of these the hit has. The last two
-/// are left out for a disguised Spy. `CTFBot` keeps the same function at the
-/// slot.
-#[doc(alias("DamageEffect"))]
-pub const DAMAGE_EFFECT_SLOT: usize =
-	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_DamageEffect);

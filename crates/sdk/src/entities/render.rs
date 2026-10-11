@@ -162,17 +162,6 @@ pub enum RenderMode {
 	None,
 }
 
-/// Why [`Entity::set_model`] set no model.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum SetModelError {
-	/// The server has not precached the model, or it is a dynamic model.
-	#[error("the model {model:?} is not precached")]
-	NotPrecached {
-		/// The model asked for.
-		model: CString,
-	},
-}
-
 impl RenderMode {
 	/// The mode a `RenderMode_t` value stands for, or `None` for a value
 	/// past `kRenderNone`.
@@ -209,6 +198,17 @@ impl RenderMode {
 			Self::None => sys::RenderMode_t_kRenderNone,
 		}) as u8
 	}
+}
+
+/// Why [`Entity::set_model`] set no model.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SetModelError {
+	/// The server has not precached the model, or it is a dynamic model.
+	#[error("the model {model:?} is not precached")]
+	NotPrecached {
+		/// The model asked for.
+		model: CString,
+	},
 }
 
 impl<'s> Entity<'s> {

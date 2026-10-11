@@ -65,6 +65,17 @@ impl Bounds {
 		})
 	}
 
+	fn hull(self, other: Self) -> Self {
+		Self {
+			min: std::array::from_fn(|axis| self.min[axis].min(other.min[axis])),
+			max: std::array::from_fn(|axis| self.max[axis].max(other.max[axis])),
+		}
+	}
+
+	pub(super) fn overlaps(self, other: Self) -> bool {
+		(0..3).all(|axis| self.min[axis] <= other.max[axis] && other.min[axis] <= self.max[axis])
+	}
+
 	fn valid(self) -> bool {
 		(0..3).all(|axis| {
 			self.min[axis].is_finite()
@@ -72,24 +83,6 @@ impl Bounds {
 				&& self.min[axis] <= self.max[axis]
 		})
 	}
-
-	pub(super) fn overlaps(self, other: Self) -> bool {
-		(0..3).all(|axis| self.min[axis] <= other.max[axis] && other.min[axis] <= self.max[axis])
-	}
-
-	fn hull(self, other: Self) -> Self {
-		Self {
-			min: std::array::from_fn(|axis| self.min[axis].min(other.min[axis])),
-			max: std::array::from_fn(|axis| self.max[axis].max(other.max[axis])),
-		}
-	}
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Node {
-	id: usize,
-	bounds: Bounds,
-	hull: Bounds,
 }
 
 /// Median nodes are implicit in each sorted slice; hulls summarize that slice.
@@ -154,20 +147,6 @@ impl Index {
 		Ok(Some(hull))
 	}
 
-	/// IDs are ascending and unique. Face, edge, and point contacts all overlap.
-	pub(super) fn query(&self, bounds: Bounds, budget: &mut Budget) -> Result<Vec<usize>, Error> {
-		budget.work(1)?;
-		if !bounds.valid() {
-			return Err(Error::Invariant);
-		}
-		let mut output = Vec::new();
-		Self::visit(&self.nodes, bounds, &mut output, budget)?;
-		heap_sort(&mut output, usize::cmp, budget)?;
-		budget.work(output.len())?;
-		output.dedup();
-		Ok(output)
-	}
-
 	fn visit(
 		nodes: &[Node],
 		bounds: Bounds,
@@ -191,6 +170,27 @@ impl Index {
 		Self::visit(&nodes[..middle], bounds, output, budget)?;
 		Self::visit(&nodes[middle + 1..], bounds, output, budget)
 	}
+
+	/// IDs are ascending and unique. Face, edge, and point contacts all overlap.
+	pub(super) fn query(&self, bounds: Bounds, budget: &mut Budget) -> Result<Vec<usize>, Error> {
+		budget.work(1)?;
+		if !bounds.valid() {
+			return Err(Error::Invariant);
+		}
+		let mut output = Vec::new();
+		Self::visit(&self.nodes, bounds, &mut output, budget)?;
+		heap_sort(&mut output, usize::cmp, budget)?;
+		budget.work(output.len())?;
+		output.dedup();
+		Ok(output)
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Node {
+	id: usize,
+	bounds: Bounds,
+	hull: Bounds,
 }
 
 /// Fallible, in-place heapsort makes all data-dependent sort work budgetable.

@@ -59,6 +59,27 @@ impl Mock {
 	}
 }
 
+#[test]
+fn equips_are_seen_after_the_game() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut player = player();
+		let mut weapon = weapon();
+		let address = weapon.address();
+		let hooks = api.hook_weapon_equips(tf2_binding(no_interfaces), on_equip);
+
+		assert_eq!(hooks.cover(api, player.target::<TfPlayer>()), Ok(true));
+
+		CALLS.take();
+		harness.call::<WeaponFn>(player.ptr(), WEAPON_EQUIP_SLOT, (weapon.ptr().cast(),));
+		assert_eq!(CALLS.take(), [("game", address), ("equipped", address)]);
+
+		// Without a weapon, the callback does not run.
+		harness.call::<WeaponFn>(player.ptr(), WEAPON_EQUIP_SLOT, (ptr::null_mut(),));
+		assert_eq!(CALLS.take(), [("game", 0)]);
+	});
+}
+
 /// The game's `Weapon_CanSwitchTo`, which notes that it ran, and allows the
 /// weapon.
 unsafe extern "C" fn game_can_switch_to(
@@ -100,6 +121,34 @@ unsafe extern "C" fn game_switch(
 ) -> bool {
 	note("game", weapon.addr());
 	true
+}
+
+#[test]
+fn melee_swings_can_miss() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut melee = Mock::of_new_class(&[(
+			GET_SMACK_TIME_SLOT,
+			game_smack_time as SmackTimeFn as *mut c_void,
+		)]);
+		let hooks = api.hook_melee_smacks(tf2_binding(no_interfaces), on_smack);
+
+		assert_eq!(hooks.cover(api, melee.target::<TfMeleeWeapon>()), Ok(true));
+
+		let mut swing = || {
+			CALLS.take();
+			let time = harness.call::<SmackTimeFn>(melee.ptr(), GET_SMACK_TIME_SLOT, (1,));
+			(time, CALLS.take())
+		};
+
+		SMACK.set(SmackAction::Continue);
+		assert_eq!(swing(), (10.2, vec![("smack", 0), ("game", 1)]));
+
+		// The weapon never smacks, as the time is not positive.
+		const { assert!(NO_SMACK <= 0.0) };
+		SMACK.set(SmackAction::Miss);
+		assert_eq!(swing(), (NO_SMACK, vec![("smack", 0)]));
+	});
 }
 
 /// Notes that `name` ran, given the weapon at `weapon`.
@@ -156,87 +205,6 @@ fn player() -> Box<Mock> {
 	])
 }
 
-/// Calls the method at `slot` of `player`, given `weapon`, and returns its
-/// result with what ran.
-fn switch(
-	harness: &Harness,
-	player: &mut Mock,
-	slot: usize,
-	weapon: *mut sys::CBaseCombatWeapon,
-) -> (bool, Vec<(&'static str, usize)>) {
-	CALLS.take();
-
-	let result = if slot == WEAPON_SWITCH_SLOT {
-		harness.call::<WeaponSwitchFn>(player.ptr(), slot, (weapon, 0))
-	} else {
-		harness.call::<WeaponPredicateFn>(player.ptr(), slot, (weapon,))
-	};
-
-	(result, CALLS.take())
-}
-
-/// A method no test calls.
-unsafe extern "C" fn unexpected(_: *mut sys::CBaseEntity) {
-	unreachable!("no test calls this slot");
-}
-
-/// A weapon of a new class, with the game's frames and reloads.
-fn weapon() -> Box<Mock> {
-	Mock::of_new_class(&[
-		(ITEM_POST_FRAME_SLOT, game_frame as EntityFn as *mut c_void),
-		(RELOAD_SLOT, game_reload as PredicateFn as *mut c_void),
-	])
-}
-
-#[test]
-fn equips_are_seen_after_the_game() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut player = player();
-		let mut weapon = weapon();
-		let address = weapon.address();
-		let hooks = api.hook_weapon_equips(tf2_binding(no_interfaces), on_equip);
-
-		assert_eq!(hooks.cover(api, player.target::<TfPlayer>()), Ok(true));
-
-		CALLS.take();
-		harness.call::<WeaponFn>(player.ptr(), WEAPON_EQUIP_SLOT, (weapon.ptr().cast(),));
-		assert_eq!(CALLS.take(), [("game", address), ("equipped", address)]);
-
-		// Without a weapon, the callback does not run.
-		harness.call::<WeaponFn>(player.ptr(), WEAPON_EQUIP_SLOT, (ptr::null_mut(),));
-		assert_eq!(CALLS.take(), [("game", 0)]);
-	});
-}
-
-#[test]
-fn melee_swings_can_miss() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut melee = Mock::of_new_class(&[(
-			GET_SMACK_TIME_SLOT,
-			game_smack_time as SmackTimeFn as *mut c_void,
-		)]);
-		let hooks = api.hook_melee_smacks(tf2_binding(no_interfaces), on_smack);
-
-		assert_eq!(hooks.cover(api, melee.target::<TfMeleeWeapon>()), Ok(true));
-
-		let mut swing = || {
-			CALLS.take();
-			let time = harness.call::<SmackTimeFn>(melee.ptr(), GET_SMACK_TIME_SLOT, (1,));
-			(time, CALLS.take())
-		};
-
-		SMACK.set(SmackAction::Continue);
-		assert_eq!(swing(), (10.2, vec![("smack", 0), ("game", 1)]));
-
-		// The weapon never smacks, as the time is not positive.
-		const { assert!(NO_SMACK <= 0.0) };
-		SMACK.set(SmackAction::Miss);
-		assert_eq!(swing(), (NO_SMACK, vec![("smack", 0)]));
-	});
-}
-
 #[test]
 fn reloads_can_be_refused() {
 	on_both(|harness| {
@@ -258,6 +226,25 @@ fn reloads_can_be_refused() {
 		ACTION.set(WeaponAction::Refuse);
 		assert_eq!(reload(), (false, vec![("reload", 0)]));
 	});
+}
+
+/// Calls the method at `slot` of `player`, given `weapon`, and returns its
+/// result with what ran.
+fn switch(
+	harness: &Harness,
+	player: &mut Mock,
+	slot: usize,
+	weapon: *mut sys::CBaseCombatWeapon,
+) -> (bool, Vec<(&'static str, usize)>) {
+	CALLS.take();
+
+	let result = if slot == WEAPON_SWITCH_SLOT {
+		harness.call::<WeaponSwitchFn>(player.ptr(), slot, (weapon, 0))
+	} else {
+		harness.call::<WeaponPredicateFn>(player.ptr(), slot, (weapon,))
+	};
+
+	(result, CALLS.take())
 }
 
 #[test]
@@ -295,6 +282,19 @@ fn switches_can_be_refused() {
 			);
 		}
 	});
+}
+
+/// A method no test calls.
+unsafe extern "C" fn unexpected(_: *mut sys::CBaseEntity) {
+	unreachable!("no test calls this slot");
+}
+
+/// A weapon of a new class, with the game's frames and reloads.
+fn weapon() -> Box<Mock> {
+	Mock::of_new_class(&[
+		(ITEM_POST_FRAME_SLOT, game_frame as EntityFn as *mut c_void),
+		(RELOAD_SLOT, game_reload as PredicateFn as *mut c_void),
+	])
 }
 
 #[test]
@@ -352,91 +352,27 @@ mod secondary {
 		}
 	}
 
-	unsafe extern "C" fn game_secondary(weapon: *mut sys::CBaseEntity) {
-		note("animation", MODE.get() as usize);
-		note("swing-sound", 0);
-		note("attack-deadlines", 0);
-		let at = ACTIVE.with(|active| {
-			// SAFETY: Calls retains the shared harness borrow through this attack.
-			let harness = unsafe { active.get().as_ref() }.unwrap();
-			harness.call::<SmackTimeFn>(weapon, GET_SMACK_TIME_SLOT, (MODE.get(),))
+	#[test]
+	fn a_panicking_source_observer_cannot_refuse_the_original_attack() {
+		on_both(|harness| {
+			let _calls = Calls::new(harness);
+			let mut weapon = fists();
+			let _hooks = install(harness, &weapon);
+			OWNED.set(true);
+			MODE.set(1);
+			PANIC_NEXT.set(true);
+			let seen = secondary(harness, &mut weapon);
+			assert!(seen.contains(&("animation", 1)));
+			assert!(seen.contains(&("punch-bookkeeping", 0)));
+			assert!(seen.contains(&("authoritative-trace", 0)));
+			assert!(SOURCES.with_borrow(|sources| sources.is_empty()));
+			assert_eq!(TIME.get(), 10.2);
+			assert_eq!(
+				secondary(harness, &mut weapon).last(),
+				Some(&("secondary-post", 0))
+			);
+			assert_eq!(TIME.get(), NO_SMACK);
 		});
-		TIME.set(at);
-		note("punch-bookkeeping", 0);
-	}
-
-	fn on_source(_server: Server<'_>, timing: HookTiming, weapon: Entity<'_>) {
-		let address = weapon.as_ptr() as usize;
-		match timing {
-			HookTiming::Pre => {
-				note("secondary-pre", 0);
-				if PANIC_NEXT.replace(false) {
-					panic!("observer failed");
-				}
-				SOURCES.with_borrow_mut(|sources| sources.push((address, OWNED.get())));
-			}
-
-			HookTiming::Post => {
-				note("secondary-post", 0);
-				SOURCES.with_borrow_mut(|sources| sources.pop());
-			}
-		}
-	}
-
-	fn on_schedule(_server: Server<'_>, weapon: Entity<'_>) -> SmackAction {
-		note("schedule", 0);
-		if SOURCES.with_borrow(|sources| {
-			sources
-				.last()
-				.is_some_and(|&(source, owned)| source == weapon.as_ptr() as usize && owned)
-		}) {
-			SmackAction::Miss
-		} else {
-			SmackAction::Continue
-		}
-	}
-
-	fn fists() -> Box<Mock> {
-		Mock::of_new_class(&[
-			(
-				SECONDARY_ATTACK_SLOT,
-				game_secondary as EntityFn as *mut c_void,
-			),
-			(
-				GET_SMACK_TIME_SLOT,
-				game_smack_time as SmackTimeFn as *mut c_void,
-			),
-		])
-	}
-
-	/// Mirrors ItemPostFrame's positive absolute-time gate, with the trace
-	/// represented by a recorded event instead of an invented entity field.
-	fn later_frame() {
-		if TIME.get() > 0.0 && 10.3 > TIME.get() {
-			note("authoritative-trace", 0);
-		}
-	}
-
-	fn secondary(harness: &Harness, weapon: &mut Mock) -> Vec<(&'static str, usize)> {
-		CALLS.take();
-		harness.call::<EntityFn>(weapon.ptr(), SECONDARY_ATTACK_SLOT, ());
-		later_frame();
-		CALLS.take()
-	}
-
-	fn install(
-		harness: &Harness,
-		weapon: &Mock,
-	) -> (ClassHooks<CombatWeapon>, ClassHooks<TfMeleeWeapon>) {
-		let api = harness.api();
-		let source = api.hook_weapon_secondary_attacks(tf2_binding(no_interfaces), on_source);
-		let schedule = api.hook_melee_smacks(tf2_binding(no_interfaces), on_schedule);
-		assert_eq!(source.cover(api, weapon.target::<CombatWeapon>()), Ok(true));
-		assert_eq!(
-			schedule.cover(api, weapon.target::<TfMeleeWeapon>()),
-			Ok(true)
-		);
-		(source, schedule)
 	}
 
 	#[test]
@@ -471,6 +407,86 @@ mod secondary {
 		});
 	}
 
+	fn fists() -> Box<Mock> {
+		Mock::of_new_class(&[
+			(
+				SECONDARY_ATTACK_SLOT,
+				game_secondary as EntityFn as *mut c_void,
+			),
+			(
+				GET_SMACK_TIME_SLOT,
+				game_smack_time as SmackTimeFn as *mut c_void,
+			),
+		])
+	}
+
+	unsafe extern "C" fn game_secondary(weapon: *mut sys::CBaseEntity) {
+		note("animation", MODE.get() as usize);
+		note("swing-sound", 0);
+		note("attack-deadlines", 0);
+		let at = ACTIVE.with(|active| {
+			// SAFETY: Calls retains the shared harness borrow through this attack.
+			let harness = unsafe { active.get().as_ref() }.unwrap();
+			harness.call::<SmackTimeFn>(weapon, GET_SMACK_TIME_SLOT, (MODE.get(),))
+		});
+		TIME.set(at);
+		note("punch-bookkeeping", 0);
+	}
+
+	fn install(
+		harness: &Harness,
+		weapon: &Mock,
+	) -> (ClassHooks<CombatWeapon>, ClassHooks<TfMeleeWeapon>) {
+		let api = harness.api();
+		let source = api.hook_weapon_secondary_attacks(tf2_binding(no_interfaces), on_source);
+		let schedule = api.hook_melee_smacks(tf2_binding(no_interfaces), on_schedule);
+		assert_eq!(source.cover(api, weapon.target::<CombatWeapon>()), Ok(true));
+		assert_eq!(
+			schedule.cover(api, weapon.target::<TfMeleeWeapon>()),
+			Ok(true)
+		);
+		(source, schedule)
+	}
+
+	/// Mirrors ItemPostFrame's positive absolute-time gate, with the trace
+	/// represented by a recorded event instead of an invented entity field.
+	fn later_frame() {
+		if TIME.get() > 0.0 && 10.3 > TIME.get() {
+			note("authoritative-trace", 0);
+		}
+	}
+
+	fn on_schedule(_server: Server<'_>, weapon: Entity<'_>) -> SmackAction {
+		note("schedule", 0);
+		if SOURCES.with_borrow(|sources| {
+			sources
+				.last()
+				.is_some_and(|&(source, owned)| source == weapon.as_ptr() as usize && owned)
+		}) {
+			SmackAction::Miss
+		} else {
+			SmackAction::Continue
+		}
+	}
+
+	fn on_source(_server: Server<'_>, timing: HookTiming, weapon: Entity<'_>) {
+		let address = weapon.as_ptr() as usize;
+		match timing {
+			HookTiming::Pre => {
+				note("secondary-pre", 0);
+				if PANIC_NEXT.replace(false) {
+					panic!("observer failed");
+				}
+				SOURCES.with_borrow_mut(|sources| sources.push((address, OWNED.get())));
+			}
+
+			HookTiming::Post => {
+				note("secondary-post", 0);
+				SOURCES.with_borrow_mut(|sources| sources.pop());
+			}
+		}
+	}
+
 	#[test]
 	fn ordinary_back_punches_and_uncovered_weapons_keep_native_impacts() {
 		on_both(|harness| {
@@ -490,29 +506,6 @@ mod secondary {
 			assert!(uncovered.contains(&("animation", 1)));
 			assert!(uncovered.contains(&("punch-bookkeeping", 0)));
 			assert!(uncovered.contains(&("authoritative-trace", 0)));
-		});
-	}
-
-	#[test]
-	fn a_panicking_source_observer_cannot_refuse_the_original_attack() {
-		on_both(|harness| {
-			let _calls = Calls::new(harness);
-			let mut weapon = fists();
-			let _hooks = install(harness, &weapon);
-			OWNED.set(true);
-			MODE.set(1);
-			PANIC_NEXT.set(true);
-			let seen = secondary(harness, &mut weapon);
-			assert!(seen.contains(&("animation", 1)));
-			assert!(seen.contains(&("punch-bookkeeping", 0)));
-			assert!(seen.contains(&("authoritative-trace", 0)));
-			assert!(SOURCES.with_borrow(|sources| sources.is_empty()));
-			assert_eq!(TIME.get(), 10.2);
-			assert_eq!(
-				secondary(harness, &mut weapon).last(),
-				Some(&("secondary-post", 0))
-			);
-			assert_eq!(TIME.get(), NO_SMACK);
 		});
 	}
 
@@ -540,5 +533,12 @@ mod secondary {
 			assert!(seen.contains(&("authoritative-trace", 0)));
 			assert!(!seen.contains(&("schedule", 0)));
 		});
+	}
+
+	fn secondary(harness: &Harness, weapon: &mut Mock) -> Vec<(&'static str, usize)> {
+		CALLS.take();
+		harness.call::<EntityFn>(weapon.ptr(), SECONDARY_ATTACK_SLOT, ());
+		later_frame();
+		CALLS.take()
 	}
 }

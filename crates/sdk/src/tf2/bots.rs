@@ -575,19 +575,6 @@ impl<'s> NextBot<'s> {
 		unsafe { self.float(c"GetImmobileSpeedThreshold") }
 	}
 
-	/// The actor's `INextBot` (`MyNextBotPointer`), which holds its
-	/// [locomotion](NextBotInterface::locomotion),
-	/// [body](NextBotInterface::body) and [vision](NextBotInterface::vision).
-	#[doc(alias("MyNextBotPointer"))]
-	pub fn interface(self) -> Result<NextBotInterface<'s>, BotError> {
-		// SAFETY: `new` checked that the server runs TF2. The actor frees its
-		// `INextBot` only with itself, which `Server::new`'s contract defers
-		// past `'s`.
-		unsafe { next_bot_pointer(self.entity) }
-			.map(|bot| unsafe { NextBotInterface::from_raw(bot) })
-			.ok_or(BotError::NotANextBot)
-	}
-
 	/// Calls a NextBot query without arguments that returns an `int`.
 	///
 	/// # Safety
@@ -599,6 +586,19 @@ impl<'s> NextBot<'s> {
 
 		// SAFETY: `call` checked that the adapter returned an integer variant.
 		Ok(unsafe { result.__bindgen_anon_1.m_int })
+	}
+
+	/// The actor's `INextBot` (`MyNextBotPointer`), which holds its
+	/// [locomotion](NextBotInterface::locomotion),
+	/// [body](NextBotInterface::body) and [vision](NextBotInterface::vision).
+	#[doc(alias("MyNextBotPointer"))]
+	pub fn interface(self) -> Result<NextBotInterface<'s>, BotError> {
+		// SAFETY: `new` checked that the server runs TF2. The actor frees its
+		// `INextBot` only with itself, which `Server::new`'s contract defers
+		// past `'s`.
+		unsafe { next_bot_pointer(self.entity) }
+			.map(|bot| unsafe { NextBotInterface::from_raw(bot) })
+			.ok_or(BotError::NotANextBot)
 	}
 
 	/// Whether `other` is the actor's enemy: on another team, as

@@ -43,12 +43,12 @@ pub const FLAG_NAMES: [&CStr; 11] = [
 /// in the byte after.
 pub const FLAGS: usize = 36;
 
+/// Where the fake TF2 rules keep `m_nForceEscortPushLogic`.
+pub const FORCE_ESCORT_PUSH: usize = 52;
+
 /// Where the fake TF2 rules keep `m_nForceUpgrades`, after the last of
 /// [`FLAG_NAMES`].
 pub const FORCE_UPGRADES: usize = 48;
-
-/// Where the fake TF2 rules keep `m_nForceEscortPushLogic`.
-pub const FORCE_ESCORT_PUSH: usize = 52;
 
 /// Where the fake TF2 rules keep `m_nGameType`.
 pub const GAME_TYPE: usize = 16;

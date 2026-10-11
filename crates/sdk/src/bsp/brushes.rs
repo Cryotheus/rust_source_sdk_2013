@@ -9,9 +9,11 @@
 mod tests;
 
 use super::lumps::{Budget, Directory};
+
 use super::{
 	Bsp, Child, Error, Invalid, Limits, Plane, Resource, Work, bound, finite, raw, reserve,
 };
+
 use std::ops::Range;
 
 /// A checked range in the side array and the serialized contents bits.
@@ -19,18 +21,6 @@ use std::ops::Range;
 pub struct Brush {
 	pub sides: Range<usize>,
 	pub contents: u32,
-}
-
-/// A checked plane reference and otherwise unresolved serialized side metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BrushSide {
-	pub plane: usize,
-	/// Texture-info reference, retained without decoding that lump.
-	pub texinfo: i16,
-	/// Displacement-info reference, retained without resolving its geometry.
-	pub displacement: i16,
-	/// Serialized bevel marker, retained without changing the half-space set.
-	pub bevel: i16,
 }
 
 /// Errors distinguish absent region data from an empty-space answer.
@@ -194,16 +184,60 @@ impl BrushGeometry {
 		})
 	}
 
-	pub fn bsp(&self) -> &Bsp {
-		&self.bsp
-	}
-
 	pub fn brushes(&self) -> &[Brush] {
 		&self.brushes
 	}
 
-	pub fn sides(&self) -> &[BrushSide] {
-		&self.sides
+	pub fn bsp(&self) -> &Bsp {
+		&self.bsp
+	}
+
+	fn collect(&self, model: usize, work: &mut Work) -> Result<Vec<usize>, BrushError> {
+		let head = self
+			.bsp
+			.models()
+			.get(model)
+			.ok_or(BrushError::ModelIndex { model })?
+			.head;
+		let mut nodes = flags(self.bsp.nodes().len(), work)?;
+		let mut leaves = flags(self.bsp.leaves().len(), work)?;
+		let mut brushes = flags(self.brushes.len(), work)?;
+		let mut stack = Vec::new();
+		reserve(&mut stack, 1, Resource::Records)?;
+		stack.push(head);
+		while let Some(child) = stack.pop() {
+			work.spend(1)?;
+			match child {
+				Child::Node(index) => {
+					if nodes[index] {
+						continue;
+					}
+					nodes[index] = true;
+					reserve(&mut stack, 2, Resource::Records)?;
+					stack.extend(self.bsp.nodes()[index].children.into_iter().rev());
+				}
+
+				Child::Leaf(index) => {
+					if leaves[index] {
+						continue;
+					}
+					leaves[index] = true;
+					for &brush in &self.leaf_brushes[self.leaf_ranges[index].clone()] {
+						work.spend(1)?;
+						brushes[brush] = true;
+					}
+				}
+			}
+		}
+		let mut indices = Vec::new();
+		for (index, included) in brushes.into_iter().enumerate() {
+			work.spend(1)?;
+			if included {
+				reserve(&mut indices, 1, Resource::Records)?;
+				indices.push(index);
+			}
+		}
+		Ok(indices)
 	}
 
 	/// Source brush indices listed by a leaf; duplicates and ordering survive.
@@ -288,53 +322,21 @@ impl BrushGeometry {
 		})
 	}
 
-	fn collect(&self, model: usize, work: &mut Work) -> Result<Vec<usize>, BrushError> {
-		let head = self
-			.bsp
-			.models()
-			.get(model)
-			.ok_or(BrushError::ModelIndex { model })?
-			.head;
-		let mut nodes = flags(self.bsp.nodes().len(), work)?;
-		let mut leaves = flags(self.bsp.leaves().len(), work)?;
-		let mut brushes = flags(self.brushes.len(), work)?;
-		let mut stack = Vec::new();
-		reserve(&mut stack, 1, Resource::Records)?;
-		stack.push(head);
-		while let Some(child) = stack.pop() {
-			work.spend(1)?;
-			match child {
-				Child::Node(index) => {
-					if nodes[index] {
-						continue;
-					}
-					nodes[index] = true;
-					reserve(&mut stack, 2, Resource::Records)?;
-					stack.extend(self.bsp.nodes()[index].children.into_iter().rev());
-				}
-
-				Child::Leaf(index) => {
-					if leaves[index] {
-						continue;
-					}
-					leaves[index] = true;
-					for &brush in &self.leaf_brushes[self.leaf_ranges[index].clone()] {
-						work.spend(1)?;
-						brushes[brush] = true;
-					}
-				}
-			}
-		}
-		let mut indices = Vec::new();
-		for (index, included) in brushes.into_iter().enumerate() {
-			work.spend(1)?;
-			if included {
-				reserve(&mut indices, 1, Resource::Records)?;
-				indices.push(index);
-			}
-		}
-		Ok(indices)
+	pub fn sides(&self) -> &[BrushSide] {
+		&self.sides
 	}
+}
+
+/// A checked plane reference and otherwise unresolved serialized side metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BrushSide {
+	pub plane: usize,
+	/// Texture-info reference, retained without decoding that lump.
+	pub texinfo: i16,
+	/// Displacement-info reference, retained without resolving its geometry.
+	pub displacement: i16,
+	/// Serialized bevel marker, retained without changing the half-space set.
+	pub bevel: i16,
 }
 
 /// A region remains usable after its source BrushGeometry is dropped.
@@ -348,14 +350,6 @@ pub struct ModelRegion {
 }
 
 impl ModelRegion {
-	pub fn model(&self) -> usize {
-		self.model
-	}
-
-	pub fn stored_origin(&self) -> [f32; 3] {
-		self.origin
-	}
-
 	pub fn brushes(&self) -> &[RegionBrush] {
 		&self.brushes
 	}
@@ -397,6 +391,14 @@ impl ModelRegion {
 		}
 		Ok(false)
 	}
+
+	pub fn model(&self) -> usize {
+		self.model
+	}
+
+	pub fn stored_origin(&self) -> [f32; 3] {
+		self.origin
+	}
 }
 
 /// One source brush's copied plane constraints.
@@ -408,10 +410,6 @@ pub struct RegionBrush {
 }
 
 impl RegionBrush {
-	pub fn source(&self) -> usize {
-		self.source
-	}
-
 	pub fn contents(&self) -> u32 {
 		self.contents
 	}
@@ -419,21 +417,10 @@ impl RegionBrush {
 	pub fn planes(&self) -> &[Plane] {
 		&self.planes
 	}
-}
 
-fn flags(length: usize, work: &mut Work) -> Result<Vec<bool>, Error> {
-	work.spend(length)?;
-	let mut flags = Vec::new();
-	reserve(&mut flags, length, Resource::Records)?;
-	flags.resize(length, false);
-	Ok(flags)
-}
-
-fn count(length: usize, width: usize, lump: usize) -> Result<usize, Error> {
-	if length % width != 0 {
-		return Err(Invalid::RecordSize { lump }.into());
+	pub fn source(&self) -> usize {
+		self.source
 	}
-	Ok(length / width)
 }
 
 fn checked_range(
@@ -448,6 +435,21 @@ fn checked_range(
 		.filter(|&end| end <= total)
 		.ok_or(Invalid::Reference { lump, record })?;
 	Ok(first..end)
+}
+
+fn count(length: usize, width: usize, lump: usize) -> Result<usize, Error> {
+	if length % width != 0 {
+		return Err(Invalid::RecordSize { lump }.into());
+	}
+	Ok(length / width)
+}
+
+fn flags(length: usize, work: &mut Work) -> Result<Vec<bool>, Error> {
+	work.spend(length)?;
+	let mut flags = Vec::new();
+	reserve(&mut flags, length, Resource::Records)?;
+	flags.resize(length, false);
+	Ok(flags)
 }
 
 fn index_value(bytes: &[u8], at: usize, lump: usize, record: usize) -> Result<usize, Error> {

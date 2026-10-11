@@ -20,8 +20,8 @@
 mod tests;
 
 use crate::MetamodApi;
-use crate::hooks::tf2::class::ClassHooks;
 use crate::hook::{HookAction, HookCall, HookTiming, VirtualFunction};
+use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::entities::THINK_SLOT;
 

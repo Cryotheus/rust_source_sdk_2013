@@ -24,6 +24,14 @@ use std::ffi::c_int;
 #[doc(alias("FinishedBuilding"))]
 pub type FinishedBuildingFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
 
+/// The no-argument `CBaseObject::GetConstructionMultiplier` virtual.
+///
+/// TF2 returns -1 for reverse construction; otherwise it adds active
+/// constructor values and the builder's per-object build-rate term to 1.
+/// Both construction work and assembly animation read this same value.
+#[doc(alias("GetConstructionMultiplier"))]
+pub type GetConstructionMultiplierFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> f32;
+
 /// The signature of `CBaseObject::InputWrenchHit`,
 /// `bool (CTFPlayer *, CTFWrench *, Vector)`, with the building as its
 /// receiver, which runs as an Engineer's wrench hits a building of their team,
@@ -77,6 +85,12 @@ const _: fn(
 	sys::Vector,
 ) -> bool = |vtable| vtable.CBaseObject_InputWrenchHit;
 
+// The generated method takes only its receiver and returns a C++ float.
+const _: fn(
+	&sys::CBaseObject__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CBaseObject) -> f32 =
+	|vtable| vtable.CBaseObject_GetConstructionMultiplier;
+
 // The generated method takes no argument and returns nothing.
 const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CBaseObject) =
 	|vtable| vtable.CBaseObject_FinishedBuilding;
@@ -97,6 +111,13 @@ pub const DISPENSER_STATE_UPGRADING: c_int = 1;
 pub const FINISHED_BUILDING_SLOT: usize = vtable_slot!(
 	sys::CBaseObject__bindgen_vtable,
 	CBaseObject_FinishedBuilding
+);
+
+/// The generated primary-vtable slot of `CBaseObject::GetConstructionMultiplier`.
+#[doc(alias("GetConstructionMultiplier"))]
+pub const GET_CONSTRUCTION_MULTIPLIER_SLOT: usize = vtable_slot!(
+	sys::CBaseObject__bindgen_vtable,
+	CBaseObject_GetConstructionMultiplier
 );
 
 /// The slot of `CBaseObject::InputWrenchHit` in a TF2 building's primary
@@ -248,24 +269,3 @@ pub const TTYPE_ENTRANCE: c_int = 1;
 /// `TTYPE_EXIT`: the `teleporterType` key value of a teleporter exit a map
 /// places.
 pub const TTYPE_EXIT: c_int = 2;
-
-/// The no-argument `CBaseObject::GetConstructionMultiplier` virtual.
-///
-/// TF2 returns -1 for reverse construction; otherwise it adds active
-/// constructor values and the builder's per-object build-rate term to 1.
-/// Both construction work and assembly animation read this same value.
-#[doc(alias("GetConstructionMultiplier"))]
-pub type GetConstructionMultiplierFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> f32;
-
-/// The generated primary-vtable slot of `CBaseObject::GetConstructionMultiplier`.
-#[doc(alias("GetConstructionMultiplier"))]
-pub const GET_CONSTRUCTION_MULTIPLIER_SLOT: usize = vtable_slot!(
-	sys::CBaseObject__bindgen_vtable,
-	CBaseObject_GetConstructionMultiplier
-);
-
-// The generated method takes only its receiver and returns a C++ float.
-const _: fn(
-	&sys::CBaseObject__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CBaseObject) -> f32 =
-	|vtable| vtable.CBaseObject_GetConstructionMultiplier;

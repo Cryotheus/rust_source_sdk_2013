@@ -23,6 +23,12 @@ thread_local! {
 	static TRACED: RefCell<Vec<Traced>> = const { RefCell::new(Vec::new()) };
 }
 
+/// A line from the origin along the X axis, 100 units long.
+const LINE: (Vector, Vector) = (Vector::new(0.0, 0.0, 0.0), Vector::new(100.0, 0.0, 0.0));
+
+/// The name of the surface the mock engine's hits are on.
+const SURFACE: &CStr = c"**studio**";
+
 /// The arguments `ClipRayToEntity` received.
 #[derive(Debug, Clone, PartialEq)]
 struct Clipped {
@@ -34,20 +40,6 @@ struct Clipped {
 	is_swept: bool,
 	mask: c_uint,
 	entity: *mut sys::IHandleEntity,
-}
-
-/// The arguments `TraceRay` received, with the kind of trace its filter asked
-/// for.
-#[derive(Debug, Clone, PartialEq)]
-struct Traced {
-	start: Vector,
-	delta: Vector,
-	start_offset: Vector,
-	extents: Vector,
-	is_ray: bool,
-	swept: bool,
-	mask: c_uint,
-	trace_type: sys::TraceType_t,
 }
 
 /// A mock of the engine's traces, which keeps its vtable alive.
@@ -96,6 +88,53 @@ impl MockEngineTrace {
 	}
 }
 
+/// The arguments `TraceRay` received, with the kind of trace its filter asked
+/// for.
+#[derive(Debug, Clone, PartialEq)]
+struct Traced {
+	start: Vector,
+	delta: Vector,
+	start_offset: Vector,
+	extents: Vector,
+	is_ray: bool,
+	swept: bool,
+	mask: c_uint,
+	trace_type: sys::TraceType_t,
+}
+
+#[test]
+fn boxes_start_at_their_center_and_lead_back_to_their_position() {
+	let mut mock = MockEngineTrace::new(&[]);
+	let mut room = MockEntity::new(7);
+	let pointer = room.as_ptr().cast::<sys::IHandleEntity>();
+
+	let overlaps = mock.engine_trace().box_overlaps_entity(
+		room.entity(),
+		Vector::new(10.0, 20.0, 30.0),
+		Vector::new(-24.0, -24.0, 0.0),
+		Vector::new(24.0, 24.0, 82.0),
+		MASK_ALL,
+	);
+
+	assert!(!overlaps);
+
+	CLIPPED.with_borrow(|clipped| {
+		assert_eq!(
+			*clipped,
+			[Clipped {
+				start: Vector::new(10.0, 20.0, 71.0),
+				delta: Vector::new(0.0, 0.0, 0.0),
+				start_offset: Vector::new(0.0, 0.0, -41.0),
+				extents: Vector::new(24.0, 24.0, 41.0),
+				is_ray: false,
+				is_swept: false,
+				mask: MASK_ALL,
+				entity: pointer,
+			}]
+		);
+	});
+}
+
 /// `IEngineTrace::ClipRayToEntity`, which records its arguments, and fills
 /// the trace as starting solid if [`START_SOLID`] is set.
 unsafe extern "C" fn clip_ray_to_entity(
@@ -125,6 +164,278 @@ unsafe extern "C" fn clip_ray_to_entity(
 	};
 
 	CLIPPED.with_borrow_mut(|calls| calls.push(clipped));
+}
+
+#[test]
+fn filters_choose_the_entities_a_ray_stops_at() {
+	let mut mocks = [1, 2, 3].map(MockEntity::new);
+	let [first, second, third] = mocks.each_mut().map(|entity| entity.entity());
+	let along = [first, second, third].map(|entity| entity.as_ptr().cast());
+	let mut mock = MockEngineTrace::new(&along);
+	let engine = mock.engine_trace();
+	let everything = sys::TraceType_t_TRACE_EVERYTHING;
+
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Everything),
+		(Some(first.as_ptr()), everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::EntitiesOnly),
+		(Some(first.as_ptr()), sys::TraceType_t_TRACE_ENTITIES_ONLY)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Skip(&[first, second])),
+		(Some(third.as_ptr()), everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Only(&[second])),
+		(Some(second.as_ptr()), everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::Only(&[])),
+		(None, everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::WorldAndProps),
+		(None, everything)
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::WorldOnly),
+		(None, sys::TraceType_t_TRACE_WORLD_ONLY)
+	);
+}
+
+#[test]
+fn hulls_start_at_their_center_and_end_at_their_position() {
+	let mut entity = MockEntity::new(1);
+	let mut mock = MockEngineTrace::new(&[entity.as_ptr().cast()]);
+	let (mins, maxs) = (
+		Vector::new(-24.0, -24.0, 0.0),
+		Vector::new(24.0, 24.0, 82.0),
+	);
+
+	let trace = mock.engine_trace().trace(
+		Ray::hull(LINE.0, LINE.1, mins, maxs),
+		MASK_PLAYERSOLID,
+		TraceFilter::Everything,
+	);
+
+	assert!(trace.hit());
+	assert_eq!(trace.end, Vector::new(50.0, 0.0, 0.0));
+	assert_eq!(trace.fraction_left_solid, 0.25);
+	assert_eq!(trace.normal, Vector::new(-1.0, 0.0, 0.0));
+	assert_eq!(trace.contents, CONTENTS_MONSTER.cast_signed());
+	assert_eq!(trace.surface_name, Some(SURFACE));
+	assert_eq!(trace.surface_flags, 0x4);
+	assert_eq!(trace.displacement_flags, 0b111);
+	assert_eq!(trace.hitbox, 4);
+	assert_eq!(trace.entity.map(Entity::as_ptr), Some(entity.as_ptr()));
+
+	TRACED.with_borrow(|traced| {
+		assert_eq!(
+			*traced,
+			[Traced {
+				start: Vector::new(0.0, 0.0, 41.0),
+				delta: LINE.1,
+				start_offset: Vector::new(0.0, 0.0, -41.0),
+				extents: Vector::new(24.0, 24.0, 41.0),
+				is_ray: false,
+				swept: true,
+				mask: MASK_PLAYERSOLID,
+				trace_type: sys::TraceType_t_TRACE_EVERYTHING,
+			}]
+		);
+	});
+
+	// A hull that does not move is tested where it is.
+	let still = mock.engine_trace().trace(
+		Ray::hull(LINE.1, LINE.1, mins, maxs),
+		MASK_PLAYERSOLID,
+		TraceFilter::WorldAndProps,
+	);
+
+	assert!(!still.hit());
+	assert_eq!(still.end, LINE.1);
+	assert_eq!(still.normal, Vector::new(0.0, 0.0, 0.0));
+	assert_eq!(still.surface_name, None);
+	assert_eq!(still.displacement_flags, 0);
+	assert_eq!(still.entity, None);
+	TRACED.with_borrow(|traced| assert!(!traced[1].swept));
+}
+
+#[test]
+fn lines_hit_the_nearest_entity_but_the_skipped_one() {
+	let (mut skipped, mut other) = (MockEntity::new(1), MockEntity::new(2));
+	let along = [skipped.as_ptr().cast(), other.as_ptr().cast()];
+	let mut mock = MockEngineTrace::new(&along);
+
+	let trace = mock
+		.engine_trace()
+		.trace_line(LINE.0, LINE.1, MASK_SOLID, Some(skipped.entity()));
+
+	assert!(trace.hit());
+	assert_eq!(trace.fraction, 0.5);
+	assert_eq!(trace.end, Vector::new(50.0, 0.0, 0.0));
+	assert_eq!(trace.entity.map(Entity::as_ptr), Some(other.as_ptr()));
+
+	TRACED.with_borrow(|traced| {
+		assert_eq!(
+			*traced,
+			[Traced {
+				start: LINE.0,
+				delta: LINE.1,
+				start_offset: Vector::new(0.0, 0.0, 0.0),
+				extents: Vector::new(0.0, 0.0, 0.0),
+				is_ray: true,
+				swept: true,
+				mask: MASK_SOLID,
+				trace_type: sys::TraceType_t_TRACE_EVERYTHING,
+			}]
+		);
+	});
+}
+
+#[test]
+fn lines_past_only_the_skipped_entity_hit_nothing() {
+	let mut skipped = MockEntity::new(1);
+	let mut mock = MockEngineTrace::new(&[skipped.as_ptr().cast()]);
+
+	let trace = mock
+		.engine_trace()
+		.trace_line(LINE.0, LINE.1, MASK_SOLID, Some(skipped.entity()));
+
+	assert!(!trace.hit());
+	assert_eq!(trace.end, LINE.1);
+	assert_eq!(trace.entity, None);
+}
+
+#[test]
+fn lines_skipping_nothing_hit_the_nearest_entity() {
+	let (mut first, mut second) = (MockEntity::new(1), MockEntity::new(2));
+	let mut mock = MockEngineTrace::new(&[first.as_ptr().cast(), second.as_ptr().cast()]);
+
+	let trace = mock
+		.engine_trace()
+		.trace_line(LINE.0, LINE.1, MASK_SOLID, None);
+
+	assert_eq!(trace.entity.map(Entity::as_ptr), Some(first.as_ptr()));
+}
+
+#[test]
+fn points_are_rays_that_do_not_move() {
+	let mut mock = MockEngineTrace::new(&[]);
+	let mut room = MockEntity::new(7);
+	let pointer = room.as_ptr().cast::<sys::IHandleEntity>();
+	let origin = Vector::new(0.0, 0.0, 0.0);
+
+	START_SOLID.set(true);
+
+	let within = mock.engine_trace().box_overlaps_entity(
+		room.entity(),
+		Vector::new(-1.5, 2.0, 64.0),
+		origin,
+		origin,
+		CONTENTS_SOLID,
+	);
+
+	assert!(within);
+
+	CLIPPED.with_borrow(|clipped| {
+		assert_eq!(
+			*clipped,
+			[Clipped {
+				start: Vector::new(-1.5, 2.0, 64.0),
+				delta: origin,
+				start_offset: origin,
+				extents: origin,
+				is_ray: true,
+				is_swept: false,
+				mask: CONTENTS_SOLID,
+				entity: pointer,
+			}]
+		);
+	});
+}
+
+#[test]
+fn static_props_are_hits_on_the_world_with_a_hitbox() {
+	let mut world = MockEntity::new(0);
+	let mut prop = MockEntity::new(1);
+
+	// The mock's hits have hitbox 4, on a displacement.
+	let mut mock = MockEngineTrace::new(&[world.as_ptr().cast()]);
+	let trace = mock.engine_trace().trace(
+		Ray::line(LINE.0, LINE.1),
+		MASK_SOLID,
+		TraceFilter::Everything,
+	);
+
+	assert_eq!(trace.static_prop(), Some(3));
+	assert!(trace.hit_displacement());
+
+	// An entity's hitboxes are no static prop.
+	let mut mock = MockEngineTrace::new(&[prop.as_ptr().cast()]);
+	let trace = mock.engine_trace().trace(
+		Ray::line(LINE.0, LINE.1),
+		MASK_SOLID,
+		TraceFilter::Everything,
+	);
+
+	assert_eq!(trace.static_prop(), None);
+
+	// Nor is a miss.
+	let mut mock = MockEngineTrace::new(&[]);
+	let trace = mock.engine_trace().trace(
+		Ray::line(LINE.0, LINE.1),
+		MASK_SOLID,
+		TraceFilter::Everything,
+	);
+
+	assert_eq!(trace.static_prop(), None);
+	assert!(!trace.hit_displacement());
+}
+
+/// The entity a line along [`LINE`] traced through `filter` stopped at, and
+/// the kind of trace the filter asked the engine for.
+fn stopped_at(
+	engine: EngineTrace<'_>,
+	filter: TraceFilter<'_, '_>,
+) -> (Option<*mut sys::CBaseEntity>, sys::TraceType_t) {
+	let trace = engine.trace(Ray::line(LINE.0, LINE.1), MASK_SOLID, filter);
+	let trace_type = TRACED.with_borrow(|traced| traced.last().unwrap().trace_type);
+
+	(trace.entity.map(Entity::as_ptr), trace_type)
+}
+
+#[test]
+fn team_filters_pass_through_the_teams_entities() {
+	let mut mocks = [1, 2, 3].map(MockEntity::new);
+
+	// Every mock entity reports this datamap chain, which declares
+	// `m_iTeamNum`.
+	set_datamap(state_maps(Vec::new()));
+
+	for (mock, team) in mocks.iter_mut().zip([2, 2, 3]) {
+		mock.state().team = team;
+	}
+
+	let [red, red_too, blue] = mocks.each_mut().map(|entity| entity.entity());
+	let along = [red, red_too, blue].map(|entity| entity.as_ptr().cast());
+	let mut mock = MockEngineTrace::new(&along);
+	let engine = mock.engine_trace();
+
+	assert_eq!(
+		stopped_at(engine, TraceFilter::SkipTeam(2)).0,
+		Some(blue.as_ptr())
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::SkipTeam(3)).0,
+		Some(red.as_ptr())
+	);
+	assert_eq!(
+		stopped_at(engine, TraceFilter::SkipTeam(0)).0,
+		Some(red.as_ptr())
+	);
 }
 
 /// `IEngineTrace::TraceRay`: offers the filter the entities along the ray,
@@ -193,139 +504,6 @@ unsafe extern "C" fn trace_ray(
 	trace.m_pEnt = hit.map_or(ptr::null_mut(), <*mut _>::cast);
 }
 
-/// A line from the origin along the X axis, 100 units long.
-const LINE: (Vector, Vector) = (Vector::new(0.0, 0.0, 0.0), Vector::new(100.0, 0.0, 0.0));
-
-/// The name of the surface the mock engine's hits are on.
-const SURFACE: &CStr = c"**studio**";
-
-#[test]
-fn boxes_start_at_their_center_and_lead_back_to_their_position() {
-	let mut mock = MockEngineTrace::new(&[]);
-	let mut room = MockEntity::new(7);
-	let pointer = room.as_ptr().cast::<sys::IHandleEntity>();
-
-	let overlaps = mock.engine_trace().box_overlaps_entity(
-		room.entity(),
-		Vector::new(10.0, 20.0, 30.0),
-		Vector::new(-24.0, -24.0, 0.0),
-		Vector::new(24.0, 24.0, 82.0),
-		MASK_ALL,
-	);
-
-	assert!(!overlaps);
-
-	CLIPPED.with_borrow(|clipped| {
-		assert_eq!(
-			*clipped,
-			[Clipped {
-				start: Vector::new(10.0, 20.0, 71.0),
-				delta: Vector::new(0.0, 0.0, 0.0),
-				start_offset: Vector::new(0.0, 0.0, -41.0),
-				extents: Vector::new(24.0, 24.0, 41.0),
-				is_ray: false,
-				is_swept: false,
-				mask: MASK_ALL,
-				entity: pointer,
-			}]
-		);
-	});
-}
-
-#[test]
-fn points_are_rays_that_do_not_move() {
-	let mut mock = MockEngineTrace::new(&[]);
-	let mut room = MockEntity::new(7);
-	let pointer = room.as_ptr().cast::<sys::IHandleEntity>();
-	let origin = Vector::new(0.0, 0.0, 0.0);
-
-	START_SOLID.set(true);
-
-	let within = mock.engine_trace().box_overlaps_entity(
-		room.entity(),
-		Vector::new(-1.5, 2.0, 64.0),
-		origin,
-		origin,
-		CONTENTS_SOLID,
-	);
-
-	assert!(within);
-
-	CLIPPED.with_borrow(|clipped| {
-		assert_eq!(
-			*clipped,
-			[Clipped {
-				start: Vector::new(-1.5, 2.0, 64.0),
-				delta: origin,
-				start_offset: origin,
-				extents: origin,
-				is_ray: true,
-				is_swept: false,
-				mask: CONTENTS_SOLID,
-				entity: pointer,
-			}]
-		);
-	});
-}
-
-#[test]
-fn lines_hit_the_nearest_entity_but_the_skipped_one() {
-	let (mut skipped, mut other) = (MockEntity::new(1), MockEntity::new(2));
-	let along = [skipped.as_ptr().cast(), other.as_ptr().cast()];
-	let mut mock = MockEngineTrace::new(&along);
-
-	let trace = mock
-		.engine_trace()
-		.trace_line(LINE.0, LINE.1, MASK_SOLID, Some(skipped.entity()));
-
-	assert!(trace.hit());
-	assert_eq!(trace.fraction, 0.5);
-	assert_eq!(trace.end, Vector::new(50.0, 0.0, 0.0));
-	assert_eq!(trace.entity.map(Entity::as_ptr), Some(other.as_ptr()));
-
-	TRACED.with_borrow(|traced| {
-		assert_eq!(
-			*traced,
-			[Traced {
-				start: LINE.0,
-				delta: LINE.1,
-				start_offset: Vector::new(0.0, 0.0, 0.0),
-				extents: Vector::new(0.0, 0.0, 0.0),
-				is_ray: true,
-				swept: true,
-				mask: MASK_SOLID,
-				trace_type: sys::TraceType_t_TRACE_EVERYTHING,
-			}]
-		);
-	});
-}
-
-#[test]
-fn lines_skipping_nothing_hit_the_nearest_entity() {
-	let (mut first, mut second) = (MockEntity::new(1), MockEntity::new(2));
-	let mut mock = MockEngineTrace::new(&[first.as_ptr().cast(), second.as_ptr().cast()]);
-
-	let trace = mock
-		.engine_trace()
-		.trace_line(LINE.0, LINE.1, MASK_SOLID, None);
-
-	assert_eq!(trace.entity.map(Entity::as_ptr), Some(first.as_ptr()));
-}
-
-#[test]
-fn lines_past_only_the_skipped_entity_hit_nothing() {
-	let mut skipped = MockEntity::new(1);
-	let mut mock = MockEngineTrace::new(&[skipped.as_ptr().cast()]);
-
-	let trace = mock
-		.engine_trace()
-		.trace_line(LINE.0, LINE.1, MASK_SOLID, Some(skipped.entity()));
-
-	assert!(!trace.hit());
-	assert_eq!(trace.end, LINE.1);
-	assert_eq!(trace.entity, None);
-}
-
 #[test]
 fn world_lines_pass_through_every_entity() {
 	let mut entity = MockEntity::new(1);
@@ -343,182 +521,4 @@ fn world_lines_pass_through_every_entity() {
 		assert_eq!(traced[0].mask, MASK_SOLID_BRUSHONLY);
 		assert_eq!(traced[0].trace_type, sys::TraceType_t_TRACE_WORLD_ONLY);
 	});
-}
-
-#[test]
-fn hulls_start_at_their_center_and_end_at_their_position() {
-	let mut entity = MockEntity::new(1);
-	let mut mock = MockEngineTrace::new(&[entity.as_ptr().cast()]);
-	let (mins, maxs) = (
-		Vector::new(-24.0, -24.0, 0.0),
-		Vector::new(24.0, 24.0, 82.0),
-	);
-
-	let trace = mock.engine_trace().trace(
-		Ray::hull(LINE.0, LINE.1, mins, maxs),
-		MASK_PLAYERSOLID,
-		TraceFilter::Everything,
-	);
-
-	assert!(trace.hit());
-	assert_eq!(trace.end, Vector::new(50.0, 0.0, 0.0));
-	assert_eq!(trace.fraction_left_solid, 0.25);
-	assert_eq!(trace.normal, Vector::new(-1.0, 0.0, 0.0));
-	assert_eq!(trace.contents, CONTENTS_MONSTER.cast_signed());
-	assert_eq!(trace.surface_name, Some(SURFACE));
-	assert_eq!(trace.surface_flags, 0x4);
-	assert_eq!(trace.displacement_flags, 0b111);
-	assert_eq!(trace.hitbox, 4);
-	assert_eq!(trace.entity.map(Entity::as_ptr), Some(entity.as_ptr()));
-
-	TRACED.with_borrow(|traced| {
-		assert_eq!(
-			*traced,
-			[Traced {
-				start: Vector::new(0.0, 0.0, 41.0),
-				delta: LINE.1,
-				start_offset: Vector::new(0.0, 0.0, -41.0),
-				extents: Vector::new(24.0, 24.0, 41.0),
-				is_ray: false,
-				swept: true,
-				mask: MASK_PLAYERSOLID,
-				trace_type: sys::TraceType_t_TRACE_EVERYTHING,
-			}]
-		);
-	});
-
-	// A hull that does not move is tested where it is.
-	let still = mock.engine_trace().trace(
-		Ray::hull(LINE.1, LINE.1, mins, maxs),
-		MASK_PLAYERSOLID,
-		TraceFilter::WorldAndProps,
-	);
-
-	assert!(!still.hit());
-	assert_eq!(still.end, LINE.1);
-	assert_eq!(still.normal, Vector::new(0.0, 0.0, 0.0));
-	assert_eq!(still.surface_name, None);
-	assert_eq!(still.displacement_flags, 0);
-	assert_eq!(still.entity, None);
-	TRACED.with_borrow(|traced| assert!(!traced[1].swept));
-}
-
-#[test]
-fn static_props_are_hits_on_the_world_with_a_hitbox() {
-	let mut world = MockEntity::new(0);
-	let mut prop = MockEntity::new(1);
-
-	// The mock's hits have hitbox 4, on a displacement.
-	let mut mock = MockEngineTrace::new(&[world.as_ptr().cast()]);
-	let trace = mock.engine_trace().trace(
-		Ray::line(LINE.0, LINE.1),
-		MASK_SOLID,
-		TraceFilter::Everything,
-	);
-
-	assert_eq!(trace.static_prop(), Some(3));
-	assert!(trace.hit_displacement());
-
-	// An entity's hitboxes are no static prop.
-	let mut mock = MockEngineTrace::new(&[prop.as_ptr().cast()]);
-	let trace = mock.engine_trace().trace(
-		Ray::line(LINE.0, LINE.1),
-		MASK_SOLID,
-		TraceFilter::Everything,
-	);
-
-	assert_eq!(trace.static_prop(), None);
-
-	// Nor is a miss.
-	let mut mock = MockEngineTrace::new(&[]);
-	let trace = mock.engine_trace().trace(
-		Ray::line(LINE.0, LINE.1),
-		MASK_SOLID,
-		TraceFilter::Everything,
-	);
-
-	assert_eq!(trace.static_prop(), None);
-	assert!(!trace.hit_displacement());
-}
-
-/// The entity a line along [`LINE`] traced through `filter` stopped at, and
-/// the kind of trace the filter asked the engine for.
-fn stopped_at(
-	engine: EngineTrace<'_>,
-	filter: TraceFilter<'_, '_>,
-) -> (Option<*mut sys::CBaseEntity>, sys::TraceType_t) {
-	let trace = engine.trace(Ray::line(LINE.0, LINE.1), MASK_SOLID, filter);
-	let trace_type = TRACED.with_borrow(|traced| traced.last().unwrap().trace_type);
-
-	(trace.entity.map(Entity::as_ptr), trace_type)
-}
-
-#[test]
-fn filters_choose_the_entities_a_ray_stops_at() {
-	let mut mocks = [1, 2, 3].map(MockEntity::new);
-	let [first, second, third] = mocks.each_mut().map(|entity| entity.entity());
-	let along = [first, second, third].map(|entity| entity.as_ptr().cast());
-	let mut mock = MockEngineTrace::new(&along);
-	let engine = mock.engine_trace();
-	let everything = sys::TraceType_t_TRACE_EVERYTHING;
-
-	assert_eq!(
-		stopped_at(engine, TraceFilter::Everything),
-		(Some(first.as_ptr()), everything)
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::EntitiesOnly),
-		(Some(first.as_ptr()), sys::TraceType_t_TRACE_ENTITIES_ONLY)
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::Skip(&[first, second])),
-		(Some(third.as_ptr()), everything)
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::Only(&[second])),
-		(Some(second.as_ptr()), everything)
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::Only(&[])),
-		(None, everything)
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::WorldAndProps),
-		(None, everything)
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::WorldOnly),
-		(None, sys::TraceType_t_TRACE_WORLD_ONLY)
-	);
-}
-
-#[test]
-fn team_filters_pass_through_the_teams_entities() {
-	let mut mocks = [1, 2, 3].map(MockEntity::new);
-
-	// Every mock entity reports this datamap chain, which declares
-	// `m_iTeamNum`.
-	set_datamap(state_maps(Vec::new()));
-
-	for (mock, team) in mocks.iter_mut().zip([2, 2, 3]) {
-		mock.state().team = team;
-	}
-
-	let [red, red_too, blue] = mocks.each_mut().map(|entity| entity.entity());
-	let along = [red, red_too, blue].map(|entity| entity.as_ptr().cast());
-	let mut mock = MockEngineTrace::new(&along);
-	let engine = mock.engine_trace();
-
-	assert_eq!(
-		stopped_at(engine, TraceFilter::SkipTeam(2)).0,
-		Some(blue.as_ptr())
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::SkipTeam(3)).0,
-		Some(red.as_ptr())
-	);
-	assert_eq!(
-		stopped_at(engine, TraceFilter::SkipTeam(0)).0,
-		Some(red.as_ptr())
-	);
 }

@@ -106,6 +106,16 @@ impl FakeWeapon {
 	}
 }
 
+unsafe extern "C" fn afterburn_added(_this: *const sys::CTFWeaponBase) -> f32 {
+	0.4
+}
+
+/// Const getter mock returns a weapon-dependent value to detect bad this/slots.
+unsafe extern "C" fn afterburn_initial(this: *const sys::CTFWeaponBase) -> f32 {
+	// SAFETY: Installed only on the leaked fake weapon's vtable.
+	unsafe { (*this.cast::<FakeWeapon>()).id as f32 }
+}
+
 /// The server classes of a flame thrower, a sapper and a bottle, whose send
 /// tables describe their fields.
 fn classes() -> [*mut sys::ServerClass; 3] {
@@ -338,13 +348,4 @@ fn weapons_report_what_they_are_and_are_doing() {
 		bottle_weapon.ammo_type(),
 		Err(WeaponError::MarkedForDeletion)
 	));
-}
-
-/// Const getter mock returns a weapon-dependent value to detect bad this/slots.
-unsafe extern "C" fn afterburn_initial(this: *const sys::CTFWeaponBase) -> f32 {
-	// SAFETY: Installed only on the leaked fake weapon's vtable.
-	unsafe { (*this.cast::<FakeWeapon>()).id as f32 }
-}
-unsafe extern "C" fn afterburn_added(_this: *const sys::CTFWeaponBase) -> f32 {
-	0.4
 }

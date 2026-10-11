@@ -29,6 +29,107 @@ const MOCK_SOLID_FLAGS_FIELD: usize = 6;
 /// Where mock entities store `m_usSolidFlags`.
 const MOCK_SOLID_FLAGS_OFFSET: usize = MOCK_COLLISION_OFFSET + MOCK_SOLID_FLAGS_FIELD;
 
+/// Sets and clears the solid flag `flag` with `set`, which must change it
+/// alone, keep the others, and record each change for networking.
+fn assert_set_alone_and_networked(
+	flag: u16,
+	set: fn(Entity<'_>, Server<'_>, bool) -> Result<bool, SolidFlagsError>,
+) {
+	let mut mock = MockEntity::new(5);
+
+	set_datamap(solid_maps());
+
+	let trigger = FSOLID_NOT_SOLID | FSOLID_TRIGGER | 0x8000;
+
+	store_flags(&mut mock, trigger);
+
+	// Every bit is read, unnamed ones included.
+	assert_eq!(
+		mock.entity().solid_flags(),
+		Ok(SolidFlags::NOT_SOLID | SolidFlags::TRIGGER | SolidFlags::from_bits_retain(0x8000))
+	);
+
+	// SAFETY: Zero is valid for every field of `CSharedEdictChangeInfo`.
+	let mut shared = Box::new(unsafe { zeroed::<sys::CSharedEdictChangeInfo>() });
+	let mut accessor = sys::IChangeInfoAccessor {
+		m_iChangeInfo: 0,
+		m_iChangeInfoSerialNumber: 0,
+	};
+	let mut edict = mock_edict(5, false);
+
+	shared.m_iSerialNumber = 7;
+	set_change_accessor(&raw mut accessor);
+	set_shared_change_info(&raw mut *shared);
+	set_networking(null_mut(), &raw mut edict);
+	export(
+		Module::Engine,
+		ValveEngine::VERSION,
+		change_tracking_engine().as_ptr(),
+	);
+
+	let scope = ();
+	let server = mock_server(&scope);
+
+	// Setting the flag keeps the others, and reports it was clear.
+	assert_eq!(set(mock.entity(), server, true), Ok(false));
+	assert_eq!(stored_flags(&mut mock), trigger | flag);
+	assert_ne!(edict._base.m_fStateFlags & FL_EDICT_CHANGED, 0);
+	assert_eq!(shared.m_ChangeInfos[0].m_nChangeOffsets, 1);
+	assert_eq!(
+		shared.m_ChangeInfos[0].m_ChangeOffsets[0],
+		u16::try_from(MOCK_SOLID_FLAGS_OFFSET).unwrap()
+	);
+
+	// Setting it again changes nothing, and records no change.
+	assert_eq!(set(mock.entity(), server, true), Ok(true));
+	assert_eq!(shared.m_ChangeInfos[0].m_nChangeOffsets, 1);
+
+	assert_eq!(set(mock.entity(), server, false), Ok(true));
+	assert_eq!(stored_flags(&mut mock), trigger);
+
+	set_change_accessor(null_mut());
+	set_shared_change_info(null_mut());
+	set_networking(null_mut(), null_mut());
+}
+
+#[test]
+fn debris_touches_are_set_alone_and_networked() {
+	assert_set_alone_and_networked(FSOLID_TRIGGER_TOUCH_DEBRIS, |entity, server, enabled| {
+		entity.set_trigger_touch_debris(server, enabled)
+	});
+}
+
+#[test]
+fn local_bounds_are_read_through_the_collideable() {
+	let mut mock = MockEntity::new(5);
+
+	assert_eq!(
+		mock.entity().local_bounds(),
+		Some((Vector::new(-1.0, -1.0, -1.0), Vector::new(1.0, 1.0, 1.0)))
+	);
+
+	set_local_bounds(
+		sys::Vector {
+			x: -24.0,
+			y: -24.0,
+			z: 0.0,
+		},
+		sys::Vector {
+			x: 24.0,
+			y: 24.0,
+			z: 82.0,
+		},
+	);
+
+	assert_eq!(
+		mock.entity().local_bounds(),
+		Some((
+			Vector::new(-24.0, -24.0, 0.0),
+			Vector::new(24.0, 24.0, 82.0)
+		))
+	);
+}
+
 #[test]
 fn solid_flags_need_the_embedded_collision_property() {
 	let mut mock = MockEntity::new(5);
@@ -96,105 +197,6 @@ fn solid_maps() -> *mut sys::datamap_t {
 	)
 }
 
-/// Writes the mock entity's solid flags to its storage.
-fn store_flags(mock: &mut MockEntity, flags: u16) {
-	// SAFETY: As for `stored_flags`.
-	unsafe {
-		mock.as_ptr()
-			.byte_add(MOCK_SOLID_FLAGS_OFFSET)
-			.cast::<u16>()
-			.write(flags)
-	};
-}
-
-/// Reads the mock entity's solid flags from its storage.
-fn stored_flags(mock: &mut MockEntity) -> u16 {
-	// SAFETY: Mock entities hold 64 words, and the offset is aligned.
-	unsafe {
-		mock.as_ptr()
-			.byte_add(MOCK_SOLID_FLAGS_OFFSET)
-			.cast::<u16>()
-			.read()
-	}
-}
-
-/// Sets and clears the solid flag `flag` with `set`, which must change it
-/// alone, keep the others, and record each change for networking.
-fn assert_set_alone_and_networked(
-	flag: u16,
-	set: fn(Entity<'_>, Server<'_>, bool) -> Result<bool, SolidFlagsError>,
-) {
-	let mut mock = MockEntity::new(5);
-
-	set_datamap(solid_maps());
-
-	let trigger = FSOLID_NOT_SOLID | FSOLID_TRIGGER | 0x8000;
-
-	store_flags(&mut mock, trigger);
-
-	// Every bit is read, unnamed ones included.
-	assert_eq!(
-		mock.entity().solid_flags(),
-		Ok(SolidFlags::NOT_SOLID | SolidFlags::TRIGGER | SolidFlags::from_bits_retain(0x8000))
-	);
-
-	// SAFETY: Zero is valid for every field of `CSharedEdictChangeInfo`.
-	let mut shared = Box::new(unsafe { zeroed::<sys::CSharedEdictChangeInfo>() });
-	let mut accessor = sys::IChangeInfoAccessor {
-		m_iChangeInfo: 0,
-		m_iChangeInfoSerialNumber: 0,
-	};
-	let mut edict = mock_edict(5, false);
-
-	shared.m_iSerialNumber = 7;
-	set_change_accessor(&raw mut accessor);
-	set_shared_change_info(&raw mut *shared);
-	set_networking(null_mut(), &raw mut edict);
-	export(
-		Module::Engine,
-		ValveEngine::VERSION,
-		change_tracking_engine().as_ptr(),
-	);
-
-	let scope = ();
-	let server = mock_server(&scope);
-
-	// Setting the flag keeps the others, and reports it was clear.
-	assert_eq!(set(mock.entity(), server, true), Ok(false));
-	assert_eq!(stored_flags(&mut mock), trigger | flag);
-	assert_ne!(edict._base.m_fStateFlags & FL_EDICT_CHANGED, 0);
-	assert_eq!(shared.m_ChangeInfos[0].m_nChangeOffsets, 1);
-	assert_eq!(
-		shared.m_ChangeInfos[0].m_ChangeOffsets[0],
-		u16::try_from(MOCK_SOLID_FLAGS_OFFSET).unwrap()
-	);
-
-	// Setting it again changes nothing, and records no change.
-	assert_eq!(set(mock.entity(), server, true), Ok(true));
-	assert_eq!(shared.m_ChangeInfos[0].m_nChangeOffsets, 1);
-
-	assert_eq!(set(mock.entity(), server, false), Ok(true));
-	assert_eq!(stored_flags(&mut mock), trigger);
-
-	set_change_accessor(null_mut());
-	set_shared_change_info(null_mut());
-	set_networking(null_mut(), null_mut());
-}
-
-#[test]
-fn the_custom_ray_test_is_set_alone_and_networked() {
-	assert_set_alone_and_networked(FSOLID_CUSTOMRAYTEST, |entity, server, enabled| {
-		entity.set_custom_ray_test(server, enabled)
-	});
-}
-
-#[test]
-fn debris_touches_are_set_alone_and_networked() {
-	assert_set_alone_and_networked(FSOLID_TRIGGER_TOUCH_DEBRIS, |entity, server, enabled| {
-		entity.set_trigger_touch_debris(server, enabled)
-	});
-}
-
 #[test]
 fn solid_types_are_read_through_the_collideable() {
 	let mut mock = MockEntity::new(5);
@@ -233,33 +235,31 @@ fn solid_types_convert_to_and_from_their_values() {
 	}
 }
 
+/// Writes the mock entity's solid flags to its storage.
+fn store_flags(mock: &mut MockEntity, flags: u16) {
+	// SAFETY: As for `stored_flags`.
+	unsafe {
+		mock.as_ptr()
+			.byte_add(MOCK_SOLID_FLAGS_OFFSET)
+			.cast::<u16>()
+			.write(flags)
+	};
+}
+
+/// Reads the mock entity's solid flags from its storage.
+fn stored_flags(mock: &mut MockEntity) -> u16 {
+	// SAFETY: Mock entities hold 64 words, and the offset is aligned.
+	unsafe {
+		mock.as_ptr()
+			.byte_add(MOCK_SOLID_FLAGS_OFFSET)
+			.cast::<u16>()
+			.read()
+	}
+}
+
 #[test]
-fn local_bounds_are_read_through_the_collideable() {
-	let mut mock = MockEntity::new(5);
-
-	assert_eq!(
-		mock.entity().local_bounds(),
-		Some((Vector::new(-1.0, -1.0, -1.0), Vector::new(1.0, 1.0, 1.0)))
-	);
-
-	set_local_bounds(
-		sys::Vector {
-			x: -24.0,
-			y: -24.0,
-			z: 0.0,
-		},
-		sys::Vector {
-			x: 24.0,
-			y: 24.0,
-			z: 82.0,
-		},
-	);
-
-	assert_eq!(
-		mock.entity().local_bounds(),
-		Some((
-			Vector::new(-24.0, -24.0, 0.0),
-			Vector::new(24.0, 24.0, 82.0)
-		))
-	);
+fn the_custom_ray_test_is_set_alone_and_networked() {
+	assert_set_alone_and_networked(FSOLID_CUSTOMRAYTEST, |entity, server, enabled| {
+		entity.set_custom_ray_test(server, enabled)
+	});
 }

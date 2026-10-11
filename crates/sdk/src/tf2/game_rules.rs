@@ -219,6 +219,24 @@ impl GameRules<'_> {
 	}
 }
 
+/// What the game rules decide for players.
+impl GameRules<'_> {
+	/// Whether `player` holds less reserve ammo of `ammo_type` than their max,
+	/// as their class and items make it (`CanHaveAmmo`), which pickups,
+	/// dispensers and resupply cabinets ask before giving any.
+	#[doc(alias("CanHaveAmmo", "GetMaxAmmo"))]
+	pub fn can_have_ammo(self, player: TfPlayer<'_>, ammo_type: AmmoType) -> bool {
+		// SAFETY: An entity's pointer is never null.
+		let player = unsafe { NonNull::new_unchecked(player.player().as_ptr()) };
+
+		// SAFETY: The game rules are TF2's live `CTFGameRules`, as `GameRules::get`
+		// checks the game, and the player is a live `CTFPlayer`, as `TfPlayer`
+		// checks, whose `CBaseCombatCharacter` base is at its address. Both are
+		// only used on the main thread.
+		unsafe { can_have_ammo(self.rules, player.cast(), ammo_type.to_raw()) }
+	}
+}
+
 /// The round's progress, from the variables of `CTeamplayRoundBasedRules`.
 impl<'s> GameRules<'s> {
 	/// Whether the level has several payload carts per team
@@ -329,15 +347,15 @@ impl<'s> GameRules<'s> {
 		})
 	}
 
+	/// The game rules object, as [`Self::as_ptr`] gives it.
+	pub(crate) const fn as_non_null(self) -> NonNull<c_void> {
+		self.rules
+	}
+
 	/// The game rules object, a `CTFGameRules`, which starts with its primary
 	/// vtable.
 	pub const fn as_ptr(self) -> *mut c_void {
 		self.rules.as_ptr()
-	}
-
-	/// The game rules object, as [`Self::as_ptr`] gives it.
-	pub(crate) const fn as_non_null(self) -> NonNull<c_void> {
-		self.rules
 	}
 
 	/// Whether the round is in its setup time, before attackers may leave
@@ -476,24 +494,6 @@ impl<'s> GameRules<'s> {
 		// SAFETY: As for `read`, and the game accepts the value, as the caller
 		// promises.
 		Ok(unsafe { prop.set_at(object, value) }?)
-	}
-}
-
-/// What the game rules decide for players.
-impl GameRules<'_> {
-	/// Whether `player` holds less reserve ammo of `ammo_type` than their max,
-	/// as their class and items make it (`CanHaveAmmo`), which pickups,
-	/// dispensers and resupply cabinets ask before giving any.
-	#[doc(alias("CanHaveAmmo", "GetMaxAmmo"))]
-	pub fn can_have_ammo(self, player: TfPlayer<'_>, ammo_type: AmmoType) -> bool {
-		// SAFETY: An entity's pointer is never null.
-		let player = unsafe { NonNull::new_unchecked(player.player().as_ptr()) };
-
-		// SAFETY: The game rules are TF2's live `CTFGameRules`, as `GameRules::get`
-		// checks the game, and the player is a live `CTFPlayer`, as `TfPlayer`
-		// checks, whose `CBaseCombatCharacter` base is at its address. Both are
-		// only used on the main thread.
-		unsafe { can_have_ammo(self.rules, player.cast(), ammo_type.to_raw()) }
 	}
 }
 

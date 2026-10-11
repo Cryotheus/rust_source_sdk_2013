@@ -6,22 +6,6 @@ use crate::test_support::net::cheats::MockEngine;
 use crate::test_support::server::mock_binding;
 use sdk_raw::test_support::net::mock_game_client;
 
-/// A listener's `FireGameEvent` that no test calls.
-unsafe extern "C" fn fire_game_event(
-	_this: *mut sys::IGameEventListener2,
-	_event: *mut sys::IGameEvent,
-) {
-}
-
-/// A new mock client, and its `IGameEventListener2` base, whose layout this
-/// confirms.
-fn mock_client() -> (NonNull<sys::IClient>, NonNull<sys::IGameEventListener2>) {
-	let client = mock_game_client("CGameClient", fire_game_event);
-
-	// SAFETY: The mock is leaked, with the type information of a client.
-	(client, unsafe { raw::listener_of_client(client) }.unwrap())
-}
-
 #[test]
 fn a_panicking_callback_delivers_the_event() {
 	let (_, listener) = mock_client();
@@ -53,6 +37,22 @@ fn events_reach_the_callback_with_their_client() {
 
 	assert_eq!(delivery, Delivery::Withhold);
 	assert_eq!(seen, Some((client.as_ptr(), event.as_ptr())));
+}
+
+/// A listener's `FireGameEvent` that no test calls.
+unsafe extern "C" fn fire_game_event(
+	_this: *mut sys::IGameEventListener2,
+	_event: *mut sys::IGameEvent,
+) {
+}
+
+/// A new mock client, and its `IGameEventListener2` base, whose layout this
+/// confirms.
+fn mock_client() -> (NonNull<sys::IClient>, NonNull<sys::IGameEventListener2>) {
+	let client = mock_game_client("CGameClient", fire_game_event);
+
+	// SAFETY: The mock is leaked, with the type information of a client.
+	(client, unsafe { raw::listener_of_client(client) }.unwrap())
 }
 
 #[test]

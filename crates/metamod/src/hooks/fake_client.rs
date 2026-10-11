@@ -62,6 +62,21 @@ const CREATE_EX: VirtualFunction<CreateFakeClientEx> =
 
 static ROUTE: FakeClientRoute = FakeClientRoute::new();
 
+/// A client a call of `CreateFakeClientEx` is creating.
+#[derive(Clone, Copy)]
+struct Creating {
+	/// The name the creator passed, which `CreateFakeClientEx` passes on to
+	/// `CreateFakeClient`.
+	name: *const c_char,
+
+	/// Whether the client is to be reported.
+	report: bool,
+
+	/// Whether the callback chose already, so that `CreateFakeClient` runs as
+	/// it was called.
+	chosen: bool,
+}
+
 /// The hooks [`MetamodApi::hook_fake_client_reports`] installs.
 ///
 /// Metamod disables them while the plugin is paused, and removes them before
@@ -83,21 +98,6 @@ impl FakeClientHooks {
 		ROUTE.state.set(None);
 		ROUTE.creating.set(None);
 	}
-}
-
-/// A client a call of `CreateFakeClientEx` is creating.
-#[derive(Clone, Copy)]
-struct Creating {
-	/// The name the creator passed, which `CreateFakeClientEx` passes on to
-	/// `CreateFakeClient`.
-	name: *const c_char,
-
-	/// Whether the client is to be reported.
-	report: bool,
-
-	/// Whether the callback chose already, so that `CreateFakeClient` runs as
-	/// it was called.
-	chosen: bool,
 }
 
 struct FakeClientRoute {

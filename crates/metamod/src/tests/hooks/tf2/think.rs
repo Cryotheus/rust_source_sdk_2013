@@ -48,21 +48,6 @@ impl Mock {
 	}
 }
 
-/// The game's method, which notes that it ran.
-unsafe extern "C" fn game_method(_: *mut sys::CBaseEntity) {
-	CALLS.with_borrow_mut(|calls| calls.push("game"));
-}
-
-/// The callback, which notes the timing.
-fn on_think(_server: Server<'_>, timing: HookTiming, _entity: Entity<'_>) {
-	CALLS.with_borrow_mut(|calls| {
-		calls.push(match timing {
-			HookTiming::Pre => "before",
-			HookTiming::Post => "after",
-		})
-	});
-}
-
 #[test]
 fn entity_thinks_run_between_the_hooks() {
 	on_both(|harness| {
@@ -82,6 +67,21 @@ fn entity_thinks_run_between_the_hooks() {
 		// Removed, the hooks no longer run.
 		hooks.remove(api);
 		assert_eq!(run(harness, &mut entity, THINK_SLOT), ["game"]);
+	});
+}
+
+/// The game's method, which notes that it ran.
+unsafe extern "C" fn game_method(_: *mut sys::CBaseEntity) {
+	CALLS.with_borrow_mut(|calls| calls.push("game"));
+}
+
+/// The callback, which notes the timing.
+fn on_think(_server: Server<'_>, timing: HookTiming, _entity: Entity<'_>) {
+	CALLS.with_borrow_mut(|calls| {
+		calls.push(match timing {
+			HookTiming::Pre => "before",
+			HookTiming::Post => "after",
+		})
 	});
 }
 

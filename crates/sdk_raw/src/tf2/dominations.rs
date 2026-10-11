@@ -38,13 +38,6 @@ pub type GetNumberOfDominationsFn = unsafe extern "C" fn(this: *mut sys::CBaseEn
 pub type SetNumberOfDominationsFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, dominations: c_int);
 
-// The generated methods take and return the count as an `int`.
-const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) -> c_int =
-	|vtable| vtable.CTFPlayer_GetNumberofDominations;
-
-const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer, c_int) =
-	|vtable| vtable.CTFPlayer_SetNumberofDominations;
-
 // The pair is among the virtual functions `CTFPlayer` itself declares
 // (`game/server/tf/tf_player.h`), 30 slots after `CommitSuicide`, whose 454
 // SourceMod's `sdktools.games/game.tf.txt` gamedata lists under both ABIs. No outside source lists
@@ -59,6 +52,13 @@ const _: () = {
 	assert!(GET_NUMBER_OF_DOMINATIONS_SLOT == SET_NUMBER_OF_DOMINATIONS_SLOT + 1);
 	assert!(commit_suicide == 454 && commit_suicide < SET_NUMBER_OF_DOMINATIONS_SLOT);
 };
+
+const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer, c_int) =
+	|vtable| vtable.CTFPlayer_SetNumberofDominations;
+
+// The generated methods take and return the count as an `int`.
+const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) -> c_int =
+	|vtable| vtable.CTFPlayer_GetNumberofDominations;
 
 /// The slot of `CTFPlayer::GetNumberofDominations` in a TF2 player's primary
 /// vtable, from the generated binding: 484 on Windows, as in the 64-bit

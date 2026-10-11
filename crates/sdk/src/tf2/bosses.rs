@@ -58,80 +58,6 @@ use std::fmt::Display;
 /// resource.
 const FULL_BAR: c_int = 255;
 
-/// Why a boss could not be spawned, wrapped or controlled.
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-pub enum BossError {
-	/// The server is not running Team Fortress 2.
-	#[error("bosses require Team Fortress 2")]
-	UnsupportedGame,
-
-	/// The entity is not of the class the wrapper takes.
-	#[error("the entity is not a {class:?}")]
-	WrongClass {
-		/// The data map class the wrapper takes.
-		class: &'static CStr,
-	},
-
-	/// The entity is marked for deletion.
-	#[error("the entity is marked for deletion")]
-	MarkedForDeletion,
-
-	/// A position, speed, height, lifetime or fraction given is NaN or
-	/// infinite.
-	#[error("a value given is NaN or infinite")]
-	NonFinite,
-
-	/// A health given is 0 or less, which game code divides by.
-	#[error("health {0} is not positive")]
-	NonPositiveHealth(c_int),
-
-	/// A `base_boss` model given is not precached. Precaching it while the
-	/// level runs could overflow the engine's model table, so it must be
-	/// precached already, as the level's own models are, or with
-	/// [`Server::precache_model`] while the level loads.
-	#[error("the model is not precached")]
-	ModelNotPrecached,
-
-	/// The script class descriptors lack a native method, or its signature
-	/// differs from the SDK's.
-	#[error("the game does not expose the expected native method")]
-	UnsupportedMethod,
-
-	/// A native method's binding adapter reported failure.
-	#[error("the native method rejected the call")]
-	Rejected,
-
-	/// The new boss's health could not be set.
-	#[error(transparent)]
-	Health(#[from] HealthError),
-
-	/// An input was not sent, or the entity rejected it.
-	#[error(transparent)]
-	Input(#[from] InputError),
-
-	/// A required engine interface is unavailable.
-	#[error(transparent)]
-	Interface(#[from] InterfaceError),
-
-	/// A networked variable could not be read or written.
-	#[error(transparent)]
-	NetProp(#[from] NetPropError),
-
-	/// The game created no entity of the class, the entity refused a key
-	/// value and was removed, or it removed itself as it spawned.
-	#[error(transparent)]
-	Spawn(#[from] SpawnError),
-}
-
-impl From<BindingError> for BossError {
-	fn from(error: BindingError) -> Self {
-		match error {
-			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
-			BindingError::Rejected => Self::Rejected,
-		}
-	}
-}
-
 /// A `base_boss` (`CTFBaseBoss`) within the current engine callback, or one
 /// of the classes deriving from it, such as Mann vs. Machine's tank
 /// (`tank_boss`).
@@ -356,6 +282,11 @@ impl<'s> BossBar<'s> {
 		self.entity
 	}
 
+	/// Reads a byte variable as a fraction of [`FULL_BAR`].
+	fn fraction(self, name: &CStr) -> Result<f32, BossError> {
+		Ok(self.prop(name)?.clamp(0, FULL_BAR) as f32 / FULL_BAR as f32)
+	}
+
 	/// How full the bar is, from 0, which hides it, to 1
 	/// (`m_iBossHealthPercentageByte`).
 	#[doc(alias("m_iBossHealthPercentageByte", "GetBossHealthPercentage"))]
@@ -383,46 +314,6 @@ impl<'s> BossBar<'s> {
 		Ok(self.prop(c"m_iBossHealthPercentageByte")? > 0)
 	}
 
-	/// Sets the bar to `fraction` of its length, which shows it unless it
-	/// rounds down to 0, as the game's `SetBossHealthPercentage` does.
-	/// Fractions beyond 0 to 1 are clamped.
-	///
-	/// Fails with [`BossError::NonFinite`] for NaN or an infinite fraction.
-	#[doc(alias("SetBossHealthPercentage", "m_iBossHealthPercentageByte"))]
-	pub fn set_health(self, fraction: f32) -> Result<(), BossError> {
-		self.set_fraction(c"m_iBossHealthPercentageByte", fraction)
-	}
-
-	/// Sets whether the bar shows in the HUD's inactive colour, as
-	/// [`is_inactive`](Self::is_inactive) describes.
-	#[doc(alias("SetBossState", "m_iBossState"))]
-	pub fn set_inactive(self, inactive: bool) -> Result<(), BossError> {
-		self.set_prop(c"m_iBossState", c_int::from(inactive))
-	}
-
-	/// Sets the stun meter to `fraction` of its length, as the game's
-	/// `SetBossStunPercentage` does: clients show it while the bar shows,
-	/// unless they set `cl_boss_show_stun` to 0. Fractions beyond 0 to 1 are
-	/// clamped.
-	///
-	/// Fails with [`BossError::NonFinite`] for NaN or an infinite fraction.
-	#[doc(alias("SetBossStunPercentage", "m_iBossStunPercentageByte"))]
-	pub fn set_stun(self, fraction: f32) -> Result<(), BossError> {
-		self.set_fraction(c"m_iBossStunPercentageByte", fraction)
-	}
-
-	/// How full the stun meter is, from 0, which hides it, to 1
-	/// (`m_iBossStunPercentageByte`).
-	#[doc(alias("m_iBossStunPercentageByte", "GetBossStunPercentage"))]
-	pub fn stun(self) -> Result<f32, BossError> {
-		self.fraction(c"m_iBossStunPercentageByte")
-	}
-
-	/// Reads a byte variable as a fraction of [`FULL_BAR`].
-	fn fraction(self, name: &CStr) -> Result<f32, BossError> {
-		Ok(self.prop(name)?.clamp(0, FULL_BAR) as f32 / FULL_BAR as f32)
-	}
-
 	/// Reads the networked `int` `name`.
 	fn prop(self, name: &CStr) -> Result<c_int, BossError> {
 		check_live(self.entity)?;
@@ -445,6 +336,23 @@ impl<'s> BossBar<'s> {
 		self.set_prop(name, (fraction.clamp(0.0, 1.0) * FULL_BAR as f32) as c_int)
 	}
 
+	/// Sets the bar to `fraction` of its length, which shows it unless it
+	/// rounds down to 0, as the game's `SetBossHealthPercentage` does.
+	/// Fractions beyond 0 to 1 are clamped.
+	///
+	/// Fails with [`BossError::NonFinite`] for NaN or an infinite fraction.
+	#[doc(alias("SetBossHealthPercentage", "m_iBossHealthPercentageByte"))]
+	pub fn set_health(self, fraction: f32) -> Result<(), BossError> {
+		self.set_fraction(c"m_iBossHealthPercentageByte", fraction)
+	}
+
+	/// Sets whether the bar shows in the HUD's inactive colour, as
+	/// [`is_inactive`](Self::is_inactive) describes.
+	#[doc(alias("SetBossState", "m_iBossState"))]
+	pub fn set_inactive(self, inactive: bool) -> Result<(), BossError> {
+		self.set_prop(c"m_iBossState", c_int::from(inactive))
+	}
+
 	/// Writes the networked `int` `name`.
 	fn set_prop(self, name: &CStr, value: c_int) -> Result<(), BossError> {
 		check_live(self.entity)?;
@@ -457,6 +365,98 @@ impl<'s> BossBar<'s> {
 		// SAFETY: The callers write a byte of 0 to 255, or a state of 0 or 1,
 		// as the game's own setters do; clients only draw them.
 		Ok(unsafe { prop.set(self.server.valve_engine()?, self.entity, value) }?)
+	}
+
+	/// Sets the stun meter to `fraction` of its length, as the game's
+	/// `SetBossStunPercentage` does: clients show it while the bar shows,
+	/// unless they set `cl_boss_show_stun` to 0. Fractions beyond 0 to 1 are
+	/// clamped.
+	///
+	/// Fails with [`BossError::NonFinite`] for NaN or an infinite fraction.
+	#[doc(alias("SetBossStunPercentage", "m_iBossStunPercentageByte"))]
+	pub fn set_stun(self, fraction: f32) -> Result<(), BossError> {
+		self.set_fraction(c"m_iBossStunPercentageByte", fraction)
+	}
+
+	/// How full the stun meter is, from 0, which hides it, to 1
+	/// (`m_iBossStunPercentageByte`).
+	#[doc(alias("m_iBossStunPercentageByte", "GetBossStunPercentage"))]
+	pub fn stun(self) -> Result<f32, BossError> {
+		self.fraction(c"m_iBossStunPercentageByte")
+	}
+}
+
+/// Why a boss could not be spawned, wrapped or controlled.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum BossError {
+	/// The server is not running Team Fortress 2.
+	#[error("bosses require Team Fortress 2")]
+	UnsupportedGame,
+
+	/// The entity is not of the class the wrapper takes.
+	#[error("the entity is not a {class:?}")]
+	WrongClass {
+		/// The data map class the wrapper takes.
+		class: &'static CStr,
+	},
+
+	/// The entity is marked for deletion.
+	#[error("the entity is marked for deletion")]
+	MarkedForDeletion,
+
+	/// A position, speed, height, lifetime or fraction given is NaN or
+	/// infinite.
+	#[error("a value given is NaN or infinite")]
+	NonFinite,
+
+	/// A health given is 0 or less, which game code divides by.
+	#[error("health {0} is not positive")]
+	NonPositiveHealth(c_int),
+
+	/// A `base_boss` model given is not precached. Precaching it while the
+	/// level runs could overflow the engine's model table, so it must be
+	/// precached already, as the level's own models are, or with
+	/// [`Server::precache_model`] while the level loads.
+	#[error("the model is not precached")]
+	ModelNotPrecached,
+
+	/// The script class descriptors lack a native method, or its signature
+	/// differs from the SDK's.
+	#[error("the game does not expose the expected native method")]
+	UnsupportedMethod,
+
+	/// A native method's binding adapter reported failure.
+	#[error("the native method rejected the call")]
+	Rejected,
+
+	/// The new boss's health could not be set.
+	#[error(transparent)]
+	Health(#[from] HealthError),
+
+	/// An input was not sent, or the entity rejected it.
+	#[error(transparent)]
+	Input(#[from] InputError),
+
+	/// A required engine interface is unavailable.
+	#[error(transparent)]
+	Interface(#[from] InterfaceError),
+
+	/// A networked variable could not be read or written.
+	#[error(transparent)]
+	NetProp(#[from] NetPropError),
+
+	/// The game created no entity of the class, the entity refused a key
+	/// value and was removed, or it removed itself as it spawned.
+	#[error(transparent)]
+	Spawn(#[from] SpawnError),
+}
+
+impl From<BindingError> for BossError {
+	fn from(error: BindingError) -> Self {
+		match error {
+			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
+			BindingError::Rejected => Self::Rejected,
+		}
 	}
 }
 
@@ -530,6 +530,41 @@ impl HalloweenBoss {
 			Self::Horsemann => raw::HEADLESS_HATMAN,
 			Self::Monoculus => raw::EYEBALL_BOSS,
 			Self::Merasmus => raw::MERASMUS,
+		}
+	}
+}
+
+/// What a [`SkeletonSpawner`] spawns.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SkeletonSpawn {
+	/// The skeletons' type (`zombie_type`).
+	pub kind: SkeletonType,
+
+	/// The skeletons' team.
+	pub team: BossTeam,
+
+	/// How many skeletons it keeps alive, or spawns in all, as
+	/// [`infinite`](Self::infinite) decides (`max_zombies`).
+	pub count: c_int,
+
+	/// Whether it keeps spawning skeletons as they die, rather than stopping
+	/// after [`count`](Self::count) (`infinite_zombies`).
+	pub infinite: bool,
+
+	/// How long each skeleton lives, in seconds, or `None` for no limit
+	/// (`zombie_lifetime`).
+	pub lifetime: Option<f32>,
+}
+
+impl SkeletonSpawn {
+	/// One skeleton of `kind` on the Halloween team, with no lifetime.
+	pub const fn new(kind: SkeletonType) -> Self {
+		Self {
+			kind,
+			team: BossTeam::Halloween,
+			count: 1,
+			infinite: false,
+			lifetime: None,
 		}
 	}
 }
@@ -636,41 +671,6 @@ impl<'s> SkeletonSpawner<'s> {
 	}
 }
 
-/// What a [`SkeletonSpawner`] spawns.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SkeletonSpawn {
-	/// The skeletons' type (`zombie_type`).
-	pub kind: SkeletonType,
-
-	/// The skeletons' team.
-	pub team: BossTeam,
-
-	/// How many skeletons it keeps alive, or spawns in all, as
-	/// [`infinite`](Self::infinite) decides (`max_zombies`).
-	pub count: c_int,
-
-	/// Whether it keeps spawning skeletons as they die, rather than stopping
-	/// after [`count`](Self::count) (`infinite_zombies`).
-	pub infinite: bool,
-
-	/// How long each skeleton lives, in seconds, or `None` for no limit
-	/// (`zombie_lifetime`).
-	pub lifetime: Option<f32>,
-}
-
-impl SkeletonSpawn {
-	/// One skeleton of `kind` on the Halloween team, with no lifetime.
-	pub const fn new(kind: SkeletonType) -> Self {
-		Self {
-			kind,
-			team: BossTeam::Halloween,
-			count: 1,
-			infinite: false,
-			lifetime: None,
-		}
-	}
-}
-
 /// A skeleton's type (`CZombie::SkeletonType_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SkeletonType {
@@ -708,6 +708,70 @@ impl SkeletonType {
 			Self::Mini => skeleton::SKELETON_MINI,
 		}
 	}
+}
+
+/// Puts an entity that has not spawned on `team`, through its
+/// `CBaseEntity::ChangeTeam`.
+///
+/// # Safety
+///
+/// The entity's class must accept the team, as the game's own spawning of it
+/// shows.
+unsafe fn change_team(entity: Entity<'_>, team: BossTeam) {
+	let raw = entity.as_ptr();
+
+	// SAFETY: The entity is live during the callback, on the main thread, and
+	// its class belongs to TF2's game DLL, whose vtables have `ChangeTeam`
+	// where the generated one does (`sdk_raw::tf2::teams`). The classes here
+	// only store the team, and leave a nav area they are not in yet.
+	unsafe {
+		vcall!(raw as sys::CBaseEntity__bindgen_vtable => CBaseEntity_ChangeTeam(team.to_raw()))
+	};
+}
+
+/// Fails with [`BossError::UnsupportedGame`] outside TF2, and with
+/// [`BossError::WrongClass`] unless `entity`'s data maps include `class`'s.
+fn check_class(
+	server: Server<'_>,
+	entity: Entity<'_>,
+	class: &'static CStr,
+) -> Result<(), BossError> {
+	check_game(server)?;
+
+	if entity.has_data_map_class(class) {
+		Ok(())
+	} else {
+		Err(BossError::WrongClass { class })
+	}
+}
+
+/// Fails with [`BossError::UnsupportedGame`] outside TF2.
+fn check_game(server: Server<'_>) -> Result<(), BossError> {
+	if server.game() == Game::TeamFortress2 {
+		Ok(())
+	} else {
+		Err(BossError::UnsupportedGame)
+	}
+}
+
+/// Fails with [`BossError::MarkedForDeletion`] for an entity marked for
+/// deletion.
+fn check_live(entity: Entity<'_>) -> Result<(), BossError> {
+	if entity.is_marked_for_deletion() {
+		Err(BossError::MarkedForDeletion)
+	} else {
+		Ok(())
+	}
+}
+
+/// `1` or `0`, as boolean key values are given.
+fn flag_value(flag: bool) -> &'static CStr {
+	if flag { c"1" } else { c"0" }
+}
+
+/// A number as a key value, in decimal.
+fn number_value(number: impl Display) -> CString {
+	CString::new(number.to_string()).expect("numbers contain no NUL")
 }
 
 /// Spawns a Halloween boss at `origin` on `team`, as the game's
@@ -767,92 +831,6 @@ pub fn spawn_halloween_boss<'s>(
 	Ok(entity)
 }
 
-/// Spawns an ordinary skeleton at `origin` on `team`, as the game's
-/// `CZombie::SpawnAtPos` does, with no lifetime. A [`SkeletonSpawner`]
-/// spawns the other types, and skeletons with a lifetime.
-///
-/// Once more skeletons live than `tf_max_active_zombie` allows, the oldest,
-/// other than skeleton kings, die on their next update. On a level without
-/// skeletons of its own, the skeleton precaches its models as it spawns, as
-/// [`spawn_halloween_boss`] describes for the bosses.
-///
-/// Fails, before creating it, with [`BossError::NonFinite`] for a position
-/// that is not finite.
-#[doc(alias("tf_zombie", "CZombie"))]
-pub fn spawn_skeleton<'s>(
-	server: Server<'s>,
-	origin: Vector,
-	team: BossTeam,
-) -> Result<Entity<'s>, BossError> {
-	check_game(server)?;
-
-	if !origin.is_finite() {
-		return Err(BossError::NonFinite);
-	}
-
-	// SAFETY: `CZombie`'s constructor only sets its members and makes its
-	// NextBot components (`game/server/tf/halloween/zombie/zombie.cpp`). As
-	// for the bosses, the game puts skeletons on any of these teams before
-	// they spawn. Its `Spawn` precaches what it uses, sets its model, health
-	// and skin, and marks the oldest skeletons beyond `tf_max_active_zombie`
-	// to kill themselves on their next update.
-	unsafe { spawn_on_team(server.server_tools()?, raw::TF_ZOMBIE, origin, team) }
-}
-
-/// Fails with [`BossError::UnsupportedGame`] outside TF2, and with
-/// [`BossError::WrongClass`] unless `entity`'s data maps include `class`'s.
-fn check_class(
-	server: Server<'_>,
-	entity: Entity<'_>,
-	class: &'static CStr,
-) -> Result<(), BossError> {
-	check_game(server)?;
-
-	if entity.has_data_map_class(class) {
-		Ok(())
-	} else {
-		Err(BossError::WrongClass { class })
-	}
-}
-
-/// Fails with [`BossError::UnsupportedGame`] outside TF2.
-fn check_game(server: Server<'_>) -> Result<(), BossError> {
-	if server.game() == Game::TeamFortress2 {
-		Ok(())
-	} else {
-		Err(BossError::UnsupportedGame)
-	}
-}
-
-/// Fails with [`BossError::MarkedForDeletion`] for an entity marked for
-/// deletion.
-fn check_live(entity: Entity<'_>) -> Result<(), BossError> {
-	if entity.is_marked_for_deletion() {
-		Err(BossError::MarkedForDeletion)
-	} else {
-		Ok(())
-	}
-}
-
-/// Puts an entity that has not spawned on `team`, through its
-/// `CBaseEntity::ChangeTeam`.
-///
-/// # Safety
-///
-/// The entity's class must accept the team, as the game's own spawning of it
-/// shows.
-unsafe fn change_team(entity: Entity<'_>, team: BossTeam) {
-	let raw = entity.as_ptr();
-
-	// SAFETY: The entity is live during the callback, on the main thread, and
-	// its class belongs to TF2's game DLL, whose vtables have `ChangeTeam`
-	// where the generated one does (`sdk_raw::tf2::teams`). The classes here
-	// only store the team, and leave a nav area they are not in yet.
-	unsafe {
-		vcall!(raw as sys::CBaseEntity__bindgen_vtable => CBaseEntity_ChangeTeam(team.to_raw()))
-	};
-}
-
 /// Creates an entity of `class` at `origin` and puts it on `team` before
 /// spawning it, as the game spawns its own bosses and skeletons, which
 /// [`EntitySpawn`] cannot. It is not activated, as the game's are not.
@@ -899,14 +877,36 @@ unsafe fn spawn_on_team<'s>(
 	Ok(entity)
 }
 
-/// `1` or `0`, as boolean key values are given.
-fn flag_value(flag: bool) -> &'static CStr {
-	if flag { c"1" } else { c"0" }
-}
+/// Spawns an ordinary skeleton at `origin` on `team`, as the game's
+/// `CZombie::SpawnAtPos` does, with no lifetime. A [`SkeletonSpawner`]
+/// spawns the other types, and skeletons with a lifetime.
+///
+/// Once more skeletons live than `tf_max_active_zombie` allows, the oldest,
+/// other than skeleton kings, die on their next update. On a level without
+/// skeletons of its own, the skeleton precaches its models as it spawns, as
+/// [`spawn_halloween_boss`] describes for the bosses.
+///
+/// Fails, before creating it, with [`BossError::NonFinite`] for a position
+/// that is not finite.
+#[doc(alias("tf_zombie", "CZombie"))]
+pub fn spawn_skeleton<'s>(
+	server: Server<'s>,
+	origin: Vector,
+	team: BossTeam,
+) -> Result<Entity<'s>, BossError> {
+	check_game(server)?;
 
-/// A number as a key value, in decimal.
-fn number_value(number: impl Display) -> CString {
-	CString::new(number.to_string()).expect("numbers contain no NUL")
+	if !origin.is_finite() {
+		return Err(BossError::NonFinite);
+	}
+
+	// SAFETY: `CZombie`'s constructor only sets its members and makes its
+	// NextBot components (`game/server/tf/halloween/zombie/zombie.cpp`). As
+	// for the bosses, the game puts skeletons on any of these teams before
+	// they spawn. Its `Spawn` precaches what it uses, sets its model, health
+	// and skin, and marks the oldest skeletons beyond `tf_max_active_zombie`
+	// to kill themselves on their next update.
+	unsafe { spawn_on_team(server.server_tools()?, raw::TF_ZOMBIE, origin, team) }
 }
 
 /// A vector as a key value: its three components, in decimal.

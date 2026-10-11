@@ -96,72 +96,6 @@ pub type WeaponSwitchFn = unsafe extern "C" fn(
 	view_model: c_int,
 ) -> bool;
 
-// SourceMod's slots on Windows: `ShouldCollide` at 17, `Blocked` at 108, which
-// `EndBlocked` follows before `PhysicsSimulate`, and `PreThink` and
-// `PostThink` at 344 and 345.
-const _: () = {
-	assert!(SHOULD_COLLIDE_SLOT == 16 + CppDestructors::VTABLE_SLOTS);
-	assert!(PHYSICS_SIMULATE_SLOT == 109 + CppDestructors::VTABLE_SLOTS);
-	assert!(PRE_THINK_SLOT == 343 + CppDestructors::VTABLE_SLOTS);
-	assert!(POST_THINK_SLOT == PRE_THINK_SLOT + 1);
-};
-
-// The generated methods have these signatures, but for their receivers.
-const _: () = {
-	let _: fn(&sys::CBaseEntity__bindgen_vtable) -> EntityFn =
-		|vtable| vtable.CBaseEntity_PhysicsSimulate;
-
-	let _: fn(&sys::CBaseEntity__bindgen_vtable) -> EntityFn =
-		|vtable| vtable.CBaseEntity_UpdateOnRemove;
-
-	let _: fn(
-		&sys::CBaseEntity__bindgen_vtable,
-	) -> unsafe extern "C" fn(*const sys::CBaseEntity, c_int, c_int) -> bool =
-		|vtable| vtable.CBaseEntity_ShouldCollide;
-
-	let _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) =
-		|vtable| vtable.CTFPlayer_PreThink;
-
-	let _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) =
-		|vtable| vtable.CTFPlayer_PostThink;
-};
-
-// Players, buildings and weapons override these in `CBaseEntity`'s slots.
-const _: () = {
-	use sys::{
-		CBaseObject__bindgen_vtable as Object, CTFPlayer__bindgen_vtable as Player,
-		CTFWeaponBase__bindgen_vtable as Weapon,
-	};
-
-	assert!(PHYSICS_SIMULATE_SLOT == vtable_slot!(Player, CTFPlayer_PhysicsSimulate));
-	assert!(PHYSICS_SIMULATE_SLOT == vtable_slot!(Object, CBaseObject_PhysicsSimulate));
-	assert!(PHYSICS_SIMULATE_SLOT == vtable_slot!(Weapon, CTFWeaponBase_PhysicsSimulate));
-	assert!(SHOULD_COLLIDE_SLOT == vtable_slot!(Player, CTFPlayer_ShouldCollide));
-	assert!(SHOULD_COLLIDE_SLOT == vtable_slot!(Object, CBaseObject_ShouldCollide));
-	assert!(UPDATE_ON_REMOVE_SLOT == vtable_slot!(Player, CTFPlayer_UpdateOnRemove));
-	assert!(UPDATE_ON_REMOVE_SLOT == vtable_slot!(Object, CBaseObject_UpdateOnRemove));
-	assert!(UPDATE_ON_REMOVE_SLOT == vtable_slot!(Weapon, CTFWeaponBase_UpdateOnRemove));
-};
-
-// `game/server/baseentity.h` declares no virtual method between
-// `PhysicsSimulate` and `UpdateOnRemove`.
-const _: () = assert!(UPDATE_ON_REMOVE_SLOT == PHYSICS_SIMULATE_SLOT + 1);
-
-// SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `VPhysicsUpdate`
-// at 164 on Windows and 165 on Linux in its `tf` section, which
-// `game/server/baseentity.h` declares after `ForceVPhysicsCollide` and
-// `VPhysicsDestroyObject`.
-const _: () = {
-	let vphysics_update =
-		vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_VPhysicsUpdate);
-
-	assert!(vphysics_update == 163 + CppDestructors::VTABLE_SLOTS);
-	assert!(FORCE_VPHYSICS_COLLIDE_SLOT + 2 == vphysics_update);
-
-	let _: fn(&sys::CBaseEntity__bindgen_vtable) -> ForceVPhysicsCollideFn =
-		|vtable| vtable.CBaseEntity_ForceVPhysicsCollide;
-};
-
 // SourceMod's slots on Windows: `PlayerRunCmd` at 431 in
 // `gamedata/sdktools.games/game.tf.txt`, `Reload` at 284 in
 // `gamedata/sdkhooks.games/engine.ep2v.txt`, which is 290 on Linux, and
@@ -209,6 +143,95 @@ const _: () = {
 	assert!(RELOAD_SLOT == ITEM_POST_FRAME_SLOT + 11);
 	assert!(WEAPON_EQUIP_SLOT + 3 == WEAPON_SWITCH_SLOT);
 	assert!(WEAPON_CAN_SWITCH_TO_SLOT == WEAPON_SWITCH_SLOT + 2);
+};
+
+// SourceMod's slots on Windows: `ShouldCollide` at 17, `Blocked` at 108, which
+// `EndBlocked` follows before `PhysicsSimulate`, and `PreThink` and
+// `PostThink` at 344 and 345.
+const _: () = {
+	assert!(SHOULD_COLLIDE_SLOT == 16 + CppDestructors::VTABLE_SLOTS);
+	assert!(PHYSICS_SIMULATE_SLOT == 109 + CppDestructors::VTABLE_SLOTS);
+	assert!(PRE_THINK_SLOT == 343 + CppDestructors::VTABLE_SLOTS);
+	assert!(POST_THINK_SLOT == PRE_THINK_SLOT + 1);
+};
+
+// SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `GetMaxHealth`
+// at 123 on Windows and 124 on Linux in its `tf` section, which TF2's players
+// override. The generated binding places `CanBeAutobalanced` at 474 on
+// Windows and 475 on Linux.
+const _: () = {
+	assert!(TF2_GET_MAX_HEALTH_SLOT == 122 + CppDestructors::VTABLE_SLOTS);
+	assert!(CAN_BE_AUTOBALANCED_SLOT == 473 + CppDestructors::VTABLE_SLOTS);
+
+	assert!(
+		TF2_GET_MAX_HEALTH_SLOT
+			== vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_GetMaxHealth)
+	);
+
+	let _: fn(
+		&sys::CBaseEntity__bindgen_vtable,
+	) -> unsafe extern "C" fn(*const sys::CBaseEntity) -> c_int =
+		|vtable| vtable.CBaseEntity_GetMaxHealth;
+
+	let _: fn(
+		&sys::CTFPlayer__bindgen_vtable,
+	) -> unsafe extern "C" fn(*mut sys::CTFPlayer) -> bool =
+		|vtable| vtable.CTFPlayer_CanBeAutobalanced;
+};
+
+// The generated methods have these signatures, but for their receivers.
+const _: () = {
+	let _: fn(&sys::CBaseEntity__bindgen_vtable) -> EntityFn =
+		|vtable| vtable.CBaseEntity_PhysicsSimulate;
+
+	let _: fn(&sys::CBaseEntity__bindgen_vtable) -> EntityFn =
+		|vtable| vtable.CBaseEntity_UpdateOnRemove;
+
+	let _: fn(
+		&sys::CBaseEntity__bindgen_vtable,
+	) -> unsafe extern "C" fn(*const sys::CBaseEntity, c_int, c_int) -> bool =
+		|vtable| vtable.CBaseEntity_ShouldCollide;
+
+	let _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) =
+		|vtable| vtable.CTFPlayer_PreThink;
+
+	let _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) =
+		|vtable| vtable.CTFPlayer_PostThink;
+};
+
+// SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `VPhysicsUpdate`
+// at 164 on Windows and 165 on Linux in its `tf` section, which
+// `game/server/baseentity.h` declares after `ForceVPhysicsCollide` and
+// `VPhysicsDestroyObject`.
+const _: () = {
+	let vphysics_update =
+		vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_VPhysicsUpdate);
+
+	assert!(vphysics_update == 163 + CppDestructors::VTABLE_SLOTS);
+	assert!(FORCE_VPHYSICS_COLLIDE_SLOT + 2 == vphysics_update);
+
+	let _: fn(&sys::CBaseEntity__bindgen_vtable) -> ForceVPhysicsCollideFn =
+		|vtable| vtable.CBaseEntity_ForceVPhysicsCollide;
+};
+
+// `game/shared/tf/tf_weaponbase_melee.h` declares `GetSmackTime` right after
+// `Smack`, and the generated binding places it at 474 on Windows and 481 on
+// Linux.
+const _: () = {
+	use sys::CTFWeaponBaseMelee__bindgen_vtable as Melee;
+
+	let _: fn(&Melee) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee, c_int) -> f32 =
+		|vtable| vtable.CTFWeaponBaseMelee_GetSmackTime;
+
+	assert!(GET_SMACK_TIME_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_Smack) + 1);
+
+	assert!(
+		GET_SMACK_TIME_SLOT
+			== cfg_select! {
+				target_os = "windows" => 474,
+				target_os = "linux" => 481,
+			}
+	);
 };
 
 // The generated weapon methods have these signatures, but for their
@@ -262,58 +285,50 @@ const _: () = {
 	assert!(RELOAD_SLOT == vtable_slot!(Weapon, CTFWeaponBase_Reload));
 };
 
-// `game/shared/tf/tf_weaponbase_melee.h` declares `GetSmackTime` right after
-// `Smack`, and the generated binding places it at 474 on Windows and 481 on
-// Linux.
+// Both generated platforms expose the same no-argument method signature,
+// and melee weapons preserve the inherited primary-base slot.
 const _: () = {
-	use sys::CTFWeaponBaseMelee__bindgen_vtable as Melee;
-
-	let _: fn(&Melee) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee, c_int) -> f32 =
-		|vtable| vtable.CTFWeaponBaseMelee_GetSmackTime;
-
-	assert!(GET_SMACK_TIME_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_Smack) + 1);
-
-	assert!(
-		GET_SMACK_TIME_SLOT
-			== cfg_select! {
-				target_os = "windows" => 474,
-				target_os = "linux" => 481,
-			}
-	);
+	use sys::{
+		CBaseCombatWeapon__bindgen_vtable as CombatWeapon,
+		CTFWeaponBaseMelee__bindgen_vtable as Melee,
+	};
+	let _: fn(&CombatWeapon) -> unsafe extern "C" fn(*mut sys::CBaseCombatWeapon) =
+		|vtable| vtable.CBaseCombatWeapon_SecondaryAttack;
+	let _: fn(&Melee) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee) =
+		|vtable| vtable.CTFWeaponBaseMelee_SecondaryAttack;
+	assert!(SECONDARY_ATTACK_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_SecondaryAttack));
 };
 
-// SourceMod's `gamedata/sdkhooks.games/engine.ep2v.txt` lists `GetMaxHealth`
-// at 123 on Windows and 124 on Linux in its `tf` section, which TF2's players
-// override. The generated binding places `CanBeAutobalanced` at 474 on
-// Windows and 475 on Linux.
+// Players, buildings and weapons override these in `CBaseEntity`'s slots.
 const _: () = {
-	assert!(TF2_GET_MAX_HEALTH_SLOT == 122 + CppDestructors::VTABLE_SLOTS);
-	assert!(CAN_BE_AUTOBALANCED_SLOT == 473 + CppDestructors::VTABLE_SLOTS);
+	use sys::{
+		CBaseObject__bindgen_vtable as Object, CTFPlayer__bindgen_vtable as Player,
+		CTFWeaponBase__bindgen_vtable as Weapon,
+	};
 
-	assert!(
-		TF2_GET_MAX_HEALTH_SLOT
-			== vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_GetMaxHealth)
-	);
-
-	let _: fn(
-		&sys::CBaseEntity__bindgen_vtable,
-	) -> unsafe extern "C" fn(*const sys::CBaseEntity) -> c_int =
-		|vtable| vtable.CBaseEntity_GetMaxHealth;
-
-	let _: fn(
-		&sys::CTFPlayer__bindgen_vtable,
-	) -> unsafe extern "C" fn(*mut sys::CTFPlayer) -> bool =
-		|vtable| vtable.CTFPlayer_CanBeAutobalanced;
+	assert!(PHYSICS_SIMULATE_SLOT == vtable_slot!(Player, CTFPlayer_PhysicsSimulate));
+	assert!(PHYSICS_SIMULATE_SLOT == vtable_slot!(Object, CBaseObject_PhysicsSimulate));
+	assert!(PHYSICS_SIMULATE_SLOT == vtable_slot!(Weapon, CTFWeaponBase_PhysicsSimulate));
+	assert!(SHOULD_COLLIDE_SLOT == vtable_slot!(Player, CTFPlayer_ShouldCollide));
+	assert!(SHOULD_COLLIDE_SLOT == vtable_slot!(Object, CBaseObject_ShouldCollide));
+	assert!(UPDATE_ON_REMOVE_SLOT == vtable_slot!(Player, CTFPlayer_UpdateOnRemove));
+	assert!(UPDATE_ON_REMOVE_SLOT == vtable_slot!(Object, CBaseObject_UpdateOnRemove));
+	assert!(UPDATE_ON_REMOVE_SLOT == vtable_slot!(Weapon, CTFWeaponBase_UpdateOnRemove));
 };
 
-/// The slot of `CTFPlayer::CanBeAutobalanced` in a TF2 player's primary
-/// vtable, from the generated binding: the method that decides whether the
-/// game's autobalance may move the player to the other team, which it refuses
-/// for bots, coaches and their students, and players in a duel, a kart or
-/// ghost mode.
-#[doc(alias("CanBeAutobalanced"))]
-pub const CAN_BE_AUTOBALANCED_SLOT: usize =
-	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CanBeAutobalanced);
+// `game/server/baseentity.h` declares no virtual method between
+// `PhysicsSimulate` and `UpdateOnRemove`.
+const _: () = assert!(UPDATE_ON_REMOVE_SLOT == PHYSICS_SIMULATE_SLOT + 1);
+
+/// The slot of `CTFWeaponBase::CalcIsAttackCriticalHelperNoCrits` in a TF2
+/// weapon's primary vtable, from the generated binding: the method that
+/// decides whether an attack of the weapon crits while random crits are off,
+/// from crit boosts and the weapon's own rules.
+#[doc(alias("CalcIsAttackCriticalHelperNoCrits"))]
+pub const CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT: usize = vtable_slot!(
+	sys::CTFWeaponBase__bindgen_vtable,
+	CTFWeaponBase_CalcIsAttackCriticalHelperNoCrits
+);
 
 /// The slot of `CTFWeaponBase::CalcIsAttackCriticalHelper` in a TF2 weapon's
 /// primary vtable, from the generated binding: the method that decides
@@ -325,14 +340,23 @@ pub const CALC_IS_ATTACK_CRITICAL_HELPER_SLOT: usize = vtable_slot!(
 	CTFWeaponBase_CalcIsAttackCriticalHelper
 );
 
-/// The slot of `CTFWeaponBase::CalcIsAttackCriticalHelperNoCrits` in a TF2
-/// weapon's primary vtable, from the generated binding: the method that
-/// decides whether an attack of the weapon crits while random crits are off,
-/// from crit boosts and the weapon's own rules.
-#[doc(alias("CalcIsAttackCriticalHelperNoCrits"))]
-pub const CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT: usize = vtable_slot!(
-	sys::CTFWeaponBase__bindgen_vtable,
-	CTFWeaponBase_CalcIsAttackCriticalHelperNoCrits
+/// The slot of `CTFPlayer::CanBeAutobalanced` in a TF2 player's primary
+/// vtable, from the generated binding: the method that decides whether the
+/// game's autobalance may move the player to the other team, which it refuses
+/// for bots, coaches and their students, and players in a duel, a kart or
+/// ghost mode.
+#[doc(alias("CanBeAutobalanced"))]
+pub const CAN_BE_AUTOBALANCED_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CanBeAutobalanced);
+
+/// The slot of `CBaseEntity::ForceVPhysicsCollide` in an entity's primary
+/// vtable, from the generated binding: the method VPhysics's collision filter
+/// asks of each entity of a pair of physics objects, before the game rules'
+/// collision groups, whether the pair must collide anyway.
+#[doc(alias("ForceVPhysicsCollide"))]
+pub const FORCE_VPHYSICS_COLLIDE_SLOT: usize = vtable_slot!(
+	sys::CBaseEntity__bindgen_vtable,
+	CBaseEntity_ForceVPhysicsCollide
 );
 
 /// The slot of `CTFWeaponBaseMelee::GetSmackTime` in a TF2 melee weapon's
@@ -363,46 +387,6 @@ pub const ITEM_POST_FRAME_SLOT: usize = vtable_slot!(
 	CBaseCombatWeapon_ItemPostFrame
 );
 
-/// The slot of `CTFPlayer::PlayerRunCommand` in a TF2 player's primary vtable,
-/// from the generated binding: the method that runs one of the commands the
-/// player's client sent, its movement and its weapons' attacks.
-#[doc(alias("PlayerRunCommand"))]
-pub const PLAYER_RUN_COMMAND_SLOT: usize =
-	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PlayerRunCommand);
-
-/// The slot of `CBaseCombatWeapon::Reload` in a weapon's primary vtable, from
-/// the generated binding: the method that starts or continues the weapon's
-/// reload, and returns whether it does.
-#[doc(alias("Reload"))]
-pub const RELOAD_SLOT: usize = vtable_slot!(
-	sys::CBaseCombatWeapon__bindgen_vtable,
-	CBaseCombatWeapon_Reload
-);
-
-/// The slot of `CTFPlayer::Weapon_CanSwitchTo` in a TF2 player's primary
-/// vtable, from the generated binding: the method that decides whether the
-/// player may switch to a weapon they carry.
-#[doc(alias("Weapon_CanSwitchTo"))]
-pub const WEAPON_CAN_SWITCH_TO_SLOT: usize =
-	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_CanSwitchTo);
-
-/// The slot of `CTFPlayer::Weapon_Equip` in a TF2 player's primary vtable,
-/// from the generated binding: the method that adds a weapon to those the
-/// player carries.
-#[doc(alias("Weapon_Equip"))]
-pub const WEAPON_EQUIP_SLOT: usize =
-	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_Equip);
-
-/// The slot of `CBaseEntity::ForceVPhysicsCollide` in an entity's primary
-/// vtable, from the generated binding: the method VPhysics's collision filter
-/// asks of each entity of a pair of physics objects, before the game rules'
-/// collision groups, whether the pair must collide anyway.
-#[doc(alias("ForceVPhysicsCollide"))]
-pub const FORCE_VPHYSICS_COLLIDE_SLOT: usize = vtable_slot!(
-	sys::CBaseEntity__bindgen_vtable,
-	CBaseEntity_ForceVPhysicsCollide
-);
-
 /// The slot of `CBaseEntity::PhysicsSimulate` in an entity's primary vtable,
 /// from the generated binding: the method that runs an entity's movement and
 /// thinks once a tick, and a player's commands their client sent since. An
@@ -413,6 +397,13 @@ pub const PHYSICS_SIMULATE_SLOT: usize = vtable_slot!(
 	sys::CBaseEntity__bindgen_vtable,
 	CBaseEntity_PhysicsSimulate
 );
+
+/// The slot of `CTFPlayer::PlayerRunCommand` in a TF2 player's primary vtable,
+/// from the generated binding: the method that runs one of the commands the
+/// player's client sent, its movement and its weapons' attacks.
+#[doc(alias("PlayerRunCommand"))]
+pub const PLAYER_RUN_COMMAND_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PlayerRunCommand);
 
 /// The slot of `CTFPlayer::PostThink` in a TF2 player's primary vtable, from
 /// the generated binding: the method that runs after the movement of each of
@@ -427,6 +418,24 @@ pub const POST_THINK_SLOT: usize =
 #[doc(alias("PreThink"))]
 pub const PRE_THINK_SLOT: usize = vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PreThink);
 
+/// The slot of `CBaseCombatWeapon::Reload` in a weapon's primary vtable, from
+/// the generated binding: the method that starts or continues the weapon's
+/// reload, and returns whether it does.
+#[doc(alias("Reload"))]
+pub const RELOAD_SLOT: usize = vtable_slot!(
+	sys::CBaseCombatWeapon__bindgen_vtable,
+	CBaseCombatWeapon_Reload
+);
+
+/// The generated slot of `CBaseCombatWeapon::SecondaryAttack` in a weapon's
+/// primary vtable. Derived TF2 weapons keep this slot even when they reverse
+/// their internal primary/secondary weapon modes.
+#[doc(alias("SecondaryAttack"))]
+pub const SECONDARY_ATTACK_SLOT: usize = vtable_slot!(
+	sys::CBaseCombatWeapon__bindgen_vtable,
+	CBaseCombatWeapon_SecondaryAttack
+);
+
 /// The slot of `CBaseEntity::ShouldCollide` in an entity's primary vtable,
 /// from the generated binding.
 #[doc(alias("ShouldCollide"))]
@@ -440,25 +449,16 @@ pub const SHOULD_COLLIDE_SLOT: usize =
 pub const UPDATE_ON_REMOVE_SLOT: usize =
 	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_UpdateOnRemove);
 
-/// The generated slot of `CBaseCombatWeapon::SecondaryAttack` in a weapon's
-/// primary vtable. Derived TF2 weapons keep this slot even when they reverse
-/// their internal primary/secondary weapon modes.
-#[doc(alias("SecondaryAttack"))]
-pub const SECONDARY_ATTACK_SLOT: usize = vtable_slot!(
-	sys::CBaseCombatWeapon__bindgen_vtable,
-	CBaseCombatWeapon_SecondaryAttack
-);
+/// The slot of `CTFPlayer::Weapon_CanSwitchTo` in a TF2 player's primary
+/// vtable, from the generated binding: the method that decides whether the
+/// player may switch to a weapon they carry.
+#[doc(alias("Weapon_CanSwitchTo"))]
+pub const WEAPON_CAN_SWITCH_TO_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_CanSwitchTo);
 
-// Both generated platforms expose the same no-argument method signature,
-// and melee weapons preserve the inherited primary-base slot.
-const _: () = {
-	use sys::{
-		CBaseCombatWeapon__bindgen_vtable as CombatWeapon,
-		CTFWeaponBaseMelee__bindgen_vtable as Melee,
-	};
-	let _: fn(&CombatWeapon) -> unsafe extern "C" fn(*mut sys::CBaseCombatWeapon) =
-		|vtable| vtable.CBaseCombatWeapon_SecondaryAttack;
-	let _: fn(&Melee) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee) =
-		|vtable| vtable.CTFWeaponBaseMelee_SecondaryAttack;
-	assert!(SECONDARY_ATTACK_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_SecondaryAttack));
-};
+/// The slot of `CTFPlayer::Weapon_Equip` in a TF2 player's primary vtable,
+/// from the generated binding: the method that adds a weapon to those the
+/// player carries.
+#[doc(alias("Weapon_Equip"))]
+pub const WEAPON_EQUIP_SLOT: usize =
+	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_Weapon_Equip);

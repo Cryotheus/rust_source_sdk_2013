@@ -22,8 +22,8 @@
 mod tests;
 
 use crate::MetamodApi;
-use crate::hooks::tf2::class::ClassHooks;
 use crate::hook::{HookAction, HookCall, HookTiming, VirtualFunction};
+use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::virtuals::{PLAYER_RUN_COMMAND_SLOT, RunCommandFn as RunCommand};
 use source_sdk_2013::tf2::class_targets::TfPlayer;

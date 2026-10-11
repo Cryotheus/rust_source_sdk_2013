@@ -19,12 +19,12 @@ thread_local! {
 	static CALLS: RefCell<Vec<(&'static str, Seen)>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The item the game creates.
-const ITEM: usize = 0x5e7;
-
 /// An item as a call saw it: its classname, definition index, subtype and
 /// force flag.
 type Seen = (CString, Option<u16>, c_int, bool);
+
+/// The item the game creates.
+const ITEM: usize = 0x5e7;
 
 /// The game's `GiveNamedItem`, which notes that it ran, and creates [`ITEM`].
 unsafe extern "C" fn game_give_named_item(

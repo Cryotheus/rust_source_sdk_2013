@@ -3,13 +3,13 @@
 use super::*;
 use std::cell::Cell;
 
-/// The definition index the stand-in schema has.
-const KNOWN: u16 = 18;
-
 /// The arguments the stand-in `SpawnItem` was last called with: the
 /// singleton, the definition, the level, the quality, and whether a classname
 /// was given.
 type Spawned = (usize, c_int, c_int, sys::entityquality_t, bool);
+
+/// The definition index the stand-in schema has.
+const KNOWN: u16 = 18;
 
 /// What the stand-in `GetItemDefinition` returns for unknown indices.
 static mut DEFAULT_DEFINITION: u8 = 0;
@@ -31,41 +31,6 @@ thread_local! {
 	static SPAWNED: Cell<Option<Spawned>> = const { Cell::new(None) };
 }
 
-unsafe extern "C" fn get_item_definition(
-	_this: *mut sys::CEconItemSchema,
-	index: c_int,
-) -> *mut sys::CEconItemDefinition {
-	if index == c_int::from(KNOWN) {
-		(&raw mut KNOWN_DEFINITION).cast()
-	} else {
-		(&raw mut DEFAULT_DEFINITION).cast()
-	}
-}
-
-unsafe extern "C" fn schema_getter() -> *mut c_void {
-	(&raw mut SYSTEM).cast()
-}
-
-unsafe extern "C" fn spawn_item(
-	this: *mut sys::CItemGeneration,
-	definition: c_int,
-	_origin: *const sys::Vector,
-	_angles: *const sys::QAngle,
-	level: c_int,
-	quality: sys::entityquality_t,
-	classname: *const c_char,
-) -> *mut sys::CBaseEntity {
-	SPAWNED.set(Some((
-		this.addr(),
-		definition,
-		level,
-		quality,
-		!classname.is_null(),
-	)));
-
-	(&raw mut ENTITY).cast()
-}
-
 /// Item generation through the stand-ins.
 fn generation() -> ItemGeneration {
 	ItemGeneration {
@@ -76,11 +41,14 @@ fn generation() -> ItemGeneration {
 	}
 }
 
-fn origin() -> sys::Vector {
-	sys::Vector {
-		x: 0.0,
-		y: 0.0,
-		z: 0.0,
+unsafe extern "C" fn get_item_definition(
+	_this: *mut sys::CEconItemSchema,
+	index: c_int,
+) -> *mut sys::CEconItemDefinition {
+	if index == c_int::from(KNOWN) {
+		(&raw mut KNOWN_DEFINITION).cast()
+	} else {
+		(&raw mut DEFAULT_DEFINITION).cast()
 	}
 }
 
@@ -127,6 +95,38 @@ fn items_are_spawned_at_the_level_and_quality_asked_for() {
 			true
 		))
 	);
+}
+
+fn origin() -> sys::Vector {
+	sys::Vector {
+		x: 0.0,
+		y: 0.0,
+		z: 0.0,
+	}
+}
+
+unsafe extern "C" fn schema_getter() -> *mut c_void {
+	(&raw mut SYSTEM).cast()
+}
+
+unsafe extern "C" fn spawn_item(
+	this: *mut sys::CItemGeneration,
+	definition: c_int,
+	_origin: *const sys::Vector,
+	_angles: *const sys::QAngle,
+	level: c_int,
+	quality: sys::entityquality_t,
+	classname: *const c_char,
+) -> *mut sys::CBaseEntity {
+	SPAWNED.set(Some((
+		this.addr(),
+		definition,
+		level,
+		quality,
+		!classname.is_null(),
+	)));
+
+	(&raw mut ENTITY).cast()
 }
 
 #[test]

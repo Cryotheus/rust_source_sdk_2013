@@ -75,6 +75,17 @@ fn a_message_cut_short_ends_the_walk_unparsed() {
 	}
 }
 
+/// Writes `messages` one after another.
+fn concat<'a>(messages: impl IntoIterator<Item = &'a BitWriter>) -> BitWriter {
+	let mut out = BitWriter::new();
+
+	for message in messages {
+		out.write_bits(message);
+	}
+
+	out
+}
+
 #[test]
 fn connection_messages_are_passed_over_whole() {
 	let mut file = message(MessageId::FILE);
@@ -196,6 +207,38 @@ fn connection_messages_are_passed_over_whole() {
 	assert_eq!(walked(&concat(&messages)), expected);
 }
 
+/// `len` bits of data, alternately set and clear.
+fn data(len: usize) -> BitWriter {
+	let mut out = BitWriter::new();
+
+	for index in 0..len {
+		out.write_bit(index % 2 == 0);
+	}
+
+	out
+}
+
+#[test]
+fn engine_messages_encode_as_they_write_themselves() {
+	let bits = Print { text: c"hello" }.encode().unwrap();
+	let mock = MockMessage::new(7, 0, c"svc_Print", bits.clone());
+	let encoded = outgoing(&mock).encode().unwrap();
+
+	assert_eq!(encoded, bits);
+	assert_eq!(mock.writes(), 1);
+
+	assert_eq!(
+		walked(&encoded),
+		[(
+			MessageId::PRINT,
+			bits.len(),
+			Details::Print {
+				text: c"hello".to_owned(),
+			},
+		)]
+	);
+}
+
 #[test]
 fn engine_messages_report_their_type_name_and_stream() {
 	let mut payload = BitWriter::new();
@@ -230,24 +273,18 @@ fn engine_messages_report_their_type_name_and_stream() {
 }
 
 #[test]
-fn engine_messages_encode_as_they_write_themselves() {
-	let bits = Print { text: c"hello" }.encode().unwrap();
-	let mock = MockMessage::new(7, 0, c"svc_Print", bits.clone());
-	let encoded = outgoing(&mock).encode().unwrap();
+fn engine_messages_that_fail_to_write_or_have_no_type_are_reported() {
+	let mock = MockMessage::new(7, 0, c"svc_Print", message(MessageId::PRINT));
 
-	assert_eq!(encoded, bits);
+	mock.fail();
+	assert_eq!(outgoing(&mock).encode(), None);
 	assert_eq!(mock.writes(), 1);
 
-	assert_eq!(
-		walked(&encoded),
-		[(
-			MessageId::PRINT,
-			bits.len(),
-			Details::Print {
-				text: c"hello".to_owned(),
-			},
-		)]
-	);
+	for id in [-1, 64] {
+		let mock = MockMessage::new(id, 0, c"unknown", BitWriter::new());
+
+		assert_eq!(outgoing(&mock).id(), None);
+	}
 }
 
 #[test]
@@ -276,21 +313,6 @@ fn engine_messages_too_large_for_the_first_buffer_are_written_again() {
 }
 
 #[test]
-fn engine_messages_that_fail_to_write_or_have_no_type_are_reported() {
-	let mock = MockMessage::new(7, 0, c"svc_Print", message(MessageId::PRINT));
-
-	mock.fail();
-	assert_eq!(outgoing(&mock).encode(), None);
-	assert_eq!(mock.writes(), 1);
-
-	for id in [-1, 64] {
-		let mock = MockMessage::new(id, 0, c"unknown", BitWriter::new());
-
-		assert_eq!(outgoing(&mock).id(), None);
-	}
-}
-
-#[test]
 fn fewer_bits_than_a_type_are_left_unwalked() {
 	let mut stream = SetPause { paused: true }.encode().unwrap();
 
@@ -311,6 +333,14 @@ fn fewer_bits_than_a_type_are_left_unwalked() {
 	assert_eq!(messages.next(), None);
 	assert_eq!(messages.remaining(), 5);
 	assert_eq!(walk(BitWriter::new().reader()).next(), None);
+}
+
+/// A new message of type `id`, its fields to be written.
+fn message(id: MessageId) -> BitWriter {
+	let mut out = BitWriter::new();
+
+	out.write_ubits(id.get().into(), MESSAGE_TYPE_BITS);
+	out
 }
 
 #[test]
@@ -422,6 +452,12 @@ fn messages_this_crate_encodes_are_walked_as_written() {
 			.iter()
 			.all(|details| *details == Details::Other)
 	);
+}
+
+/// The engine's message `mock` points to.
+fn outgoing(mock: &MockMessage) -> OutgoingMessage<'_> {
+	// SAFETY: The mock is leaked, and answers each call the wrapper makes.
+	unsafe { OutgoingMessage::from_raw(NonNull::new(mock.as_ptr()).unwrap()) }
 }
 
 #[test]
@@ -572,6 +608,13 @@ fn snapshot_messages_are_walked_with_their_counts() {
 	assert_eq!(walked(&stream), expected);
 }
 
+/// The type an encoded message starts with.
+fn type_of(message: &BitWriter) -> MessageId {
+	let id = message.reader().read_ubits(MESSAGE_TYPE_BITS).unwrap();
+
+	MessageId::new(id as u8).unwrap()
+}
+
 #[test]
 fn types_without_a_layout_end_the_walk_unparsed() {
 	let after = Print { text: c"after" }.encode().unwrap();
@@ -614,49 +657,6 @@ fn types_without_a_layout_end_the_walk_unparsed() {
 		assert_eq!(messages.remaining(), 0);
 		assert_eq!(messages.next(), None);
 	}
-}
-
-/// Writes `messages` one after another.
-fn concat<'a>(messages: impl IntoIterator<Item = &'a BitWriter>) -> BitWriter {
-	let mut out = BitWriter::new();
-
-	for message in messages {
-		out.write_bits(message);
-	}
-
-	out
-}
-
-/// `len` bits of data, alternately set and clear.
-fn data(len: usize) -> BitWriter {
-	let mut out = BitWriter::new();
-
-	for index in 0..len {
-		out.write_bit(index % 2 == 0);
-	}
-
-	out
-}
-
-/// A new message of type `id`, its fields to be written.
-fn message(id: MessageId) -> BitWriter {
-	let mut out = BitWriter::new();
-
-	out.write_ubits(id.get().into(), MESSAGE_TYPE_BITS);
-	out
-}
-
-/// The engine's message `mock` points to.
-fn outgoing(mock: &MockMessage) -> OutgoingMessage<'_> {
-	// SAFETY: The mock is leaked, and answers each call the wrapper makes.
-	unsafe { OutgoingMessage::from_raw(NonNull::new(mock.as_ptr()).unwrap()) }
-}
-
-/// The type an encoded message starts with.
-fn type_of(message: &BitWriter) -> MessageId {
-	let id = message.reader().read_ubits(MESSAGE_TYPE_BITS).unwrap();
-
-	MessageId::new(id as u8).unwrap()
 }
 
 /// The type, size and details of each message the walk finds in `stream`.

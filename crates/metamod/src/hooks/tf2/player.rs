@@ -35,6 +35,10 @@ pub type HealedFn = for<'s> fn(Server<'s>, Entity<'s>, c_int);
 /// panic is contained by the hook dispatcher.
 pub type PlayerFn = for<'s> fn(Server<'s>, Entity<'s>);
 
+// Both methods take no argument and return nothing, so one route type serves
+// them.
+const _: fn(ResetScoresFn) -> PlayerMethod = |method| method;
+
 /// `ResetScores` in a TF2 player's primary vtable.
 const RESET_SCORES: VirtualFunction<PlayerMethod> = VirtualFunction::new(RESET_SCORES_SLOT);
 
@@ -47,24 +51,6 @@ const TAKE_HEALTH: VirtualFunction<TakeHealth> = VirtualFunction::new(TAKE_HEALT
 static HEALED_ROUTES: [HealedRoute; 8] = [const { HealedRoute::new() }; 8];
 static SCORES_RESET_ROUTES: [PlayerRoute; 8] = [const { PlayerRoute::new() }; 8];
 static SPAWNED_ROUTES: [PlayerRoute; 8] = [const { PlayerRoute::new() }; 8];
-
-// Both methods take no argument and return nothing, so one route type serves
-// them.
-const _: fn(ResetScoresFn) -> PlayerMethod = |method| method;
-
-/// Why a player hook could not be installed.
-#[derive(Debug, thiserror::Error)]
-pub enum PlayerHookError {
-	/// The server does not run TF2, or the entity is not a TF2 player.
-	#[error("player hooks require a TF2 server and a CTFPlayer entity")]
-	NotTfPlayer,
-
-	/// Metamod refused the hook. [`HookError::AlreadyInstalled`] means this
-	/// player's class is already hooked, which callers installing on every
-	/// player can ignore.
-	#[error(transparent)]
-	Hook(#[from] HookError),
-}
 
 struct HealedRoute {
 	state: Cell<Option<RoutedHealed>>,
@@ -102,6 +88,20 @@ impl Handler<TakeHealth> for HealedRoute {
 // SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
 // calls handlers only on that thread. Cell borrows are never held over calls.
 unsafe impl Sync for HealedRoute {}
+
+/// Why a player hook could not be installed.
+#[derive(Debug, thiserror::Error)]
+pub enum PlayerHookError {
+	/// The server does not run TF2, or the entity is not a TF2 player.
+	#[error("player hooks require a TF2 server and a CTFPlayer entity")]
+	NotTfPlayer,
+
+	/// Metamod refused the hook. [`HookError::AlreadyInstalled`] means this
+	/// player's class is already hooked, which callers installing on every
+	/// player can ignore.
+	#[error(transparent)]
+	Hook(#[from] HookError),
+}
 
 struct PlayerRoute {
 	state: Cell<Option<RoutedPlayer>>,
@@ -183,6 +183,23 @@ impl MetamodApi<'_> {
 		unsafe { self.install_player_healed(object, binding, callback) }
 	}
 
+	/// Hooks `function` after the call, on the class of `player`, through one
+	/// of `routes`.
+	fn hook_player_method(
+		self,
+		player: Entity<'_>,
+		binding: ServerBinding,
+		callback: PlayerFn,
+		function: VirtualFunction<PlayerMethod>,
+		routes: &'static [PlayerRoute],
+	) -> Result<HookId, PlayerHookError> {
+		let object = tf_player(player, binding)?;
+
+		// SAFETY: The player is a live TF2 player, whose vtable belongs to the
+		// server DLL, which outlives this plugin.
+		unsafe { self.install_player_method(object, binding, callback, function, routes) }
+	}
+
 	/// Runs `callback` after each `CTFPlayer::ResetScores` of a TF2 player of
 	/// this player's class: their scoring data and statistics, and with them
 	/// their Score, frags and deaths, were reset.
@@ -242,23 +259,6 @@ impl MetamodApi<'_> {
 		callback: PlayerFn,
 	) -> Result<HookId, PlayerHookError> {
 		self.hook_player_method(player, binding, callback, SPAWN, &SPAWNED_ROUTES)
-	}
-
-	/// Hooks `function` after the call, on the class of `player`, through one
-	/// of `routes`.
-	fn hook_player_method(
-		self,
-		player: Entity<'_>,
-		binding: ServerBinding,
-		callback: PlayerFn,
-		function: VirtualFunction<PlayerMethod>,
-		routes: &'static [PlayerRoute],
-	) -> Result<HookId, PlayerHookError> {
-		let object = tf_player(player, binding)?;
-
-		// SAFETY: The player is a live TF2 player, whose vtable belongs to the
-		// server DLL, which outlives this plugin.
-		unsafe { self.install_player_method(object, binding, callback, function, routes) }
 	}
 
 	/// Hooks `TakeHealth` after the call, on the class of `object`, through one

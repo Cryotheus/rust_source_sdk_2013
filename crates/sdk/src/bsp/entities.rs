@@ -14,69 +14,6 @@ mod tests;
 
 use std::ops::Range;
 
-/// Bounds on parsing one payload. These bound counts, not exact allocator RSS.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EntityLimits {
-	/// Maximum input bytes, including terminators and padding.
-	pub input_bytes: usize,
-	/// Maximum entity records, including empty records.
-	pub records: usize,
-	/// Maximum key/value pairs across all records.
-	pub pairs: usize,
-	/// Maximum bytes in a single key or value, excluding quotes.
-	pub token_bytes: usize,
-	/// Maximum consumed input bytes during tokenization.
-	pub work: usize,
-}
-
-impl Default for EntityLimits {
-	fn default() -> Self {
-		Self {
-			input_bytes: 8 << 20,
-			records: 65_536,
-			pairs: 524_288,
-			token_bytes: 65_536,
-			work: 16 << 20,
-		}
-	}
-}
-
-/// The resource whose bound could not be satisfied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntityResource {
-	InputBytes,
-	Records,
-	Pairs,
-	TokenBytes,
-	Work,
-}
-
-/// A malformed flat entity grammar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntitySyntax {
-	ExpectedEntity,
-	UnexpectedClose,
-	NestedEntity,
-	MissingValue,
-	UnterminatedEntity,
-	UnterminatedQuote,
-	InteriorNul,
-}
-
-/// Parsing never returns a silently truncated or partially accepted snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum EntityError {
-	#[error("entity syntax at byte {offset}: {kind:?}")]
-	Syntax { offset: usize, kind: EntitySyntax },
-	#[error("entity {resource:?} budget exceeded (limit {limit})")]
-	Budget {
-		resource: EntityResource,
-		limit: usize,
-	},
-	#[error("could not allocate entity {resource:?}")]
-	Allocation { resource: EntityResource },
-}
-
 /// More than one spelling of a requested singleton key was present.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("entity {record} repeats a singleton field at bytes {first} and {second}")]
@@ -84,18 +21,6 @@ pub struct DuplicateField {
 	pub record: usize,
 	pub first: usize,
 	pub second: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PairRange {
-	key: Range<usize>,
-	value: Range<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RecordRange {
-	source: Range<usize>,
-	pairs: Range<usize>,
 }
 
 /// One immutable owned payload and its checked record/pair ranges.
@@ -175,21 +100,21 @@ impl Entities {
 		})
 	}
 
-	/// Original bytes, including accepted terminators and padding.
-	pub fn payload(&self) -> &[u8] {
-		&self.payload
+	pub fn is_empty(&self) -> bool {
+		self.records.is_empty()
 	}
 
 	pub fn len(&self) -> usize {
 		self.records.len()
 	}
 
-	pub fn is_empty(&self) -> bool {
-		self.records.is_empty()
-	}
-
 	pub fn pair_count(&self) -> usize {
 		self.pairs.len()
+	}
+
+	/// Original bytes, including accepted terminators and padding.
+	pub fn payload(&self) -> &[u8] {
+		&self.payload
 	}
 
 	/// A view borrows only this owned snapshot, never an engine allocation.
@@ -208,79 +133,67 @@ impl Entities {
 	}
 }
 
-/// A record view, tied to the snapshot that owns all of its ranges.
-#[derive(Debug, Clone, Copy)]
-pub struct Record<'a> {
-	entities: &'a Entities,
-	index: usize,
+/// Parsing never returns a silently truncated or partially accepted snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EntityError {
+	#[error("entity syntax at byte {offset}: {kind:?}")]
+	Syntax { offset: usize, kind: EntitySyntax },
+	#[error("entity {resource:?} budget exceeded (limit {limit})")]
+	Budget {
+		resource: EntityResource,
+		limit: usize,
+	},
+	#[error("could not allocate entity {resource:?}")]
+	Allocation { resource: EntityResource },
 }
 
-impl<'a> Record<'a> {
-	pub fn index(self) -> usize {
-		self.index
-	}
+/// Bounds on parsing one payload. These bound counts, not exact allocator RSS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EntityLimits {
+	/// Maximum input bytes, including terminators and padding.
+	pub input_bytes: usize,
+	/// Maximum entity records, including empty records.
+	pub records: usize,
+	/// Maximum key/value pairs across all records.
+	pub pairs: usize,
+	/// Maximum bytes in a single key or value, excluding quotes.
+	pub token_bytes: usize,
+	/// Maximum consumed input bytes during tokenization.
+	pub work: usize,
+}
 
-	/// The complete entity text, including its opening and closing braces.
-	pub fn source(self) -> Range<usize> {
-		self.entities.records[self.index].source.clone()
-	}
-
-	pub fn pairs(self) -> impl ExactSizeIterator<Item = Pair<'a>> + DoubleEndedIterator {
-		let record = &self.entities.records[self.index];
-		self.entities.pairs[record.pairs.clone()]
-			.iter()
-			.map(move |pair| Pair {
-				key: &self.entities.payload[pair.key.clone()],
-				value: &self.entities.payload[pair.value.clone()],
-				key_source: pair.key.clone(),
-				value_source: pair.value.clone(),
-			})
-	}
-
-	/// Returns all matching values in their original order, without allocation.
-	pub fn values_ascii(self, key: &'a [u8]) -> impl Iterator<Item = &'a [u8]> {
-		self.pairs()
-			.filter(move |pair| pair.key.eq_ignore_ascii_case(key))
-			.map(|pair| pair.value)
-	}
-
-	/// A semantic consumer can require exactly one occurrence of a field.
-	///
-	/// Even identical repeated values are reported as duplicates. This does not
-	/// change the underlying records or assume the game's first/last-key policy.
-	pub fn singleton_ascii(self, key: &[u8]) -> Result<Option<&'a [u8]>, DuplicateField> {
-		let mut found: Option<(&'a [u8], usize)> = None;
-		for pair in self.pairs() {
-			if !pair.key.eq_ignore_ascii_case(key) {
-				continue;
-			}
-			if let Some((_, first)) = found {
-				return Err(DuplicateField {
-					record: self.index,
-					first,
-					second: pair.key_source.start,
-				});
-			}
-			found = Some((pair.value, pair.key_source.start));
+impl Default for EntityLimits {
+	fn default() -> Self {
+		Self {
+			input_bytes: 8 << 20,
+			records: 65_536,
+			pairs: 524_288,
+			token_bytes: 65_536,
+			work: 16 << 20,
 		}
-		Ok(found.map(|(value, _)| value))
 	}
 }
 
-/// Original token bytes and their quote-excluding positions in the payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pair<'a> {
-	pub key: &'a [u8],
-	pub value: &'a [u8],
-	pub key_source: Range<usize>,
-	pub value_source: Range<usize>,
+/// The resource whose bound could not be satisfied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntityResource {
+	InputBytes,
+	Records,
+	Pairs,
+	TokenBytes,
+	Work,
 }
 
-enum Token {
-	Open(usize),
-	Close(usize),
-	Value(Range<usize>),
-	End,
+/// A malformed flat entity grammar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntitySyntax {
+	ExpectedEntity,
+	UnexpectedClose,
+	NestedEntity,
+	MissingValue,
+	UnterminatedEntity,
+	UnterminatedQuote,
+	InteriorNul,
 }
 
 struct Lexer<'a> {
@@ -398,8 +311,91 @@ impl Lexer<'_> {
 	}
 }
 
-fn syntax(offset: usize, kind: EntitySyntax) -> EntityError {
-	EntityError::Syntax { offset, kind }
+/// Original token bytes and their quote-excluding positions in the payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pair<'a> {
+	pub key: &'a [u8],
+	pub value: &'a [u8],
+	pub key_source: Range<usize>,
+	pub value_source: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PairRange {
+	key: Range<usize>,
+	value: Range<usize>,
+}
+
+/// A record view, tied to the snapshot that owns all of its ranges.
+#[derive(Debug, Clone, Copy)]
+pub struct Record<'a> {
+	entities: &'a Entities,
+	index: usize,
+}
+
+impl<'a> Record<'a> {
+	pub fn index(self) -> usize {
+		self.index
+	}
+
+	pub fn pairs(self) -> impl ExactSizeIterator<Item = Pair<'a>> + DoubleEndedIterator {
+		let record = &self.entities.records[self.index];
+		self.entities.pairs[record.pairs.clone()]
+			.iter()
+			.map(move |pair| Pair {
+				key: &self.entities.payload[pair.key.clone()],
+				value: &self.entities.payload[pair.value.clone()],
+				key_source: pair.key.clone(),
+				value_source: pair.value.clone(),
+			})
+	}
+
+	/// A semantic consumer can require exactly one occurrence of a field.
+	///
+	/// Even identical repeated values are reported as duplicates. This does not
+	/// change the underlying records or assume the game's first/last-key policy.
+	pub fn singleton_ascii(self, key: &[u8]) -> Result<Option<&'a [u8]>, DuplicateField> {
+		let mut found: Option<(&'a [u8], usize)> = None;
+		for pair in self.pairs() {
+			if !pair.key.eq_ignore_ascii_case(key) {
+				continue;
+			}
+			if let Some((_, first)) = found {
+				return Err(DuplicateField {
+					record: self.index,
+					first,
+					second: pair.key_source.start,
+				});
+			}
+			found = Some((pair.value, pair.key_source.start));
+		}
+		Ok(found.map(|(value, _)| value))
+	}
+
+	/// The complete entity text, including its opening and closing braces.
+	pub fn source(self) -> Range<usize> {
+		self.entities.records[self.index].source.clone()
+	}
+
+	/// Returns all matching values in their original order, without allocation.
+	pub fn values_ascii(self, key: &'a [u8]) -> impl Iterator<Item = &'a [u8]> {
+		self.pairs()
+			.filter(move |pair| pair.key.eq_ignore_ascii_case(key))
+			.map(|pair| pair.value)
+	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecordRange {
+	source: Range<usize>,
+	pairs: Range<usize>,
+}
+
+enum Token {
+	Open(usize),
+	Close(usize),
+	Value(Range<usize>),
+	End,
 }
 
 fn check(value: usize, limit: usize, resource: EntityResource) -> Result<(), EntityError> {
@@ -424,4 +420,8 @@ fn reserve<T>(
 	values
 		.try_reserve(additional)
 		.map_err(|_| EntityError::Allocation { resource })
+}
+
+fn syntax(offset: usize, kind: EntitySyntax) -> EntityError {
+	EntityError::Syntax { offset, kind }
 }

@@ -29,6 +29,14 @@ enum Seen {
 	Client(usize, usize),
 }
 
+/// The mock client's own `FireGameEvent`, which notes the event.
+unsafe extern "C" fn client_fire_game_event(
+	this: *mut sys::IGameEventListener2,
+	event: *mut sys::IGameEvent,
+) {
+	SEEN.with_borrow_mut(|seen| seen.push(Seen::Client(this.addr(), event.addr())));
+}
+
 #[test]
 fn events_an_earlier_hook_withheld_reach_neither_the_callback_nor_the_client() {
 	on_both(|harness| {
@@ -111,14 +119,6 @@ fn events_reach_the_callback_and_withheld_ones_skip_the_client() {
 			vec![Seen::Client(listener_address, 0)]
 		);
 	});
-}
-
-/// The mock client's own `FireGameEvent`, which notes the event.
-unsafe extern "C" fn client_fire_game_event(
-	this: *mut sys::IGameEventListener2,
-	event: *mut sys::IGameEvent,
-) {
-	SEEN.with_borrow_mut(|seen| seen.push(Seen::Client(this.addr(), event.addr())));
 }
 
 /// A new mock client of the engine's, and its `IGameEventListener2` base,

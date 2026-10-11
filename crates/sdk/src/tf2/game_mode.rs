@@ -37,6 +37,9 @@ use sdk_raw::tf2::game_mode::{
 use sdk_raw::tf2::game_rules::is_holiday_active;
 use std::ffi::{CStr, c_int};
 
+/// The `m_nForceEscortPushLogic` of the game rules.
+const ESCORT_PUSH: &CStr = c"m_nForceEscortPushLogic";
+
 /// The `m_nGameType` of the game rules.
 const GAME_TYPE: &CStr = c"m_nGameType";
 
@@ -49,17 +52,14 @@ const HUD_TYPE: &CStr = c"m_nHudType";
 /// The `m_nMapHolidayType` of the game rules.
 const MAP_HOLIDAY: &CStr = c"m_nMapHolidayType";
 
-/// The `m_bIsUsingSpells` of the game rules.
-const USES_SPELLS: &CStr = c"m_bIsUsingSpells";
-
-/// The `m_nForceEscortPushLogic` of the game rules.
-const ESCORT_PUSH: &CStr = c"m_nForceEscortPushLogic";
-
 /// The `m_bHelltowerPlayersInHell` of the game rules.
 const PLAYERS_IN_HELL: &CStr = c"m_bHelltowerPlayersInHell";
 
 /// The `m_nForceUpgrades` of the game rules.
 const UPGRADES: &CStr = c"m_nForceUpgrades";
+
+/// The `m_bIsUsingSpells` of the game rules.
+const USES_SPELLS: &CStr = c"m_bIsUsingSpells";
 
 /// The game type of a level (`ETFGameType`), which TF2 decides from its
 /// objective entities, and which decides the HUD clients show for it, unless
@@ -473,17 +473,6 @@ impl GameRules<'_> {
 		unsafe { self.set(engine, PLAYERS_IN_HELL, in_hell) }
 	}
 
-	/// Forces Mann vs. Machine's upgrades on or off (`m_nForceUpgrades`), with
-	/// which players buy upgrades at the level's upgrade stations, and
-	/// buildings and canteens act as in Mann vs. Machine.
-	///
-	/// Fails with [`GameRulesError::UnknownValue`] for a value
-	/// [`RuleOverride`] does not know.
-	#[doc(alias("m_nForceUpgrades", "GameModeUsesUpgrades"))]
-	pub fn upgrades_override(self) -> Result<RuleOverride, GameRulesError> {
-		self.rule_override(UPGRADES)
-	}
-
 	/// Forces Mann vs. Machine's upgrades on or off, as
 	/// [`Self::upgrades_override`] reads it, and records the change for
 	/// clients, as a script's `ForceEnableUpgrades` does.
@@ -495,6 +484,17 @@ impl GameRules<'_> {
 	) -> Result<(), GameRulesError> {
 		// SAFETY: As for `set_escort_push_override`.
 		unsafe { self.set(engine, UPGRADES, value.to_raw()) }
+	}
+
+	/// Forces Mann vs. Machine's upgrades on or off (`m_nForceUpgrades`), with
+	/// which players buy upgrades at the level's upgrade stations, and
+	/// buildings and canteens act as in Mann vs. Machine.
+	///
+	/// Fails with [`GameRulesError::UnknownValue`] for a value
+	/// [`RuleOverride`] does not know.
+	#[doc(alias("m_nForceUpgrades", "GameModeUsesUpgrades"))]
+	pub fn upgrades_override(self) -> Result<RuleOverride, GameRulesError> {
+		self.rule_override(UPGRADES)
 	}
 }
 
@@ -540,6 +540,27 @@ impl GameRules<'_> {
 		}
 	}
 
+	/// The HUD the level has clients show (`m_nHudType`).
+	///
+	/// Fails with [`GameRulesError::UnknownValue`] for a value [`HudType`]
+	/// does not know.
+	#[doc(alias("m_nHudType", "GetHUDType"))]
+	pub fn hud_type(self) -> Result<HudType, GameRulesError> {
+		let raw = self.read::<c_int>(HUD_TYPE)?;
+
+		HudType::from_raw(raw).ok_or(GameRulesError::UnknownValue {
+			variable: HUD_TYPE,
+			value: raw,
+		})
+	}
+
+	/// Whether the game is a matchmade competitive or casual match
+	/// (`m_bCompetitiveMode`).
+	#[doc(alias("m_bCompetitiveMode", "IsCompetitiveMode"))]
+	pub fn is_competitive(self) -> Result<bool, GameRulesError> {
+		self.read(c"m_bCompetitiveMode")
+	}
+
 	/// Whether `holiday` is active, as the game rules decide
 	/// (`IsHolidayActive`): never while `tf_force_holidays_off` is set, and
 	/// otherwise while `tf_forced_holiday` or an item forces it, while the level
@@ -553,13 +574,6 @@ impl GameRules<'_> {
 		// SAFETY: The game rules are TF2's live `CTFGameRules`, as `GameRules::get`
 		// checks the game, and they are only used on the main thread.
 		unsafe { is_holiday_active(self.as_non_null(), holiday.to_raw()) }
-	}
-
-	/// Whether the game is a matchmade competitive or casual match
-	/// (`m_bCompetitiveMode`).
-	#[doc(alias("m_bCompetitiveMode", "IsCompetitiveMode"))]
-	pub fn is_competitive(self) -> Result<bool, GameRulesError> {
-		self.read(c"m_bCompetitiveMode")
 	}
 
 	/// Whether the level is a hybrid of Capture the Flag and control points
@@ -618,20 +632,6 @@ impl GameRules<'_> {
 		self.read(c"m_bTruceActive")
 	}
 
-	/// The HUD the level has clients show (`m_nHudType`).
-	///
-	/// Fails with [`GameRulesError::UnknownValue`] for a value [`HudType`]
-	/// does not know.
-	#[doc(alias("m_nHudType", "GetHUDType"))]
-	pub fn hud_type(self) -> Result<HudType, GameRulesError> {
-		let raw = self.read::<c_int>(HUD_TYPE)?;
-
-		HudType::from_raw(raw).ok_or(GameRulesError::UnknownValue {
-			variable: HUD_TYPE,
-			value: raw,
-		})
-	}
-
 	/// The holiday the level is made for (`m_nMapHolidayType`), from its
 	/// `tf_logic_holiday`, or `None` for a level made for none.
 	///
@@ -651,18 +651,6 @@ impl GameRules<'_> {
 		}
 	}
 
-	/// Whether the level turned spells on (`m_bIsUsingSpells`), as a
-	/// `tf_logic_holiday`'s `HalloweenSetUsingSpells` input or a script's
-	/// `SetUsingSpells` does, so players pick up spellbooks.
-	///
-	/// The game's own `IsUsingSpells` is also true while `tf_spells_enabled`
-	/// is set, and on [Helltower](HalloweenScenario::Helltower), neither of
-	/// which this reads.
-	#[doc(alias("m_bIsUsingSpells"))]
-	pub fn uses_spells(self) -> Result<bool, GameRulesError> {
-		self.read(USES_SPELLS)
-	}
-
 	/// Turns the level's spells on or off, as [`Self::uses_spells`] reads
 	/// them, and records the change for clients, as `CTFGameRules`'
 	/// `SetUsingSpells` does.
@@ -676,5 +664,17 @@ impl GameRules<'_> {
 		// `SetUsingSpells`, from scripts and inputs alike, and reads it only to
 		// decide whether players may use spells.
 		unsafe { self.set(engine, USES_SPELLS, using) }
+	}
+
+	/// Whether the level turned spells on (`m_bIsUsingSpells`), as a
+	/// `tf_logic_holiday`'s `HalloweenSetUsingSpells` input or a script's
+	/// `SetUsingSpells` does, so players pick up spellbooks.
+	///
+	/// The game's own `IsUsingSpells` is also true while `tf_spells_enabled`
+	/// is set, and on [Helltower](HalloweenScenario::Helltower), neither of
+	/// which this reads.
+	#[doc(alias("m_bIsUsingSpells"))]
+	pub fn uses_spells(self) -> Result<bool, GameRulesError> {
+		self.read(USES_SPELLS)
 	}
 }

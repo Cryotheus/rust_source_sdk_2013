@@ -75,6 +75,82 @@ fn heal(
 	(CALLS.take(), returned, GAINED.take())
 }
 
+#[test]
+fn heal_hooks_are_given_what_an_earlier_hook_returned() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut player = Player::of_new_class();
+		let address = player.ptr().addr().get();
+
+		// Another hook, which skips every heal and returns 3 instead.
+		fn skip(_call: &HookCall<'_, TakeHealth>) -> HookAction<c_int> {
+			HookAction::Supersede(3)
+		}
+
+		// SAFETY: The mock class has `TakeHealth` at the slot, and is leaked.
+		unsafe {
+			api.add_hook(
+				TAKE_HEALTH,
+				HookTarget::class_of(player.ptr()),
+				HookTiming::Pre,
+				&skip,
+			)
+			.unwrap();
+			api.install_player_healed(player.ptr(), tf2_binding(no_interfaces), on_healed)
+				.unwrap();
+		}
+
+		assert_eq!(
+			heal(harness, &mut player, 10.0),
+			(vec![("healed", address)], 3, vec![3])
+		);
+	});
+}
+
+#[test]
+fn heals_reach_each_class_hook_after_the_game_with_the_health_gained() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut player = Player::of_new_class();
+		let mut bot = Player::of_new_class();
+		let (player_address, bot_address) = (player.ptr().addr().get(), bot.ptr().addr().get());
+
+		for object in [player.ptr(), bot.ptr()] {
+			// SAFETY: The mock classes have `int (float, int)` methods at the
+			// slot, and are leaked.
+			unsafe { api.install_player_healed(object, tf2_binding(no_interfaces), on_healed) }
+				.unwrap();
+		}
+
+		// A second hook of a class is refused, so that each heal is reported
+		// once.
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe {
+				api.install_player_healed(player.ptr(), tf2_binding(no_interfaces), on_healed)
+			},
+			Err(PlayerHookError::Hook(HookError::AlreadyInstalled))
+		));
+
+		assert_eq!(
+			heal(harness, &mut player, 7.5),
+			(
+				vec![("game", player_address), ("healed", player_address)],
+				7,
+				vec![7]
+			)
+		);
+		assert_eq!(
+			heal(harness, &mut bot, 0.0),
+			(
+				vec![("game", bot_address), ("healed", bot_address)],
+				0,
+				vec![0]
+			)
+		);
+	});
+}
+
 fn on_healed(_server: Server<'_>, player: Entity<'_>, gained: c_int) {
 	CALLS.with_borrow_mut(|calls| calls.push(("healed", player.as_ptr().addr())));
 	GAINED.with_borrow_mut(|all| all.push(gained));
@@ -97,6 +173,41 @@ fn run(
 	CALLS.take();
 	harness.call::<PlayerMethod>(player.ptr().as_ptr(), function.index(), ());
 	CALLS.take()
+}
+
+#[test]
+fn spawn_hooks_run_after_superseded_spawns() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut player = Player::of_new_class();
+		let address = player.ptr().addr().get();
+
+		// Another hook, which skips every spawn.
+		fn skip(_call: &HookCall<'_, PlayerMethod>) -> HookAction<()> {
+			HookAction::Supersede(())
+		}
+
+		// SAFETY: The mock class has `Spawn` at the slot, and is leaked.
+		unsafe {
+			api.add_hook(
+				SPAWN,
+				HookTarget::class_of(player.ptr()),
+				HookTiming::Pre,
+				&skip,
+			)
+			.unwrap();
+			api.install_player_method(
+				player.ptr(),
+				tf2_binding(no_interfaces),
+				on_spawned,
+				SPAWN,
+				&SPAWNED_ROUTES,
+			)
+			.unwrap();
+		}
+
+		assert_eq!(run(harness, &mut player, SPAWN), [("spawned", address)]);
+	});
 }
 
 #[test]
@@ -161,117 +272,6 @@ fn spawns_and_score_resets_reach_each_class_hook_after_the_game() {
 		assert_eq!(
 			run(harness, &mut bot, RESET_SCORES),
 			[("game", bot_address), ("scores reset", bot_address)]
-		);
-	});
-}
-
-#[test]
-fn spawn_hooks_run_after_superseded_spawns() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut player = Player::of_new_class();
-		let address = player.ptr().addr().get();
-
-		// Another hook, which skips every spawn.
-		fn skip(_call: &HookCall<'_, PlayerMethod>) -> HookAction<()> {
-			HookAction::Supersede(())
-		}
-
-		// SAFETY: The mock class has `Spawn` at the slot, and is leaked.
-		unsafe {
-			api.add_hook(
-				SPAWN,
-				HookTarget::class_of(player.ptr()),
-				HookTiming::Pre,
-				&skip,
-			)
-			.unwrap();
-			api.install_player_method(
-				player.ptr(),
-				tf2_binding(no_interfaces),
-				on_spawned,
-				SPAWN,
-				&SPAWNED_ROUTES,
-			)
-			.unwrap();
-		}
-
-		assert_eq!(run(harness, &mut player, SPAWN), [("spawned", address)]);
-	});
-}
-
-#[test]
-fn heals_reach_each_class_hook_after_the_game_with_the_health_gained() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut player = Player::of_new_class();
-		let mut bot = Player::of_new_class();
-		let (player_address, bot_address) = (player.ptr().addr().get(), bot.ptr().addr().get());
-
-		for object in [player.ptr(), bot.ptr()] {
-			// SAFETY: The mock classes have `int (float, int)` methods at the
-			// slot, and are leaked.
-			unsafe { api.install_player_healed(object, tf2_binding(no_interfaces), on_healed) }
-				.unwrap();
-		}
-
-		// A second hook of a class is refused, so that each heal is reported
-		// once.
-		assert!(matches!(
-			// SAFETY: As above.
-			unsafe {
-				api.install_player_healed(player.ptr(), tf2_binding(no_interfaces), on_healed)
-			},
-			Err(PlayerHookError::Hook(HookError::AlreadyInstalled))
-		));
-
-		assert_eq!(
-			heal(harness, &mut player, 7.5),
-			(
-				vec![("game", player_address), ("healed", player_address)],
-				7,
-				vec![7]
-			)
-		);
-		assert_eq!(
-			heal(harness, &mut bot, 0.0),
-			(
-				vec![("game", bot_address), ("healed", bot_address)],
-				0,
-				vec![0]
-			)
-		);
-	});
-}
-
-#[test]
-fn heal_hooks_are_given_what_an_earlier_hook_returned() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut player = Player::of_new_class();
-		let address = player.ptr().addr().get();
-
-		// Another hook, which skips every heal and returns 3 instead.
-		fn skip(_call: &HookCall<'_, TakeHealth>) -> HookAction<c_int> {
-			HookAction::Supersede(3)
-		}
-
-		// SAFETY: The mock class has `TakeHealth` at the slot, and is leaked.
-		unsafe {
-			api.add_hook(
-				TAKE_HEALTH,
-				HookTarget::class_of(player.ptr()),
-				HookTiming::Pre,
-				&skip,
-			)
-			.unwrap();
-			api.install_player_healed(player.ptr(), tf2_binding(no_interfaces), on_healed)
-				.unwrap();
-		}
-
-		assert_eq!(
-			heal(harness, &mut player, 10.0),
-			(vec![("healed", address)], 3, vec![3])
 		);
 	});
 }

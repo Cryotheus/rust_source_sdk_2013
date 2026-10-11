@@ -67,6 +67,35 @@ fn spawn(harness: &Harness, entity: &mut Mock) -> Vec<(&'static str, usize)> {
 }
 
 #[test]
+fn spawn_hooks_run_after_superseded_spawns() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut flames = Mock::of_new_class();
+		let address = flames.ptr().addr().get();
+
+		// Another hook, which skips every spawn.
+		fn skip(_call: &HookCall<'_, Spawn>) -> HookAction<()> {
+			HookAction::Supersede(())
+		}
+
+		// SAFETY: The mock class has `Spawn` at the slot, and is leaked.
+		unsafe {
+			api.add_hook(
+				SPAWN,
+				HookTarget::vtable(flames.vtable()),
+				HookTiming::Pre,
+				&skip,
+			)
+			.unwrap();
+			api.install_spawns(flames.vtable(), tf2_binding(no_interfaces), on_spawned)
+				.unwrap();
+		}
+
+		assert_eq!(spawn(harness, &mut flames), [("spawned", address)]);
+	});
+}
+
+#[test]
 fn spawns_reach_each_class_hook_after_the_game() {
 	on_both(|harness| {
 		let api = harness.api();
@@ -127,34 +156,5 @@ fn spawns_reach_each_class_hook_after_the_game() {
 			spawn(harness, &mut flames),
 			[("game", flames_address), ("spawned", flames_address)]
 		);
-	});
-}
-
-#[test]
-fn spawn_hooks_run_after_superseded_spawns() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut flames = Mock::of_new_class();
-		let address = flames.ptr().addr().get();
-
-		// Another hook, which skips every spawn.
-		fn skip(_call: &HookCall<'_, Spawn>) -> HookAction<()> {
-			HookAction::Supersede(())
-		}
-
-		// SAFETY: The mock class has `Spawn` at the slot, and is leaked.
-		unsafe {
-			api.add_hook(
-				SPAWN,
-				HookTarget::vtable(flames.vtable()),
-				HookTiming::Pre,
-				&skip,
-			)
-			.unwrap();
-			api.install_spawns(flames.vtable(), tf2_binding(no_interfaces), on_spawned)
-				.unwrap();
-		}
-
-		assert_eq!(spawn(harness, &mut flames), [("spawned", address)]);
 	});
 }

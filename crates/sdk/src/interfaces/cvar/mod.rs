@@ -85,6 +85,19 @@ impl<'s> CommandBase<'s> {
 		CommandFlags::from_bits_retain(unsafe { (&raw const (*self.as_ptr()).m_nFlags).read() })
 	}
 
+	/// Its help text, as `help` prints it, or empty: for a variable, that of
+	/// the variable that holds its value, as [`ConVar::help_text`] reads it.
+	#[doc(alias("GetHelpText"))]
+	pub fn help_text(self) -> &'s CStr {
+		if let Some(var) = self.as_var() {
+			return var.help_text();
+		}
+
+		// SAFETY: As for `name`. The engine keeps the text with the entry.
+		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pszHelpString).read()) }
+			.unwrap_or_default()
+	}
+
 	/// Whether this is a command or a variable, as its `IsCommand` reported
 	/// when the registry was listed.
 	#[doc(alias("IsCommand"))]
@@ -99,19 +112,6 @@ impl<'s> CommandBase<'s> {
 		// keeps it allocated, with its name unchanged, for `'s`. The field is
 		// read without forming a reference.
 		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pszName).read()) }.unwrap_or_default()
-	}
-
-	/// Its help text, as `help` prints it, or empty: for a variable, that of
-	/// the variable that holds its value, as [`ConVar::help_text`] reads it.
-	#[doc(alias("GetHelpText"))]
-	pub fn help_text(self) -> &'s CStr {
-		if let Some(var) = self.as_var() {
-			return var.help_text();
-		}
-
-		// SAFETY: As for `name`. The engine keeps the text with the entry.
-		unsafe { borrow_cstr((&raw const (*self.as_ptr()).m_pszHelpString).read()) }
-			.unwrap_or_default()
 	}
 }
 
@@ -182,14 +182,6 @@ impl<'s> ConVar<'s> {
 		self.raw.as_ptr()
 	}
 
-	/// The value the variable was declared with.
-	#[doc(alias("GetDefault"))]
-	pub fn default_string(self) -> CString {
-		// SAFETY: As for `string`.
-		unsafe { copy_cstr((&raw const (*self.parent()).m_pszDefaultValue).read()) }
-			.unwrap_or_default()
-	}
-
 	/// The least and the most value the variable takes, each `None` where it
 	/// has no bound. Setting it clamps a value to these.
 	#[doc(alias("GetMin", "GetMax"))]
@@ -209,12 +201,11 @@ impl<'s> ConVar<'s> {
 		}
 	}
 
-	/// The help text of the variable that holds the value, as `help` prints it,
-	/// or empty.
-	#[doc(alias("GetHelpText"))]
-	pub fn help_text(self) -> &'s CStr {
-		// SAFETY: As for `name`. The engine keeps the text with the variable.
-		unsafe { borrow_cstr((&raw const (*self.parent())._base.m_pszHelpString).read()) }
+	/// The value the variable was declared with.
+	#[doc(alias("GetDefault"))]
+	pub fn default_string(self) -> CString {
+		// SAFETY: As for `string`.
+		unsafe { copy_cstr((&raw const (*self.parent()).m_pszDefaultValue).read()) }
 			.unwrap_or_default()
 	}
 
@@ -233,6 +224,15 @@ impl<'s> ConVar<'s> {
 	pub fn float(self) -> f32 {
 		// SAFETY: As for `name`.
 		unsafe { (&raw const (*self.parent()).m_fValue).read() }
+	}
+
+	/// The help text of the variable that holds the value, as `help` prints it,
+	/// or empty.
+	#[doc(alias("GetHelpText"))]
+	pub fn help_text(self) -> &'s CStr {
+		// SAFETY: As for `name`. The engine keeps the text with the variable.
+		unsafe { borrow_cstr((&raw const (*self.parent())._base.m_pszHelpString).read()) }
+			.unwrap_or_default()
 	}
 
 	/// The current value as an integer.
@@ -484,6 +484,14 @@ pub enum ConVarWatchError {
 	AlreadyWatching,
 }
 
+/// What the function a watch installed passes changes to.
+#[derive(Clone, Copy)]
+struct Watching {
+	binding: ServerBinding,
+	callback: ConVarChangeFn,
+	cvar: NonNull<sys::ICvar>,
+}
+
 impl<'s> Cvar<'s> {
 	/// Reserves an identifier, which `ICvar::UnregisterConCommands` uses to
 	/// unlink every command a module registered.
@@ -710,14 +718,6 @@ impl<'s> Cvar<'s> {
 			_not_thread_safe: PhantomData,
 		})
 	}
-}
-
-/// What the function a watch installed passes changes to.
-#[derive(Clone, Copy)]
-struct Watching {
-	binding: ServerBinding,
-	callback: ConVarChangeFn,
-	cvar: NonNull<sys::ICvar>,
 }
 
 /// The function [`Cvar::watch_changes`] installs, which the engine calls

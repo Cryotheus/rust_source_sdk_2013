@@ -50,13 +50,6 @@ fn on_update(_server: Server<'_>, resource: Entity<'_>) {
 	CALLS.with_borrow_mut(|calls| calls.push(("callback", resource.as_ptr().addr())));
 }
 
-/// Runs `resource`'s hooked think, and returns what ran.
-fn think(harness: &Harness, resource: &mut Resource) -> Vec<(&'static str, usize)> {
-	CALLS.take();
-	harness.call::<Think>(resource.ptr().as_ptr(), THINK_SLOT, ());
-	CALLS.take()
-}
-
 #[test]
 fn one_hook_covers_the_resource_of_every_level() {
 	on_both(|harness| {
@@ -201,6 +194,13 @@ fn the_resource_is_looked_for_unless_already_hooked() {
 			Err(ScoreboardHookError::Hook(HookError::AlreadyInstalled))
 		));
 	});
+}
+
+/// Runs `resource`'s hooked think, and returns what ran.
+fn think(harness: &Harness, resource: &mut Resource) -> Vec<(&'static str, usize)> {
+	CALLS.take();
+	harness.call::<Think>(resource.ptr().as_ptr(), THINK_SLOT, ());
+	CALLS.take()
 }
 
 #[test]

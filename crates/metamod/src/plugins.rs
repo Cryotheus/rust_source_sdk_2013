@@ -20,97 +20,6 @@ const FREE_RUN: PluginId = 4096;
 /// The longest reason [`PluginManager::query_running`] reads, with its NUL.
 const REASON_BYTES: usize = 256;
 
-/// Whether a plugin runs, as Metamod's `Pl_Status` says.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PluginState {
-	/// `Pl_Running`.
-	Running,
-
-	/// `Pl_Paused`: Metamod skips its hooks until it is unpaused.
-	Paused,
-
-	/// `Pl_Refused`: its `Load` refused, so it holds nothing.
-	Refused,
-
-	/// `Pl_Error`: its file is no plugin Metamod can load.
-	Error,
-
-	/// `Pl_NotFound`: its file was not found.
-	NotFound,
-
-	/// A status this crate does not know.
-	Other(c_int),
-}
-
-impl PluginState {
-	pub const fn from_raw(raw: PlStatus) -> Self {
-		match raw {
-			raw::PL_RUNNING => Self::Running,
-			raw::PL_PAUSED => Self::Paused,
-			raw::PL_REFUSED => Self::Refused,
-			raw::PL_ERROR => Self::Error,
-			raw::PL_NOT_FOUND => Self::NotFound,
-			other => Self::Other(other),
-		}
-	}
-
-	pub const fn to_raw(self) -> PlStatus {
-		match self {
-			Self::Running => raw::PL_RUNNING,
-			Self::Paused => raw::PL_PAUSED,
-			Self::Refused => raw::PL_REFUSED,
-			Self::Error => raw::PL_ERROR,
-			Self::NotFound => raw::PL_NOT_FOUND,
-			Self::Other(other) => other,
-		}
-	}
-
-	/// The state as `meta list` shows it, but for a running plugin, which it
-	/// shows without one: `RUNNING`, `PAUSED`, `FAILED`, `ERROR`, `NOFILE`, or
-	/// `-` for another.
-	pub const fn name(self) -> &'static str {
-		match self {
-			Self::Running => "RUNNING",
-			Self::Paused => "PAUSED",
-			Self::Refused => "FAILED",
-			Self::Error => "ERROR",
-			Self::NotFound => "NOFILE",
-			Self::Other(_) => "-",
-		}
-	}
-}
-
-/// What loaded a plugin, as `ISmmPluginManager::Query` reports it.
-///
-/// Metamod:Source 1.12 and 2.0 never record it: their plugin manager passes
-/// `Pl_Console` or `Pl_File` to its loads but leaves each plugin's source at
-/// 0, so every plugin reads as `Other(0)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PluginSource {
-	/// `Pl_Console`: `meta load`.
-	Console,
-
-	/// `Pl_File`: Metamod's plugin files, as it starts.
-	File,
-
-	/// Another plugin, by its ID.
-	Plugin(PluginId),
-
-	/// A source this crate does not know, such as the 0 that Metamod leaves.
-	Other(PluginId),
-}
-
-impl PluginSource {
-	pub const fn from_raw(raw: PluginId) -> Self {
-		match raw {
-			raw::PL_CONSOLE => Self::Console,
-			raw::PL_FILE => Self::File,
-			id if id >= raw::PL_MIN_ID => Self::Plugin(id),
-			other => Self::Other(other),
-		}
-	}
-}
-
 /// A plugin in Metamod's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginEntry {
@@ -138,17 +47,6 @@ pub struct PluginManager {
 	_not_send_or_sync: PhantomData<*mut ()>,
 }
 
-impl MetamodApi<'_> {
-	/// `MetaFactory(MMIFACE_PLMANAGER)`: Metamod's plugin manager.
-	pub fn plugin_manager(&self) -> Option<PluginManager> {
-		let this = self.meta_interface(raw::MMIFACE_PLMANAGER)?;
-
-		// SAFETY: Metamod gives its plugin manager by this name, and keeps it
-		// while it is loaded, on the thread that called the callback.
-		Some(unsafe { PluginManager::from_raw(this.cast()) })
-	}
-}
-
 impl PluginManager {
 	/// # Safety
 	///
@@ -164,6 +62,37 @@ impl PluginManager {
 
 	pub const fn as_ptr(self) -> *mut ISmmPluginManager {
 		self.this.as_ptr()
+	}
+
+	/// Every plugin in Metamod's list, in the order of their IDs.
+	///
+	/// The interface lists no IDs, so this asks for each from the first, and
+	/// stops once 4096 in a row are free. Each load takes the next ID, a
+	/// failed one included, so plugins past a gap of more loads than that
+	/// since are missed.
+	pub fn plugins(self) -> Vec<PluginEntry> {
+		let mut plugins = Vec::new();
+		let mut free = 0;
+		let mut id = raw::PL_MIN_ID;
+
+		while free < FREE_RUN {
+			match self.query(id) {
+				Some(plugin) => {
+					plugins.push(plugin);
+					free = 0;
+				}
+
+				None => free += 1,
+			}
+
+			let Some(next) = id.checked_add(1) else {
+				break;
+			};
+
+			id = next;
+		}
+
+		plugins
 	}
 
 	/// The plugin with `id`, or `None` when Metamod has none by it: none was
@@ -228,35 +157,106 @@ impl PluginManager {
 			.unwrap_or_default()
 			.to_owned())
 	}
+}
 
-	/// Every plugin in Metamod's list, in the order of their IDs.
-	///
-	/// The interface lists no IDs, so this asks for each from the first, and
-	/// stops once 4096 in a row are free. Each load takes the next ID, a
-	/// failed one included, so plugins past a gap of more loads than that
-	/// since are missed.
-	pub fn plugins(self) -> Vec<PluginEntry> {
-		let mut plugins = Vec::new();
-		let mut free = 0;
-		let mut id = raw::PL_MIN_ID;
+/// What loaded a plugin, as `ISmmPluginManager::Query` reports it.
+///
+/// Metamod:Source 1.12 and 2.0 never record it: their plugin manager passes
+/// `Pl_Console` or `Pl_File` to its loads but leaves each plugin's source at
+/// 0, so every plugin reads as `Other(0)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PluginSource {
+	/// `Pl_Console`: `meta load`.
+	Console,
 
-		while free < FREE_RUN {
-			match self.query(id) {
-				Some(plugin) => {
-					plugins.push(plugin);
-					free = 0;
-				}
+	/// `Pl_File`: Metamod's plugin files, as it starts.
+	File,
 
-				None => free += 1,
-			}
+	/// Another plugin, by its ID.
+	Plugin(PluginId),
 
-			let Some(next) = id.checked_add(1) else {
-				break;
-			};
+	/// A source this crate does not know, such as the 0 that Metamod leaves.
+	Other(PluginId),
+}
 
-			id = next;
+impl PluginSource {
+	pub const fn from_raw(raw: PluginId) -> Self {
+		match raw {
+			raw::PL_CONSOLE => Self::Console,
+			raw::PL_FILE => Self::File,
+			id if id >= raw::PL_MIN_ID => Self::Plugin(id),
+			other => Self::Other(other),
 		}
+	}
+}
 
-		plugins
+/// Whether a plugin runs, as Metamod's `Pl_Status` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PluginState {
+	/// `Pl_Running`.
+	Running,
+
+	/// `Pl_Paused`: Metamod skips its hooks until it is unpaused.
+	Paused,
+
+	/// `Pl_Refused`: its `Load` refused, so it holds nothing.
+	Refused,
+
+	/// `Pl_Error`: its file is no plugin Metamod can load.
+	Error,
+
+	/// `Pl_NotFound`: its file was not found.
+	NotFound,
+
+	/// A status this crate does not know.
+	Other(c_int),
+}
+
+impl PluginState {
+	pub const fn from_raw(raw: PlStatus) -> Self {
+		match raw {
+			raw::PL_RUNNING => Self::Running,
+			raw::PL_PAUSED => Self::Paused,
+			raw::PL_REFUSED => Self::Refused,
+			raw::PL_ERROR => Self::Error,
+			raw::PL_NOT_FOUND => Self::NotFound,
+			other => Self::Other(other),
+		}
+	}
+
+	/// The state as `meta list` shows it, but for a running plugin, which it
+	/// shows without one: `RUNNING`, `PAUSED`, `FAILED`, `ERROR`, `NOFILE`, or
+	/// `-` for another.
+	pub const fn name(self) -> &'static str {
+		match self {
+			Self::Running => "RUNNING",
+			Self::Paused => "PAUSED",
+			Self::Refused => "FAILED",
+			Self::Error => "ERROR",
+			Self::NotFound => "NOFILE",
+			Self::Other(_) => "-",
+		}
+	}
+
+	pub const fn to_raw(self) -> PlStatus {
+		match self {
+			Self::Running => raw::PL_RUNNING,
+			Self::Paused => raw::PL_PAUSED,
+			Self::Refused => raw::PL_REFUSED,
+			Self::Error => raw::PL_ERROR,
+			Self::NotFound => raw::PL_NOT_FOUND,
+			Self::Other(other) => other,
+		}
+	}
+}
+
+impl MetamodApi<'_> {
+	/// `MetaFactory(MMIFACE_PLMANAGER)`: Metamod's plugin manager.
+	pub fn plugin_manager(&self) -> Option<PluginManager> {
+		let this = self.meta_interface(raw::MMIFACE_PLMANAGER)?;
+
+		// SAFETY: Metamod gives its plugin manager by this name, and keeps it
+		// while it is loaded, on the thread that called the callback.
+		Some(unsafe { PluginManager::from_raw(this.cast()) })
 	}
 }

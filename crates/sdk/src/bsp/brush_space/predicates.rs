@@ -10,8 +10,8 @@
 use super::{Budget, Error};
 use num_bigint::{BigInt, Sign as IntegerSign};
 
-const MAX_EXACT_BITS: u64 = 1_200;
 const FILTER_FACTOR: f64 = 32.0 * f64::EPSILON;
+const MAX_EXACT_BITS: u64 = 1_200;
 
 const PERMUTATIONS_3: [([usize; 3], bool); 6] = [
 	([0, 1, 2], false),
@@ -56,28 +56,14 @@ pub(super) enum Sign {
 	Positive,
 }
 
-/// Exact binary32-to-binary64 expansion, including subnormals and signed zero.
-/// Integer bit construction avoids conversions that can flush f32 inputs under
-/// DAZ. Every finite nonzero input becomes a normal f64, without consulting the
-/// rounding mode. Infinity and NaN encodings retain their sign and payload bits.
-pub(super) fn widen(value: f32) -> f64 {
-	let bits = value.to_bits();
-	let sign = u64::from(bits >> 31) << 63;
-	let exponent = (bits >> 23) & 0xff;
-	let fraction = bits & 0x7f_ffff;
-	let widened = match (exponent, fraction) {
-		(0, 0) => sign,
-
-		(0, _) => {
-			let highest = 31 - fraction.leading_zeros();
-			let significand = u64::from(fraction) ^ (1_u64 << highest);
-			sign | (u64::from(highest + 874) << 52) | (significand << (52 - highest))
-		}
-
-		(0xff, _) => sign | (0x7ff_u64 << 52) | (u64::from(fraction) << 29),
-		_ => sign | (u64::from(exponent + 896) << 52) | (u64::from(fraction) << 29),
-	};
-	f64::from_bits(widened)
+fn check_width(value: &BigInt) -> Result<(), Error> {
+	// A finite-f32 row has at most 277 coefficient bits after exact scaling;
+	// summing 24 products of four coefficients needs at most 1,113 bits.
+	// No expression ever contains a rounded intersection or increasing degree.
+	if value.bits() > MAX_EXACT_BITS {
+		return Err(Error::Arithmetic);
+	}
+	Ok(())
 }
 
 pub(super) fn det3(rows: [[f32; 3]; 3], budget: &mut Budget) -> Result<Sign, Error> {
@@ -139,6 +125,19 @@ fn determinant<const N: usize>(
 	exact_determinant(rows, permutations, budget)
 }
 
+fn dyadic_parts(value: f32) -> (i32, i32) {
+	let bits = value.to_bits();
+	let exponent_bits = ((bits >> 23) & 0xff) as i32;
+	let fraction = (bits & 0x7f_ffff) as i32;
+	let (mantissa, exponent) = if exponent_bits == 0 {
+		(fraction, -149)
+	} else {
+		(fraction | 0x80_0000, exponent_bits - 150)
+	};
+	let mantissa = if bits >> 31 == 0 { mantissa } else { -mantissa };
+	(mantissa, exponent)
+}
+
 fn exact_determinant<const N: usize>(
 	rows: [[f32; N]; N],
 	permutations: &[([usize; N], bool)],
@@ -192,25 +191,26 @@ fn exact_determinant<const N: usize>(
 	})
 }
 
-fn dyadic_parts(value: f32) -> (i32, i32) {
+/// Exact binary32-to-binary64 expansion, including subnormals and signed zero.
+/// Integer bit construction avoids conversions that can flush f32 inputs under
+/// DAZ. Every finite nonzero input becomes a normal f64, without consulting the
+/// rounding mode. Infinity and NaN encodings retain their sign and payload bits.
+pub(super) fn widen(value: f32) -> f64 {
 	let bits = value.to_bits();
-	let exponent_bits = ((bits >> 23) & 0xff) as i32;
-	let fraction = (bits & 0x7f_ffff) as i32;
-	let (mantissa, exponent) = if exponent_bits == 0 {
-		(fraction, -149)
-	} else {
-		(fraction | 0x80_0000, exponent_bits - 150)
-	};
-	let mantissa = if bits >> 31 == 0 { mantissa } else { -mantissa };
-	(mantissa, exponent)
-}
+	let sign = u64::from(bits >> 31) << 63;
+	let exponent = (bits >> 23) & 0xff;
+	let fraction = bits & 0x7f_ffff;
+	let widened = match (exponent, fraction) {
+		(0, 0) => sign,
 
-fn check_width(value: &BigInt) -> Result<(), Error> {
-	// A finite-f32 row has at most 277 coefficient bits after exact scaling;
-	// summing 24 products of four coefficients needs at most 1,113 bits.
-	// No expression ever contains a rounded intersection or increasing degree.
-	if value.bits() > MAX_EXACT_BITS {
-		return Err(Error::Arithmetic);
-	}
-	Ok(())
+		(0, _) => {
+			let highest = 31 - fraction.leading_zeros();
+			let significand = u64::from(fraction) ^ (1_u64 << highest);
+			sign | (u64::from(highest + 874) << 52) | (significand << (52 - highest))
+		}
+
+		(0xff, _) => sign | (0x7ff_u64 << 52) | (u64::from(fraction) << 29),
+		_ => sign | (u64::from(exponent + 896) << 52) | (u64::from(fraction) << 29),
+	};
+	f64::from_bits(widened)
 }

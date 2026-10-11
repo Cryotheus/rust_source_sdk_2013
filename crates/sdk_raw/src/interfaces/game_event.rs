@@ -117,17 +117,17 @@ const _: () = {
 	);
 };
 
+// `IGameEventListener2` declares only a virtual destructor before
+// `FireGameEvent`, which takes one slot under MSVC and two under the Itanium
+// ABI.
+const _: () = assert!(FIRE_GAME_EVENT_SLOT == CppDestructors::VTABLE_SLOTS);
+
 // The generated bindings have these signatures.
 const _: fn(&sys::IGameEventListener2__bindgen_vtable) -> FireGameEventFn =
 	|vtable| vtable.IGameEventListener2_FireGameEvent;
 
 const _: fn(&sys::IGameEventManager2__bindgen_vtable) -> FireEventFn =
 	|vtable| vtable.IGameEventManager2_FireEvent;
-
-// `IGameEventListener2` declares only a virtual destructor before
-// `FireGameEvent`, which takes one slot under MSVC and two under the Itanium
-// ABI.
-const _: () = assert!(FIRE_GAME_EVENT_SLOT == CppDestructors::VTABLE_SLOTS);
 
 /// The slot of [`FireEventFn`] in `IGameEventManager2`'s vtable.
 pub const FIRE_EVENT_SLOT: usize = vtable_slot!(

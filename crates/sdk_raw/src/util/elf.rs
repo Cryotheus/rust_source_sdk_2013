@@ -220,6 +220,18 @@ impl LoadedElf {
 			.any(|segment| segment.contains(address, len, executable, writable))
 	}
 
+	/// Resolves a unique function, as [`Elf::symbol`] finds it, to its address
+	/// in the loaded module, without comparing its body with the file: this
+	/// tells which function an address is, such as a vtable's entry, so a detour
+	/// in its body does not matter. Returned addresses are not for calling or
+	/// reading through.
+	pub fn function_address(&self, name: &[u8]) -> Option<usize> {
+		let (offset, body) = Elf::new(&self.bytes)?.symbol(name)?;
+		let address = self.module.base().checked_add(offset)?;
+		self.contains(address, body.len(), true, false)
+			.then_some(address)
+	}
+
 	/// The loaded module this file was checked against.
 	pub fn module(&self) -> &Module {
 		&self.module
@@ -242,18 +254,6 @@ impl LoadedElf {
 		}
 		let live = self.memory.copy(address, body.len()).ok()?;
 		(live == body).then_some((address, body))
-	}
-
-	/// Resolves a unique function, as [`Elf::symbol`] finds it, to its address
-	/// in the loaded module, without comparing its body with the file: this
-	/// tells which function an address is, such as a vtable's entry, so a detour
-	/// in its body does not matter. Returned addresses are not for calling or
-	/// reading through.
-	pub fn function_address(&self, name: &[u8]) -> Option<usize> {
-		let (offset, body) = Elf::new(&self.bytes)?.symbol(name)?;
-		let address = self.module.base().checked_add(offset)?;
-		self.contains(address, body.len(), true, false)
-			.then_some(address)
 	}
 
 	/// Resolves a unique variable, as [`Elf::data_symbol`] finds it, to its

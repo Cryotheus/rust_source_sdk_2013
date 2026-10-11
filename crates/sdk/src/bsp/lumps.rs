@@ -4,12 +4,42 @@ use super::{Compression, Error, Invalid, Limits, Resource, Work, bound, raw, res
 use std::borrow::Cow;
 use std::io::{self, Cursor, Write};
 
-#[derive(Clone, Copy, Default)]
-struct Entry {
-	start: usize,
-	end: usize,
-	version: i32,
-	expanded: i32,
+pub(super) struct Budget {
+	limits: Limits,
+	expanded: usize,
+	codec: usize,
+}
+
+impl Budget {
+	pub(super) fn new(limits: Limits) -> Self {
+		Self {
+			limits,
+			expanded: 0,
+			codec: 0,
+		}
+	}
+
+	fn codec(&mut self, input: usize, output: usize, lookahead: usize) -> Result<(), Error> {
+		// Reserve both passes before any allocation or codec work.
+		for amount in [input, output, lookahead, input, output, lookahead] {
+			add(
+				&mut self.codec,
+				amount,
+				self.limits.codec_bytes,
+				Resource::CodecBytes,
+			)?;
+		}
+		Ok(())
+	}
+
+	fn expanded(&mut self, bytes: usize) -> Result<(), Error> {
+		add(
+			&mut self.expanded,
+			bytes,
+			self.limits.expanded_bytes,
+			Resource::ExpandedBytes,
+		)
+	}
 }
 
 pub(super) struct Directory<'a> {
@@ -133,41 +163,50 @@ impl<'a> Directory<'a> {
 	}
 }
 
-pub(super) struct Budget {
-	limits: Limits,
-	expanded: usize,
-	codec: usize,
+#[derive(Clone, Copy, Default)]
+struct Entry {
+	start: usize,
+	end: usize,
+	version: i32,
+	expanded: i32,
 }
 
-impl Budget {
-	pub(super) fn new(limits: Limits) -> Self {
-		Self {
-			limits,
-			expanded: 0,
-			codec: 0,
-		}
-	}
+struct ExactOutput {
+	bytes: Vec<u8>,
+	written: usize,
+	overflow: bool,
+}
 
-	fn expanded(&mut self, bytes: usize) -> Result<(), Error> {
-		add(
-			&mut self.expanded,
+impl ExactOutput {
+	fn new(length: usize) -> Result<Self, Error> {
+		let mut bytes = Vec::new();
+		reserve(&mut bytes, length, Resource::ExpandedBytes)?;
+		bytes.resize(length, 0);
+		Ok(Self {
 			bytes,
-			self.limits.expanded_bytes,
-			Resource::ExpandedBytes,
-		)
+			written: 0,
+			overflow: false,
+		})
+	}
+}
+
+impl Write for ExactOutput {
+	fn flush(&mut self) -> io::Result<()> {
+		Ok(())
 	}
 
-	fn codec(&mut self, input: usize, output: usize, lookahead: usize) -> Result<(), Error> {
-		// Reserve both passes before any allocation or codec work.
-		for amount in [input, output, lookahead, input, output, lookahead] {
-			add(
-				&mut self.codec,
-				amount,
-				self.limits.codec_bytes,
-				Resource::CodecBytes,
-			)?;
-		}
-		Ok(())
+	fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+		let Some(end) = self
+			.written
+			.checked_add(bytes.len())
+			.filter(|&end| end <= self.bytes.len())
+		else {
+			self.overflow = true;
+			return Err(io::ErrorKind::WriteZero.into());
+		};
+		self.bytes[self.written..end].copy_from_slice(bytes);
+		self.written = end;
+		Ok(bytes.len())
 	}
 }
 
@@ -230,62 +269,11 @@ impl<'a> Lump<'a> {
 	}
 }
 
-struct ExactOutput {
-	bytes: Vec<u8>,
-	written: usize,
-	overflow: bool,
-}
-
-impl ExactOutput {
-	fn new(length: usize) -> Result<Self, Error> {
-		let mut bytes = Vec::new();
-		reserve(&mut bytes, length, Resource::ExpandedBytes)?;
-		bytes.resize(length, 0);
-		Ok(Self {
-			bytes,
-			written: 0,
-			overflow: false,
-		})
-	}
-}
-
-impl Write for ExactOutput {
-	fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-		let Some(end) = self
-			.written
-			.checked_add(bytes.len())
-			.filter(|&end| end <= self.bytes.len())
-		else {
-			self.overflow = true;
-			return Err(io::ErrorKind::WriteZero.into());
-		};
-		self.bytes[self.written..end].copy_from_slice(bytes);
-		self.written = end;
-		Ok(bytes.len())
-	}
-
-	fn flush(&mut self) -> io::Result<()> {
-		Ok(())
-	}
-}
-
 fn add(total: &mut usize, amount: usize, limit: usize, resource: Resource) -> Result<(), Error> {
 	*total = total
 		.checked_add(amount)
 		.ok_or(Error::Budget { resource, limit })?;
 	bound(*total, limit, resource)
-}
-
-fn invalid(lump: usize, reason: Compression) -> Error {
-	Invalid::Compression { lump, reason }.into()
-}
-
-fn integer(bytes: &[u8], at: usize) -> i32 {
-	i32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-}
-
-fn word(bytes: &[u8], at: usize) -> u32 {
-	u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
 fn decode_pass(
@@ -309,4 +297,16 @@ fn decode_pass(
 		return Err(invalid(id, Compression::TrailingData));
 	}
 	Ok(())
+}
+
+fn integer(bytes: &[u8], at: usize) -> i32 {
+	i32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+}
+
+fn invalid(lump: usize, reason: Compression) -> Error {
+	Invalid::Compression { lump, reason }.into()
+}
+
+fn word(bytes: &[u8], at: usize) -> u32 {
+	u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }

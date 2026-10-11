@@ -64,6 +64,35 @@ struct FilterInterface<'a, 'e> {
 	filter: TraceFilter<'a, 'e>,
 }
 
+/// Where a line traced through the world and its entities stopped, and what
+/// it hit, from [`EngineTrace::trace_line`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineTrace<'s> {
+	/// How far along the line the trace got, from 0 at its start to 1 at its
+	/// end, which it reached without hitting anything.
+	pub fraction: f32,
+
+	/// Where the trace stopped.
+	pub end: Vector,
+
+	/// Whether the line starts inside something solid.
+	pub start_solid: bool,
+
+	/// Whether the whole line lies inside something solid.
+	pub all_solid: bool,
+
+	/// What the line hit, or `None` if it hit nothing: an entity, or the
+	/// world's own, at index 0, for the world's brushes and static props.
+	pub entity: Option<Entity<'s>>,
+}
+
+impl LineTrace<'_> {
+	/// Whether the line hit something before its end.
+	pub fn hit(&self) -> bool {
+		self.fraction < 1.0
+	}
+}
+
 /// A line, or a box swept along one, for [`EngineTrace::trace`] to trace, as
 /// `Ray_t::Init` makes them.
 #[doc(alias("Ray_t"))]
@@ -292,35 +321,6 @@ impl TraceFilter<'_, '_> {
 			Self::EntitiesOnly => sys::TraceType_t_TRACE_ENTITIES_ONLY,
 			_ => sys::TraceType_t_TRACE_EVERYTHING,
 		}
-	}
-}
-
-/// Where a line traced through the world and its entities stopped, and what
-/// it hit, from [`EngineTrace::trace_line`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LineTrace<'s> {
-	/// How far along the line the trace got, from 0 at its start to 1 at its
-	/// end, which it reached without hitting anything.
-	pub fraction: f32,
-
-	/// Where the trace stopped.
-	pub end: Vector,
-
-	/// Whether the line starts inside something solid.
-	pub start_solid: bool,
-
-	/// Whether the whole line lies inside something solid.
-	pub all_solid: bool,
-
-	/// What the line hit, or `None` if it hit nothing: an entity, or the
-	/// world's own, at index 0, for the world's brushes and static props.
-	pub entity: Option<Entity<'s>>,
-}
-
-impl LineTrace<'_> {
-	/// Whether the line hit something before its end.
-	pub fn hit(&self) -> bool {
-		self.fraction < 1.0
 	}
 }
 

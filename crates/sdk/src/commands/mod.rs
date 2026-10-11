@@ -57,11 +57,10 @@ pub use error::{
 
 pub use object::ConsoleCommand;
 pub use registrar::{CommandRegistrar, UnlinksBeforeUnload};
+pub(crate) use route::drop_payload;
 pub use route::{ClientRoute, route_client_command};
 pub use source_sdk_2013_declmacros::{commands, convars};
 pub use variable::ConsoleVariable;
-
-pub(crate) use route::drop_payload;
 
 /// A plain function handler, which keeps `ConsoleCommand<CommandFn>` nameable
 /// in a `static`.

@@ -31,8 +31,6 @@
 //! Under SourceHook, each of the methods takes a hook manager, which every
 //! handle hooking it shares.
 
-const SECONDARY_ATTACK: VirtualFunction<EntityFn> = VirtualFunction::new(SECONDARY_ATTACK_SLOT);
-
 #[cfg(test)]
 #[path = "../../tests/hooks/tf2/weapon.rs"]
 mod tests;
@@ -53,29 +51,29 @@ use source_sdk_2013::tf2::class_targets::{CombatWeapon, TfMeleeWeapon, TfPlayer}
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::ptr::NonNull;
 
-/// A callback-scoped server, whether the game's method is about to run or
-/// ran, and the weapon it runs for. A panic is contained by the hook
-/// dispatcher.
-pub type WeaponFrameFn = for<'s> fn(Server<'s>, HookTiming, Entity<'s>);
+/// A callback-scoped server, the player, and the weapon they now carry. A
+/// panic is contained by the hook dispatcher.
+pub type EquipFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>);
 
 /// A callback-scoped server and the weapon about to reload, deciding whether
 /// it may. A panic is contained by the hook dispatcher, and lets the game
 /// decide.
 pub type ReloadFn = for<'s> fn(Server<'s>, Entity<'s>) -> WeaponAction;
 
+/// A callback-scoped server and the melee weapon swinging, deciding whether
+/// its swing lands. A panic is contained by the hook dispatcher, and lets the
+/// swing land.
+pub type SmackFn = for<'s> fn(Server<'s>, Entity<'s>) -> SmackAction;
+
 /// A callback-scoped server, the player, and the weapon they are about to
 /// switch to, deciding whether they may. A panic is contained by the hook
 /// dispatcher, and lets the game decide.
 pub type SwitchFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>) -> WeaponAction;
 
-/// A callback-scoped server, the player, and the weapon they now carry. A
-/// panic is contained by the hook dispatcher.
-pub type EquipFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>);
-
-/// A callback-scoped server and the melee weapon swinging, deciding whether
-/// its swing lands. A panic is contained by the hook dispatcher, and lets the
-/// swing land.
-pub type SmackFn = for<'s> fn(Server<'s>, Entity<'s>) -> SmackAction;
+/// A callback-scoped server, whether the game's method is about to run or
+/// ran, and the weapon it runs for. A panic is contained by the hook
+/// dispatcher.
+pub type WeaponFrameFn = for<'s> fn(Server<'s>, HookTiming, Entity<'s>);
 
 /// Before the game's method, then after it.
 const AROUND: &[HookTiming] = &[HookTiming::Post, HookTiming::Pre];
@@ -86,8 +84,15 @@ const GET_SMACK_TIME: VirtualFunction<SmackTimeFn> = VirtualFunction::new(GET_SM
 /// `ItemPostFrame` in a weapon's primary vtable.
 const ITEM_POST_FRAME: VirtualFunction<EntityFn> = VirtualFunction::new(ITEM_POST_FRAME_SLOT);
 
+/// The time of the smack of a swing that never lands: a melee weapon smacks
+/// once the time passes if it is positive (`CTFWeaponBaseMelee::ItemPostFrame`),
+/// and sets this one once its swing landed.
+const NO_SMACK: f32 = -1.0;
+
 /// `Reload` in a weapon's primary vtable.
 const RELOAD: VirtualFunction<PredicateFn> = VirtualFunction::new(RELOAD_SLOT);
+
+const SECONDARY_ATTACK: VirtualFunction<EntityFn> = VirtualFunction::new(SECONDARY_ATTACK_SLOT);
 
 /// `Weapon_CanSwitchTo` in a TF2 player's primary vtable.
 const WEAPON_CAN_SWITCH_TO: VirtualFunction<WeaponPredicateFn> =
@@ -98,11 +103,6 @@ const WEAPON_EQUIP: VirtualFunction<WeaponFn> = VirtualFunction::new(WEAPON_EQUI
 
 /// `Weapon_Switch` in a TF2 player's primary vtable.
 const WEAPON_SWITCH: VirtualFunction<WeaponSwitchFn> = VirtualFunction::new(WEAPON_SWITCH_SLOT);
-
-/// The time of the smack of a swing that never lands: a melee weapon smacks
-/// once the time passes if it is positive (`CTFWeaponBaseMelee::ItemPostFrame`),
-/// and sets this one once its swing landed.
-const NO_SMACK: f32 = -1.0;
 
 /// Whether a melee weapon's swing lands.
 #[must_use]
@@ -283,6 +283,30 @@ impl MetamodApi<'_> {
 		)
 	}
 
+	/// Observes `SecondaryAttack` before and after it runs on covered weapons.
+	/// The callback cannot deny or replace the attack. Its source remains
+	/// secondary even when viewmodel/controller settings reverse weapon mode.
+	/// As with other class hooks, activation or pause can omit callbacks;
+	/// a POST alone does not prove that the PRE callback observed the attack.
+	/// `binding` must describe the running server; the callback must obey
+	/// `Server::new`'s no-immediate-deletion contract.
+	pub fn hook_weapon_secondary_attacks(
+		self,
+		binding: ServerBinding,
+		callback: WeaponFrameFn,
+	) -> ClassHooks<CombatWeapon> {
+		ClassHooks::new(
+			binding,
+			callback,
+			SECONDARY_ATTACK,
+			AROUND,
+			|server, callback, weapon, call| {
+				callback(server, call.timing(), weapon);
+				HookAction::Ignore
+			},
+		)
+	}
+
 	/// Runs `callback` before each `CTFPlayer::Weapon_Switch` of the players
 	/// of the classes the returned hooks cover, which are none
 	/// until [`ClassHooks::cover`] covers them: as a player switches to a
@@ -306,30 +330,6 @@ impl MetamodApi<'_> {
 			|server, callback, player, call| {
 				let (weapon, _view_model) = call.args();
 				decide_switch(server, callback, player, weapon, call)
-			},
-		)
-	}
-
-	/// Observes `SecondaryAttack` before and after it runs on covered weapons.
-	/// The callback cannot deny or replace the attack. Its source remains
-	/// secondary even when viewmodel/controller settings reverse weapon mode.
-	/// As with other class hooks, activation or pause can omit callbacks;
-	/// a POST alone does not prove that the PRE callback observed the attack.
-	/// `binding` must describe the running server; the callback must obey
-	/// `Server::new`'s no-immediate-deletion contract.
-	pub fn hook_weapon_secondary_attacks(
-		self,
-		binding: ServerBinding,
-		callback: WeaponFrameFn,
-	) -> ClassHooks<CombatWeapon> {
-		ClassHooks::new(
-			binding,
-			callback,
-			SECONDARY_ATTACK,
-			AROUND,
-			|server, callback, weapon, call| {
-				callback(server, call.timing(), weapon);
-				HookAction::Ignore
 			},
 		)
 	}

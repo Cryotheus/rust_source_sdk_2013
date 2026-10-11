@@ -31,135 +31,6 @@ use std::ffi::{CStr, CString, c_int};
 /// The data map and script class of every animating entity.
 const ANIMATING_CLASS: &CStr = c"CBaseAnimating";
 
-/// Why [`lookup_attachment`] could not look an attachment up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum AttachmentError {
-	/// The entity is marked for deletion.
-	#[error("the entity is marked for deletion")]
-	MarkedForDeletion,
-
-	/// The server does not run TF2.
-	#[error("attachment lookups require a TF2 server")]
-	NotTf2,
-
-	/// The game returned an index outside the range of attachments.
-	#[error("the game returned the attachment index {0}, out of range")]
-	OutOfRange(c_int),
-
-	/// The binding adapter of the entity's `LookupAttachment` reported
-	/// failure.
-	#[error("the native LookupAttachment method rejected its arguments")]
-	Rejected,
-
-	/// The entity is not an animating entity, or its script class descriptors
-	/// lack `LookupAttachment`, or its signature differs from the SDK's.
-	#[error("the entity does not expose the expected native LookupAttachment method")]
-	UnsupportedMethod,
-}
-
-impl From<BindingError> for AttachmentError {
-	fn from(error: BindingError) -> Self {
-		match error {
-			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
-			BindingError::Rejected => Self::Rejected,
-		}
-	}
-}
-
-/// The index of the attachment named `name` on the model of `entity`, an
-/// animating entity, as [`ParticleAttachment::Point`] takes it: numbered from
-/// 1 in the order the model declares its attachments. `None` if the model has
-/// no attachment of the name, or the entity has no model.
-///
-/// This calls the `LookupAttachment` member that `CBaseAnimating` exposes to
-/// VScript (`game/server/baseanimating.cpp`) on the entity, through its native
-/// binding, without a script VM. The game compares names without regard to
-/// case.
-///
-/// [`ParticleAttachment::Point`]: crate::interfaces::temp_entities::ParticleAttachment::Point
-#[doc(alias("LookupAttachment"))]
-pub fn lookup_attachment(
-	server: Server<'_>,
-	entity: Entity<'_>,
-	name: &CStr,
-) -> Result<Option<u8>, AttachmentError> {
-	if server.game() != Game::TeamFortress2 {
-		return Err(AttachmentError::NotTf2);
-	}
-
-	if entity.is_marked_for_deletion() {
-		return Err(AttachmentError::MarkedForDeletion);
-	}
-
-	// SAFETY: The checked `CBaseAnimating` member reads the entity's model,
-	// and creates and frees no entities. It reads the name only during the
-	// call.
-	let result = unsafe {
-		binding::call(
-			entity,
-			ANIMATING_CLASS,
-			c"LookupAttachment",
-			&mut [binding::string(name)],
-			binding::INT,
-		)?
-	};
-
-	// SAFETY: `call` checked FIELD_INTEGER before returning.
-	let index = unsafe { result.__bindgen_anon_1.m_int };
-
-	match index {
-		0 => Ok(None),
-		index => u8::try_from(index)
-			.map(Some)
-			.map_err(|_| AttachmentError::OutOfRange(index)),
-	}
-}
-
-/// Why an animating entity could not be wrapped or controlled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum AnimatingError {
-	/// The entity is marked for deletion.
-	#[error("the entity is marked for deletion")]
-	MarkedForDeletion,
-
-	/// The model given is not precached, or is a dynamic model.
-	#[error("the model is not precached")]
-	ModelNotPrecached,
-
-	/// The entity is not an animating entity: its data maps lack
-	/// `CBaseAnimating`'s.
-	#[error("the entity is not an animating entity")]
-	NotAnimating,
-
-	/// The server does not run TF2.
-	#[error("animating entities require a TF2 server")]
-	NotTf2,
-
-	/// The binding adapter of the member reported failure.
-	#[error("the native method rejected its arguments")]
-	Rejected,
-
-	/// The entity's script class descriptors lack the member, or its
-	/// signature differs from the SDK's.
-	#[error("the entity does not expose the expected native method")]
-	UnsupportedMethod,
-}
-
-impl From<BindingError> for AnimatingError {
-	fn from(error: BindingError) -> Self {
-		match error {
-			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
-			BindingError::Rejected => Self::Rejected,
-		}
-	}
-}
-
-/// The index a lookup returned, or `None` for the game's -1, which it returns
-/// for a name the model lacks.
-const fn found(index: c_int) -> Option<c_int> {
-	if index < 0 { None } else { Some(index) }
-}
-
 /// An animating entity (`CBaseAnimating`) within the current engine callback,
 /// for the members it exposes to VScript, which [`Animating::new`] checks it
 /// has.
@@ -231,6 +102,26 @@ impl<'s> Animating<'s> {
 		unsafe { self.string(c"GetBodygroupPartName", &mut [int(group), int(part)]) }
 	}
 
+	/// Calls a member of `CBaseAnimating`'s script class, unless the entity
+	/// is marked for deletion.
+	///
+	/// # Safety
+	///
+	/// As for [`binding::call`].
+	unsafe fn call(
+		self,
+		name: &CStr,
+		arguments: &mut [sys::ScriptVariant_t],
+		result_type: sys::ScriptDataType_t,
+	) -> Result<sys::ScriptVariant_t, AnimatingError> {
+		if self.entity.is_marked_for_deletion() {
+			return Err(AnimatingError::MarkedForDeletion);
+		}
+
+		// SAFETY: As the caller promises.
+		Ok(unsafe { binding::call(self.entity, ANIMATING_CLASS, name, arguments, result_type) }?)
+	}
+
 	/// How far the current sequence has played, from 0 to 1 (`GetCycle`).
 	#[doc(alias("GetCycle"))]
 	pub fn cycle(self) -> Result<f32, AnimatingError> {
@@ -250,6 +141,40 @@ impl<'s> Animating<'s> {
 		// SAFETY: The member reads the entity's model, and the name only
 		// during the call.
 		unsafe { self.int(c"FindBodygroupByName", &mut [string(name)]) }.map(found)
+	}
+
+	/// Calls a member that returns a `float`.
+	///
+	/// # Safety
+	///
+	/// As for [`binding::call`].
+	unsafe fn float(
+		self,
+		name: &CStr,
+		arguments: &mut [sys::ScriptVariant_t],
+	) -> Result<f32, AnimatingError> {
+		// SAFETY: As the caller promises.
+		let result = unsafe { self.call(name, arguments, FLOAT) }?;
+
+		// SAFETY: `call` checked the float result type.
+		Ok(unsafe { result.__bindgen_anon_1.m_float })
+	}
+
+	/// Calls a member that returns an `int`.
+	///
+	/// # Safety
+	///
+	/// As for [`binding::call`].
+	unsafe fn int(
+		self,
+		name: &CStr,
+		arguments: &mut [sys::ScriptVariant_t],
+	) -> Result<c_int, AnimatingError> {
+		// SAFETY: As the caller promises.
+		let result = unsafe { self.call(name, arguments, INT) }?;
+
+		// SAFETY: `call` checked the integer result type.
+		Ok(unsafe { result.__bindgen_anon_1.m_int })
 	}
 
 	/// Whether the current sequence has played to its end, which a looping
@@ -447,78 +372,6 @@ impl<'s> Animating<'s> {
 		unsafe { self.void(c"StopAnimation", &mut []) }
 	}
 
-	/// Plays the current sequence on by the time since the entity last did
-	/// (`StudioFrameAdvance`), as entities that animate themselves do each
-	/// think.
-	#[doc(alias("StudioFrameAdvance"))]
-	pub fn studio_frame_advance(self) -> Result<(), AnimatingError> {
-		// SAFETY: The member sets fields and reads the entity's model, through
-		// the entity's vtable.
-		unsafe { self.void(c"StudioFrameAdvance", &mut []) }
-	}
-
-	/// Plays the current sequence on by `interval` seconds
-	/// (`StudioFrameAdvanceManual`).
-	#[doc(alias("StudioFrameAdvanceManual"))]
-	pub fn studio_frame_advance_manual(self, interval: f32) -> Result<(), AnimatingError> {
-		// SAFETY: The member sets fields and reads the entity's model.
-		unsafe { self.void(c"StudioFrameAdvanceManual", &mut [float(interval)]) }
-	}
-
-	/// Calls a member of `CBaseAnimating`'s script class, unless the entity
-	/// is marked for deletion.
-	///
-	/// # Safety
-	///
-	/// As for [`binding::call`].
-	unsafe fn call(
-		self,
-		name: &CStr,
-		arguments: &mut [sys::ScriptVariant_t],
-		result_type: sys::ScriptDataType_t,
-	) -> Result<sys::ScriptVariant_t, AnimatingError> {
-		if self.entity.is_marked_for_deletion() {
-			return Err(AnimatingError::MarkedForDeletion);
-		}
-
-		// SAFETY: As the caller promises.
-		Ok(unsafe { binding::call(self.entity, ANIMATING_CLASS, name, arguments, result_type) }?)
-	}
-
-	/// Calls a member that returns a `float`.
-	///
-	/// # Safety
-	///
-	/// As for [`binding::call`].
-	unsafe fn float(
-		self,
-		name: &CStr,
-		arguments: &mut [sys::ScriptVariant_t],
-	) -> Result<f32, AnimatingError> {
-		// SAFETY: As the caller promises.
-		let result = unsafe { self.call(name, arguments, FLOAT) }?;
-
-		// SAFETY: `call` checked the float result type.
-		Ok(unsafe { result.__bindgen_anon_1.m_float })
-	}
-
-	/// Calls a member that returns an `int`.
-	///
-	/// # Safety
-	///
-	/// As for [`binding::call`].
-	unsafe fn int(
-		self,
-		name: &CStr,
-		arguments: &mut [sys::ScriptVariant_t],
-	) -> Result<c_int, AnimatingError> {
-		// SAFETY: As the caller promises.
-		let result = unsafe { self.call(name, arguments, INT) }?;
-
-		// SAFETY: `call` checked the integer result type.
-		Ok(unsafe { result.__bindgen_anon_1.m_int })
-	}
-
 	/// Calls a member that returns a C string, and copies it, unless the
 	/// entity is marked for deletion.
 	///
@@ -538,6 +391,24 @@ impl<'s> Animating<'s> {
 		Ok(unsafe { binding::call_string(self.entity, ANIMATING_CLASS, name, arguments) }?)
 	}
 
+	/// Plays the current sequence on by the time since the entity last did
+	/// (`StudioFrameAdvance`), as entities that animate themselves do each
+	/// think.
+	#[doc(alias("StudioFrameAdvance"))]
+	pub fn studio_frame_advance(self) -> Result<(), AnimatingError> {
+		// SAFETY: The member sets fields and reads the entity's model, through
+		// the entity's vtable.
+		unsafe { self.void(c"StudioFrameAdvance", &mut []) }
+	}
+
+	/// Plays the current sequence on by `interval` seconds
+	/// (`StudioFrameAdvanceManual`).
+	#[doc(alias("StudioFrameAdvanceManual"))]
+	pub fn studio_frame_advance_manual(self, interval: f32) -> Result<(), AnimatingError> {
+		// SAFETY: The member sets fields and reads the entity's model.
+		unsafe { self.void(c"StudioFrameAdvanceManual", &mut [float(interval)]) }
+	}
+
 	/// Calls a member that returns nothing.
 	///
 	/// # Safety
@@ -550,5 +421,135 @@ impl<'s> Animating<'s> {
 	) -> Result<(), AnimatingError> {
 		// SAFETY: As the caller promises.
 		unsafe { self.call(name, arguments, VOID) }.map(drop)
+	}
+}
+
+/// Why an animating entity could not be wrapped or controlled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AnimatingError {
+	/// The entity is marked for deletion.
+	#[error("the entity is marked for deletion")]
+	MarkedForDeletion,
+
+	/// The model given is not precached, or is a dynamic model.
+	#[error("the model is not precached")]
+	ModelNotPrecached,
+
+	/// The entity is not an animating entity: its data maps lack
+	/// `CBaseAnimating`'s.
+	#[error("the entity is not an animating entity")]
+	NotAnimating,
+
+	/// The server does not run TF2.
+	#[error("animating entities require a TF2 server")]
+	NotTf2,
+
+	/// The binding adapter of the member reported failure.
+	#[error("the native method rejected its arguments")]
+	Rejected,
+
+	/// The entity's script class descriptors lack the member, or its
+	/// signature differs from the SDK's.
+	#[error("the entity does not expose the expected native method")]
+	UnsupportedMethod,
+}
+
+impl From<BindingError> for AnimatingError {
+	fn from(error: BindingError) -> Self {
+		match error {
+			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
+			BindingError::Rejected => Self::Rejected,
+		}
+	}
+}
+
+/// Why [`lookup_attachment`] could not look an attachment up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AttachmentError {
+	/// The entity is marked for deletion.
+	#[error("the entity is marked for deletion")]
+	MarkedForDeletion,
+
+	/// The server does not run TF2.
+	#[error("attachment lookups require a TF2 server")]
+	NotTf2,
+
+	/// The game returned an index outside the range of attachments.
+	#[error("the game returned the attachment index {0}, out of range")]
+	OutOfRange(c_int),
+
+	/// The binding adapter of the entity's `LookupAttachment` reported
+	/// failure.
+	#[error("the native LookupAttachment method rejected its arguments")]
+	Rejected,
+
+	/// The entity is not an animating entity, or its script class descriptors
+	/// lack `LookupAttachment`, or its signature differs from the SDK's.
+	#[error("the entity does not expose the expected native LookupAttachment method")]
+	UnsupportedMethod,
+}
+
+impl From<BindingError> for AttachmentError {
+	fn from(error: BindingError) -> Self {
+		match error {
+			BindingError::Unavailable | BindingError::SignatureMismatch => Self::UnsupportedMethod,
+			BindingError::Rejected => Self::Rejected,
+		}
+	}
+}
+
+/// The index a lookup returned, or `None` for the game's -1, which it returns
+/// for a name the model lacks.
+const fn found(index: c_int) -> Option<c_int> {
+	if index < 0 { None } else { Some(index) }
+}
+
+/// The index of the attachment named `name` on the model of `entity`, an
+/// animating entity, as [`ParticleAttachment::Point`] takes it: numbered from
+/// 1 in the order the model declares its attachments. `None` if the model has
+/// no attachment of the name, or the entity has no model.
+///
+/// This calls the `LookupAttachment` member that `CBaseAnimating` exposes to
+/// VScript (`game/server/baseanimating.cpp`) on the entity, through its native
+/// binding, without a script VM. The game compares names without regard to
+/// case.
+///
+/// [`ParticleAttachment::Point`]: crate::interfaces::temp_entities::ParticleAttachment::Point
+#[doc(alias("LookupAttachment"))]
+pub fn lookup_attachment(
+	server: Server<'_>,
+	entity: Entity<'_>,
+	name: &CStr,
+) -> Result<Option<u8>, AttachmentError> {
+	if server.game() != Game::TeamFortress2 {
+		return Err(AttachmentError::NotTf2);
+	}
+
+	if entity.is_marked_for_deletion() {
+		return Err(AttachmentError::MarkedForDeletion);
+	}
+
+	// SAFETY: The checked `CBaseAnimating` member reads the entity's model,
+	// and creates and frees no entities. It reads the name only during the
+	// call.
+	let result = unsafe {
+		binding::call(
+			entity,
+			ANIMATING_CLASS,
+			c"LookupAttachment",
+			&mut [binding::string(name)],
+			binding::INT,
+		)?
+	};
+
+	// SAFETY: `call` checked FIELD_INTEGER before returning.
+	let index = unsafe { result.__bindgen_anon_1.m_int };
+
+	match index {
+		0 => Ok(None),
+
+		index => u8::try_from(index)
+			.map(Some)
+			.map_err(|_| AttachmentError::OutOfRange(index)),
 	}
 }

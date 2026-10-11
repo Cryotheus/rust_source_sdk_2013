@@ -456,18 +456,18 @@ impl DamageInfo {
 		self.set_handle(offset_of!(sys::CTakeDamageInfo, m_hAttacker), handle);
 	}
 
-	/// Replaces the custom damage kind, as [`Self::set_custom_damage`] does.
-	#[doc(alias("SetDamageCustom"))]
-	pub fn set_custom_kind(&mut self, kind: CustomDamage) {
-		self.set_custom_damage(kind.to_raw());
-	}
-
 	/// Replaces `m_hDamageBonusProvider`, the entity credited with the bonus.
 	fn set_bonus_provider(&mut self, handle: EntityHandle) {
 		self.set_handle(
 			offset_of!(sys::CTakeDamageInfo, m_hDamageBonusProvider),
 			handle,
 		);
+	}
+
+	/// Replaces the custom damage kind, as [`Self::set_custom_damage`] does.
+	#[doc(alias("SetDamageCustom"))]
+	pub fn set_custom_kind(&mut self, kind: CustomDamage) {
+		self.set_custom_damage(kind.to_raw());
 	}
 
 	/// Replaces the force the damage applies.

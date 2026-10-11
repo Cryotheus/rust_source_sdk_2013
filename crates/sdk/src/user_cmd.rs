@@ -147,6 +147,18 @@ bitflags::bitflags! {
 pub struct UserCmd(sys::CUserCmd);
 
 impl UserCmd {
+	/// Views the command at `command`.
+	///
+	/// # Safety
+	///
+	/// `command` must point to a live command, valid for reads and writes
+	/// for `'a`, which nothing else accesses meanwhile.
+	pub const unsafe fn from_raw_mut<'a>(command: NonNull<sys::CUserCmd>) -> &'a mut Self {
+		// SAFETY: `Self` is a transparent wrapper of the command, which the
+		// caller promises is live and exclusive for `'a`.
+		unsafe { command.cast::<Self>().as_mut() }
+	}
+
 	/// The command as the engine stores it.
 	pub const fn as_raw(&self) -> &sys::CUserCmd {
 		&self.0
@@ -173,18 +185,6 @@ impl UserCmd {
 	#[doc(alias("forwardmove"))]
 	pub const fn forward_move(&self) -> f32 {
 		self.0.forwardmove
-	}
-
-	/// Views the command at `command`.
-	///
-	/// # Safety
-	///
-	/// `command` must point to a live command, valid for reads and writes
-	/// for `'a`, which nothing else accesses meanwhile.
-	pub const unsafe fn from_raw_mut<'a>(command: NonNull<sys::CUserCmd>) -> &'a mut Self {
-		// SAFETY: `Self` is a transparent wrapper of the command, which the
-		// caller promises is live and exclusive for `'a`.
-		unsafe { command.cast::<Self>().as_mut() }
 	}
 
 	/// The command's impulse, a number that runs a command of the game, such

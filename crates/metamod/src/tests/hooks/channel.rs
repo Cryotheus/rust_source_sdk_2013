@@ -103,144 +103,6 @@ fn a_panicking_listener_leaves_the_sends_alone() {
 	});
 }
 
-#[test]
-fn sends_an_earlier_hook_superseded_skip_the_listener() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut channel = Channel::new();
-		let data = print(c"skipped");
-
-		fn supersede(_call: &HookCall<'_, SendData>) -> HookAction<bool> {
-			HookAction::Supersede(false)
-		}
-
-		// SAFETY: As above.
-		let hooks = unsafe {
-			api.add_hook(
-				SEND_DATA,
-				HookTarget::class_of(channel.ptr()),
-				HookTiming::Pre,
-				&supersede,
-			)
-			.unwrap();
-			api.install_channel_sends(channel.ptr(), tf2_binding(no_interfaces), on_send)
-				.unwrap()
-		};
-
-		assert_eq!(
-			send_data(harness, &mut channel, &data, true),
-			(false, vec![])
-		);
-
-		hooks.remove(api);
-	});
-}
-
-#[test]
-fn sends_reach_the_listener_before_the_channel() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut channel = Channel::new();
-		let address = channel.ptr().addr().get();
-
-		// SAFETY: As above.
-		let hooks = unsafe {
-			api.install_channel_sends(channel.ptr(), tf2_binding(no_interfaces), on_send)
-		}
-		.unwrap();
-
-		// SAFETY: As above, and the handle is made on the test's thread, which
-		// stands for the main thread.
-		let handle = unsafe { NetChannel::from_raw(channel.ptr()) };
-
-		// A second install is refused, so that each send is seen once.
-		assert!(matches!(
-			api.listen_channel_sends(handle, tf2_binding(no_interfaces), on_send),
-			Err(HookError::AlreadyInstalled)
-		));
-
-		let bits = print(c"hello");
-		let message = MockMessage::new(7, 0, c"svc_Print", bits.clone());
-
-		message.make_unreliable();
-
-		// The listener encodes the message, which still writes the same bits for
-		// the channel.
-		assert_eq!(
-			send_message(harness, &mut channel, &message, true, false),
-			(
-				true,
-				vec![
-					Seen::Message {
-						channel: address,
-						id: Some(MessageId::PRINT),
-						reliable: false,
-						bits: Some(bits.clone()),
-						force_reliable: true,
-						voice: false,
-					},
-					Seen::Queued(bits.clone())
-				]
-			)
-		);
-
-		assert_eq!(message.writes(), 2);
-
-		assert_eq!(
-			send_data(harness, &mut channel, &bits, false),
-			(
-				true,
-				vec![
-					Seen::Data(address, bits.len(), Some(bits.clone()), false),
-					Seen::Channel("SendData")
-				]
-			)
-		);
-
-		assert_eq!(
-			send_datagram(harness, &mut channel, Some(&bits)),
-			(
-				42,
-				vec![
-					Seen::Datagram(address, Some(Some(bits.clone()))),
-					Seen::Channel("SendDatagram")
-				]
-			)
-		);
-
-		// A packet of what the streams hold alone.
-		assert_eq!(
-			send_datagram(harness, &mut channel, None),
-			(
-				42,
-				vec![Seen::Datagram(address, None), Seen::Channel("SendDatagram")]
-			)
-		);
-
-		// Removed hooks pass the sends on unseen, and allow a replacement.
-		hooks.remove(api);
-
-		assert_eq!(
-			send_datagram(harness, &mut channel, None),
-			(42, vec![Seen::Channel("SendDatagram")])
-		);
-
-		let hooks = api
-			.listen_channel_sends(handle, tf2_binding(no_interfaces), on_send)
-			.unwrap();
-
-		assert_eq!(
-			send_datagram(harness, &mut channel, None),
-			(
-				42,
-				vec![Seen::Datagram(address, None), Seen::Channel("SendDatagram")]
-			)
-		);
-
-		hooks.remove(api);
-	});
-}
-
 /// The mock channel's `SendData`, which notes the call and takes the data.
 unsafe extern "C" fn channel_send_data(
 	_this: *mut sys::INetChannel,
@@ -387,6 +249,144 @@ fn send_message(
 	);
 
 	(sent, SEEN.take())
+}
+
+#[test]
+fn sends_an_earlier_hook_superseded_skip_the_listener() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut channel = Channel::new();
+		let data = print(c"skipped");
+
+		fn supersede(_call: &HookCall<'_, SendData>) -> HookAction<bool> {
+			HookAction::Supersede(false)
+		}
+
+		// SAFETY: As above.
+		let hooks = unsafe {
+			api.add_hook(
+				SEND_DATA,
+				HookTarget::class_of(channel.ptr()),
+				HookTiming::Pre,
+				&supersede,
+			)
+			.unwrap();
+			api.install_channel_sends(channel.ptr(), tf2_binding(no_interfaces), on_send)
+				.unwrap()
+		};
+
+		assert_eq!(
+			send_data(harness, &mut channel, &data, true),
+			(false, vec![])
+		);
+
+		hooks.remove(api);
+	});
+}
+
+#[test]
+fn sends_reach_the_listener_before_the_channel() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut channel = Channel::new();
+		let address = channel.ptr().addr().get();
+
+		// SAFETY: As above.
+		let hooks = unsafe {
+			api.install_channel_sends(channel.ptr(), tf2_binding(no_interfaces), on_send)
+		}
+		.unwrap();
+
+		// SAFETY: As above, and the handle is made on the test's thread, which
+		// stands for the main thread.
+		let handle = unsafe { NetChannel::from_raw(channel.ptr()) };
+
+		// A second install is refused, so that each send is seen once.
+		assert!(matches!(
+			api.listen_channel_sends(handle, tf2_binding(no_interfaces), on_send),
+			Err(HookError::AlreadyInstalled)
+		));
+
+		let bits = print(c"hello");
+		let message = MockMessage::new(7, 0, c"svc_Print", bits.clone());
+
+		message.make_unreliable();
+
+		// The listener encodes the message, which still writes the same bits for
+		// the channel.
+		assert_eq!(
+			send_message(harness, &mut channel, &message, true, false),
+			(
+				true,
+				vec![
+					Seen::Message {
+						channel: address,
+						id: Some(MessageId::PRINT),
+						reliable: false,
+						bits: Some(bits.clone()),
+						force_reliable: true,
+						voice: false,
+					},
+					Seen::Queued(bits.clone())
+				]
+			)
+		);
+
+		assert_eq!(message.writes(), 2);
+
+		assert_eq!(
+			send_data(harness, &mut channel, &bits, false),
+			(
+				true,
+				vec![
+					Seen::Data(address, bits.len(), Some(bits.clone()), false),
+					Seen::Channel("SendData")
+				]
+			)
+		);
+
+		assert_eq!(
+			send_datagram(harness, &mut channel, Some(&bits)),
+			(
+				42,
+				vec![
+					Seen::Datagram(address, Some(Some(bits.clone()))),
+					Seen::Channel("SendDatagram")
+				]
+			)
+		);
+
+		// A packet of what the streams hold alone.
+		assert_eq!(
+			send_datagram(harness, &mut channel, None),
+			(
+				42,
+				vec![Seen::Datagram(address, None), Seen::Channel("SendDatagram")]
+			)
+		);
+
+		// Removed hooks pass the sends on unseen, and allow a replacement.
+		hooks.remove(api);
+
+		assert_eq!(
+			send_datagram(harness, &mut channel, None),
+			(42, vec![Seen::Channel("SendDatagram")])
+		);
+
+		let hooks = api
+			.listen_channel_sends(handle, tf2_binding(no_interfaces), on_send)
+			.unwrap();
+
+		assert_eq!(
+			send_datagram(harness, &mut channel, None),
+			(
+				42,
+				vec![Seen::Datagram(address, None), Seen::Channel("SendDatagram")]
+			)
+		);
+
+		hooks.remove(api);
+	});
 }
 
 /// A slot no test expects to be called, which aborts the test process.

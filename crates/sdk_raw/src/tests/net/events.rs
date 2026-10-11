@@ -4,13 +4,6 @@
 use super::*;
 use crate::test_support::net::mock_game_client;
 
-/// A listener's `FireGameEvent` that no test calls.
-unsafe extern "C" fn fire_game_event(
-	_this: *mut sys::IGameEventListener2,
-	_event: *mut sys::IGameEvent,
-) {
-}
-
 #[test]
 fn a_game_clients_listener_starts_it_and_leads_back_to_it() {
 	let client = mock_game_client("CGameClient", fire_game_event);
@@ -32,4 +25,11 @@ fn clients_of_other_classes_are_refused() {
 	let listener = unsafe { listener_of_client(client) };
 
 	assert_eq!(listener, Err(ClientLayoutError));
+}
+
+/// A listener's `FireGameEvent` that no test calls.
+unsafe extern "C" fn fire_game_event(
+	_this: *mut sys::IGameEventListener2,
+	_event: *mut sys::IGameEvent,
+) {
 }

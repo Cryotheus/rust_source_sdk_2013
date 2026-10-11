@@ -7,6 +7,68 @@ use super::*;
 use crate::bsp::brushes::ModelRegion;
 use num_bigint::{BigInt, Sign as IntegerSign};
 
+const MAX_TRANSLATION_BITS: u64 = 556;
+const TRANSLATION_WORK: usize = 64;
+
+struct ImportedBrush {
+	source: usize,
+	constraints: Vec<usize>,
+	bounds: Option<Bounds>,
+}
+
+/// A positive-volume pair, not a point sample or an actor movement certificate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegionComponentIncidence {
+	component: usize,
+	fragment: usize,
+	source_region_brush: usize,
+}
+
+impl RegionComponentIncidence {
+	pub fn component(&self) -> usize {
+		self.component
+	}
+
+	pub fn fragment(&self) -> usize {
+		self.fragment
+	}
+
+	/// Serialized source brush ID in the supplied region; not a native engine ID.
+	pub fn source_region_brush(&self) -> usize {
+		self.source_region_brush
+	}
+}
+
+/// Owned ascending unique component incidences in one queried atlas.
+#[derive(Debug)]
+pub struct RegionIncidence {
+	incidences: Vec<RegionComponentIncidence>,
+	statistics: RegionQueryStatistics,
+}
+
+impl RegionIncidence {
+	pub fn incidences(&self) -> &[RegionComponentIncidence] {
+		&self.incidences
+	}
+
+	pub fn statistics(&self) -> RegionQueryStatistics {
+		self.statistics
+	}
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RegionQueryError {
+	#[error(
+		"source region brush {source_region_brush} plane {plane} has no exact finite binary32 translated distance"
+	)]
+	UnsupportedExactTranslation {
+		source_region_brush: usize,
+		plane: usize,
+	},
+	#[error(transparent)]
+	Geometry(#[from] Error),
+}
+
 /// One whole-query allowance; it is never reset per brush or fragment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegionQueryLimits {
@@ -26,62 +88,6 @@ pub struct RegionQueryStatistics {
 	pub translated_planes: usize,
 	pub candidate_pairs: usize,
 	pub incidences: usize,
-}
-
-/// A positive-volume pair, not a point sample or an actor movement certificate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RegionComponentIncidence {
-	component: usize,
-	fragment: usize,
-	source_region_brush: usize,
-}
-
-impl RegionComponentIncidence {
-	pub fn component(&self) -> usize {
-		self.component
-	}
-	pub fn fragment(&self) -> usize {
-		self.fragment
-	}
-	/// Serialized source brush ID in the supplied region; not a native engine ID.
-	pub fn source_region_brush(&self) -> usize {
-		self.source_region_brush
-	}
-}
-
-/// Owned ascending unique component incidences in one queried atlas.
-#[derive(Debug)]
-pub struct RegionIncidence {
-	incidences: Vec<RegionComponentIncidence>,
-	statistics: RegionQueryStatistics,
-}
-
-impl RegionIncidence {
-	pub fn incidences(&self) -> &[RegionComponentIncidence] {
-		&self.incidences
-	}
-	pub fn statistics(&self) -> RegionQueryStatistics {
-		self.statistics
-	}
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RegionQueryError {
-	#[error(
-		"source region brush {source_region_brush} plane {plane} has no exact finite binary32 translated distance"
-	)]
-	UnsupportedExactTranslation {
-		source_region_brush: usize,
-		plane: usize,
-	},
-	#[error(transparent)]
-	Geometry(#[from] Error),
-}
-
-struct ImportedBrush {
-	source: usize,
-	constraints: Vec<usize>,
-	bounds: Option<Bounds>,
 }
 
 impl BrushSpace {
@@ -234,9 +240,6 @@ impl BrushSpace {
 	}
 }
 
-const TRANSLATION_WORK: usize = 64;
-const MAX_TRANSLATION_BITS: u64 = 556;
-
 fn parts(value: f32) -> (i64, i32) {
 	let bits = value.to_bits();
 	let exponent = ((bits >> 23) & 0xff) as i32;
@@ -247,14 +250,6 @@ fn parts(value: f32) -> (i64, i32) {
 		(fraction | 0x80_0000, exponent - 150)
 	};
 	(if bits >> 31 == 0 { mantissa } else { -mantissa }, exponent)
-}
-
-fn translation_width(value: &BigInt) -> Result<(), Error> {
-	if value.bits() > MAX_TRANSLATION_BITS {
-		Err(Error::Arithmetic)
-	} else {
-		Ok(())
-	}
 }
 
 /// S * 2^-298 is the exact translated distance. Each input mantissa has at most
@@ -321,4 +316,12 @@ fn translated_distance(
 	Ok(Some(f32::from_bits(
 		sign | (exponent << 23) | (mantissa & 0x7f_ffff),
 	)))
+}
+
+fn translation_width(value: &BigInt) -> Result<(), Error> {
+	if value.bits() > MAX_TRANSLATION_BITS {
+		Err(Error::Arithmetic)
+	} else {
+		Ok(())
+	}
 }

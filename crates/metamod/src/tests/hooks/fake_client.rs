@@ -24,6 +24,9 @@ thread_local! {
 	static REPORT: Cell<bool> = const { Cell::new(true) };
 }
 
+/// Clients' names, each with whether it was asked for or created reported.
+type Clients = Vec<(CString, bool)>;
+
 /// What the mock engine's functions return, as the edict they created.
 const EDICT: *mut sys::edict_t = 0x1000 as *mut sys::edict_t;
 
@@ -97,9 +100,6 @@ fn report(name: &CStr, requested: bool) -> bool {
 		_ => requested,
 	}
 }
-
-/// Clients' names, each with whether it was asked for or created reported.
-type Clients = Vec<(CString, bool)>;
 
 /// What the callback was asked, and the clients the engine created, since the
 /// last call.

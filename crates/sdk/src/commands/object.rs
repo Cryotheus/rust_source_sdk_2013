@@ -79,10 +79,6 @@ impl CommandHeader {
 		Some(RegisteredCommand(object.cast()))
 	}
 
-	pub(super) const fn access(&self) -> CommandAccess {
-		self.access
-	}
-
 	/// Whether `client` may run the command: its access lets clients run it,
 	/// and its filter, if any, accepts them.
 	pub(super) fn accepts_client(&self, server: Server<'_>, client: Client<'_>) -> bool {
@@ -90,6 +86,10 @@ impl CommandHeader {
 			&& self
 				.client_filter
 				.is_none_or(|filter| (filter.accepts)(server, client))
+	}
+
+	pub(super) const fn access(&self) -> CommandAccess {
+		self.access
 	}
 
 	pub(super) fn binding(&self) -> Option<ServerBinding> {

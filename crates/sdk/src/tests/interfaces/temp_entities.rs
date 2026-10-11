@@ -130,9 +130,107 @@ unsafe extern "C" fn dispatch_effect(
 	DISPATCHED.with_borrow_mut(|dispatched_effects| dispatched_effects.push(dispatched));
 }
 
+#[test]
+fn each_attachment_is_sent_as_its_pattach_value() {
+	let mut mock = MockTempEntities::new();
+	let temp_entities = mock.temp_entities();
+	let mut corpse = MockEntity::new(9);
+
+	set_networking(null_mut(), edict(9));
+
+	let attachments = [
+		(ParticleAttachment::Origin, 0, 0),
+		(ParticleAttachment::OriginFollow, 1, 0),
+		(ParticleAttachment::Point(1), 3, 1),
+		(ParticleAttachment::PointFollow(7), 4, 7),
+		(ParticleAttachment::RootBoneFollow, 6, 0),
+	];
+
+	for (attachment, _, _) in attachments {
+		temp_entities
+			.dispatch_particle_effect(
+				&recipients(&[2], false),
+				&ParticleEffect {
+					attachment,
+					..ParticleEffect::new(1, corpse.entity())
+				},
+			)
+			.unwrap();
+	}
+
+	DISPATCHED.with_borrow(|dispatched| {
+		let sent: Vec<_> = dispatched
+			.iter()
+			.map(|effect| (effect.damage_type, effect.attachment_index))
+			.collect();
+
+		let expected: Vec<_> = attachments
+			.iter()
+			.map(|&(_, attach_type, point)| (attach_type, point))
+			.collect();
+
+		assert_eq!(sent, expected);
+	});
+}
+
 /// A leaked edict at `index`, for mock entities to report.
 fn edict(index: c_int) -> *mut sys::edict_t {
 	leak(mock_edict(index, false))
+}
+
+#[test]
+fn effects_clients_cannot_receive_never_reach_the_game() {
+	let mut mock = MockTempEntities::new();
+	let temp_entities = mock.temp_entities();
+	let mut corpse = MockEntity::new(9);
+	let everyone = recipients(&[2], false);
+
+	set_networking(null_mut(), edict(9));
+
+	let effect = ParticleEffect::new(1, corpse.entity());
+
+	for (refused, error) in [
+		(
+			ParticleEffect {
+				system: 8192,
+				..effect
+			},
+			ParticleEffectError::SystemOutOfRange(8192),
+		),
+		(
+			ParticleEffect {
+				attachment: ParticleAttachment::Point(0),
+				..effect
+			},
+			ParticleEffectError::Attachment(0),
+		),
+		(
+			ParticleEffect {
+				attachment: ParticleAttachment::PointFollow(16),
+				..effect
+			},
+			ParticleEffectError::Attachment(16),
+		),
+	] {
+		assert_eq!(
+			temp_entities.dispatch_particle_effect(&everyone, &refused),
+			Err(error)
+		);
+	}
+
+	// An effect that passes reaches no one without recipients.
+	temp_entities
+		.dispatch_particle_effect(&recipients(&[], false), &effect)
+		.unwrap();
+
+	set_networking(null_mut(), null_mut());
+
+	assert_eq!(
+		temp_entities.dispatch_particle_effect(&everyone, &effect),
+		Err(ParticleEffectError::NotNetworked)
+	);
+
+	DISPATCHED.with_borrow(|dispatched| assert!(dispatched.is_empty()));
 }
 
 #[test]
@@ -199,102 +297,4 @@ fn particle_effects_reach_the_game_as_dispatch_particle_effect_sends_them() {
 		mock.system._base.m_nStatusPushed, 0,
 		"the prediction filtering is restored"
 	);
-}
-
-#[test]
-fn each_attachment_is_sent_as_its_pattach_value() {
-	let mut mock = MockTempEntities::new();
-	let temp_entities = mock.temp_entities();
-	let mut corpse = MockEntity::new(9);
-
-	set_networking(null_mut(), edict(9));
-
-	let attachments = [
-		(ParticleAttachment::Origin, 0, 0),
-		(ParticleAttachment::OriginFollow, 1, 0),
-		(ParticleAttachment::Point(1), 3, 1),
-		(ParticleAttachment::PointFollow(7), 4, 7),
-		(ParticleAttachment::RootBoneFollow, 6, 0),
-	];
-
-	for (attachment, _, _) in attachments {
-		temp_entities
-			.dispatch_particle_effect(
-				&recipients(&[2], false),
-				&ParticleEffect {
-					attachment,
-					..ParticleEffect::new(1, corpse.entity())
-				},
-			)
-			.unwrap();
-	}
-
-	DISPATCHED.with_borrow(|dispatched| {
-		let sent: Vec<_> = dispatched
-			.iter()
-			.map(|effect| (effect.damage_type, effect.attachment_index))
-			.collect();
-
-		let expected: Vec<_> = attachments
-			.iter()
-			.map(|&(_, attach_type, point)| (attach_type, point))
-			.collect();
-
-		assert_eq!(sent, expected);
-	});
-}
-
-#[test]
-fn effects_clients_cannot_receive_never_reach_the_game() {
-	let mut mock = MockTempEntities::new();
-	let temp_entities = mock.temp_entities();
-	let mut corpse = MockEntity::new(9);
-	let everyone = recipients(&[2], false);
-
-	set_networking(null_mut(), edict(9));
-
-	let effect = ParticleEffect::new(1, corpse.entity());
-
-	for (refused, error) in [
-		(
-			ParticleEffect {
-				system: 8192,
-				..effect
-			},
-			ParticleEffectError::SystemOutOfRange(8192),
-		),
-		(
-			ParticleEffect {
-				attachment: ParticleAttachment::Point(0),
-				..effect
-			},
-			ParticleEffectError::Attachment(0),
-		),
-		(
-			ParticleEffect {
-				attachment: ParticleAttachment::PointFollow(16),
-				..effect
-			},
-			ParticleEffectError::Attachment(16),
-		),
-	] {
-		assert_eq!(
-			temp_entities.dispatch_particle_effect(&everyone, &refused),
-			Err(error)
-		);
-	}
-
-	// An effect that passes reaches no one without recipients.
-	temp_entities
-		.dispatch_particle_effect(&recipients(&[], false), &effect)
-		.unwrap();
-
-	set_networking(null_mut(), null_mut());
-
-	assert_eq!(
-		temp_entities.dispatch_particle_effect(&everyone, &effect),
-		Err(ParticleEffectError::NotNetworked)
-	);
-
-	DISPATCHED.with_borrow(|dispatched| assert!(dispatched.is_empty()));
 }

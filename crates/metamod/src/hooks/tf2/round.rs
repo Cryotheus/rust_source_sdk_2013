@@ -234,14 +234,13 @@ const SHOULD_CREATE_ENTITY: VirtualFunction<ShouldCreateEntity> =
 const TEAM_MAY_CAPTURE_POINT: VirtualFunction<TeamMayCapturePoint> =
 	VirtualFunction::new(TEAM_MAY_CAPTURE_POINT_SLOT);
 
-static ROUTE: CleanupRoute = CleanupRoute::new();
-
 static CLEANUP_CREATE_ROUTE: RoundRoute<CleanupCreateFn> = RoundRoute::new();
 static CLEANUP_KEEP_ROUTE: RoundRoute<CleanupKeepFn> = RoundRoute::new();
 static FLAGS_ROUTE: RoundRoute<FlagsCapturableFn> = RoundRoute::new();
 static PLAYER_BLOCK_ROUTE: RoundRoute<PlayerBlockFn> = RoundRoute::new();
 static PLAYER_CAPTURE_ROUTE: RoundRoute<PlayerCaptureFn> = RoundRoute::new();
 static POINTS_ROUTE: RoundRoute<PointsCapturableFn> = RoundRoute::new();
+static ROUTE: CleanupRoute = CleanupRoute::new();
 static RUNNING_ROUTE: RoundRoute<RoundFn> = RoundRoute::new();
 static SETUP_ROUTE: RoundRoute<RoundFn> = RoundRoute::new();
 static STALEMATE_ROUTE: RoundRoute<StalemateFn> = RoundRoute::new();
@@ -289,35 +288,6 @@ pub enum CleanupKeepAction {
 	Keep,
 }
 
-/// What a map cleanup hook does with a cleanup.
-#[must_use]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum MapCleanupAction {
-	/// Lets the game clean up the map.
-	#[default]
-	Allow,
-
-	/// Skips `CleanUpMap`: the map's entities stay as they are, and none of
-	/// the function's effects apply, including removing players' conditions.
-	/// The rest of the round's restart runs.
-	Skip,
-}
-
-/// Why a map cleanup hook could not be installed.
-#[derive(Debug, thiserror::Error)]
-pub enum MapCleanupHookError {
-	/// The server does not run TF2, or the game rules class's vtable could
-	/// not be found.
-	#[error(transparent)]
-	Target(#[from] GameRulesVtableError),
-
-	/// Metamod refused the hook. [`HookError::AlreadyInstalled`] means the
-	/// game rules class is already hooked, which callers installing more than
-	/// once can ignore.
-	#[error(transparent)]
-	Hook(#[from] HookError),
-}
-
 struct CleanupRoute {
 	state: Cell<Option<RoutedCleanup>>,
 }
@@ -356,12 +326,33 @@ impl Handler<CleanUpMap> for CleanupRoute {
 // calls handlers only on that thread. Cell borrows are never held over calls.
 unsafe impl Sync for CleanupRoute {}
 
-#[derive(Clone, Copy)]
-struct RoutedCleanup {
-	binding: ServerBinding,
-	callback: MapCleanupFn,
-	hook: HookId,
-	vtable: usize,
+/// What a map cleanup hook does with a cleanup.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MapCleanupAction {
+	/// Lets the game clean up the map.
+	#[default]
+	Allow,
+
+	/// Skips `CleanUpMap`: the map's entities stay as they are, and none of
+	/// the function's effects apply, including removing players' conditions.
+	/// The rest of the round's restart runs.
+	Skip,
+}
+
+/// Why a map cleanup hook could not be installed.
+#[derive(Debug, thiserror::Error)]
+pub enum MapCleanupHookError {
+	/// The server does not run TF2, or the game rules class's vtable could
+	/// not be found.
+	#[error(transparent)]
+	Target(#[from] GameRulesVtableError),
+
+	/// Metamod refused the hook. [`HookError::AlreadyInstalled`] means the
+	/// game rules class is already hooked, which callers installing more than
+	/// once can ignore.
+	#[error(transparent)]
+	Hook(#[from] HookError),
 }
 
 /// A player a capture area or TF2 asks about.
@@ -760,20 +751,6 @@ impl Handler<TeamMayCapturePoint> for RoundRoute<TeamCaptureFn> {
 // calls handlers only on that thread. Cell borrows are never held over calls.
 unsafe impl<C> Sync for RoundRoute<C> {}
 
-/// Clears the buffer a capture area passes for the reason the game answers
-/// as it does, which the game writes, if given one: a hook's answer gives
-/// none.
-///
-/// # Safety
-///
-/// `reason` must be null, or writable for `reason_size` bytes.
-unsafe fn clear_reason(reason: *mut c_char, reason_size: c_int) {
-	if !reason.is_null() && reason_size > 0 {
-		// SAFETY: As the caller promises.
-		unsafe { reason.write(0) };
-	}
-}
-
 /// A round's end with a win, or without a winner, about to happen, as TF2's
 /// game rules are told to end it (`SetWinningTeam`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -787,6 +764,14 @@ pub struct RoundWinEvent {
 
 	/// What follows the round's end.
 	pub options: WinOptions,
+}
+
+#[derive(Clone, Copy)]
+struct RoutedCleanup {
+	binding: ServerBinding,
+	callback: MapCleanupFn,
+	hook: HookId,
+	vtable: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -1019,6 +1004,21 @@ impl MetamodApi<'_> {
 		}
 	}
 
+	/// Whether any round hook is installed, for this load of the plugin.
+	fn rounds_hooked(self) -> bool {
+		CLEANUP_CREATE_ROUTE.is_routed(self)
+			|| CLEANUP_KEEP_ROUTE.is_routed(self)
+			|| FLAGS_ROUTE.is_routed(self)
+			|| PLAYER_BLOCK_ROUTE.is_routed(self)
+			|| PLAYER_CAPTURE_ROUTE.is_routed(self)
+			|| POINTS_ROUTE.is_routed(self)
+			|| RUNNING_ROUTE.is_routed(self)
+			|| SETUP_ROUTE.is_routed(self)
+			|| STALEMATE_ROUTE.is_routed(self)
+			|| TEAM_CAPTURE_ROUTE.is_routed(self)
+			|| WIN_ROUTE.is_routed(self)
+	}
+
 	/// Hooks `function` on the class whose primary vtable is `vtable`, through
 	/// `route`, and adds the hook to `hooks`.
 	///
@@ -1206,19 +1206,18 @@ impl MetamodApi<'_> {
 
 		Ok(())
 	}
+}
 
-	/// Whether any round hook is installed, for this load of the plugin.
-	fn rounds_hooked(self) -> bool {
-		CLEANUP_CREATE_ROUTE.is_routed(self)
-			|| CLEANUP_KEEP_ROUTE.is_routed(self)
-			|| FLAGS_ROUTE.is_routed(self)
-			|| PLAYER_BLOCK_ROUTE.is_routed(self)
-			|| PLAYER_CAPTURE_ROUTE.is_routed(self)
-			|| POINTS_ROUTE.is_routed(self)
-			|| RUNNING_ROUTE.is_routed(self)
-			|| SETUP_ROUTE.is_routed(self)
-			|| STALEMATE_ROUTE.is_routed(self)
-			|| TEAM_CAPTURE_ROUTE.is_routed(self)
-			|| WIN_ROUTE.is_routed(self)
+/// Clears the buffer a capture area passes for the reason the game answers
+/// as it does, which the game writes, if given one: a hook's answer gives
+/// none.
+///
+/// # Safety
+///
+/// `reason` must be null, or writable for `reason_size` bytes.
+unsafe fn clear_reason(reason: *mut c_char, reason_size: c_int) {
+	if !reason.is_null() && reason_size > 0 {
+		// SAFETY: As the caller promises.
+		unsafe { reason.write(0) };
 	}
 }

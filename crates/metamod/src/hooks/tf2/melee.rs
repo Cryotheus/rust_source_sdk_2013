@@ -6,8 +6,8 @@
 //! containment follow [`crate::hooks::tf2::class`].
 
 use crate::MetamodApi;
-use crate::hooks::tf2::class::ClassHooks;
 use crate::hook::{HookAction, HookTiming, VirtualFunction};
+use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::melee::{MeleeHitFn as Hit, ON_ENTITY_HIT_SLOT};
 use source_sdk_2013::tf2::class_targets::TfMeleeWeapon;
