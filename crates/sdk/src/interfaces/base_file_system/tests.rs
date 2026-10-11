@@ -507,3 +507,134 @@ fn sampled_size_reads_only_a_prefix_and_makes_no_atomicity_claim() {
 	assert_eq!(mock.state.borrow().position, 3);
 	mock.closed_once();
 }
+
+struct FactoryState {
+	supplied: *mut c_void,
+	other: *mut c_void,
+	versions: Vec<CString>,
+	other_calls: usize,
+}
+
+thread_local! {
+	static FACTORY_STATE: RefCell<FactoryState> = const { RefCell::new(FactoryState {
+		supplied: std::ptr::null_mut(),
+		other: std::ptr::null_mut(),
+		versions: Vec::new(),
+		other_calls: 0,
+	}) };
+}
+
+unsafe extern "C" fn supplied_factory(
+	name: *const c_char,
+	_return_code: *mut c_int,
+) -> *mut c_void {
+	// SAFETY: The SDK gives CreateInterface a live, terminated version name.
+	let name = unsafe { CStr::from_ptr(name) };
+	FACTORY_STATE.with_borrow_mut(|state| {
+		state.versions.push(name.to_owned());
+		if name == sdk_raw::interfaces::base_file_system::VERSION {
+			state.supplied
+		} else {
+			std::ptr::null_mut()
+		}
+	})
+}
+
+unsafe extern "C" fn other_factory(_name: *const c_char, _return_code: *mut c_int) -> *mut c_void {
+	FACTORY_STATE.with_borrow_mut(|state| {
+		state.other_calls += 1;
+		state.other
+	})
+}
+
+struct FactoryScope;
+
+impl FactoryScope {
+	fn new(supplied: Option<&Mock>, other: &Mock) -> Self {
+		FACTORY_STATE.with_borrow_mut(|state| {
+			*state = FactoryState {
+				supplied: supplied.map_or(std::ptr::null_mut(), |mock| {
+					std::ptr::from_ref(&mock.raw).cast_mut().cast()
+				}),
+				other: std::ptr::from_ref(&other.raw).cast_mut().cast(),
+				versions: Vec::new(),
+				other_calls: 0,
+			};
+		});
+		Self
+	}
+}
+
+impl Drop for FactoryScope {
+	fn drop(&mut self) {
+		FACTORY_STATE.with_borrow_mut(|state| {
+			state.supplied = std::ptr::null_mut();
+			state.other = std::ptr::null_mut();
+		});
+	}
+}
+
+#[test]
+fn supplied_factory_binds_the_exact_base_interface_without_other_factories() {
+	let supplied = Mock::new(b"supplied map");
+	let other = Mock::new(b"other map");
+	let scope = FactoryScope::new(Some(&supplied), &other);
+	// SAFETY: Both factories export only these live fakes. The callback scope,
+	// boxes and generated vtables remain live on this thread throughout use.
+	let server = unsafe {
+		crate::Server::new(
+			crate::InterfaceFactory::new(other_factory),
+			crate::InterfaceFactory::new(other_factory),
+			crate::Game::TeamFortress2,
+			&scope,
+		)
+	};
+	// SAFETY: The supplied factory returns the exact live IBaseFileSystem
+	// fake from this same scope and thread; no native lifetime is extended.
+	let fs = unsafe {
+		server.base_file_system_from_factory(crate::InterfaceFactory::new(supplied_factory))
+	}
+	.unwrap();
+	assert_eq!(fs.as_ptr(), std::ptr::from_ref(&supplied.raw).cast_mut());
+	assert_eq!(
+		fs.read_file(c"maps/supplied.bsp", Some(c"GAME"), ReadLimits::default())
+			.unwrap(),
+		b"supplied map"
+	);
+	supplied.closed_once();
+	assert_eq!(other.state.borrow().opens, 0);
+	FACTORY_STATE.with_borrow(|state| {
+		assert_eq!(state.versions, [c"VBaseFileSystem011".to_owned()]);
+		assert_eq!(state.other_calls, 0);
+	});
+}
+
+#[test]
+fn missing_supplied_export_names_its_route_and_never_falls_back() {
+	let other = Mock::new(b"available from engine and game server");
+	let scope = FactoryScope::new(None, &other);
+	// SAFETY: Both stored factories export only the live same-thread fake.
+	let server = unsafe {
+		crate::Server::new(
+			crate::InterfaceFactory::new(other_factory),
+			crate::InterfaceFactory::new(other_factory),
+			crate::Game::TeamFortress2,
+			&scope,
+		)
+	};
+	// SAFETY: The supplied same-thread factory is live and returns null.
+	let error = unsafe {
+		server.base_file_system_from_factory(crate::InterfaceFactory::new(supplied_factory))
+	}
+	.unwrap_err();
+	assert_eq!(error.version(), c"VBaseFileSystem011");
+	assert_eq!(
+		error.to_string(),
+		"the supplied filesystem factory does not export `VBaseFileSystem011`"
+	);
+	FACTORY_STATE.with_borrow(|state| {
+		assert_eq!(state.versions, [c"VBaseFileSystem011".to_owned()]);
+		assert_eq!(state.other_calls, 0);
+	});
+	assert_eq!(other.state.borrow().opens, 0);
+}

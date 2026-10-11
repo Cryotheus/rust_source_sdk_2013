@@ -23,6 +23,21 @@ use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
+/// The explicitly supplied filesystem factory lacks the exact base interface.
+///
+/// This identifies the supplied-factory route, independently of the engine and
+/// game-server factories stored in [`Server`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the supplied filesystem factory does not export `{}`", sdk_raw::interfaces::base_file_system::VERSION.to_string_lossy())]
+pub struct BaseFileSystemFactoryError;
+
+impl BaseFileSystemFactoryError {
+	/// The exact interface version requested from the supplied factory.
+	pub const fn version(&self) -> &'static CStr {
+		sdk_raw::interfaces::base_file_system::VERSION
+	}
+}
+
 /// The game a server runs, which decides the ABI details that the SDK headers
 /// alone cannot describe, such as virtual methods added under `TF_DLL` and
 /// `NEXT_BOT`.
@@ -106,8 +121,9 @@ impl InterfaceError {
 
 /// One module's `CreateInterface` function.
 ///
-/// Holding a factory grants nothing on its own; [`Server::new`] is where the
-/// caller vouches that it belongs to the running server.
+/// Holding a factory grants nothing on its own. [`Server::new`] and
+/// [`Server::base_file_system_from_factory`] require the caller to vouch for
+/// its relationship to the running server and its callback lifetime.
 #[doc(alias("CreateInterface", "CreateInterfaceFn"))]
 #[derive(Debug, Clone, Copy)]
 pub struct InterfaceFactory(CreateInterfaceFn);
@@ -154,12 +170,12 @@ impl Display for Module {
 /// The running server, as seen from one call the engine makes into a plugin.
 ///
 /// Every other type in this crate is reached from here. A `Server` holds the
-/// engine's and game server's interface factories, the only objects in Source
-/// from which every interface is reachable, and resolves an interface each
-/// time an accessor is called. Interfaces are process-wide singletons, so each
-/// accessor returns the same object; resolving is a short string search. An
-/// accessor returns an [`InterfaceError`] if the module does not export its
-/// interface at the version these bindings were generated for.
+/// engine's and game server's interface factories and resolves an interface
+/// each time an ordinary accessor is called. Interfaces are process-wide
+/// singletons, so each accessor returns the same object; resolving is a short
+/// string search. An ordinary accessor returns an [`InterfaceError`] if its
+/// module lacks the expected exact version. A separately supplied filesystem
+/// factory has its own contract in [`Server::base_file_system_from_factory`].
 ///
 /// The lifetime `'s` is the scope [`Server::new`] vouches for. Handles derived
 /// from a `Server` carry it, so none can outlive the callback that created it.
@@ -229,6 +245,54 @@ impl<'s> Server<'s> {
 	/// alternate factory/version lookup is attempted.
 	pub fn base_file_system(&self) -> Result<BaseFileSystem<'s>, InterfaceError> {
 		self.interface()
+	}
+
+	/// Binds `IBaseFileSystem` from an explicitly supplied filesystem factory.
+	///
+	/// Requests exactly `VBaseFileSystem011` once from `factory`. A null interface
+	/// returns [`BaseFileSystemFactoryError`]. No engine or game-server factory,
+	/// other version, or full-filesystem base cast is attempted.
+	///
+	/// # Safety
+	///
+	/// `factory` must be the filesystem module's `CreateInterface` in the same live
+	/// server as `self`. For all of `'s`, that module must stay loaded and any
+	/// non-null result under `VBaseFileSystem011` must be the correctly adjusted,
+	/// live `IBaseFileSystem` singleton with the supported ABI. The factory call
+	/// and all uses of the returned handle must occur in `self`'s same main-thread
+	/// callback, without a lifecycle transition invalidating the interface.
+	/// [`InterfaceFactory`] alone does not establish these guarantees.
+	///
+	/// ```compile_fail
+	/// use source_sdk_2013::{Server, InterfaceFactory, interfaces::BaseFileSystem};
+	/// fn escape(server: Server<'_>, factory: InterfaceFactory) -> BaseFileSystem<'static> {
+	///     unsafe { server.base_file_system_from_factory(factory).unwrap() }
+	/// }
+	/// ```
+	///
+	/// ```compile_fail
+	/// use source_sdk_2013::{Server, InterfaceFactory, interfaces::BaseFileSystem};
+	/// fn bind<'s>(server: Server<'s>, factory: InterfaceFactory) -> BaseFileSystem<'s> {
+	///     server.base_file_system_from_factory(factory).unwrap()
+	/// }
+	/// ```
+	pub unsafe fn base_file_system_from_factory(
+		&self,
+		factory: InterfaceFactory,
+	) -> Result<BaseFileSystem<'s>, BaseFileSystemFactoryError> {
+		// SAFETY: The caller guarantees the supplied factory belongs to this
+		// server and remains live for this callback on its main thread.
+		let raw = unsafe {
+			create_interface(
+				factory.as_raw(),
+				sdk_raw::interfaces::base_file_system::VERSION,
+			)
+		}
+		.ok_or(BaseFileSystemFactoryError)?;
+
+		// SAFETY: The caller guarantees the exact-version result is the live,
+		// correctly adjusted IBaseFileSystem for this server's full scope 's.
+		Ok(unsafe { BaseFileSystem::bind(raw.cast(), self) })
 	}
 
 	/// `IBotManager`, which creates bots.

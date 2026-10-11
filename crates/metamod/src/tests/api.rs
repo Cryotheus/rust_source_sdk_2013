@@ -240,3 +240,41 @@ unsafe extern "C" fn unknown_api_versions(
 		plugin_minimum.write(19);
 	}
 }
+
+thread_local! {
+	static FILE_SYSTEM_FACTORY_CALL: Cell<Option<(*mut ISmmApi, bool)>> = const { Cell::new(None) };
+	static FILE_SYSTEM_FACTORY_RESULT: Cell<CreateInterfaceFn> = const { Cell::new(None) };
+}
+
+unsafe extern "C" fn create_file_system_interface(
+	_name: *const c_char,
+	_return_code: *mut c_int,
+) -> *mut c_void {
+	3_usize as *mut c_void
+}
+
+unsafe extern "C" fn file_system_factory(this: *mut ISmmApi, synthetic: bool) -> CreateInterfaceFn {
+	FILE_SYSTEM_FACTORY_CALL.set(Some((this, synthetic)));
+	FILE_SYSTEM_FACTORY_RESULT.get()
+}
+
+#[test]
+fn file_system_factory_uses_the_named_direct_getter_and_preserves_null() {
+	let slot = std::mem::offset_of!(ISmmApiVtablePrefix, get_file_system_factory)
+		/ std::mem::size_of::<*const ()>();
+	for version in [MetamodVersion::Stable1226, MetamodVersion::Dev1469] {
+		let smm = MockSmm::new(version, &[(slot, file_system_factory as *const ())]);
+		let receiver = std::ptr::from_ref(&*smm).cast::<ISmmApi>().cast_mut();
+		let supplied: CreateInterfaceFn = Some(create_file_system_interface);
+		for result in [supplied, None] {
+			FILE_SYSTEM_FACTORY_CALL.set(None);
+			FILE_SYSTEM_FACTORY_RESULT.set(result);
+			let api = smm.api();
+			assert_eq!(
+				api.file_system_factory().map(|factory| factory as usize),
+				result.map(|factory| factory as usize)
+			);
+			assert_eq!(FILE_SYSTEM_FACTORY_CALL.get(), Some((receiver, false)));
+		}
+	}
+}
