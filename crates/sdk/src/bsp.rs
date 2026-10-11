@@ -11,6 +11,7 @@
 //! decoded. Unused record fields and other lump contents are not validated.
 //! All data here can be owned by an asynchronous worker.
 
+pub mod brush_space;
 pub mod brushes;
 mod decode;
 pub mod entities;
