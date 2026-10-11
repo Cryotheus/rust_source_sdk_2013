@@ -53,6 +53,27 @@ pub type VoiceChatFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>, bool) -> V
 const CAN_PLAYER_HEAR_PLAYER: VirtualFunction<CanPlayerHearPlayer> =
 	VirtualFunction::new(CAN_PLAYER_HEAR_PLAYER_SLOT);
 
+/// Whether a player hears another's voice chat.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum VoiceChatAction {
+	/// Keeps the decision as the game, or an earlier hook, made it.
+	#[default]
+	Continue,
+
+	/// Lets the listener hear the talker without positional audio.
+	Hear,
+
+	/// Lets the listener hear positional voice from the talker's location.
+	/// The game still applies the listener's voice-enabled and mute settings.
+	/// This selects native spatial audio; the caller chooses any distance
+	/// cutoff by returning [`Self::Mute`] outside it.
+	HearProximity,
+
+	/// Keeps the listener from hearing the talker.
+	Mute,
+}
+
 /// Why the voice chat hook could not be installed.
 #[derive(Debug, thiserror::Error)]
 pub enum VoiceChatHookError {
@@ -64,21 +85,6 @@ pub enum VoiceChatHookError {
 	/// module.
 	#[error(transparent)]
 	Target(#[from] ClassTargetError),
-}
-
-/// Whether a player hears another's voice chat.
-#[must_use]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub enum VoiceChatAction {
-	/// Keeps the decision as the game, or an earlier hook, made it.
-	#[default]
-	Continue,
-
-	/// Lets the listener hear the talker.
-	Hear,
-
-	/// Keeps the listener from hearing the talker.
-	Mute,
 }
 
 /// A voice chat hook, which [`Self::remove`] removes.
@@ -108,12 +114,81 @@ impl Debug for VoiceChatHooks {
 	}
 }
 
+/// The handler of one voice chat hook.
+struct VoiceRoute {
+	binding: ServerBinding,
+	callback: VoiceChatFn,
+
+	/// Whether [`VoiceChatHooks::remove`] removed the hook.
+	removed: Cell<bool>,
+}
+
+impl Handler<CanPlayerHearPlayer> for VoiceRoute {
+	fn call(&self, call: &HookCall<'_, CanPlayerHearPlayer>) -> HookAction<bool> {
+		if self.removed.get() {
+			return HookAction::Ignore;
+		}
+
+		let (listener, talker, proximity) = call.args();
+
+		let (Some(listener), Some(talker)) = (
+			NonNull::new(listener.cast::<sys::CBaseEntity>()),
+			NonNull::new(talker.cast::<sys::CBaseEntity>()),
+		) else {
+			return HookAction::Ignore;
+		};
+
+		let scope = ();
+		// SAFETY: The hook dispatcher runs on the main thread during one live
+		// engine invocation. Binding was supplied during plugin integration.
+		let server = unsafe { self.binding.server(&scope) };
+
+		// SAFETY: The voice manager asks about the live players it finds by
+		// their index, whose entity base is at their start.
+		let (listener, talker) = unsafe {
+			(
+				Entity::from_live(server, listener),
+				Entity::from_live(server, talker),
+			)
+		};
+
+		let hears = call.return_value().unwrap_or_default();
+
+		match (self.callback)(server, listener, talker, hears) {
+			VoiceChatAction::Continue => HookAction::Ignore,
+
+			VoiceChatAction::Hear => {
+				// SAFETY: The helper receives the voice manager's live bool
+				// out-parameter. No reference is retained over a callback. Reset
+				// it because the manager reuses it for the next talker.
+				if let Some(proximity) = NonNull::new(proximity) {
+					unsafe { proximity.as_ptr().write(false) };
+				}
+
+				HookAction::Override(true)
+			}
+
+			VoiceChatAction::HearProximity => {
+				// SAFETY: As for the global Hear decision above.
+				if let Some(proximity) = NonNull::new(proximity) {
+					unsafe { proximity.as_ptr().write(true) };
+				}
+
+				HookAction::Override(true)
+			}
+
+			VoiceChatAction::Mute => HookAction::Override(false),
+		}
+	}
+}
+
 impl MetamodApi<'_> {
 	/// Runs `callback` after each `CVoiceGameMgrHelper::CanPlayerHearPlayer`,
 	/// once TF2 decided whether a player hears another's voice chat; see the
 	/// [module documentation](crate::hooks::tf2::voice_chat).
 	///
-	/// [`VoiceChatAction::Hear`] and [`VoiceChatAction::Mute`] change the
+	/// [`VoiceChatAction::Hear`], [`VoiceChatAction::HearProximity`] and
+	/// [`VoiceChatAction::Mute`] change the
 	/// decision. Finds the helper's class in `targets`, which must come from
 	/// the server `binding` describes. Each call installs another hook, which
 	/// runs the callback once per decision. The callback runs for each pair of
@@ -174,53 +249,5 @@ impl MetamodApi<'_> {
 			route,
 			_not_thread_safe: PhantomData,
 		})
-	}
-}
-
-/// The handler of one voice chat hook.
-struct VoiceRoute {
-	binding: ServerBinding,
-	callback: VoiceChatFn,
-
-	/// Whether [`VoiceChatHooks::remove`] removed the hook.
-	removed: Cell<bool>,
-}
-
-impl Handler<CanPlayerHearPlayer> for VoiceRoute {
-	fn call(&self, call: &HookCall<'_, CanPlayerHearPlayer>) -> HookAction<bool> {
-		if self.removed.get() {
-			return HookAction::Ignore;
-		}
-
-		let (listener, talker, _proximity) = call.args();
-
-		let (Some(listener), Some(talker)) = (
-			NonNull::new(listener.cast::<sys::CBaseEntity>()),
-			NonNull::new(talker.cast::<sys::CBaseEntity>()),
-		) else {
-			return HookAction::Ignore;
-		};
-
-		let scope = ();
-		// SAFETY: The hook dispatcher runs on the main thread during one live
-		// engine invocation. Binding was supplied during plugin integration.
-		let server = unsafe { self.binding.server(&scope) };
-
-		// SAFETY: The voice manager asks about the live players it finds by
-		// their index, whose entity base is at their start.
-		let (listener, talker) = unsafe {
-			(
-				Entity::from_live(server, listener),
-				Entity::from_live(server, talker),
-			)
-		};
-
-		let hears = call.return_value().unwrap_or_default();
-
-		match (self.callback)(server, listener, talker, hears) {
-			VoiceChatAction::Continue => HookAction::Ignore,
-			VoiceChatAction::Hear => HookAction::Override(true),
-			VoiceChatAction::Mute => HookAction::Override(false),
-		}
 	}
 }
