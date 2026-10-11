@@ -42,3 +42,18 @@ pub const LEAF_V0_BYTES: usize = 56;
 
 /// Bytes in a model record.
 pub const MODEL_BYTES: usize = 48;
+
+/// The current BSP version in the pinned public header.
+pub const VERSION_20: i32 = 20;
+
+/// Entity key/value payload.
+pub const LUMP_ENTITIES: usize = 0;
+
+/// Bytes in a version-one leaf, without embedded ambient lighting.
+pub const LEAF_V1_BYTES: usize = 32;
+
+/// Source LZMA magic, from the pinned src/public/tier1/lzmaDecoder.h.
+pub const LZMA_IDENT: [u8; 4] = *b"LZMA";
+
+/// Packed Source LZMA header: magic, output size, encoded size and properties.
+pub const LZMA_HEADER_BYTES: usize = 17;

@@ -1,3 +1,5 @@
+mod compression;
+
 use super::{Bsp, Child, Coverage, Error, HalfSpace, Invalid, Limits, Resource, Side};
 
 struct Fixture {
@@ -320,18 +322,18 @@ fn invalid_query_points_and_all_constraint_indices_are_rejected() {
 #[test]
 fn unsupported_file_lump_and_compression_versions_are_distinct() {
 	let mut data = three_regions();
-	put_i32(&mut data.bytes, 4, 20);
+	put_i32(&mut data.bytes, 4, 21);
 	assert_eq!(
 		Bsp::decode(&data.bytes, Limits::default()).unwrap_err(),
-		Error::UnsupportedVersion(20)
+		Error::UnsupportedVersion(21)
 	);
 	put_i32(&mut data.bytes, 4, 19);
-	put_i32(&mut data.bytes, 8 + 10 * 16 + 8, 1);
+	put_i32(&mut data.bytes, 8 + 10 * 16 + 8, 2);
 	assert_eq!(
 		Bsp::decode(&data.bytes, Limits::default()).unwrap_err(),
 		Error::UnsupportedLumpVersion {
 			lump: 10,
-			version: 1
+			version: 2
 		}
 	);
 	put_i32(&mut data.bytes, 8 + 10 * 16 + 8, 0);

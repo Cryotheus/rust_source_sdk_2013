@@ -25,6 +25,7 @@ _test-support = ["sdk_raw/_test-support"]
 
 [dependencies]
 bitflags.workspace = true
+lzma-rs = "=0.3.0"
 glam = { version = "0.33.10", features = [] }
 source_sdk_2013_declmacros = { path = "../sdk_declmacros", version = "0.1.0-alpha.7" }
 sys = { path = "../sdk_sys", version = "0.1.0-alpha.8", package = "source_sdk_2013_sys" }
