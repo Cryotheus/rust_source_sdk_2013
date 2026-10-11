@@ -589,6 +589,7 @@ fn flip(value: f32) -> f32 {
 }
 
 pub use atlas::{
-	BrushSpace, Component, Coverage, Fragment, Interface, PointRelation, Solid, SolidSource,
-	SourceStatistics,
+	BrushSpace, Component, Coverage, Fragment, Interface, PointRelation, RegionComponentIncidence,
+	RegionIncidence, RegionQueryError, RegionQueryLimits, RegionQueryStatistics, Solid,
+	SolidSource, SourceStatistics,
 };
