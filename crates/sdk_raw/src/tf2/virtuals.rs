@@ -439,3 +439,26 @@ pub const SHOULD_COLLIDE_SLOT: usize =
 #[doc(alias("UpdateOnRemove"))]
 pub const UPDATE_ON_REMOVE_SLOT: usize =
 	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_UpdateOnRemove);
+
+/// The generated slot of `CBaseCombatWeapon::SecondaryAttack` in a weapon's
+/// primary vtable. Derived TF2 weapons keep this slot even when they reverse
+/// their internal primary/secondary weapon modes.
+#[doc(alias("SecondaryAttack"))]
+pub const SECONDARY_ATTACK_SLOT: usize = vtable_slot!(
+	sys::CBaseCombatWeapon__bindgen_vtable,
+	CBaseCombatWeapon_SecondaryAttack
+);
+
+// Both generated platforms expose the same no-argument method signature,
+// and melee weapons preserve the inherited primary-base slot.
+const _: () = {
+	use sys::{
+		CBaseCombatWeapon__bindgen_vtable as CombatWeapon,
+		CTFWeaponBaseMelee__bindgen_vtable as Melee,
+	};
+	let _: fn(&CombatWeapon) -> unsafe extern "C" fn(*mut sys::CBaseCombatWeapon) =
+		|vtable| vtable.CBaseCombatWeapon_SecondaryAttack;
+	let _: fn(&Melee) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee) =
+		|vtable| vtable.CTFWeaponBaseMelee_SecondaryAttack;
+	assert!(SECONDARY_ATTACK_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_SecondaryAttack));
+};

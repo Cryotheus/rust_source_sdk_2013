@@ -311,3 +311,234 @@ fn weapon_frames_run_between_the_hooks() {
 		assert_eq!(CALLS.take(), [("before", 0), ("game", 0), ("after", 0)]);
 	});
 }
+
+/// Exercises the passive source hook and existing impact scheduler together.
+/// This models the pinned native ordering; it does not render a client animation.
+mod secondary {
+	use super::*;
+	use std::marker::PhantomData;
+
+	thread_local! {
+		static ACTIVE: Cell<*const Harness> = const { Cell::new(ptr::null()) };
+		static OWNED: Cell<bool> = const { Cell::new(false) };
+		static SOURCES: RefCell<Vec<(usize, bool)>> = const { RefCell::new(Vec::new()) };
+		static TIME: Cell<f32> = const { Cell::new(0.0) };
+		static MODE: Cell<c_int> = const { Cell::new(1) };
+		static PANIC_NEXT: Cell<bool> = const { Cell::new(false) };
+	}
+
+	/// The original mock attack calls the mock hook backend again, like native
+	/// Swing's virtual GetSmackTime call. The borrowed harness outlives the guard.
+	struct Calls<'a> {
+		previous: *const Harness,
+		_scope: PhantomData<&'a Harness>,
+	}
+
+	impl<'a> Calls<'a> {
+		fn new(harness: &'a Harness) -> Self {
+			SOURCES.with_borrow_mut(|sources| sources.clear());
+			Self {
+				previous: ACTIVE.replace(harness),
+				_scope: PhantomData,
+			}
+		}
+	}
+
+	impl Drop for Calls<'_> {
+		fn drop(&mut self) {
+			ACTIVE.set(self.previous);
+			SOURCES.with_borrow_mut(|sources| sources.clear());
+			PANIC_NEXT.set(false);
+		}
+	}
+
+	unsafe extern "C" fn game_secondary(weapon: *mut sys::CBaseEntity) {
+		note("animation", MODE.get() as usize);
+		note("swing-sound", 0);
+		note("attack-deadlines", 0);
+		let at = ACTIVE.with(|active| {
+			// SAFETY: Calls retains the shared harness borrow through this attack.
+			let harness = unsafe { active.get().as_ref() }.unwrap();
+			harness.call::<SmackTimeFn>(weapon, GET_SMACK_TIME_SLOT, (MODE.get(),))
+		});
+		TIME.set(at);
+		note("punch-bookkeeping", 0);
+	}
+
+	fn on_source(_server: Server<'_>, timing: HookTiming, weapon: Entity<'_>) {
+		let address = weapon.as_ptr() as usize;
+		match timing {
+			HookTiming::Pre => {
+				note("secondary-pre", 0);
+				if PANIC_NEXT.replace(false) {
+					panic!("observer failed");
+				}
+				SOURCES.with_borrow_mut(|sources| sources.push((address, OWNED.get())));
+			}
+
+			HookTiming::Post => {
+				note("secondary-post", 0);
+				SOURCES.with_borrow_mut(|sources| sources.pop());
+			}
+		}
+	}
+
+	fn on_schedule(_server: Server<'_>, weapon: Entity<'_>) -> SmackAction {
+		note("schedule", 0);
+		if SOURCES.with_borrow(|sources| {
+			sources
+				.last()
+				.is_some_and(|&(source, owned)| source == weapon.as_ptr() as usize && owned)
+		}) {
+			SmackAction::Miss
+		} else {
+			SmackAction::Continue
+		}
+	}
+
+	fn fists() -> Box<Mock> {
+		Mock::of_new_class(&[
+			(
+				SECONDARY_ATTACK_SLOT,
+				game_secondary as EntityFn as *mut c_void,
+			),
+			(
+				GET_SMACK_TIME_SLOT,
+				game_smack_time as SmackTimeFn as *mut c_void,
+			),
+		])
+	}
+
+	/// Mirrors ItemPostFrame's positive absolute-time gate, with the trace
+	/// represented by a recorded event instead of an invented entity field.
+	fn later_frame() {
+		if TIME.get() > 0.0 && 10.3 > TIME.get() {
+			note("authoritative-trace", 0);
+		}
+	}
+
+	fn secondary(harness: &Harness, weapon: &mut Mock) -> Vec<(&'static str, usize)> {
+		CALLS.take();
+		harness.call::<EntityFn>(weapon.ptr(), SECONDARY_ATTACK_SLOT, ());
+		later_frame();
+		CALLS.take()
+	}
+
+	fn install(
+		harness: &Harness,
+		weapon: &Mock,
+	) -> (ClassHooks<CombatWeapon>, ClassHooks<TfMeleeWeapon>) {
+		let api = harness.api();
+		let source = api.hook_weapon_secondary_attacks(tf2_binding(no_interfaces), on_source);
+		let schedule = api.hook_melee_smacks(tf2_binding(no_interfaces), on_schedule);
+		assert_eq!(source.cover(api, weapon.target::<CombatWeapon>()), Ok(true));
+		assert_eq!(
+			schedule.cover(api, weapon.target::<TfMeleeWeapon>()),
+			Ok(true)
+		);
+		(source, schedule)
+	}
+
+	#[test]
+	fn an_owned_secondary_miss_preserves_the_entire_attack_and_primary_schedule() {
+		on_both(|harness| {
+			let _calls = Calls::new(harness);
+			let mut weapon = fists();
+			let _hooks = install(harness, &weapon);
+			OWNED.set(true);
+			// Fists swaps its internal weapon mode when the viewmodel is flipped.
+			for mode in [0, 1] {
+				MODE.set(mode);
+				assert_eq!(
+					secondary(harness, &mut weapon),
+					[
+						("secondary-pre", 0),
+						("animation", mode as usize),
+						("swing-sound", 0),
+						("attack-deadlines", 0),
+						("schedule", 0),
+						("punch-bookkeeping", 0),
+						("secondary-post", 0),
+					]
+				);
+				assert_eq!(TIME.get(), NO_SMACK);
+				assert!(SOURCES.with_borrow(|sources| sources.is_empty()));
+			}
+			CALLS.take();
+			let primary = harness.call::<SmackTimeFn>(weapon.ptr(), GET_SMACK_TIME_SLOT, (1,));
+			assert_eq!(primary, 10.2);
+			assert_eq!(CALLS.take(), [("schedule", 0), ("game", 1)]);
+		});
+	}
+
+	#[test]
+	fn ordinary_back_punches_and_uncovered_weapons_keep_native_impacts() {
+		on_both(|harness| {
+			let _calls = Calls::new(harness);
+			let mut weapon = fists();
+			let mut other = fists();
+			let _hooks = install(harness, &weapon);
+			OWNED.set(false);
+			MODE.set(1);
+			let ordinary = secondary(harness, &mut weapon);
+			assert!(ordinary.contains(&("authoritative-trace", 0)));
+			assert_eq!(TIME.get(), 10.2);
+			OWNED.set(true);
+			let uncovered = secondary(harness, &mut other);
+			assert!(!uncovered.contains(&("secondary-pre", 0)));
+			assert!(!uncovered.contains(&("schedule", 0)));
+			assert!(uncovered.contains(&("animation", 1)));
+			assert!(uncovered.contains(&("punch-bookkeeping", 0)));
+			assert!(uncovered.contains(&("authoritative-trace", 0)));
+		});
+	}
+
+	#[test]
+	fn a_panicking_source_observer_cannot_refuse_the_original_attack() {
+		on_both(|harness| {
+			let _calls = Calls::new(harness);
+			let mut weapon = fists();
+			let _hooks = install(harness, &weapon);
+			OWNED.set(true);
+			MODE.set(1);
+			PANIC_NEXT.set(true);
+			let seen = secondary(harness, &mut weapon);
+			assert!(seen.contains(&("animation", 1)));
+			assert!(seen.contains(&("punch-bookkeeping", 0)));
+			assert!(seen.contains(&("authoritative-trace", 0)));
+			assert!(SOURCES.with_borrow(|sources| sources.is_empty()));
+			assert_eq!(TIME.get(), 10.2);
+			assert_eq!(
+				secondary(harness, &mut weapon).last(),
+				Some(&("secondary-post", 0))
+			);
+			assert_eq!(TIME.get(), NO_SMACK);
+		});
+	}
+
+	#[test]
+	fn pause_removal_and_unload_keep_native_attack_flow() {
+		on_both(|harness| {
+			let _calls = Calls::new(harness);
+			let mut weapon = fists();
+			let (source, schedule) = install(harness, &weapon);
+			OWNED.set(true);
+			MODE.set(1);
+			for (loaded, paused) in [(true, true), (false, false)] {
+				harness.set_status(loaded, paused, harness.generation);
+				let seen = secondary(harness, &mut weapon);
+				assert!(seen.contains(&("animation", 1)));
+				assert!(seen.contains(&("punch-bookkeeping", 0)));
+				assert!(seen.contains(&("authoritative-trace", 0)));
+				assert!(!seen.contains(&("secondary-pre", 0)));
+			}
+			harness.set_status(true, false, harness.generation);
+			source.remove(harness.api());
+			schedule.remove(harness.api());
+			let seen = secondary(harness, &mut weapon);
+			assert!(seen.contains(&("animation", 1)));
+			assert!(seen.contains(&("authoritative-trace", 0)));
+			assert!(!seen.contains(&("schedule", 0)));
+		});
+	}
+}

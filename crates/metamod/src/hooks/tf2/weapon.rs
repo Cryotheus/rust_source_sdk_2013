@@ -31,19 +31,22 @@
 //! Under SourceHook, each of the methods takes a hook manager, which every
 //! handle hooking it shares.
 
+const SECONDARY_ATTACK: VirtualFunction<EntityFn> = VirtualFunction::new(SECONDARY_ATTACK_SLOT);
+
 #[cfg(test)]
 #[path = "../../tests/hooks/tf2/weapon.rs"]
 mod tests;
 
 use crate::MetamodApi;
-use crate::hooks::tf2::class::ClassHooks;
 use crate::hook::{HookAction, HookCall, HookTiming, Signature, VirtualFunction};
+use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::player::WEAPON_SWITCH_SLOT;
 
 use source_sdk_2013::raw::tf2::virtuals::{
-	EntityFn, GET_SMACK_TIME_SLOT, ITEM_POST_FRAME_SLOT, PredicateFn, RELOAD_SLOT, SmackTimeFn,
-	WEAPON_CAN_SWITCH_TO_SLOT, WEAPON_EQUIP_SLOT, WeaponFn, WeaponPredicateFn, WeaponSwitchFn,
+	EntityFn, GET_SMACK_TIME_SLOT, ITEM_POST_FRAME_SLOT, PredicateFn, RELOAD_SLOT,
+	SECONDARY_ATTACK_SLOT, SmackTimeFn, WEAPON_CAN_SWITCH_TO_SLOT, WEAPON_EQUIP_SLOT, WeaponFn,
+	WeaponPredicateFn, WeaponSwitchFn,
 };
 
 use source_sdk_2013::tf2::class_targets::{CombatWeapon, TfMeleeWeapon, TfPlayer};
@@ -109,9 +112,8 @@ pub enum SmackAction {
 	#[default]
 	Continue,
 
-	/// Keeps the swing from landing, skipping the game's method, and the hooks
-	/// of other plugins that would run after this one: the weapon schedules no
-	/// smack.
+	/// Prevents scheduling the impact, preserving the swing's animation,
+	/// sound and attack deadlines.
 	Miss,
 }
 
@@ -141,6 +143,8 @@ impl MetamodApi<'_> {
 	/// sound, and the times of the weapon's next attacks stay as the game set
 	/// them. The swinging player's client predicts its own smacks, so it may
 	/// still show a hit on its own screen.
+	/// Skipping the schedule also skips ItemPostFrame's impact-only
+	/// next-melee-crit reset; callers handling Demoman charge must account for it.
 	///
 	/// `binding` must describe the running server. The callback must not
 	/// delete entities immediately, as [`Server::new`] requires.
@@ -302,6 +306,30 @@ impl MetamodApi<'_> {
 			|server, callback, player, call| {
 				let (weapon, _view_model) = call.args();
 				decide_switch(server, callback, player, weapon, call)
+			},
+		)
+	}
+
+	/// Observes `SecondaryAttack` before and after it runs on covered weapons.
+	/// The callback cannot deny or replace the attack. Its source remains
+	/// secondary even when viewmodel/controller settings reverse weapon mode.
+	/// As with other class hooks, activation or pause can omit callbacks;
+	/// a POST alone does not prove that the PRE callback observed the attack.
+	/// `binding` must describe the running server; the callback must obey
+	/// `Server::new`'s no-immediate-deletion contract.
+	pub fn hook_weapon_secondary_attacks(
+		self,
+		binding: ServerBinding,
+		callback: WeaponFrameFn,
+	) -> ClassHooks<CombatWeapon> {
+		ClassHooks::new(
+			binding,
+			callback,
+			SECONDARY_ATTACK,
+			AROUND,
+			|server, callback, weapon, call| {
+				callback(server, call.timing(), weapon);
+				HookAction::Ignore
 			},
 		)
 	}
