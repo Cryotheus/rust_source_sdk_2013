@@ -1,8 +1,8 @@
 //! The clients that what the server sends through a hooked engine function
 //! reaches, as the hook's callback sees them: the recipient filter the game
 //! passed the engine, such as with a sound
-//! ([`sound_hooks`](crate::sound_hooks)) or a temporary entity
-//! ([`temp_entity_hooks`](crate::temp_entity_hooks)).
+//! ([`sound_hooks`](crate::hooks::sound)) or a temporary entity
+//! ([`temp_entity_hooks`](crate::hooks::temp_entity)).
 
 use source_sdk_2013::raw::vcall;
 use source_sdk_2013::sys;

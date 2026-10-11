@@ -1,0 +1,37 @@
+//! Team Fortress 2 hooks, available with the `tf2` feature.
+
+pub mod airblast;
+pub mod autobalance;
+pub mod bot;
+pub mod building;
+pub mod chat;
+pub mod class;
+pub mod collision;
+pub mod crit;
+pub mod damage;
+pub mod damage_effect;
+pub mod death;
+pub mod dispenser;
+pub mod duel;
+pub mod give_item;
+pub mod input;
+pub mod max_health;
+pub mod melee;
+pub mod observer;
+pub mod physics_collision;
+pub mod placement;
+pub mod player;
+pub mod removal;
+pub mod respawn;
+pub mod round;
+pub mod rules;
+pub mod scoreboard;
+pub mod script;
+pub mod spawn;
+pub mod team;
+pub mod think;
+pub mod touch;
+pub mod user_cmd;
+pub mod voice_chat;
+pub mod vote;
+pub mod weapon;
