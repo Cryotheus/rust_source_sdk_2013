@@ -203,3 +203,73 @@ fn text_messages_carry_every_argument() {
 
 	assert_eq!(reader.remaining(), 0);
 }
+
+#[test]
+fn show_menu_keys_time_and_continuation_have_the_engine_layout() {
+	use source_sdk_2013::bitbuf::BitWriter;
+	use source_sdk_2013::user_messages::UserMessage;
+	use source_sdk_2013::user_messages::messages::ShowMenu;
+
+	let message = ShowMenu {
+		valid_slots: (1 << 0) | (1 << 7) | (1 << 9),
+		seconds: None,
+		more: true,
+		text: c"1. First\n0. Close",
+	};
+	let mut out = BitWriter::new();
+
+	assert_eq!(message.name(), c"ShowMenu");
+	message.write(&mut out).unwrap();
+	assert_eq!(out.to_bytes(), b"\x81\x02\xff\x011. First\n0. Close\0");
+
+	let closed = ShowMenu {
+		valid_slots: 0,
+		seconds: Some(0),
+		more: false,
+		text: c"",
+	};
+
+	out.clear();
+	closed.write(&mut out).unwrap();
+	assert_eq!(out.to_bytes(), [0, 0, 0, 0, 0]);
+}
+
+#[test]
+fn show_menu_limits_are_checked_before_any_bits_are_written() {
+	use source_sdk_2013::bitbuf::BitWriter;
+	use source_sdk_2013::user_messages::UserMessage;
+	use source_sdk_2013::user_messages::messages::{MAX_SHOW_MENU_TEXT, ShowMenu};
+	use std::ffi::CString;
+
+	let full = CString::new("x".repeat(MAX_SHOW_MENU_TEXT)).unwrap();
+	let longer = CString::new("é".repeat((MAX_SHOW_MENU_TEXT / 2) + 1)).unwrap();
+	let message = ShowMenu {
+		valid_slots: 0x03ff,
+		seconds: Some(127),
+		more: false,
+		text: &full,
+	};
+	let mut out = BitWriter::new();
+
+	message.write(&mut out).unwrap();
+	assert_eq!(out.byte_len(), 255);
+
+	for invalid in [
+		ShowMenu {
+			valid_slots: 0x0400,
+			..message
+		},
+		ShowMenu {
+			seconds: Some(128),
+			..message
+		},
+		ShowMenu {
+			text: &longer,
+			..message
+		},
+	] {
+		let before = out.clone();
+		assert!(invalid.write(&mut out).is_err());
+		assert_eq!(out, before);
+	}
+}

@@ -52,6 +52,12 @@ pub type ClientConnectFn = unsafe extern "C" fn(
 	reject_capacity: c_int,
 ) -> bool;
 
+/// `void IServerGameClients::ClientDisconnect(edict_t *)`, called before
+/// the game removes the disconnecting client's player entity.
+#[doc(alias("ClientDisconnect"))]
+pub type ClientDisconnectFn =
+	unsafe extern "C" fn(this: *mut sys::IServerGameClients, edict: *mut sys::edict_t);
+
 /// `void IServerGameClients::ClientPutInServer(edict_t *, const char *name)`,
 /// which the engine calls as a client's player is put in the server, before
 /// it [enters the game](ClientActiveFn). The game creates the client's player
@@ -63,6 +69,13 @@ pub type ClientPutInServerFn = unsafe extern "C" fn(
 	name: *const c_char,
 );
 
+/// `void IServerGameClients::SetCommandClient(int)`, which supplies the
+/// zero-based slot before a client's registered command dispatch, or -1
+/// for server-side commands (game/server/gameinterface.cpp).
+#[doc(alias("SetCommandClient"))]
+pub type SetCommandClientFn =
+	unsafe extern "C" fn(this: *mut sys::IServerGameClients, index: c_int);
+
 const _: () = {
 	use sys::IServerGameClients__bindgen_vtable as Vtable;
 
@@ -73,6 +86,7 @@ const _: () = {
 			== CLIENT_COMMAND_KEY_VALUES_SLOT
 	);
 	assert!(vtable_slot!(Vtable, IServerGameClients_ClientConnect) == CLIENT_CONNECT_SLOT);
+	assert!(vtable_slot!(Vtable, IServerGameClients_ClientDisconnect) == CLIENT_DISCONNECT_SLOT);
 	assert!(
 		vtable_slot!(Vtable, IServerGameClients_ClientPutInServer) == CLIENT_PUT_IN_SERVER_SLOT
 	);
@@ -91,8 +105,14 @@ const _: fn(&sys::IServerGameClients__bindgen_vtable) -> ClientCommandKeyValuesF
 const _: fn(&sys::IServerGameClients__bindgen_vtable) -> ClientConnectFn =
 	|vtable| vtable.IServerGameClients_ClientConnect;
 
+const _: fn(&sys::IServerGameClients__bindgen_vtable) -> ClientDisconnectFn =
+	|vtable| vtable.IServerGameClients_ClientDisconnect;
+
 const _: fn(&sys::IServerGameClients__bindgen_vtable) -> ClientPutInServerFn =
 	|vtable| vtable.IServerGameClients_ClientPutInServer;
+
+const _: fn(&sys::IServerGameClients__bindgen_vtable) -> SetCommandClientFn =
+	|vtable| vtable.IServerGameClients_SetCommandClient;
 
 /// The vtable slot of `IServerGameClients::ClientActive`, the same under both
 /// ABIs as [`CLIENT_COMMAND_SLOT`].
@@ -114,9 +134,19 @@ pub const CLIENT_COMMAND_SLOT: usize = 5;
 /// [`CLIENT_COMMAND_SLOT`].
 pub const CLIENT_CONNECT_SLOT: usize = 1;
 
+/// The vtable slot of `IServerGameClients::ClientDisconnect`, the same under
+/// both ABIs as [`CLIENT_COMMAND_SLOT`].
+pub const CLIENT_DISCONNECT_SLOT: usize = 3;
+
 /// The vtable slot of `IServerGameClients::ClientPutInServer`, the same under
 /// both ABIs as [`CLIENT_COMMAND_SLOT`].
 pub const CLIENT_PUT_IN_SERVER_SLOT: usize = 4;
+
+/// The checked vtable slot of `IServerGameClients::SetCommandClient`.
+pub const SET_COMMAND_CLIENT_SLOT: usize = vtable_slot!(
+	sys::IServerGameClients__bindgen_vtable,
+	IServerGameClients_SetCommandClient
+);
 
 /// The version string `IServerGameClients` is exported and requested under.
 ///

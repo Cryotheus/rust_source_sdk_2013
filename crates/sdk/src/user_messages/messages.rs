@@ -400,3 +400,72 @@ impl UserMessage for VguiMenu<'_> {
 fn fade_time(seconds: f32) -> u16 {
 	(seconds * (1 << FADE_FRACTION_BITS) as f32).clamp(0.0, u16::MAX.into()) as u16
 }
+
+/// The largest text fragment in a `ShowMenu` payload, excluding its terminator.
+pub const MAX_SHOW_MENU_TEXT: usize = crate::net::messages::MAX_MESSAGE_DATA_BYTES - 5;
+
+/// A numbered HUD menu (`CHudMenu`), selected by the client's `menuselect` command.
+///
+/// Bit 0 of `valid_slots` enables key 1, through bit 8 for key 9; bit 9
+/// enables key 0, which sends selection 10. Longer menus may be sent as
+/// consecutive fragments with `more` true except on the final fragment.
+/// The client concatenates fragments before displaying the complete menu.
+#[doc(alias("CHudMenu"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShowMenu<'a> {
+	/// Keys that accept a selection, in the low ten bits.
+	pub valid_slots: u16,
+	/// Seconds the menu remains visible, at most 127. `None` stays visible;
+	/// zero hides the menu.
+	pub seconds: Option<u8>,
+	/// Whether another fragment follows this one.
+	pub more: bool,
+	/// This fragment's text, at most [`MAX_SHOW_MENU_TEXT`] bytes.
+	pub text: &'a CStr,
+}
+
+impl UserMessage for ShowMenu<'_> {
+	fn name(&self) -> &CStr {
+		c"ShowMenu"
+	}
+
+	fn write(&self, out: &mut BitWriter) -> Result<(), EncodeError> {
+		if self.valid_slots > 0x03ff {
+			return Err(EncodeError::OutOfRange {
+				field: "valid slots",
+				value: self.valid_slots.into(),
+				max: 0x03ff,
+			});
+		}
+
+		if let Some(seconds) = self.seconds
+			&& seconds > i8::MAX as u8
+		{
+			return Err(EncodeError::OutOfRange {
+				field: "seconds",
+				value: seconds.into(),
+				max: i8::MAX as u64,
+			});
+		}
+
+		let len = self.text.to_bytes().len();
+
+		if len > MAX_SHOW_MENU_TEXT {
+			return Err(EncodeError::TooLong {
+				field: "menu text",
+				len,
+				max: MAX_SHOW_MENU_TEXT,
+			});
+		}
+
+		out.write_u16(self.valid_slots);
+		out.write_i8(self.seconds.map_or(-1, |seconds| seconds as i8));
+		out.write_u8(self.more.into());
+		out.write_cstr(self.text);
+		Ok(())
+	}
+}
+
+/// The most text CHudMenu retains across ShowMenu fragments: its 512-byte
+/// MAX_MENU_STRING buffer includes the terminator (game/client/menu.cpp).
+pub const MAX_SHOW_MENU_STRING: usize = 511;
