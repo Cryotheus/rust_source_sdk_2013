@@ -1,6 +1,7 @@
 //! Hand-written ABI of the engine's and game's interfaces, and of the factories
 //! that export them.
 
+pub mod base_file_system;
 pub mod bot_manager;
 pub mod cvar;
 pub mod engine_replay;
