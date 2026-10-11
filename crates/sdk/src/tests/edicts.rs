@@ -175,3 +175,37 @@ fn transmit_states_are_read_as_the_game_checks_them() {
 		assert_eq!(TransmitState::from_flags(state.flag()), state);
 	}
 }
+
+#[test]
+fn withholding_edicts_keeps_the_world_and_the_clients_player_in_both_sets() {
+	let mut client = mock_edict(1, false);
+	let mut sent = [0_u32; MAX_EDICTS as usize / 32];
+	let mut always = sent;
+	sent[0] = 1 | (1 << 1) | (1 << 9);
+	always[0] = sent[0] | (1 << 12);
+	// SAFETY: The record is plain data with a valid zero representation.
+	let mut info: Box<sys::CCheckTransmitInfo> = Box::new(unsafe { std::mem::zeroed() });
+	info.m_pClientEnt = &raw mut client;
+	info.m_pTransmitEdict = sent.as_mut_ptr().cast();
+	info.m_pTransmitAlways = always.as_mut_ptr().cast();
+	let scope = ();
+	let server = crate::test_support::server::null_server(Game::TeamFortress2, &scope);
+	// SAFETY: All pointers refer to live main-thread locals through the test.
+	let check = unsafe { TransmitCheck::from_live(server, NonNull::from(&mut *info)) };
+	assert_eq!(check.sent_indices().collect::<Vec<_>>(), vec![0, 1, 9]);
+	assert!(!check.withhold(0));
+	assert!(!check.withhold(1));
+	assert!(!check.withhold(-1));
+	assert!(!check.withhold(MAX_EDICTS));
+	assert!(check.withhold(9));
+	assert!(check.withhold(12));
+	assert!(!check.withhold(9));
+	assert_eq!(sent[0], 1 | (1 << 1));
+	assert_eq!(always[0], sent[0]);
+	info.m_pClientEnt = null_mut();
+	assert!(!check.withhold(9));
+	info.m_pClientEnt = &raw mut client;
+	info.m_pTransmitAlways = null_mut();
+	sent[0] |= 1 << 8;
+	assert!(check.withhold(8));
+}
