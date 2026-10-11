@@ -17,6 +17,12 @@ use std::ffi::{CStr, c_int};
 const _: () = {
 	assert!(EYE_ANGLES_SLOT == 137 + CppDestructors::VTABLE_SLOTS);
 	assert!(EYE_POSITION_SLOT + 1 == EYE_ANGLES_SLOT);
+	// EyePosition is inherited from CBaseEntity. The generic entity wrapper
+	// must dispatch through the same slot on every derived entity.
+	assert!(
+		vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_EyePosition)
+			== EYE_POSITION_SLOT
+	);
 	assert!(COMMIT_SUICIDE_SLOT == 454);
 	assert!(WEAPON_SWITCH_SLOT == 274 + CppDestructors::VTABLE_SLOTS);
 

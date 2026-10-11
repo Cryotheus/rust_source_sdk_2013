@@ -275,6 +275,24 @@ impl<'s> TfEntity<'s> {
 		self.entity
 	}
 
+	/// Where the entity sees from (`EyePosition`), through its native virtual.
+	/// This includes overrides on camera entities and players, unlike reading
+	/// their origins. The result belongs to the caller; no script scope or
+	/// script vector is allocated.
+	#[doc(alias("EyePosition"))]
+	pub fn eye_position(self) -> Result<Vector, TfEntityError> {
+		self.check_live()?;
+		// SAFETY: A live TF2 entity has the primary CBaseEntity vtable. The
+		// inherited EyePosition slot is checked against CTFPlayer's layout in
+		// sdk_raw::tf2::player. The generated entry returns Vector by value in
+		// one of the platform shapes vcall_by_value! supports. It frees nothing.
+		let position = unsafe {
+			let entity = self.entity.as_ptr();
+			sdk_raw::vcall_by_value!(entity as sys::CBaseEntity__bindgen_vtable => CBaseEntity_EyePosition() -> sys::Vector)
+		};
+		Ok(position.into())
+	}
+
 	/// The script instance of `entity`, made if it has none.
 	fn instance(self, entity: Entity<'s>) -> Result<sys::HSCRIPT, TfEntityError> {
 		Ok(ScriptInstance::of(self.server, entity)?.as_raw())
@@ -331,25 +349,6 @@ impl<'s> TfEntity<'s> {
 		unsafe { self.call(c"SetAbsAngles", &mut [qangle(&angles)]) }
 	}
 
-	/// Turns the entity relative to its move parent (`SetLocalAngles`).
-	/// Unlike [`Self::set_abs_angles`], this preserves an attachment-relative
-	/// orientation as the parent moves. Clients interpolate the turn.
-	/// Fails with [`TfEntityError::NonFinite`] before calling the game when any
-	/// angle is not finite.
-	#[doc(alias("SetLocalAngles"))]
-	pub fn set_local_angles(self, angles: QAngle) -> Result<(), TfEntityError> {
-		if ![angles.pitch, angles.yaw, angles.roll]
-			.iter()
-			.all(|angle| angle.is_finite())
-		{
-			return Err(TfEntityError::NonFinite);
-		}
-		let angles = sys::QAngle::from(angles);
-		// SAFETY: SetLocalAngles reads and copies the finite angles during the
-		// call, updating derived absolute angles and interpolation state.
-		unsafe { self.call(c"SetLocalAngles", &mut [qangle(&angles)]) }
-	}
-
 	/// Moves the entity in the world (`SetAbsOrigin`), and its origin relative
 	/// to its move parent to match.
 	///
@@ -403,6 +402,25 @@ impl<'s> TfEntity<'s> {
 		// SAFETY: The member stores the group, and updates the entity's
 		// collision rules if it changed.
 		unsafe { self.call(c"SetCollisionGroup", &mut [int(group.to_raw())]) }
+	}
+
+	/// Turns the entity relative to its move parent (`SetLocalAngles`).
+	/// Unlike [`Self::set_abs_angles`], this preserves an attachment-relative
+	/// orientation as the parent moves. Clients interpolate the turn.
+	/// Fails with [`TfEntityError::NonFinite`] before calling the game when any
+	/// angle is not finite.
+	#[doc(alias("SetLocalAngles"))]
+	pub fn set_local_angles(self, angles: QAngle) -> Result<(), TfEntityError> {
+		if ![angles.pitch, angles.yaw, angles.roll]
+			.iter()
+			.all(|angle| angle.is_finite())
+		{
+			return Err(TfEntityError::NonFinite);
+		}
+		let angles = sys::QAngle::from(angles);
+		// SAFETY: SetLocalAngles reads and copies the finite angles during the
+		// call, updating derived absolute angles and interpolation state.
+		unsafe { self.call(c"SetLocalAngles", &mut [qangle(&angles)]) }
 	}
 
 	/// Sets how fast the entity's VPhysics object spins, about the entity's
