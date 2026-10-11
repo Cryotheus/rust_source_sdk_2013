@@ -377,7 +377,10 @@ impl<'s> ControlPointRound<'s> {
 		})
 	}
 
-	/// Disables the mini-round, so that the master does not pick it.
+	/// Sets the mini-round's disabled flag through its `Disable` input.
+	///
+	/// The master's round selection and the mini-round's playability check
+	/// do not consult this flag, so it does not prevent selection.
 	#[doc(alias("Disable"))]
 	pub fn disable(self) -> Result<(), ObjectiveError> {
 		self.0.input(c"Disable", InputValue::Void)
