@@ -30,6 +30,31 @@ fn equip_regions_check_both_directions_and_all_occupied_regions() {
 }
 
 #[test]
+fn item_type_tokens_preserve_native_null_empty_and_untranslated_values() {
+	let mut raw = std::mem::MaybeUninit::<sys::CEconItemDefinition>::uninit();
+	let definition = ItemDefinition::new(NonNull::new(raw.as_mut_ptr()).unwrap());
+
+	for token in [
+		None,
+		Some(c""),
+		Some(c"#TF_Wearable_TournamentMedal"),
+		Some(c"#TF_Wearable_Badge"),
+	] {
+		// SAFETY: This fixture only reads the item-type pointer, which is
+		// initialized here. Every non-null pointer names a static C string,
+		// and the definition's allocation lives through each read.
+		unsafe {
+			(&raw mut (*raw.as_mut_ptr()).m_pszItemTypeName)
+				.write(token.map_or(std::ptr::null(), CStr::as_ptr));
+		}
+		assert_eq!(
+			checked_item_type(Some(true), || unsafe { definition.read_item_type() }),
+			Ok(token),
+		);
+	}
+}
+
+#[test]
 fn levels_stay_within_what_clients_receive() {
 	assert_eq!(ItemLevel::default(), ItemLevel::DEFAULT);
 	assert_eq!(ItemLevel::DEFAULT.get(), 1);
@@ -171,4 +196,16 @@ fn unavailable_equip_mask_layout_fails_without_reading_native_memory() {
 		checked_equip_regions(Some(true), || EquipRegions::from_masks(0, 0)),
 		Ok(EquipRegions::from_masks(0, 0)),
 	);
+}
+
+#[test]
+fn unavailable_item_type_layout_fails_without_reading_native_memory() {
+	for checked in [None, Some(false)] {
+		assert_eq!(
+			checked_item_type(checked, || panic!(
+				"an unchecked item-type layout must not be read"
+			)),
+			Err(ItemSchemaError::UnsupportedLayout),
+		);
+	}
 }
