@@ -11,7 +11,9 @@
 //! decoded. Unused record fields and other lump contents are not validated.
 //! All data here can be owned by an asynchronous worker.
 
+pub mod brushes;
 mod decode;
+pub mod entities;
 mod lumps;
 mod partitions;
 #[cfg(test)]

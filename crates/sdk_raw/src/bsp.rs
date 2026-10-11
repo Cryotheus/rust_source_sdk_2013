@@ -57,3 +57,27 @@ pub const LZMA_IDENT: [u8; 4] = *b"LZMA";
 
 /// Packed Source LZMA header: magic, output size, encoded size and properties.
 pub const LZMA_HEADER_BYTES: usize = 17;
+
+/// Serialized leaf-brush references.
+pub const LUMP_LEAF_BRUSHES: usize = 17;
+
+/// Serialized convex brushes.
+pub const LUMP_BRUSHES: usize = 18;
+
+/// Serialized brush-side constraints.
+pub const LUMP_BRUSH_SIDES: usize = 19;
+
+/// Bytes in a leaf-brush index.
+pub const LEAF_BRUSH_BYTES: usize = 2;
+
+/// Bytes in a brush's first-side index, side count and contents.
+pub const BRUSH_BYTES: usize = 12;
+
+/// Bytes in a side's plane, texture, displacement and bevel fields.
+pub const BRUSH_SIDE_BYTES: usize = 8;
+
+/// Offset of firstleafbrush in both qualified leaf layouts.
+pub const LEAF_FIRST_BRUSH_OFFSET: usize = 24;
+
+/// Offset of numleafbrushes in both qualified leaf layouts.
+pub const LEAF_BRUSH_COUNT_OFFSET: usize = 26;
