@@ -248,3 +248,24 @@ pub const TTYPE_ENTRANCE: c_int = 1;
 /// `TTYPE_EXIT`: the `teleporterType` key value of a teleporter exit a map
 /// places.
 pub const TTYPE_EXIT: c_int = 2;
+
+/// The no-argument `CBaseObject::GetConstructionMultiplier` virtual.
+///
+/// TF2 returns -1 for reverse construction; otherwise it adds active
+/// constructor values and the builder's per-object build-rate term to 1.
+/// Both construction work and assembly animation read this same value.
+#[doc(alias("GetConstructionMultiplier"))]
+pub type GetConstructionMultiplierFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> f32;
+
+/// The generated primary-vtable slot of `CBaseObject::GetConstructionMultiplier`.
+#[doc(alias("GetConstructionMultiplier"))]
+pub const GET_CONSTRUCTION_MULTIPLIER_SLOT: usize = vtable_slot!(
+	sys::CBaseObject__bindgen_vtable,
+	CBaseObject_GetConstructionMultiplier
+);
+
+// The generated method takes only its receiver and returns a C++ float.
+const _: fn(
+	&sys::CBaseObject__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CBaseObject) -> f32 =
+	|vtable| vtable.CBaseObject_GetConstructionMultiplier;
