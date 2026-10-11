@@ -83,6 +83,8 @@ pub mod tf2;
 
 use std::marker::PhantomData;
 
+pub use crate::server::BaseFileSystemFactoryError;
+
 /// The hand-written raw bindings and low-level utilities this crate wraps,
 /// for what [`sys`] does not generate.
 pub use sdk_raw as raw;

@@ -106,6 +106,19 @@ impl MetamodApi<'_> {
 		unsafe { get_engine_factory(self.binding.this.as_ptr(), false) }
 	}
 
+	/// The separately supplied filesystem `CreateInterface`, bypassing Metamod's
+	/// synthetic wrapper through which plugins may substitute interfaces.
+	///
+	/// Returns `None` when Metamod has no filesystem factory. Holding the returned
+	/// function does not establish the lifetime of its module or interfaces.
+	pub fn file_system_factory(&self) -> CreateInterfaceFn {
+		let prefix = self.binding.vtable.prefix();
+		let get_file_system_factory =
+			unsafe { (&raw const (*prefix.as_ptr()).get_file_system_factory).read() };
+
+		unsafe { get_file_system_factory(self.binding.this.as_ptr(), false) }
+	}
+
 	/// Looks up an engine interface. The caller must validate and bind the
 	/// returned opaque pointer before dereferencing it.
 	///
