@@ -3,68 +3,28 @@
 use super::{Bounds, Bsp, Child, Error, Invalid, Leaf, Limits, Model, Node, Plane, Resource, Work};
 use super::{bound, finite, raw, reserve};
 
-#[derive(Clone, Copy, Default)]
-struct Lump {
-	start: usize,
-	end: usize,
-	version: i32,
-	compressed: bool,
-}
-
 pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
-	bound(bytes.len(), limits.input_bytes, Resource::InputBytes)?;
-	if bytes.len() < raw::HEADER_BYTES {
-		return Err(Invalid::Header.into());
-	}
-	if bytes[..4] != raw::IDENT {
-		return Err(Invalid::Identifier.into());
-	}
-	let version = integer(bytes, 4);
-	if version != raw::VERSION_19 {
-		return Err(Error::UnsupportedVersion(version));
-	}
-
 	let mut work = Work::new(limits.work);
-	let mut lumps = [Lump::default(); raw::LUMP_COUNT];
-	for (id, lump) in lumps.iter_mut().enumerate() {
-		work.spend(1)?;
-		let at = 8 + id * raw::LUMP_ENTRY_BYTES;
-		let invalid = || Invalid::LumpRange { lump: id };
-		let start = usize::try_from(integer(bytes, at)).map_err(|_| invalid())?;
-		let length = usize::try_from(integer(bytes, at + 4)).map_err(|_| invalid())?;
-		let end = start.checked_add(length).ok_or_else(invalid)?;
-		if end > bytes.len() || (length != 0 && start < raw::HEADER_BYTES) {
-			return Err(invalid().into());
-		}
-		*lump = Lump {
-			start,
-			end,
-			version: integer(bytes, at + 8),
-			compressed: word(bytes, at + 12) != 0,
-		};
-	}
-
+	let directory = super::lumps::Directory::read(bytes, limits, &mut work)?;
+	let mut budget = super::lumps::Budget::new(limits);
+	let planes_lump = directory.prepare(raw::LUMP_PLANES, &[0], &mut budget, &mut work)?;
+	let nodes_lump = directory.prepare(raw::LUMP_NODES, &[0], &mut budget, &mut work)?;
+	let leaves_lump = directory.prepare(raw::LUMP_LEAVES, &[0, 1], &mut budget, &mut work)?;
+	let models_lump = directory.prepare(raw::LUMP_MODELS, &[0], &mut budget, &mut work)?;
+	let leaf_stride = if leaves_lump.version == 0 {
+		raw::LEAF_V0_BYTES
+	} else {
+		raw::LEAF_V1_BYTES
+	};
 	let required = [
-		(raw::LUMP_PLANES, raw::PLANE_BYTES),
-		(raw::LUMP_NODES, raw::NODE_BYTES),
-		(raw::LUMP_LEAVES, raw::LEAF_V0_BYTES),
-		(raw::LUMP_MODELS, raw::MODEL_BYTES),
+		(raw::LUMP_PLANES, planes_lump.length, raw::PLANE_BYTES),
+		(raw::LUMP_NODES, nodes_lump.length, raw::NODE_BYTES),
+		(raw::LUMP_LEAVES, leaves_lump.length, leaf_stride),
+		(raw::LUMP_MODELS, models_lump.length, raw::MODEL_BYTES),
 	];
 	let mut counts = [0; 4];
 	let mut total = 0usize;
-	for (slot, (id, stride)) in required.into_iter().enumerate() {
-		work.spend(1)?;
-		let lump = lumps[id];
-		if lump.version != 0 {
-			return Err(Error::UnsupportedLumpVersion {
-				lump: id,
-				version: lump.version,
-			});
-		}
-		if lump.compressed {
-			return Err(Error::UnsupportedCompression { lump: id });
-		}
-		let length = lump.end - lump.start;
+	for (slot, (id, length, stride)) in required.into_iter().enumerate() {
 		if length % stride != 0 {
 			return Err(Invalid::RecordSize { lump: id }.into());
 		}
@@ -80,14 +40,11 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 	if leaf_count == 0 || model_count == 0 {
 		return Err(Invalid::MissingWorld.into());
 	}
-	let data = |id: usize| &bytes[lumps[id].start..lumps[id].end];
 
+	let data = planes_lump.decode()?;
 	let mut planes = Vec::new();
 	reserve(&mut planes, plane_count, Resource::Records)?;
-	for (record, value) in data(raw::LUMP_PLANES)
-		.chunks_exact(raw::PLANE_BYTES)
-		.enumerate()
-	{
+	for (record, value) in data.chunks_exact(raw::PLANE_BYTES).enumerate() {
 		work.spend(1)?;
 		let normal = vector(value, 0);
 		let distance = float(value, 12);
@@ -97,12 +54,12 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 		planes.push(Plane { normal, distance });
 	}
 
+	drop(data);
+
+	let data = nodes_lump.decode()?;
 	let mut nodes = Vec::new();
 	reserve(&mut nodes, node_count, Resource::Records)?;
-	for (record, value) in data(raw::LUMP_NODES)
-		.chunks_exact(raw::NODE_BYTES)
-		.enumerate()
-	{
+	for (record, value) in data.chunks_exact(raw::NODE_BYTES).enumerate() {
 		work.spend(1)?;
 		let lump = raw::LUMP_NODES;
 		nodes.push(Node {
@@ -115,12 +72,12 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 		});
 	}
 
+	drop(data);
+
+	let data = leaves_lump.decode()?;
 	let mut leaves = Vec::new();
 	reserve(&mut leaves, leaf_count, Resource::Records)?;
-	for (record, value) in data(raw::LUMP_LEAVES)
-		.chunks_exact(raw::LEAF_V0_BYTES)
-		.enumerate()
-	{
+	for (record, value) in data.chunks_exact(leaf_stride).enumerate() {
 		work.spend(1)?;
 		let area_flags = unsigned_short(value, 6);
 		leaves.push(Leaf {
@@ -132,12 +89,12 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 		});
 	}
 
+	drop(data);
+
+	let data = models_lump.decode()?;
 	let mut models = Vec::new();
 	reserve(&mut models, model_count, Resource::Records)?;
-	for (record, value) in data(raw::LUMP_MODELS)
-		.chunks_exact(raw::MODEL_BYTES)
-		.enumerate()
-	{
+	for (record, value) in data.chunks_exact(raw::MODEL_BYTES).enumerate() {
 		work.spend(1)?;
 		let lump = raw::LUMP_MODELS;
 		let origin = vector(value, 24);
@@ -151,14 +108,16 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 		});
 	}
 
+	drop(data);
+
 	let depths = validate_nodes(&nodes, limits, &mut work)?;
 	let world_depth = match models[0].head {
 		Child::Node(node) => depths[node],
 		Child::Leaf(_) => 0,
 	};
 	Ok(Bsp {
-		version,
-		revision: integer(bytes, raw::HEADER_BYTES - 4),
+		version: directory.version,
+		revision: directory.revision,
 		planes,
 		nodes,
 		leaves,
