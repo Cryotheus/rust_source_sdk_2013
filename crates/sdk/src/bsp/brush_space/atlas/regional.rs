@@ -1,74 +1,35 @@
 //! One privately constructed two-region cover and exact positive-volume stitches.
 
+mod tests;
+
 #[cfg(test)]
 mod measurements;
-mod tests;
 
 use super::super::{Budget, reserve};
 use super::*;
 
-/// An exact overlapping split of one finite open target box.
-///
-/// The encoded boundaries satisfy min < a < seam < b < max on the selected
-/// axis. The left box ends at b and the right box starts at a; their open
-/// union covers the target, and both stay inside it. No margin is rounded.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RegionalSplit {
-	target: AnalysisDomain,
-	axis: usize,
-	boundaries: [f32; 3],
+/// One actual fragment-pair witness for a positive three-dimensional overlap.
+/// IDs are scoped to this RegionalPair; array positions are [left, right].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComponentPairCertificate {
+	components: [usize; 2],
+	fragments: [usize; 2],
 }
 
-impl RegionalSplit {
-	pub fn new(
-		target: AnalysisDomain,
-		axis: usize,
-		overlap_min: f32,
-		seam: f32,
-		overlap_max: f32,
-	) -> Result<Self, RegionalPairError> {
-		let split = Self {
-			target,
-			axis,
-			boundaries: [overlap_min, seam, overlap_max],
-		};
-		split.domains()?;
-		Ok(split)
+impl ComponentPairCertificate {
+	pub fn components(&self) -> [usize; 2] {
+		self.components
 	}
 
-	pub fn target(self) -> AnalysisDomain {
-		self.target
+	pub fn fragments(&self) -> [usize; 2] {
+		self.fragments
 	}
-	pub fn axis(self) -> usize {
-		self.axis
-	}
-	/// [overlap minimum, seam, overlap maximum], all original f32 encodings.
-	pub fn boundaries(self) -> [f32; 3] {
-		self.boundaries
-	}
+}
 
-	fn domains(self) -> Result<[AnalysisDomain; 2], RegionalPairError> {
-		if self.axis >= 3 || !self.boundaries.into_iter().all(f32::is_finite) {
-			return Err(RegionalPairError::Split);
-		}
-		let [a, seam, b] = self.boundaries.map(widen);
-		if !(widen(self.target.min[self.axis]) < a
-			&& a < seam
-			&& seam < b
-			&& b < widen(self.target.max[self.axis]))
-		{
-			return Err(RegionalPairError::Split);
-		}
-		let mut left_max = self.target.max;
-		left_max[self.axis] = self.boundaries[2];
-		let mut right_min = self.target.min;
-		right_min[self.axis] = self.boundaries[0];
-		Ok([
-			AnalysisDomain::new(self.target.min, left_max).map_err(|_| RegionalPairError::Split)?,
-			AnalysisDomain::new(right_min, self.target.max)
-				.map_err(|_| RegionalPairError::Split)?,
-		])
-	}
+#[derive(Debug)]
+struct Overlap {
+	certificates: Vec<ComponentPairCertificate>,
+	statistics: RegionalOverlapStatistics,
 }
 
 /// One fresh allowance for the entire overlap query, including discarded work.
@@ -90,36 +51,6 @@ pub struct RegionalOverlapStatistics {
 	pub right_planes: usize,
 	pub candidate_pairs: usize,
 	pub certificates: usize,
-}
-
-/// One actual fragment-pair witness for a positive three-dimensional overlap.
-/// IDs are scoped to this RegionalPair; array positions are [left, right].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ComponentPairCertificate {
-	components: [usize; 2],
-	fragments: [usize; 2],
-}
-
-impl ComponentPairCertificate {
-	pub fn components(&self) -> [usize; 2] {
-		self.components
-	}
-	pub fn fragments(&self) -> [usize; 2] {
-		self.fragments
-	}
-}
-
-/// Failure returns no partial pair, atlas or certificate list.
-#[derive(Debug, thiserror::Error)]
-pub enum RegionalPairError {
-	#[error("regional split must have a valid axis and finite min < a < seam < b < max encodings")]
-	Split,
-	#[error("left regional atlas construction failed: {0}")]
-	LeftBuild(#[source] Error),
-	#[error("right regional atlas construction failed: {0}")]
-	RightBuild(#[source] Error),
-	#[error("regional overlap query failed: {0}")]
-	Overlap(#[source] Error),
 }
 
 /// An owned, complete fixed two-region cover of one artificial target.
@@ -175,51 +106,108 @@ impl RegionalPair {
 		})
 	}
 
-	pub fn split(&self) -> RegionalSplit {
-		self.split
-	}
-	pub fn target(&self) -> AnalysisDomain {
-		self.split.target
-	}
-	pub fn left(&self) -> &BrushSpace {
-		&self.left
-	}
-	pub fn right(&self) -> &BrushSpace {
-		&self.right
-	}
 	pub fn certificates(&self) -> &[ComponentPairCertificate] {
 		&self.overlap.certificates
 	}
+
+	pub fn left(&self) -> &BrushSpace {
+		&self.left
+	}
+
 	pub fn overlap_statistics(&self) -> RegionalOverlapStatistics {
 		self.overlap.statistics
 	}
-}
 
-#[derive(Debug)]
-struct Overlap {
-	certificates: Vec<ComponentPairCertificate>,
-	statistics: RegionalOverlapStatistics,
-}
-
-/// Complete prefix import preserves every left support triple and denominator.
-/// Right vertices are not copied; every right constraint uses the checked offset.
-fn import_planes(
-	kernel: &mut Kernel,
-	left: &BrushSpace,
-	right: &BrushSpace,
-) -> Result<usize, Error> {
-	if !kernel.planes.is_empty() {
-		return Err(Error::Invariant);
+	pub fn right(&self) -> &BrushSpace {
+		&self.right
 	}
-	let offset = left.kernel.planes.len();
-	let total = offset
-		.checked_add(right.kernel.planes.len())
-		.ok_or(Error::Arithmetic)?;
-	kernel.budget.constraints(total)?;
-	reserve(&mut kernel.planes, total)?;
-	kernel.planes.extend_from_slice(&left.kernel.planes);
-	kernel.planes.extend_from_slice(&right.kernel.planes);
-	Ok(offset)
+
+	pub fn split(&self) -> RegionalSplit {
+		self.split
+	}
+
+	pub fn target(&self) -> AnalysisDomain {
+		self.split.target
+	}
+}
+
+/// Failure returns no partial pair, atlas or certificate list.
+#[derive(Debug, thiserror::Error)]
+pub enum RegionalPairError {
+	#[error("regional split must have a valid axis and finite min < a < seam < b < max encodings")]
+	Split,
+	#[error("left regional atlas construction failed: {0}")]
+	LeftBuild(#[source] Error),
+	#[error("right regional atlas construction failed: {0}")]
+	RightBuild(#[source] Error),
+	#[error("regional overlap query failed: {0}")]
+	Overlap(#[source] Error),
+}
+
+/// An exact overlapping split of one finite open target box.
+///
+/// The encoded boundaries satisfy min < a < seam < b < max on the selected
+/// axis. The left box ends at b and the right box starts at a; their open
+/// union covers the target, and both stay inside it. No margin is rounded.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RegionalSplit {
+	target: AnalysisDomain,
+	axis: usize,
+	boundaries: [f32; 3],
+}
+
+impl RegionalSplit {
+	pub fn new(
+		target: AnalysisDomain,
+		axis: usize,
+		overlap_min: f32,
+		seam: f32,
+		overlap_max: f32,
+	) -> Result<Self, RegionalPairError> {
+		let split = Self {
+			target,
+			axis,
+			boundaries: [overlap_min, seam, overlap_max],
+		};
+		split.domains()?;
+		Ok(split)
+	}
+
+	pub fn axis(self) -> usize {
+		self.axis
+	}
+
+	/// [overlap minimum, seam, overlap maximum], all original f32 encodings.
+	pub fn boundaries(self) -> [f32; 3] {
+		self.boundaries
+	}
+
+	fn domains(self) -> Result<[AnalysisDomain; 2], RegionalPairError> {
+		if self.axis >= 3 || !self.boundaries.into_iter().all(f32::is_finite) {
+			return Err(RegionalPairError::Split);
+		}
+		let [a, seam, b] = self.boundaries.map(widen);
+		if !(widen(self.target.min[self.axis]) < a
+			&& a < seam
+			&& seam < b
+			&& b < widen(self.target.max[self.axis]))
+		{
+			return Err(RegionalPairError::Split);
+		}
+		let mut left_max = self.target.max;
+		left_max[self.axis] = self.boundaries[2];
+		let mut right_min = self.target.min;
+		right_min[self.axis] = self.boundaries[0];
+		Ok([
+			AnalysisDomain::new(self.target.min, left_max).map_err(|_| RegionalPairError::Split)?,
+			AnalysisDomain::new(right_min, self.target.max)
+				.map_err(|_| RegionalPairError::Split)?,
+		])
+	}
+
+	pub fn target(self) -> AnalysisDomain {
+		self.target
+	}
 }
 
 /// Only the public builder can establish the same-source precondition.
@@ -323,4 +311,25 @@ fn enumerate_overlap(
 		},
 		certificates,
 	})
+}
+
+/// Complete prefix import preserves every left support triple and denominator.
+/// Right vertices are not copied; every right constraint uses the checked offset.
+fn import_planes(
+	kernel: &mut Kernel,
+	left: &BrushSpace,
+	right: &BrushSpace,
+) -> Result<usize, Error> {
+	if !kernel.planes.is_empty() {
+		return Err(Error::Invariant);
+	}
+	let offset = left.kernel.planes.len();
+	let total = offset
+		.checked_add(right.kernel.planes.len())
+		.ok_or(Error::Arithmetic)?;
+	kernel.budget.constraints(total)?;
+	reserve(&mut kernel.planes, total)?;
+	kernel.planes.extend_from_slice(&left.kernel.planes);
+	kernel.planes.extend_from_slice(&right.kernel.planes);
+	Ok(offset)
 }

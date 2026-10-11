@@ -11,6 +11,15 @@ use crate::entities::fields::{BaseField, FieldError};
 use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::{ServerTools, ValveEngine};
 use crate::math::{QAngle, Vector};
+
+use sdk_raw::entities::flags::{
+	FL_AIMTARGET, FL_ANIMDUCKING, FL_ATCONTROLS, FL_BASEVELOCITY, FL_CLIENT, FL_CONVEYOR,
+	FL_DISSOLVING, FL_DONTTOUCH, FL_DUCKING, FL_FAKECLIENT, FL_FLY, FL_FROZEN, FL_GODMODE,
+	FL_GRAPHED, FL_GRENADE, FL_INRAIN, FL_INWATER, FL_KILLME, FL_NOTARGET, FL_NPC, FL_OBJECT,
+	FL_ONFIRE, FL_ONGROUND, FL_ONTRAIN, FL_PARTIALGROUND, FL_STATICPROP, FL_STEPMOVEMENT, FL_SWIM,
+	FL_TRANSRAGDOLL, FL_UNBLOCKABLE_BY_PLAYER, FL_WATERJUMP, FL_WORLDBRUSH,
+};
+
 use sdk_raw::entities::{
 	EFL_BOT_FROZEN, EFL_CHECK_UNTOUCH, EFL_DIRTY_ABSANGVELOCITY, EFL_DIRTY_ABSTRANSFORM,
 	EFL_DIRTY_ABSVELOCITY, EFL_DIRTY_SHADOWUPDATE, EFL_DIRTY_SPATIAL_PARTITION,
@@ -22,14 +31,6 @@ use sdk_raw::entities::{
 	EFL_NO_ROTORWASH_PUSH, EFL_NO_THINK_FUNCTION, EFL_NO_WATER_VELOCITY_CHANGE, EFL_NOCLIP_ACTIVE,
 	EFL_NOTIFY, EFL_SERVER_ONLY, EFL_SETTING_UP_BONES, EFL_TOUCHING_FLUID,
 	EFL_USE_PARTITION_WHEN_NOT_SOLID, find_physics_object_field,
-};
-
-use sdk_raw::entities::flags::{
-	FL_AIMTARGET, FL_ANIMDUCKING, FL_ATCONTROLS, FL_BASEVELOCITY, FL_CLIENT, FL_CONVEYOR,
-	FL_DISSOLVING, FL_DONTTOUCH, FL_DUCKING, FL_FAKECLIENT, FL_FLY, FL_FROZEN, FL_GODMODE,
-	FL_GRAPHED, FL_GRENADE, FL_INRAIN, FL_INWATER, FL_KILLME, FL_NOTARGET, FL_NPC, FL_OBJECT,
-	FL_ONFIRE, FL_ONGROUND, FL_ONTRAIN, FL_PARTIALGROUND, FL_STATICPROP, FL_STEPMOVEMENT, FL_SWIM,
-	FL_TRANSRAGDOLL, FL_UNBLOCKABLE_BY_PLAYER, FL_WATERJUMP, FL_WORLDBRUSH,
 };
 
 use sdk_raw::vcall;
@@ -403,6 +404,54 @@ bitflags::bitflags! {
 	}
 }
 
+/// How an entity that flies reacts when it hits something
+/// (`MoveCollide_t`).
+#[doc(alias("MoveCollide_t", "m_MoveCollide"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MoveCollide {
+	/// `MOVECOLLIDE_DEFAULT`: stops, or slides, as its move type does.
+	#[doc(alias("MOVECOLLIDE_DEFAULT"))]
+	#[default]
+	Default,
+
+	/// `MOVECOLLIDE_FLY_BOUNCE`: bounces off, as elastic as the surface, with
+	/// friction.
+	#[doc(alias("MOVECOLLIDE_FLY_BOUNCE"))]
+	FlyBounce,
+
+	/// `MOVECOLLIDE_FLY_CUSTOM`: lets the entity's `Touch` change its velocity.
+	#[doc(alias("MOVECOLLIDE_FLY_CUSTOM"))]
+	FlyCustom,
+
+	/// `MOVECOLLIDE_FLY_SLIDE`: slides along the surface, with friction.
+	#[doc(alias("MOVECOLLIDE_FLY_SLIDE"))]
+	FlySlide,
+}
+
+impl MoveCollide {
+	/// The reaction a `MoveCollide_t` value stands for, or `None` for a value
+	/// past `MOVECOLLIDE_FLY_SLIDE`.
+	pub const fn from_raw(value: u8) -> Option<Self> {
+		Some(match value as sys::MoveCollide_t {
+			sys::MoveCollide_t_MOVECOLLIDE_DEFAULT => Self::Default,
+			sys::MoveCollide_t_MOVECOLLIDE_FLY_BOUNCE => Self::FlyBounce,
+			sys::MoveCollide_t_MOVECOLLIDE_FLY_CUSTOM => Self::FlyCustom,
+			sys::MoveCollide_t_MOVECOLLIDE_FLY_SLIDE => Self::FlySlide,
+			_ => return None,
+		})
+	}
+
+	/// The reaction's `MoveCollide_t` value.
+	pub const fn to_raw(self) -> u8 {
+		(match self {
+			Self::Default => sys::MoveCollide_t_MOVECOLLIDE_DEFAULT,
+			Self::FlyBounce => sys::MoveCollide_t_MOVECOLLIDE_FLY_BOUNCE,
+			Self::FlyCustom => sys::MoveCollide_t_MOVECOLLIDE_FLY_CUSTOM,
+			Self::FlySlide => sys::MoveCollide_t_MOVECOLLIDE_FLY_SLIDE,
+		}) as u8
+	}
+}
+
 /// How the game moves an entity (`MoveType_t`).
 #[doc(alias("MoveType_t", "m_MoveType"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -670,54 +719,6 @@ impl<'s> Entity<'s> {
 	#[doc(alias("SetGravity", "m_flGravity"))]
 	pub fn set_gravity(self, engine: ValveEngine<'_>, gravity: f32) -> Result<(), FieldError> {
 		GRAVITY.write(engine, self, gravity)
-	}
-}
-
-/// How an entity that flies reacts when it hits something
-/// (`MoveCollide_t`).
-#[doc(alias("MoveCollide_t", "m_MoveCollide"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum MoveCollide {
-	/// `MOVECOLLIDE_DEFAULT`: stops, or slides, as its move type does.
-	#[doc(alias("MOVECOLLIDE_DEFAULT"))]
-	#[default]
-	Default,
-
-	/// `MOVECOLLIDE_FLY_BOUNCE`: bounces off, as elastic as the surface, with
-	/// friction.
-	#[doc(alias("MOVECOLLIDE_FLY_BOUNCE"))]
-	FlyBounce,
-
-	/// `MOVECOLLIDE_FLY_CUSTOM`: lets the entity's `Touch` change its velocity.
-	#[doc(alias("MOVECOLLIDE_FLY_CUSTOM"))]
-	FlyCustom,
-
-	/// `MOVECOLLIDE_FLY_SLIDE`: slides along the surface, with friction.
-	#[doc(alias("MOVECOLLIDE_FLY_SLIDE"))]
-	FlySlide,
-}
-
-impl MoveCollide {
-	/// The reaction a `MoveCollide_t` value stands for, or `None` for a value
-	/// past `MOVECOLLIDE_FLY_SLIDE`.
-	pub const fn from_raw(value: u8) -> Option<Self> {
-		Some(match value as sys::MoveCollide_t {
-			sys::MoveCollide_t_MOVECOLLIDE_DEFAULT => Self::Default,
-			sys::MoveCollide_t_MOVECOLLIDE_FLY_BOUNCE => Self::FlyBounce,
-			sys::MoveCollide_t_MOVECOLLIDE_FLY_CUSTOM => Self::FlyCustom,
-			sys::MoveCollide_t_MOVECOLLIDE_FLY_SLIDE => Self::FlySlide,
-			_ => return None,
-		})
-	}
-
-	/// The reaction's `MoveCollide_t` value.
-	pub const fn to_raw(self) -> u8 {
-		(match self {
-			Self::Default => sys::MoveCollide_t_MOVECOLLIDE_DEFAULT,
-			Self::FlyBounce => sys::MoveCollide_t_MOVECOLLIDE_FLY_BOUNCE,
-			Self::FlyCustom => sys::MoveCollide_t_MOVECOLLIDE_FLY_CUSTOM,
-			Self::FlySlide => sys::MoveCollide_t_MOVECOLLIDE_FLY_SLIDE,
-		}) as u8
 	}
 }
 

@@ -60,6 +60,53 @@ pub const AIRBLAST_VULNERABILITY_MULTIPLIER: AttributeDef<Multiplier> = Attribut
 	1.0,
 );
 
+/// Every definition of the catalog, in the order above, for attributes chosen
+/// while the plugin runs. [`find`] looks one up by name.
+pub const ALL: [AnyAttributeDef; 42] = [
+	AnyAttributeDef::Flag(AIRBLAST_DISABLED),
+	AnyAttributeDef::Multiplier(AIRBLAST_VULNERABILITY_MULTIPLIER),
+	AnyAttributeDef::Multiplier(BLAST_RADIUS_DECREASED),
+	AnyAttributeDef::Multiplier(BLAST_RADIUS_INCREASED),
+	AnyAttributeDef::Multiplier(BULLETS_PER_SHOT_BONUS),
+	AnyAttributeDef::Multiplier(CLIP_SIZE_BONUS),
+	AnyAttributeDef::Multiplier(CLIP_SIZE_PENALTY),
+	AnyAttributeDef::Flag(CRIT_KILL_WILL_GIB),
+	AnyAttributeDef::Seconds(CRITBOOST_ON_KILL),
+	AnyAttributeDef::Multiplier(DAMAGE_BONUS),
+	AnyAttributeDef::Multiplier(DAMAGE_FORCE_REDUCTION),
+	AnyAttributeDef::Multiplier(DAMAGE_PENALTY),
+	AnyAttributeDef::Multiplier(DAMAGE_PENALTY_VS_PLAYERS),
+	AnyAttributeDef::Multiplier(DAMAGE_TAKEN_FROM_BLAST_REDUCED),
+	AnyAttributeDef::Multiplier(DAMAGE_TAKEN_INCREASED),
+	AnyAttributeDef::Multiplier(DEPLOY_TIME_DECREASED),
+	AnyAttributeDef::Multiplier(DEPLOY_TIME_INCREASED),
+	AnyAttributeDef::Multiplier(FASTER_RELOAD_RATE),
+	AnyAttributeDef::Multiplier(FIRE_RATE_BONUS),
+	AnyAttributeDef::Multiplier(FIRE_RATE_PENALTY),
+	AnyAttributeDef::Amount(HEAL_ON_HIT_RAPID_FIRE),
+	AnyAttributeDef::Amount(HEAL_ON_HIT_SLOW_FIRE),
+	AnyAttributeDef::Amount(HEAL_ON_KILL),
+	AnyAttributeDef::Amount(HEALTH_REGEN),
+	AnyAttributeDef::Amount(MAX_HEALTH_ADDITIVE_BONUS),
+	AnyAttributeDef::Amount(MAX_HEALTH_ADDITIVE_PENALTY),
+	AnyAttributeDef::Multiplier(MAXAMMO_PRIMARY_INCREASED),
+	AnyAttributeDef::Multiplier(MAXAMMO_PRIMARY_REDUCED),
+	AnyAttributeDef::Multiplier(MAXAMMO_SECONDARY_INCREASED),
+	AnyAttributeDef::Multiplier(MAXAMMO_SECONDARY_REDUCED),
+	AnyAttributeDef::Flag(MINICRIT_VS_BURNING_PLAYER),
+	AnyAttributeDef::Flag(MINICRITS_BECOME_CRITS),
+	AnyAttributeDef::Multiplier(MOVE_SPEED_BONUS),
+	AnyAttributeDef::Multiplier(MOVE_SPEED_PENALTY),
+	AnyAttributeDef::Multiplier(PROJECTILE_SPEED_DECREASED),
+	AnyAttributeDef::Multiplier(PROJECTILE_SPEED_INCREASED),
+	AnyAttributeDef::Flag(PROVIDE_ON_ACTIVE),
+	AnyAttributeDef::Multiplier(RELOAD_TIME_DECREASED),
+	AnyAttributeDef::Multiplier(RELOAD_TIME_INCREASED),
+	AnyAttributeDef::Flag(SET_DAMAGE_TYPE_IGNITE),
+	AnyAttributeDef::Multiplier(SPREAD_PENALTY),
+	AnyAttributeDef::Multiplier(WEAPON_SPREAD_BONUS),
+];
+
 /// `Blast radius decreased` (100, `mult_explosion_radius`): scales the
 /// explosion radius of the weapon's projectiles, from 0.1 to 1.
 #[doc(alias("Blast radius decreased"))]
@@ -589,53 +636,6 @@ pub const WEAPON_SPREAD_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
 	0.0,
 	1.0,
 );
-
-/// Every definition of the catalog, in the order above, for attributes chosen
-/// while the plugin runs. [`find`] looks one up by name.
-pub const ALL: [AnyAttributeDef; 42] = [
-	AnyAttributeDef::Flag(AIRBLAST_DISABLED),
-	AnyAttributeDef::Multiplier(AIRBLAST_VULNERABILITY_MULTIPLIER),
-	AnyAttributeDef::Multiplier(BLAST_RADIUS_DECREASED),
-	AnyAttributeDef::Multiplier(BLAST_RADIUS_INCREASED),
-	AnyAttributeDef::Multiplier(BULLETS_PER_SHOT_BONUS),
-	AnyAttributeDef::Multiplier(CLIP_SIZE_BONUS),
-	AnyAttributeDef::Multiplier(CLIP_SIZE_PENALTY),
-	AnyAttributeDef::Flag(CRIT_KILL_WILL_GIB),
-	AnyAttributeDef::Seconds(CRITBOOST_ON_KILL),
-	AnyAttributeDef::Multiplier(DAMAGE_BONUS),
-	AnyAttributeDef::Multiplier(DAMAGE_FORCE_REDUCTION),
-	AnyAttributeDef::Multiplier(DAMAGE_PENALTY),
-	AnyAttributeDef::Multiplier(DAMAGE_PENALTY_VS_PLAYERS),
-	AnyAttributeDef::Multiplier(DAMAGE_TAKEN_FROM_BLAST_REDUCED),
-	AnyAttributeDef::Multiplier(DAMAGE_TAKEN_INCREASED),
-	AnyAttributeDef::Multiplier(DEPLOY_TIME_DECREASED),
-	AnyAttributeDef::Multiplier(DEPLOY_TIME_INCREASED),
-	AnyAttributeDef::Multiplier(FASTER_RELOAD_RATE),
-	AnyAttributeDef::Multiplier(FIRE_RATE_BONUS),
-	AnyAttributeDef::Multiplier(FIRE_RATE_PENALTY),
-	AnyAttributeDef::Amount(HEAL_ON_HIT_RAPID_FIRE),
-	AnyAttributeDef::Amount(HEAL_ON_HIT_SLOW_FIRE),
-	AnyAttributeDef::Amount(HEAL_ON_KILL),
-	AnyAttributeDef::Amount(HEALTH_REGEN),
-	AnyAttributeDef::Amount(MAX_HEALTH_ADDITIVE_BONUS),
-	AnyAttributeDef::Amount(MAX_HEALTH_ADDITIVE_PENALTY),
-	AnyAttributeDef::Multiplier(MAXAMMO_PRIMARY_INCREASED),
-	AnyAttributeDef::Multiplier(MAXAMMO_PRIMARY_REDUCED),
-	AnyAttributeDef::Multiplier(MAXAMMO_SECONDARY_INCREASED),
-	AnyAttributeDef::Multiplier(MAXAMMO_SECONDARY_REDUCED),
-	AnyAttributeDef::Flag(MINICRIT_VS_BURNING_PLAYER),
-	AnyAttributeDef::Flag(MINICRITS_BECOME_CRITS),
-	AnyAttributeDef::Multiplier(MOVE_SPEED_BONUS),
-	AnyAttributeDef::Multiplier(MOVE_SPEED_PENALTY),
-	AnyAttributeDef::Multiplier(PROJECTILE_SPEED_DECREASED),
-	AnyAttributeDef::Multiplier(PROJECTILE_SPEED_INCREASED),
-	AnyAttributeDef::Flag(PROVIDE_ON_ACTIVE),
-	AnyAttributeDef::Multiplier(RELOAD_TIME_DECREASED),
-	AnyAttributeDef::Multiplier(RELOAD_TIME_INCREASED),
-	AnyAttributeDef::Flag(SET_DAMAGE_TYPE_IGNITE),
-	AnyAttributeDef::Multiplier(SPREAD_PENALTY),
-	AnyAttributeDef::Multiplier(WEAPON_SPREAD_BONUS),
-];
 
 /// The catalog definition with the index, or `None` if the catalog has none.
 pub fn by_index(index: AttributeIndex) -> Option<AnyAttributeDef> {

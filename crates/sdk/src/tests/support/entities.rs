@@ -101,91 +101,15 @@ pub struct MockEntity {
 	storage: *mut usize,
 }
 
-/// Members of `CBaseEntity` that mock entities store from
-/// [`MOCK_STATE_OFFSET`] on, as [`state_fields`] declares them, with the
-/// types their datamap declares.
-///
-/// For tests only.
-#[repr(C)]
-pub struct MockState {
-	/// `m_debugOverlays`.
-	pub debug_overlays: c_int,
-
-	/// `m_fEffects`.
-	pub effects: c_int,
-
-	/// `m_fFlags`.
-	pub flags: c_int,
-
-	/// `m_flFriction`.
-	pub friction: f32,
-
-	/// `m_flGravity`.
-	pub gravity: f32,
-
-	/// `m_hMoveParent`.
-	pub move_parent: u32,
-
-	/// `m_iTeamNum`.
-	pub team: c_int,
-
-	/// `m_spawnflags`.
-	pub spawn_flags: c_int,
-
-	/// `m_clrRender`.
-	pub render_color: sys::color32,
-
-	/// `m_nModelIndex`.
-	pub model_index: i16,
-
-	/// `m_MoveType`.
-	pub move_type: u8,
-
-	/// `m_nRenderMode`.
-	pub render_mode: u8,
-
-	/// `m_nTransmitStateOwnedCounter`.
-	pub transmit_state_owners: u8,
-
-	/// `m_iParent`.
-	pub parent_name: sys::string_t,
-
-	/// `m_ModelName`.
-	pub model_name: sys::string_t,
-
-	/// `m_vecAbsVelocity`.
-	pub abs_velocity: sys::Vector,
-
-	/// `m_vecVelocity`, 4 bytes past a multiple of 8, as the game's
-	/// `m_vecAbsVelocity` lies.
-	pub velocity: sys::Vector,
-
-	/// `m_MoveCollide`.
-	pub move_collide: u8,
-
-	/// `m_iParentAttachment`.
-	pub parent_attachment: u8,
-
-	/// `m_pPhysicsObject`, which only the wrappers' null checks read.
-	pub physics_object: *mut c_void,
-
-	/// `m_angAbsRotation`.
-	pub abs_rotation: sys::QAngle,
-
-	/// `m_vecOrigin`.
-	pub origin: sys::Vector,
-
-	/// `m_angRotation`.
-	pub rotation: sys::QAngle,
-
-	/// `m_hMoveChild`.
-	pub move_child: u32,
-
-	/// `m_hMovePeer`.
-	pub move_peer: u32,
-}
-
 impl MockEntity {
+	/// Builds an entity whose handle is `handle`, and resets the datamap,
+	/// origin, box in its own space, solid type, collision group, teleport count,
+	/// transmit state update count, `TakeHealth`, `Activate` and `SetModel`
+	/// calls, server class, and edict that mock entities on this thread report.
+	pub fn new(handle: u32) -> Self {
+		Self::with_layout(handle, Layout::new::<[usize; 64]>())
+	}
+
 	/// The number of slots in the vtable of a mock entity.
 	pub fn vtable_slots() -> usize {
 		sdk_raw::entities::TF2_TELEPORT_SLOT
@@ -198,14 +122,6 @@ impl MockEntity {
 			.max(sdk_raw::entities::spawn::ACTIVATE_SLOT)
 			.max(sdk_raw::entities::spawn::SET_MODEL_SLOT)
 			+ 1
-	}
-
-	/// Builds an entity whose handle is `handle`, and resets the datamap,
-	/// origin, box in its own space, solid type, collision group, teleport count,
-	/// transmit state update count, `TakeHealth`, `Activate` and `SetModel`
-	/// calls, server class, and edict that mock entities on this thread report.
-	pub fn new(handle: u32) -> Self {
-		Self::with_layout(handle, Layout::new::<[usize; 64]>())
 	}
 
 	/// Builds an entity as [`new`](Self::new) does, in zeroed storage of
@@ -472,6 +388,90 @@ impl MockEntity {
 	}
 }
 
+/// Members of `CBaseEntity` that mock entities store from
+/// [`MOCK_STATE_OFFSET`] on, as [`state_fields`] declares them, with the
+/// types their datamap declares.
+///
+/// For tests only.
+#[repr(C)]
+pub struct MockState {
+	/// `m_debugOverlays`.
+	pub debug_overlays: c_int,
+
+	/// `m_fEffects`.
+	pub effects: c_int,
+
+	/// `m_fFlags`.
+	pub flags: c_int,
+
+	/// `m_flFriction`.
+	pub friction: f32,
+
+	/// `m_flGravity`.
+	pub gravity: f32,
+
+	/// `m_hMoveParent`.
+	pub move_parent: u32,
+
+	/// `m_iTeamNum`.
+	pub team: c_int,
+
+	/// `m_spawnflags`.
+	pub spawn_flags: c_int,
+
+	/// `m_clrRender`.
+	pub render_color: sys::color32,
+
+	/// `m_nModelIndex`.
+	pub model_index: i16,
+
+	/// `m_MoveType`.
+	pub move_type: u8,
+
+	/// `m_nRenderMode`.
+	pub render_mode: u8,
+
+	/// `m_nTransmitStateOwnedCounter`.
+	pub transmit_state_owners: u8,
+
+	/// `m_iParent`.
+	pub parent_name: sys::string_t,
+
+	/// `m_ModelName`.
+	pub model_name: sys::string_t,
+
+	/// `m_vecAbsVelocity`.
+	pub abs_velocity: sys::Vector,
+
+	/// `m_vecVelocity`, 4 bytes past a multiple of 8, as the game's
+	/// `m_vecAbsVelocity` lies.
+	pub velocity: sys::Vector,
+
+	/// `m_MoveCollide`.
+	pub move_collide: u8,
+
+	/// `m_iParentAttachment`.
+	pub parent_attachment: u8,
+
+	/// `m_pPhysicsObject`, which only the wrappers' null checks read.
+	pub physics_object: *mut c_void,
+
+	/// `m_angAbsRotation`.
+	pub abs_rotation: sys::QAngle,
+
+	/// `m_vecOrigin`.
+	pub origin: sys::Vector,
+
+	/// `m_angRotation`.
+	pub rotation: sys::QAngle,
+
+	/// `m_hMoveChild`.
+	pub move_child: u32,
+
+	/// `m_hMovePeer`.
+	pub move_peer: u32,
+}
+
 /// `CBaseEntity::AcceptInput`, which records the input for [`take_inputs`]
 /// and converts the caller's value to `FIELD_VOID`, as `variant_t::Convert`
 /// does.
@@ -626,6 +626,16 @@ unsafe extern "C" fn get_origin(_: *const sys::ICollideable) -> *const sys::Vect
 	ORIGIN.with(Cell::as_ptr).cast_const()
 }
 
+unsafe extern "C" fn get_server_class(_: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
+	SERVER_CLASS.get()
+}
+
+/// `ICollideable::GetSolid`, which returns the solid type [`set_solid_type`]
+/// or the last [`MockEntity::new`] set on this thread.
+unsafe extern "C" fn get_solid(_: *const sys::ICollideable) -> sys::SolidType_t {
+	SOLID_TYPE.get()
+}
+
 /// Writes a box reaching one unit from the origin each way.
 unsafe extern "C" fn get_surrounding_bounds(
 	_: *mut sys::ICollideable,
@@ -648,16 +658,6 @@ unsafe extern "C" fn get_surrounding_bounds(
 			z: origin.z + 1.0,
 		});
 	}
-}
-
-unsafe extern "C" fn get_server_class(_: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
-	SERVER_CLASS.get()
-}
-
-/// `ICollideable::GetSolid`, which returns the solid type [`set_solid_type`]
-/// or the last [`MockEntity::new`] set on this thread.
-unsafe extern "C" fn get_solid(_: *const sys::ICollideable) -> sys::SolidType_t {
-	SOLID_TYPE.get()
 }
 
 /// The fields of `CBaseEntity`'s map holding health that mock entities store:

@@ -22,6 +22,26 @@ use sdk_raw::tf2::scoreboard::{TF_TEAM_BLUE, TF_TEAM_RED};
 use sdk_raw::tf2::teams::CHANGE_TEAM_SLOT;
 use std::ffi::c_int;
 
+/// The primary vtable of a C++ class in this server's game module, as
+/// [`TeamTargets`] finds it. For an entity class, the game calls
+/// `CBaseEntity::ChangeTeam` through it on the class's entities, but not on
+/// those of the classes deriving from it.
+///
+/// The search finds any polymorphic class by name: hooking it as an entity
+/// class is only sound for one deriving from `CBaseEntity`.
+pub type TeamTarget<'s> = ClassVtable<'s>;
+
+/// Why the game module could not be searched for entity classes.
+pub type TeamTargetError = ClassTargetError;
+
+/// A snapshot of TF2's game module, in which to find the vtables of its
+/// entity classes, such as `CFuncRespawnRoom` for `func_respawnroom`: those
+/// holding code at [`CHANGE_TEAM_SLOT`]. Snapshotting reads the whole module,
+/// so find every class needed with one, or search a
+/// [`ClassTargets`](super::class_targets::ClassTargets) snapshot taken for
+/// other classes, through `From`.
+pub type TeamTargets<'s> = SlotTargets<'s, CHANGE_TEAM_SLOT>;
+
 /// One of TF2's teams, numbered as an entity's `m_iTeamNum` holds them
 /// (`game/shared/shareddefs.h` and `game/shared/tf/tf_shareddefs.h`).
 ///
@@ -109,23 +129,3 @@ impl From<ScoringTeam> for Team {
 		}
 	}
 }
-
-/// The primary vtable of a C++ class in this server's game module, as
-/// [`TeamTargets`] finds it. For an entity class, the game calls
-/// `CBaseEntity::ChangeTeam` through it on the class's entities, but not on
-/// those of the classes deriving from it.
-///
-/// The search finds any polymorphic class by name: hooking it as an entity
-/// class is only sound for one deriving from `CBaseEntity`.
-pub type TeamTarget<'s> = ClassVtable<'s>;
-
-/// Why the game module could not be searched for entity classes.
-pub type TeamTargetError = ClassTargetError;
-
-/// A snapshot of TF2's game module, in which to find the vtables of its
-/// entity classes, such as `CFuncRespawnRoom` for `func_respawnroom`: those
-/// holding code at [`CHANGE_TEAM_SLOT`]. Snapshotting reads the whole module,
-/// so find every class needed with one, or search a
-/// [`ClassTargets`](super::class_targets::ClassTargets) snapshot taken for
-/// other classes, through `From`.
-pub type TeamTargets<'s> = SlotTargets<'s, CHANGE_TEAM_SLOT>;

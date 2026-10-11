@@ -5,9 +5,33 @@ use super::*;
 const SPEAKER: u64 = 0x0110_0001_0000_0042;
 
 #[test]
-fn the_crc_is_the_standard_crc_32() {
-	assert_eq!(crc32(b""), 0);
-	assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+fn another_steam_id_keeps_the_sections_and_a_valid_crc() {
+	let packet = encode(SPEAKER, &[Section::SampleRate(24000), Section::Silence(1)]).unwrap();
+	let moved = SteamVoice::parse(&packet).unwrap().with_steam_id(0);
+	let voice = SteamVoice::parse(&moved).unwrap();
+
+	assert_eq!(voice.steam_id(), 0);
+	assert_eq!(moved[8..moved.len() - 4], packet[8..packet.len() - 4]);
+	assert_eq!(
+		voice.sections().collect::<Result<Vec<_>, _>>().unwrap(),
+		[Section::SampleRate(24000), Section::Silence(1)]
+	);
+}
+
+#[test]
+fn damaged_packets_are_refused() {
+	let mut packet = encode(SPEAKER, &[Section::Silence(1)]).unwrap();
+
+	assert_eq!(
+		SteamVoice::parse(&packet[..11]),
+		Err(SteamVoiceError::TooShort { len: 11 })
+	);
+
+	packet[9] ^= 1;
+	assert!(matches!(
+		SteamVoice::parse(&packet),
+		Err(SteamVoiceError::Crc { .. })
+	));
 }
 
 #[test]
@@ -66,36 +90,6 @@ fn packets_are_the_steam_id_then_sections_then_their_crc() {
 }
 
 #[test]
-fn another_steam_id_keeps_the_sections_and_a_valid_crc() {
-	let packet = encode(SPEAKER, &[Section::SampleRate(24000), Section::Silence(1)]).unwrap();
-	let moved = SteamVoice::parse(&packet).unwrap().with_steam_id(0);
-	let voice = SteamVoice::parse(&moved).unwrap();
-
-	assert_eq!(voice.steam_id(), 0);
-	assert_eq!(moved[8..moved.len() - 4], packet[8..packet.len() - 4]);
-	assert_eq!(
-		voice.sections().collect::<Result<Vec<_>, _>>().unwrap(),
-		[Section::SampleRate(24000), Section::Silence(1)]
-	);
-}
-
-#[test]
-fn damaged_packets_are_refused() {
-	let mut packet = encode(SPEAKER, &[Section::Silence(1)]).unwrap();
-
-	assert_eq!(
-		SteamVoice::parse(&packet[..11]),
-		Err(SteamVoiceError::TooShort { len: 11 })
-	);
-
-	packet[9] ^= 1;
-	assert!(matches!(
-		SteamVoice::parse(&packet),
-		Err(SteamVoiceError::Crc { .. })
-	));
-}
-
-#[test]
 fn reading_stops_at_the_first_unreadable_section_or_frame() {
 	let packet = encode(SPEAKER, &[Section::Silence(1)]).unwrap();
 	let mut body = packet[8..packet.len() - 4].to_vec();
@@ -124,6 +118,12 @@ fn reading_stops_at_the_first_unreadable_section_or_frame() {
 		opus_frames(&[5, 0, 1, 0, 42]).collect::<Vec<_>>(),
 		[Err(SteamVoiceError::Truncated)]
 	);
+}
+
+#[test]
+fn the_crc_is_the_standard_crc_32() {
+	assert_eq!(crc32(b""), 0);
+	assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
 }
 
 #[test]

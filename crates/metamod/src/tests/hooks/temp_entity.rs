@@ -94,6 +94,44 @@ enum Seen {
 	Queued(String),
 }
 
+/// The callback, which notes what it saw and blocks explosions.
+fn block_explosions(_server: Server<'_>, played: &PlayedTempEntity<'_>) -> TempEntityAction {
+	let table = played.table.to_str().unwrap();
+
+	SEEN.with_borrow_mut(|seen| {
+		seen.push(Seen::Callback(
+			table.to_owned(),
+			played.recipients.iter().collect(),
+			played.recipients.is_reliable(),
+			played.delay,
+			played.class_id,
+		));
+	});
+
+	match table == "DT_TETFExplosion" {
+		true => TempEntityAction::Block,
+		false => TempEntityAction::Continue,
+	}
+}
+
+/// The mock engine's `PlaybackTempEntity`, which notes the table's name.
+unsafe extern "C" fn engine_playback(
+	_this: *mut sys::IVEngineServer,
+	_filter: *mut sys::IRecipientFilter,
+	_delay: f32,
+	_sender: *const c_void,
+	table: *const sys::SendTable,
+	_class_id: c_int,
+) {
+	// SAFETY: The tests pass live tables with terminated names.
+	let name = unsafe { CStr::from_ptr((*table).m_pNetTableName.cast::<c_char>()) }
+		.to_str()
+		.unwrap()
+		.to_owned();
+
+	SEEN.with_borrow_mut(|seen| seen.push(Seen::Queued(name)));
+}
+
 #[test]
 fn explosions_are_blocked_and_others_reach_the_engine() {
 	on_both(|harness| {
@@ -163,59 +201,34 @@ fn explosions_are_blocked_and_others_reach_the_engine() {
 	});
 }
 
-#[test]
-fn temp_entities_an_earlier_hook_blocked_skip_the_callback() {
-	on_both(|harness| {
-		let api = harness.api();
-		let mut engine = Engine::new();
-		let mut filter = Filter::new(vec![2], false);
-
-		fn block(_call: &HookCall<'_, PlaybackTempEntity>) -> HookAction<()> {
-			HookAction::Supersede(())
-		}
-
-		// SAFETY: As above.
-		unsafe {
-			api.add_hook(
-				PLAYBACK_TEMP_ENTITY,
-				HookTarget::instance(engine.ptr()),
-				HookTiming::Pre,
-				&block,
-			)
-			.unwrap();
-			api.install_playback_temp_entity(
-				engine.ptr(),
-				tf2_binding(no_interfaces),
-				block_explosions,
-			)
-			.unwrap();
-		}
-
-		assert_eq!(
-			play(harness, &mut engine, &mut filter, c"DT_TEFireBullets", 0.0),
-			[]
-		);
-	});
+/// The mock filter's `GetRecipientCount`.
+unsafe extern "C" fn filter_count(this: *const sys::IRecipientFilter) -> c_int {
+	// SAFETY: Only mock filters have this vtable.
+	unsafe { (*this.cast::<Filter>()).clients.len() as c_int }
 }
 
-/// The callback, which notes what it saw and blocks explosions.
-fn block_explosions(_server: Server<'_>, played: &PlayedTempEntity<'_>) -> TempEntityAction {
-	let table = played.table.to_str().unwrap();
+/// The mock filter's `GetRecipientIndex`.
+unsafe extern "C" fn filter_index(this: *const sys::IRecipientFilter, slot: c_int) -> c_int {
+	// SAFETY: As above.
+	unsafe { (&(*this.cast::<Filter>()).clients)[slot as usize] }
+}
 
-	SEEN.with_borrow_mut(|seen| {
-		seen.push(Seen::Callback(
-			table.to_owned(),
-			played.recipients.iter().collect(),
-			played.recipients.is_reliable(),
-			played.delay,
-			played.class_id,
-		));
-	});
+/// The mock filter's `IsReliable`.
+unsafe extern "C" fn filter_reliable(this: *const sys::IRecipientFilter) -> bool {
+	// SAFETY: As above.
+	unsafe { (*this.cast::<Filter>()).reliable }
+}
 
-	match table == "DT_TETFExplosion" {
-		true => TempEntityAction::Block,
-		false => TempEntityAction::Continue,
+/// A leaked vtable of `V`'s size, whose slots hold `functions` at their
+/// indices, and [`unexpected_call`] elsewhere.
+fn mock_vtable<V>(functions: &[(usize, *mut c_void)]) -> *mut *mut c_void {
+	let mut slots = vec![unexpected_call as *mut c_void; size_of::<V>() / VTABLE_SLOT_SIZE];
+
+	for &(slot, function) in functions {
+		slots[slot] = function;
 	}
+
+	Vec::leak(slots).as_mut_ptr()
 }
 
 /// Plays back a temporary entity of a table named `name`, of server class 11,
@@ -250,52 +263,39 @@ fn play(
 	SEEN.take()
 }
 
-/// The mock engine's `PlaybackTempEntity`, which notes the table's name.
-unsafe extern "C" fn engine_playback(
-	_this: *mut sys::IVEngineServer,
-	_filter: *mut sys::IRecipientFilter,
-	_delay: f32,
-	_sender: *const c_void,
-	table: *const sys::SendTable,
-	_class_id: c_int,
-) {
-	// SAFETY: The tests pass live tables with terminated names.
-	let name = unsafe { CStr::from_ptr((*table).m_pNetTableName.cast::<c_char>()) }
-		.to_str()
-		.unwrap()
-		.to_owned();
+#[test]
+fn temp_entities_an_earlier_hook_blocked_skip_the_callback() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut engine = Engine::new();
+		let mut filter = Filter::new(vec![2], false);
 
-	SEEN.with_borrow_mut(|seen| seen.push(Seen::Queued(name)));
-}
+		fn block(_call: &HookCall<'_, PlaybackTempEntity>) -> HookAction<()> {
+			HookAction::Supersede(())
+		}
 
-/// The mock filter's `GetRecipientCount`.
-unsafe extern "C" fn filter_count(this: *const sys::IRecipientFilter) -> c_int {
-	// SAFETY: Only mock filters have this vtable.
-	unsafe { (*this.cast::<Filter>()).clients.len() as c_int }
-}
+		// SAFETY: As above.
+		unsafe {
+			api.add_hook(
+				PLAYBACK_TEMP_ENTITY,
+				HookTarget::instance(engine.ptr()),
+				HookTiming::Pre,
+				&block,
+			)
+			.unwrap();
+			api.install_playback_temp_entity(
+				engine.ptr(),
+				tf2_binding(no_interfaces),
+				block_explosions,
+			)
+			.unwrap();
+		}
 
-/// The mock filter's `GetRecipientIndex`.
-unsafe extern "C" fn filter_index(this: *const sys::IRecipientFilter, slot: c_int) -> c_int {
-	// SAFETY: As above.
-	unsafe { (&(*this.cast::<Filter>()).clients)[slot as usize] }
-}
-
-/// The mock filter's `IsReliable`.
-unsafe extern "C" fn filter_reliable(this: *const sys::IRecipientFilter) -> bool {
-	// SAFETY: As above.
-	unsafe { (*this.cast::<Filter>()).reliable }
-}
-
-/// A leaked vtable of `V`'s size, whose slots hold `functions` at their
-/// indices, and [`unexpected_call`] elsewhere.
-fn mock_vtable<V>(functions: &[(usize, *mut c_void)]) -> *mut *mut c_void {
-	let mut slots = vec![unexpected_call as *mut c_void; size_of::<V>() / VTABLE_SLOT_SIZE];
-
-	for &(slot, function) in functions {
-		slots[slot] = function;
-	}
-
-	Vec::leak(slots).as_mut_ptr()
+		assert_eq!(
+			play(harness, &mut engine, &mut filter, c"DT_TEFireBullets", 0.0),
+			[]
+		);
+	});
 }
 
 /// A slot no test expects to be called, which aborts the test process.

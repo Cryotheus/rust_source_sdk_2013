@@ -25,9 +25,11 @@ use crate::NotThreadSafe;
 use crate::bitbuf::BitWriter;
 use crate::interfaces::game_server::GameClient;
 use crate::server::{InterfaceError, Server, ServerBinding};
+
 use sdk_raw::net::incoming::{
 	self as raw, ClientLayoutError, ClientMessage, MessageClass, StringCmdError,
 };
+
 use sdk_raw::util;
 use sdk_raw::util::cstr::{copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
@@ -567,6 +569,64 @@ impl<'s> IncomingMessage<'s> {
 	}
 }
 
+/// Why [`GameClient::process_string_command`] passed no command.
+#[derive(Debug, thiserror::Error)]
+pub enum StringCommandError {
+	/// The client is a fake client, such as a bot, which has no channel to
+	/// send messages through.
+	#[error("the client is a fake client, such as a bot")]
+	FakeClient,
+
+	/// The client has no channel, as an empty slot does.
+	#[error("the client has no channel")]
+	NoChannel,
+
+	/// The command is longer than
+	/// [`MAX_STRING_CMD_LEN`](raw::MAX_STRING_CMD_LEN) bytes.
+	#[error("the command is longer than {} bytes", raw::MAX_STRING_CMD_LEN)]
+	TooLong,
+
+	/// The engine module's run-time type information names no unique primary
+	/// vtable of `NET_StringCmd`.
+	#[error("the engine has no unique vtable of NET_StringCmd")]
+	NoVtable,
+
+	/// The engine's clients, or its `NET_StringCmd`, are not laid out as
+	/// expected.
+	#[error("the engine's clients or string commands are not laid out as expected")]
+	UnexpectedLayout,
+
+	/// The engine module could not be inspected.
+	#[error("the engine module could not be inspected: {0}")]
+	Image(#[from] util::Error),
+}
+
+impl From<ClientLayoutError> for StringCommandError {
+	fn from(_: ClientLayoutError) -> Self {
+		Self::UnexpectedLayout
+	}
+}
+
+impl From<StringCmdError> for StringCommandError {
+	fn from(error: StringCmdError) -> Self {
+		match error {
+			StringCmdError::TooLong => Self::TooLong,
+			StringCmdError::UnexpectedLayout => Self::UnexpectedLayout,
+		}
+	}
+}
+
+/// What the handler decides about a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Verdict {
+	/// Lets the engine process the message.
+	#[default]
+	Continue,
+
+	/// Drops the message. The engine carries on as though it processed it.
+	Block,
+}
+
 impl<'s> GameClient<'s> {
 	/// Passes `command` to the client's message handler as a `NET_StringCmd`,
 	/// as though the client sent it: the message's `Process` passes it to the
@@ -653,64 +713,6 @@ impl<'s> GameClient<'s> {
 		// for the command, and for what the hooks on either method do with it.
 		Ok(unsafe { message.process() })
 	}
-}
-
-/// Why [`GameClient::process_string_command`] passed no command.
-#[derive(Debug, thiserror::Error)]
-pub enum StringCommandError {
-	/// The client is a fake client, such as a bot, which has no channel to
-	/// send messages through.
-	#[error("the client is a fake client, such as a bot")]
-	FakeClient,
-
-	/// The client has no channel, as an empty slot does.
-	#[error("the client has no channel")]
-	NoChannel,
-
-	/// The command is longer than
-	/// [`MAX_STRING_CMD_LEN`](raw::MAX_STRING_CMD_LEN) bytes.
-	#[error("the command is longer than {} bytes", raw::MAX_STRING_CMD_LEN)]
-	TooLong,
-
-	/// The engine module's run-time type information names no unique primary
-	/// vtable of `NET_StringCmd`.
-	#[error("the engine has no unique vtable of NET_StringCmd")]
-	NoVtable,
-
-	/// The engine's clients, or its `NET_StringCmd`, are not laid out as
-	/// expected.
-	#[error("the engine's clients or string commands are not laid out as expected")]
-	UnexpectedLayout,
-
-	/// The engine module could not be inspected.
-	#[error("the engine module could not be inspected: {0}")]
-	Image(#[from] util::Error),
-}
-
-impl From<ClientLayoutError> for StringCommandError {
-	fn from(_: ClientLayoutError) -> Self {
-		Self::UnexpectedLayout
-	}
-}
-
-impl From<StringCmdError> for StringCommandError {
-	fn from(error: StringCmdError) -> Self {
-		match error {
-			StringCmdError::TooLong => Self::TooLong,
-			StringCmdError::UnexpectedLayout => Self::UnexpectedLayout,
-		}
-	}
-}
-
-/// What the handler decides about a message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum Verdict {
-	/// Lets the engine process the message.
-	#[default]
-	Continue,
-
-	/// Drops the message. The engine carries on as though it processed it.
-	Block,
 }
 
 /// Finds a client message handler of the engine's to hook, after checking its

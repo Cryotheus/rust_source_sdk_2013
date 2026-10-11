@@ -15,14 +15,13 @@
 use crate::NotThreadSafe;
 use crate::server::{InterfaceError, Server};
 use sdk_raw::interfaces::network_string_tables::{INVALID_STRING_INDEX, UNKNOWN_STRING_LENGTH};
-
-pub use sdk_raw::interfaces::network_string_tables::MAX_USER_DATA_LEN;
-
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
+
+pub use sdk_raw::interfaces::network_string_tables::MAX_USER_DATA_LEN;
 
 /// The name of the table listing the files clients download while they
 /// connect.

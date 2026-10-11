@@ -7,6 +7,21 @@ use crate::test_support::interfaces::cvar::{mock_cvar, mock_var};
 use crate::test_support::server::{export, mock_server};
 use std::ptr::null_mut;
 
+#[test]
+fn a_variable_goes_unannounced_only_while_quietly_runs() {
+	let scope = ();
+	let (var, _) = gravity(&scope, CommandFlags::NOTIFY | CommandFlags::REPLICATED);
+
+	let inside = var.quietly(|| var.flags());
+
+	assert!(!inside.contains(CommandFlags::NOTIFY));
+	assert!(inside.contains(CommandFlags::REPLICATED));
+	assert!(
+		var.flags()
+			.contains(CommandFlags::NOTIFY | CommandFlags::REPLICATED)
+	);
+}
+
 /// `sv_gravity`, marked `flags`, as the registry of a mock server finds it,
 /// with the variable itself.
 fn gravity(scope: &(), flags: CommandFlags) -> (ConVar<'_>, *mut sys::ConVar) {
@@ -25,21 +40,6 @@ fn gravity(scope: &(), flags: CommandFlags) -> (ConVar<'_>, *mut sys::ConVar) {
 		.unwrap();
 
 	(var, raw)
-}
-
-#[test]
-fn a_variable_goes_unannounced_only_while_quietly_runs() {
-	let scope = ();
-	let (var, _) = gravity(&scope, CommandFlags::NOTIFY | CommandFlags::REPLICATED);
-
-	let inside = var.quietly(|| var.flags());
-
-	assert!(!inside.contains(CommandFlags::NOTIFY));
-	assert!(inside.contains(CommandFlags::REPLICATED));
-	assert!(
-		var.flags()
-			.contains(CommandFlags::NOTIFY | CommandFlags::REPLICATED)
-	);
 }
 
 #[test]

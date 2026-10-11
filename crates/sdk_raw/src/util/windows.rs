@@ -169,7 +169,6 @@ unsafe extern "system" {
 	) -> i32;
 
 	fn VirtualAlloc(address: *mut c_void, size: usize, kind: u32, protection: u32) -> *mut c_void;
-
 	fn VirtualProtect(address: *const c_void, size: usize, protection: u32, old: *mut u32) -> i32;
 
 	fn VirtualQuery(
@@ -194,19 +193,6 @@ pub(super) fn allocate_pages(len: usize) -> io::Result<NonNull<u8>> {
 	};
 
 	NonNull::new(pages.cast()).ok_or_else(io::Error::last_os_error)
-}
-
-/// Makes the `len` bytes of pages at `address` executable and read-only, and
-/// the instruction fetches of this process see what was written to them.
-///
-/// # Safety
-///
-/// The pages must be an allocation of [`allocate_pages`], and no code may run
-/// from them or write to them during the call.
-pub(super) unsafe fn make_executable(address: NonNull<c_void>, len: usize) -> io::Result<()> {
-	// SAFETY: As the caller promises.
-	unsafe { protect(address.as_ptr(), len, PAGE_EXECUTE_READ) }?;
-	flush_instruction_cache(address.as_ptr(), len)
 }
 
 /// Makes the instruction fetches of this process see the code changed in
@@ -276,24 +262,17 @@ pub fn loaded_symbol(library: &CStr, name: &CStr) -> Option<NonNull<c_void>> {
 	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
 }
 
-/// The address of the export `name` of the loaded module containing
-/// `address`, or `None` if no module contains it or the module does not
-/// export `name`. This never loads a library.
-///
-/// The module is kept loaded during the lookup only. The address is usable as
-/// a native pointer only while the module stays loaded, and only with the
-/// type the module exports it with.
+/// Makes the `len` bytes of pages at `address` executable and read-only, and
+/// the instruction fetches of this process see what was written to them.
 ///
 /// # Safety
 ///
-/// The module containing `address` must not unload during the call.
-pub unsafe fn module_symbol(address: usize, name: &CStr) -> Option<NonNull<c_void>> {
-	// SAFETY: The caller keeps the module loaded until its reference is added,
-	// which keeps it loaded during the lookup.
-	let module = unsafe { Module::at(address) }.ok()?;
-
-	// SAFETY: As above.
-	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
+/// The pages must be an allocation of [`allocate_pages`], and no code may run
+/// from them or write to them during the call.
+pub(super) unsafe fn make_executable(address: NonNull<c_void>, len: usize) -> io::Result<()> {
+	// SAFETY: As the caller promises.
+	unsafe { protect(address.as_ptr(), len, PAGE_EXECUTE_READ) }?;
+	flush_instruction_cache(address.as_ptr(), len)
 }
 
 /// The path of the file the loader mapped `module` from.
@@ -326,6 +305,26 @@ unsafe fn module_path(module: *mut c_void) -> io::Result<PathBuf> {
 
 		name.resize(name.len() * 2, 0);
 	}
+}
+
+/// The address of the export `name` of the loaded module containing
+/// `address`, or `None` if no module contains it or the module does not
+/// export `name`. This never loads a library.
+///
+/// The module is kept loaded during the lookup only. The address is usable as
+/// a native pointer only while the module stays loaded, and only with the
+/// type the module exports it with.
+///
+/// # Safety
+///
+/// The module containing `address` must not unload during the call.
+pub unsafe fn module_symbol(address: usize, name: &CStr) -> Option<NonNull<c_void>> {
+	// SAFETY: The caller keeps the module loaded until its reference is added,
+	// which keeps it loaded during the lookup.
+	let module = unsafe { Module::at(address) }.ok()?;
+
+	// SAFETY: As above.
+	NonNull::new(unsafe { GetProcAddress(module.0, name.as_ptr()) })
 }
 
 /// Keeps the module containing `address` loaded until the process exits, and

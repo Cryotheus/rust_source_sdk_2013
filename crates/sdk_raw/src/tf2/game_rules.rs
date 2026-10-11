@@ -12,12 +12,12 @@ mod tests;
 
 use crate::abi::CppDestructors;
 use crate::interfaces::CreateInterfaceFn;
-use crate::util::{self, Image};
-use crate::{vcall, vtable_slot};
 
 #[cfg(target_os = "linux")]
 use crate::util::elf::LoadedElf;
 
+use crate::util::{self, Image};
+use crate::{vcall, vtable_slot};
 use std::ffi::{c_char, c_int, c_void};
 use std::ptr::NonNull;
 
@@ -171,114 +171,6 @@ pub type ShouldSwitchTeamsFn = unsafe extern "C" fn(this: *mut c_void) -> bool;
 pub type TeamMayCapturePointFn =
 	unsafe extern "C" fn(this: *mut c_void, team: c_int, point: c_int) -> bool;
 
-// The generated methods have the signatures above, with a `CTFGameRules`
-// receiver, the object at the game rules' address.
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(
-	*mut sys::CTFGameRules,
-	*mut sys::CBaseCombatCharacter,
-	c_int,
-) -> bool = |vtable| vtable.CTFGameRules_CanHaveAmmo;
-
-const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
-	|vtable| vtable.CTFGameRules_CleanUpMap;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
-	|vtable| vtable.CTFGameRules_FlagsMayBeCapped;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
-	|vtable| vtable.CTFGameRules_BHavePlayers;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*const sys::CTFGameRules, c_int) -> bool =
-	|vtable| vtable.CTFGameRules_IsHolidayActive;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(
-	*mut sys::CTFGameRules,
-	*mut sys::CBasePlayer,
-	*mut sys::CBaseEntity,
-	*const sys::CTakeDamageInfo,
-) -> bool = |vtable| vtable.CTFGameRules_FPlayerCanTakeDamage;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(
-	*mut sys::CTFGameRules,
-	*mut sys::CBasePlayer,
-	c_int,
-	*mut c_char,
-	c_int,
-) -> bool = |vtable| vtable.CTFGameRules_PlayerMayBlockPoint;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(
-	*mut sys::CTFGameRules,
-	*mut sys::CBasePlayer,
-	c_int,
-	*mut c_char,
-	c_int,
-) -> bool = |vtable| vtable.CTFGameRules_PlayerMayCapturePoint;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
-	|vtable| vtable.CTFGameRules_PointsMayBeCaptured;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules, *mut sys::CBaseEntity) -> bool =
-	|vtable| vtable.CTFGameRules_RoundCleanupShouldIgnore;
-
-const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
-	|vtable| vtable.CTFGameRules_SetupOnRoundRunning;
-
-const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
-	|vtable| vtable.CTFGameRules_SetupOnRoundStart;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules, c_int, bool, bool) =
-	|vtable| vtable.CTFGameRules_SetStalemate;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules, c_int, c_int, bool, bool, bool, bool) =
-	|vtable| vtable.CTFGameRules_SetWinningTeam;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
-	|vtable| vtable.CTFGameRules_ShouldBalanceTeams;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules, *const c_char) -> bool =
-	|vtable| vtable.CTFGameRules_ShouldCreateEntity;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
-	|vtable| vtable.CTFGameRules_ShouldScrambleTeams;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
-	|vtable| vtable.CTFGameRules_ShouldSwitchTeams;
-
-const _: fn(
-	&sys::CTFGameRules__bindgen_vtable,
-) -> unsafe extern "C" fn(*mut sys::CTFGameRules, c_int, c_int) -> bool =
-	|vtable| vtable.CTFGameRules_TeamMayCapturePoint;
-
 // The generated slots match those found before `CTFGameRules` was generated.
 // `CleanUpMap` is slot 231 of TF2's 64-bit Windows `server.dll`, whose
 // `CTFGameRules` vtable, found through its run-time type information, holds
@@ -321,6 +213,114 @@ const _: () = {
 	);
 };
 
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*const sys::CTFGameRules, c_int) -> bool =
+	|vtable| vtable.CTFGameRules_IsHolidayActive;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules, *const c_char) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldCreateEntity;
+
+// The generated methods have the signatures above, with a `CTFGameRules`
+// receiver, the object at the game rules' address.
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFGameRules,
+	*mut sys::CBaseCombatCharacter,
+	c_int,
+) -> bool = |vtable| vtable.CTFGameRules_CanHaveAmmo;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules, *mut sys::CBaseEntity) -> bool =
+	|vtable| vtable.CTFGameRules_RoundCleanupShouldIgnore;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFGameRules,
+	*mut sys::CBasePlayer,
+	*mut sys::CBaseEntity,
+	*const sys::CTakeDamageInfo,
+) -> bool = |vtable| vtable.CTFGameRules_FPlayerCanTakeDamage;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFGameRules,
+	*mut sys::CBasePlayer,
+	c_int,
+	*mut c_char,
+	c_int,
+) -> bool = |vtable| vtable.CTFGameRules_PlayerMayBlockPoint;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(
+	*mut sys::CTFGameRules,
+	*mut sys::CBasePlayer,
+	c_int,
+	*mut c_char,
+	c_int,
+) -> bool = |vtable| vtable.CTFGameRules_PlayerMayCapturePoint;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules, c_int, bool, bool) =
+	|vtable| vtable.CTFGameRules_SetStalemate;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules, c_int, c_int, bool, bool, bool, bool) =
+	|vtable| vtable.CTFGameRules_SetWinningTeam;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules, c_int, c_int) -> bool =
+	|vtable| vtable.CTFGameRules_TeamMayCapturePoint;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_BHavePlayers;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_FlagsMayBeCapped;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_PointsMayBeCaptured;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldBalanceTeams;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldScrambleTeams;
+
+const _: fn(
+	&sys::CTFGameRules__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFGameRules) -> bool =
+	|vtable| vtable.CTFGameRules_ShouldSwitchTeams;
+
+const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
+	|vtable| vtable.CTFGameRules_CleanUpMap;
+
+const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
+	|vtable| vtable.CTFGameRules_SetupOnRoundRunning;
+
+const _: fn(&sys::CTFGameRules__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFGameRules) =
+	|vtable| vtable.CTFGameRules_SetupOnRoundStart;
+
 /// The slot of `CanHaveAmmo(CBaseCombatCharacter *, int)` in `CTFGameRules`'
 /// primary vtable, from the generated binding, which names the overload
 /// taking an ammo name `CanHaveAmmo1`.
@@ -350,11 +350,15 @@ pub const FLAGS_MAY_BE_CAPPED_SLOT: usize = vtable_slot!(
 /// The name of TF2's game rules class in its run-time type information.
 pub const GAME_RULES_CLASS: &str = "CTFGameRules";
 
-/// The slot of `BHavePlayers` in `CTFGameRules`' primary vtable, from the
-/// generated binding.
-#[doc(alias("BHavePlayers"))]
-pub const HAVE_PLAYERS_SLOT: usize =
-	vtable_slot!(sys::CTFGameRules__bindgen_vtable, CTFGameRules_BHavePlayers);
+/// `GR_STATE_BETWEEN_RNDS`: players ready up, between Mann vs. Machine's waves
+/// or before a matchmade game (`UsePlayerReadyStatusMode`).
+pub const GR_STATE_BETWEEN_RNDS: c_int = 10;
+
+/// `GR_STATE_BONUS`: a bonus round.
+pub const GR_STATE_BONUS: c_int = 9;
+
+/// `GR_STATE_GAME_OVER`: the game ended, as the map is about to change.
+pub const GR_STATE_GAME_OVER: c_int = 8;
 
 /// `GR_STATE_INIT`: the game rules were just created.
 pub const GR_STATE_INIT: c_int = 0;
@@ -362,34 +366,30 @@ pub const GR_STATE_INIT: c_int = 0;
 /// `GR_STATE_PREGAME`: before players are ready, before the game starts.
 pub const GR_STATE_PREGAME: c_int = 1;
 
-/// `GR_STATE_STARTGAME`: players are ready, and the first round is about to
-/// be set up, a tick later.
-pub const GR_STATE_STARTGAME: c_int = 2;
-
 /// `GR_STATE_PREROUND`: a round was set up, and players wait to move.
 pub const GR_STATE_PREROUND: c_int = 3;
-
-/// `GR_STATE_RND_RUNNING`: a round is being played.
-pub const GR_STATE_RND_RUNNING: c_int = 4;
-
-/// `GR_STATE_TEAM_WIN`: a team won the round.
-pub const GR_STATE_TEAM_WIN: c_int = 5;
 
 /// `GR_STATE_RESTART`: the round is restarting.
 pub const GR_STATE_RESTART: c_int = 6;
 
+/// `GR_STATE_RND_RUNNING`: a round is being played.
+pub const GR_STATE_RND_RUNNING: c_int = 4;
+
 /// `GR_STATE_STALEMATE`: sudden death, or an arena round.
 pub const GR_STATE_STALEMATE: c_int = 7;
 
-/// `GR_STATE_GAME_OVER`: the game ended, as the map is about to change.
-pub const GR_STATE_GAME_OVER: c_int = 8;
+/// `GR_STATE_STARTGAME`: players are ready, and the first round is about to
+/// be set up, a tick later.
+pub const GR_STATE_STARTGAME: c_int = 2;
 
-/// `GR_STATE_BONUS`: a bonus round.
-pub const GR_STATE_BONUS: c_int = 9;
+/// `GR_STATE_TEAM_WIN`: a team won the round.
+pub const GR_STATE_TEAM_WIN: c_int = 5;
 
-/// `GR_STATE_BETWEEN_RNDS`: players ready up, between Mann vs. Machine's waves
-/// or before a matchmade game (`UsePlayerReadyStatusMode`).
-pub const GR_STATE_BETWEEN_RNDS: c_int = 10;
+/// The slot of `BHavePlayers` in `CTFGameRules`' primary vtable, from the
+/// generated binding.
+#[doc(alias("BHavePlayers"))]
+pub const HAVE_PLAYERS_SLOT: usize =
+	vtable_slot!(sys::CTFGameRules__bindgen_vtable, CTFGameRules_BHavePlayers);
 
 /// The slot of `IsHolidayActive` in `CTFGameRules`' primary vtable, from the
 /// generated binding.
@@ -505,12 +505,12 @@ pub const SHOULD_SWITCH_TEAMS_SLOT: usize = vtable_slot!(
 /// stalemate because players joined mid-round.
 pub const STALEMATE_JOIN_MID: c_int = 0;
 
-/// `STALEMATE_TIMER`: a stalemate because the round timer ran out.
-pub const STALEMATE_TIMER: c_int = 1;
-
 /// `STALEMATE_SERVER_TIMELIMIT`: a stalemate because the map's time limit ran
 /// out.
 pub const STALEMATE_SERVER_TIMELIMIT: c_int = 2;
+
+/// `STALEMATE_TIMER`: a stalemate because the round timer ran out.
+pub const STALEMATE_TIMER: c_int = 1;
 
 /// The slot of `TeamMayCapturePoint` in `CTFGameRules`' primary vtable, from
 /// the generated binding.
@@ -520,15 +520,41 @@ pub const TEAM_MAY_CAPTURE_POINT_SLOT: usize = vtable_slot!(
 	CTFGameRules_TeamMayCapturePoint
 );
 
-/// `TEAM_ROLE_NONE` from `game/shared/tf/tf_shareddefs.h`: a team neither
-/// attacking nor defending.
-pub const TEAM_ROLE_NONE: c_int = 0;
+/// `TEAM_ROLE_ATTACKERS`: a team attacking the objectives.
+pub const TEAM_ROLE_ATTACKERS: c_int = 2;
 
 /// `TEAM_ROLE_DEFENDERS`: a team defending the objectives.
 pub const TEAM_ROLE_DEFENDERS: c_int = 1;
 
-/// `TEAM_ROLE_ATTACKERS`: a team attacking the objectives.
-pub const TEAM_ROLE_ATTACKERS: c_int = 2;
+/// `TEAM_ROLE_NONE` from `game/shared/tf/tf_shareddefs.h`: a team neither
+/// attacking nor defending.
+pub const TEAM_ROLE_NONE: c_int = 0;
+
+/// Calls `CTFGameRules::CanHaveAmmo`, which tells whether `player` holds less
+/// of the ammo type `ammo_type`, an index of `m_iAmmo`, than their max, as
+/// their class and items make it (`CTFPlayer::GetMaxAmmo`).
+///
+/// The method is called through the generated vtable, at
+/// [`CAN_HAVE_AMMO_SLOT`].
+///
+/// # Safety
+///
+/// `rules` must point to TF2's live game rules, a `CTFGameRules`, `player` to
+/// a live `CTFPlayer`, and the call must be made on the server's main thread.
+#[doc(alias("CanHaveAmmo"))]
+pub unsafe fn can_have_ammo(
+	rules: NonNull<c_void>,
+	player: NonNull<sys::CBaseCombatCharacter>,
+	ammo_type: c_int,
+) -> bool {
+	let rules = rules.as_ptr().cast::<sys::CTFGameRules>();
+
+	// SAFETY: As the caller promises; the game rules' primary vtable is TF2's
+	// `CTFGameRules` vtable, as generated.
+	unsafe {
+		vcall!(rules as sys::CTFGameRules__bindgen_vtable => CTFGameRules_CanHaveAmmo(player.as_ptr(), ammo_type))
+	}
+}
 
 /// Finds the unique primary vtable of `CTFGameRules` whose
 /// [`CLEAN_UP_MAP_SLOT`] entry is executable, from the run-time type
@@ -573,32 +599,6 @@ pub unsafe fn find_game_rules_vtable(
 	}
 
 	Ok(NonNull::new(vtable as *mut *mut c_void))
-}
-
-/// Calls `CTFGameRules::CanHaveAmmo`, which tells whether `player` holds less
-/// of the ammo type `ammo_type`, an index of `m_iAmmo`, than their max, as
-/// their class and items make it (`CTFPlayer::GetMaxAmmo`).
-///
-/// The method is called through the generated vtable, at
-/// [`CAN_HAVE_AMMO_SLOT`].
-///
-/// # Safety
-///
-/// `rules` must point to TF2's live game rules, a `CTFGameRules`, `player` to
-/// a live `CTFPlayer`, and the call must be made on the server's main thread.
-#[doc(alias("CanHaveAmmo"))]
-pub unsafe fn can_have_ammo(
-	rules: NonNull<c_void>,
-	player: NonNull<sys::CBaseCombatCharacter>,
-	ammo_type: c_int,
-) -> bool {
-	let rules = rules.as_ptr().cast::<sys::CTFGameRules>();
-
-	// SAFETY: As the caller promises; the game rules' primary vtable is TF2's
-	// `CTFGameRules` vtable, as generated.
-	unsafe {
-		vcall!(rules as sys::CTFGameRules__bindgen_vtable => CTFGameRules_CanHaveAmmo(player.as_ptr(), ammo_type))
-	}
 }
 
 /// Calls `CTFGameRules::IsHolidayActive`, which tells whether the `EHoliday`

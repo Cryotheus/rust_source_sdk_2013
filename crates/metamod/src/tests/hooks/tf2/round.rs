@@ -45,19 +45,44 @@ impl GameRules {
 	}
 }
 
-/// The game's `CleanUpMap`, which notes that it ran.
-unsafe extern "C" fn game_clean_up(this: *mut c_void) {
-	CALLS.with_borrow_mut(|calls| calls.push(("game", this.addr())));
-}
+/// What ran during a round hook's call, in [`ROUND_CALLS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ran {
+	/// The game's method of the name.
+	Game(&'static str),
 
-/// The callback, which notes that it ran, and skips the cleanup if [`SKIP`].
-fn on_clean_up(_server: Server<'_>) -> MapCleanupAction {
-	CALLS.with_borrow_mut(|calls| calls.push(("callback", 0)));
+	/// The win callback, with its event.
+	Win(RoundWinEvent),
 
-	match SKIP.get() {
-		true => MapCleanupAction::Skip,
-		false => MapCleanupAction::Allow,
-	}
+	/// The stalemate callback, with its event.
+	Stalemate(StalemateEvent),
+
+	/// The setup callback.
+	Setup,
+
+	/// The running callback.
+	Running,
+
+	/// The points callback.
+	Points,
+
+	/// The team capture callback, with what it was asked.
+	Team(TeamCaptureCheck),
+
+	/// The player capture callback, with the player's address and the point.
+	Player(usize, c_int),
+
+	/// The flags callback.
+	Flags,
+
+	/// The player block callback, with the player's address and the point.
+	Block(usize, c_int),
+
+	/// The cleanup keep callback, with the entity's address.
+	Keep(usize),
+
+	/// The cleanup create callback, with the class name's address.
+	Create(usize),
 }
 
 /// Calls `rules`'s hooked `CleanUpMap`, and returns what ran.
@@ -106,6 +131,21 @@ fn cleanups_run_unless_the_hook_skips_them() {
 		SKIP.set(true);
 		assert_eq!(clean_up(harness, &mut rules), [("callback", 0)]);
 	});
+}
+
+/// The game's `CleanUpMap`, which notes that it ran.
+unsafe extern "C" fn game_clean_up(this: *mut c_void) {
+	CALLS.with_borrow_mut(|calls| calls.push(("game", this.addr())));
+}
+
+/// The callback, which notes that it ran, and skips the cleanup if [`SKIP`].
+fn on_clean_up(_server: Server<'_>) -> MapCleanupAction {
+	CALLS.with_borrow_mut(|calls| calls.push(("callback", 0)));
+
+	match SKIP.get() {
+		true => MapCleanupAction::Skip,
+		false => MapCleanupAction::Allow,
+	}
 }
 
 #[test]
@@ -244,46 +284,6 @@ fn the_game_rules_class_is_searched_for_unless_already_hooked() {
 	});
 }
 
-/// What ran during a round hook's call, in [`ROUND_CALLS`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ran {
-	/// The game's method of the name.
-	Game(&'static str),
-
-	/// The win callback, with its event.
-	Win(RoundWinEvent),
-
-	/// The stalemate callback, with its event.
-	Stalemate(StalemateEvent),
-
-	/// The setup callback.
-	Setup,
-
-	/// The running callback.
-	Running,
-
-	/// The points callback.
-	Points,
-
-	/// The team capture callback, with what it was asked.
-	Team(TeamCaptureCheck),
-
-	/// The player capture callback, with the player's address and the point.
-	Player(usize, c_int),
-
-	/// The flags callback.
-	Flags,
-
-	/// The player block callback, with the player's address and the point.
-	Block(usize, c_int),
-
-	/// The cleanup keep callback, with the entity's address.
-	Keep(usize),
-
-	/// The cleanup create callback, with the class name's address.
-	Create(usize),
-}
-
 thread_local! {
 	/// What the player block callback decides.
 	static BLOCK: Cell<Option<bool>> = const { Cell::new(None) };
@@ -305,9 +305,97 @@ thread_local! {
 	static ROUND_CALLS: RefCell<Vec<Ran>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Notes that `ran` ran.
-fn ran(ran: Ran) {
-	ROUND_CALLS.with_borrow_mut(|calls| calls.push(ran));
+#[test]
+fn captures_are_refused_where_the_hooks_say_so() {
+	on_both(|harness| {
+		let api = harness.api();
+		let class = new_round_class();
+		let mut rules = GameRules::of_class(class);
+		let player = ptr::without_provenance_mut::<source_sdk_2013::sys::CBasePlayer>(0x9a7);
+
+		// SAFETY: As above.
+		let _hooks =
+			unsafe { api.install_rounds(class, tf2_binding(no_interfaces), every_callback()) }
+				.unwrap();
+
+		let points = |harness, rules: &mut GameRules| {
+			round_call::<PointsMayBeCaptured>(harness, rules, POINTS_MAY_BE_CAPTURED_SLOT, ())
+		};
+		let team = |harness, rules: &mut GameRules, team| {
+			round_call::<TeamMayCapturePoint>(
+				harness,
+				rules,
+				TEAM_MAY_CAPTURE_POINT_SLOT,
+				(team, 4),
+			)
+		};
+		let blue = Ran::Team(TeamCaptureCheck {
+			team: Team::Blue,
+			point: 4,
+		});
+
+		CAPTURE_ACTION.set(CaptureAction::Allow);
+		assert_eq!(
+			points(harness, &mut rules),
+			(true, vec![Ran::Points, Ran::Game("points")])
+		);
+		assert_eq!(
+			team(harness, &mut rules, Team::Blue.to_raw()),
+			(true, vec![blue, Ran::Game("team")])
+		);
+
+		CAPTURE_ACTION.set(CaptureAction::Refuse);
+		assert_eq!(points(harness, &mut rules), (false, vec![Ran::Points]));
+		assert_eq!(
+			team(harness, &mut rules, Team::Blue.to_raw()),
+			(false, vec![blue])
+		);
+
+		// A team the crate does not know is left to the game.
+		assert_eq!(
+			team(harness, &mut rules, 9),
+			(true, vec![Ran::Game("team")])
+		);
+
+		// A refusal clears the reason buffer the game would write.
+		let mut reason = [b'?' as c_char; 8];
+		let mut player_call = |harness, rules: &mut GameRules, player| {
+			round_call::<PlayerMayCapturePoint>(
+				harness,
+				rules,
+				PLAYER_MAY_CAPTURE_POINT_SLOT,
+				(player, 2, reason.as_mut_ptr(), reason.len() as c_int),
+			)
+		};
+
+		assert_eq!(
+			player_call(harness, &mut rules, player),
+			(false, vec![Ran::Player(0x9a7, 2)])
+		);
+		assert_eq!(reason[0], 0);
+
+		CAPTURE_ACTION.set(CaptureAction::Allow);
+		let mut player_call = |harness, rules: &mut GameRules, player| {
+			round_call::<PlayerMayCapturePoint>(
+				harness,
+				rules,
+				PLAYER_MAY_CAPTURE_POINT_SLOT,
+				(player, 2, reason.as_mut_ptr(), reason.len() as c_int),
+			)
+		};
+
+		assert_eq!(
+			player_call(harness, &mut rules, player),
+			(true, vec![Ran::Player(0x9a7, 2), Ran::Game("player")])
+		);
+
+		// Without a player, the game decides.
+		assert_eq!(
+			player_call(harness, &mut rules, ptr::null_mut()),
+			(true, vec![Ran::Game("player")])
+		);
+		assert_eq!(reason[0], b'x' as c_char);
+	});
 }
 
 /// Every round callback, each noting that it ran, and deciding as
@@ -354,6 +442,110 @@ fn every_callback() -> RoundCallbacks {
 			END_ACTION.get()
 		}),
 	}
+}
+
+#[test]
+fn flags_blocks_and_cleanups_follow_the_hooks() {
+	on_both(|harness| {
+		let api = harness.api();
+		let class = new_round_class();
+		let mut rules = GameRules::of_class(class);
+		let player = ptr::without_provenance_mut::<source_sdk_2013::sys::CBasePlayer>(0x9a7);
+		let entity = ptr::without_provenance_mut::<source_sdk_2013::sys::CBaseEntity>(0xe47);
+		let prop = c"prop_dynamic".as_ptr();
+
+		// SAFETY: As above.
+		let _hooks =
+			unsafe { api.install_rounds(class, tf2_binding(no_interfaces), every_callback()) }
+				.unwrap();
+
+		let flags = |harness, rules: &mut GameRules| {
+			round_call::<FlagsMayBeCapped>(harness, rules, FLAGS_MAY_BE_CAPPED_SLOT, ())
+		};
+
+		CAPTURE_ACTION.set(CaptureAction::Allow);
+		assert_eq!(
+			flags(harness, &mut rules),
+			(true, vec![Ran::Flags, Ran::Game("flags")])
+		);
+
+		CAPTURE_ACTION.set(CaptureAction::Refuse);
+		assert_eq!(flags(harness, &mut rules), (false, vec![Ran::Flags]));
+
+		// Without an answer, the game decides, and gives its reason.
+		let mut reason = [b'?' as c_char; 8];
+		let mut block = |harness, rules: &mut GameRules| {
+			round_call::<PlayerMayBlockPoint>(
+				harness,
+				rules,
+				PLAYER_MAY_BLOCK_POINT_SLOT,
+				(player, 3, reason.as_mut_ptr(), reason.len() as c_int),
+			)
+		};
+
+		BLOCK.set(None);
+		assert_eq!(
+			block(harness, &mut rules),
+			(false, vec![Ran::Block(0x9a7, 3), Ran::Game("block")])
+		);
+
+		BLOCK.set(Some(true));
+		assert_eq!(
+			block(harness, &mut rules),
+			(true, vec![Ran::Block(0x9a7, 3)])
+		);
+		assert_eq!(reason[0], 0);
+
+		let keep = |harness, rules: &mut GameRules, entity| {
+			round_call::<RoundCleanupShouldIgnore>(
+				harness,
+				rules,
+				ROUND_CLEANUP_SHOULD_IGNORE_SLOT,
+				(entity,),
+			)
+		};
+
+		KEEP_ACTION.set(CleanupKeepAction::Allow);
+		assert_eq!(
+			keep(harness, &mut rules, entity),
+			(false, vec![Ran::Keep(0xe47), Ran::Game("keep")])
+		);
+
+		KEEP_ACTION.set(CleanupKeepAction::Keep);
+		assert_eq!(
+			keep(harness, &mut rules, entity),
+			(true, vec![Ran::Keep(0xe47)])
+		);
+		assert_eq!(
+			keep(harness, &mut rules, ptr::null_mut()),
+			(false, vec![Ran::Game("keep")])
+		);
+
+		let create = |harness, rules: &mut GameRules, class_name| {
+			round_call::<ShouldCreateEntity>(
+				harness,
+				rules,
+				SHOULD_CREATE_ENTITY_SLOT,
+				(class_name,),
+			)
+		};
+
+		CREATE_ACTION.set(CleanupCreateAction::Allow);
+		assert_eq!(
+			create(harness, &mut rules, prop),
+			(true, vec![Ran::Create(prop.addr()), Ran::Game("create")])
+		);
+
+		CREATE_ACTION.set(CleanupCreateAction::Skip);
+		assert_eq!(
+			create(harness, &mut rules, prop),
+			(false, vec![Ran::Create(prop.addr())])
+		);
+		assert_eq!(
+			create(harness, &mut rules, ptr::null()),
+			(true, vec![Ran::Game("create")])
+		);
+	});
 }
 
 /// The vtable of a new game rules class, which holds the game's round methods
@@ -488,6 +680,11 @@ fn new_round_class() -> NonNull<*mut c_void> {
 	NonNull::new(slots.as_mut_ptr()).unwrap()
 }
 
+/// Notes that `ran` ran.
+fn ran(ran: Ran) {
+	ROUND_CALLS.with_borrow_mut(|calls| calls.push(ran));
+}
+
 /// Calls `rules`'s hooked method of the signature `S` at `slot`, and returns
 /// what it returned and what ran.
 fn round_call<S: Signature<This = c_void>>(
@@ -613,122 +810,6 @@ fn round_ends_run_unless_the_hooks_refuse_them() {
 }
 
 #[test]
-fn round_setup_and_start_are_reported_after_the_game() {
-	on_both(|harness| {
-		let api = harness.api();
-		let class = new_round_class();
-		let mut rules = GameRules::of_class(class);
-
-		// SAFETY: As above.
-		let _hooks =
-			unsafe { api.install_rounds(class, tf2_binding(no_interfaces), every_callback()) }
-				.unwrap();
-
-		assert_eq!(
-			round_call::<RoundSetup>(harness, &mut rules, SETUP_ON_ROUND_START_SLOT, ()).1,
-			[Ran::Game("setup"), Ran::Setup]
-		);
-		assert_eq!(
-			round_call::<RoundSetup>(harness, &mut rules, SETUP_ON_ROUND_RUNNING_SLOT, ()).1,
-			[Ran::Game("running"), Ran::Running]
-		);
-	});
-}
-
-#[test]
-fn captures_are_refused_where_the_hooks_say_so() {
-	on_both(|harness| {
-		let api = harness.api();
-		let class = new_round_class();
-		let mut rules = GameRules::of_class(class);
-		let player = ptr::without_provenance_mut::<source_sdk_2013::sys::CBasePlayer>(0x9a7);
-
-		// SAFETY: As above.
-		let _hooks =
-			unsafe { api.install_rounds(class, tf2_binding(no_interfaces), every_callback()) }
-				.unwrap();
-
-		let points = |harness, rules: &mut GameRules| {
-			round_call::<PointsMayBeCaptured>(harness, rules, POINTS_MAY_BE_CAPTURED_SLOT, ())
-		};
-		let team = |harness, rules: &mut GameRules, team| {
-			round_call::<TeamMayCapturePoint>(
-				harness,
-				rules,
-				TEAM_MAY_CAPTURE_POINT_SLOT,
-				(team, 4),
-			)
-		};
-		let blue = Ran::Team(TeamCaptureCheck {
-			team: Team::Blue,
-			point: 4,
-		});
-
-		CAPTURE_ACTION.set(CaptureAction::Allow);
-		assert_eq!(
-			points(harness, &mut rules),
-			(true, vec![Ran::Points, Ran::Game("points")])
-		);
-		assert_eq!(
-			team(harness, &mut rules, Team::Blue.to_raw()),
-			(true, vec![blue, Ran::Game("team")])
-		);
-
-		CAPTURE_ACTION.set(CaptureAction::Refuse);
-		assert_eq!(points(harness, &mut rules), (false, vec![Ran::Points]));
-		assert_eq!(
-			team(harness, &mut rules, Team::Blue.to_raw()),
-			(false, vec![blue])
-		);
-
-		// A team the crate does not know is left to the game.
-		assert_eq!(
-			team(harness, &mut rules, 9),
-			(true, vec![Ran::Game("team")])
-		);
-
-		// A refusal clears the reason buffer the game would write.
-		let mut reason = [b'?' as c_char; 8];
-		let mut player_call = |harness, rules: &mut GameRules, player| {
-			round_call::<PlayerMayCapturePoint>(
-				harness,
-				rules,
-				PLAYER_MAY_CAPTURE_POINT_SLOT,
-				(player, 2, reason.as_mut_ptr(), reason.len() as c_int),
-			)
-		};
-
-		assert_eq!(
-			player_call(harness, &mut rules, player),
-			(false, vec![Ran::Player(0x9a7, 2)])
-		);
-		assert_eq!(reason[0], 0);
-
-		CAPTURE_ACTION.set(CaptureAction::Allow);
-		let mut player_call = |harness, rules: &mut GameRules, player| {
-			round_call::<PlayerMayCapturePoint>(
-				harness,
-				rules,
-				PLAYER_MAY_CAPTURE_POINT_SLOT,
-				(player, 2, reason.as_mut_ptr(), reason.len() as c_int),
-			)
-		};
-
-		assert_eq!(
-			player_call(harness, &mut rules, player),
-			(true, vec![Ran::Player(0x9a7, 2), Ran::Game("player")])
-		);
-
-		// Without a player, the game decides.
-		assert_eq!(
-			player_call(harness, &mut rules, ptr::null_mut()),
-			(true, vec![Ran::Game("player")])
-		);
-		assert_eq!(reason[0], b'x' as c_char);
-	});
-}
-
-#[test]
 fn round_hooks_are_installed_all_at_once() {
 	on_both(|harness| {
 		let api = harness.api();
@@ -776,105 +857,24 @@ fn round_hooks_are_installed_all_at_once() {
 }
 
 #[test]
-fn flags_blocks_and_cleanups_follow_the_hooks() {
+fn round_setup_and_start_are_reported_after_the_game() {
 	on_both(|harness| {
 		let api = harness.api();
 		let class = new_round_class();
 		let mut rules = GameRules::of_class(class);
-		let player = ptr::without_provenance_mut::<source_sdk_2013::sys::CBasePlayer>(0x9a7);
-		let entity = ptr::without_provenance_mut::<source_sdk_2013::sys::CBaseEntity>(0xe47);
-		let prop = c"prop_dynamic".as_ptr();
 
 		// SAFETY: As above.
 		let _hooks =
 			unsafe { api.install_rounds(class, tf2_binding(no_interfaces), every_callback()) }
 				.unwrap();
 
-		let flags = |harness, rules: &mut GameRules| {
-			round_call::<FlagsMayBeCapped>(harness, rules, FLAGS_MAY_BE_CAPPED_SLOT, ())
-		};
-
-		CAPTURE_ACTION.set(CaptureAction::Allow);
 		assert_eq!(
-			flags(harness, &mut rules),
-			(true, vec![Ran::Flags, Ran::Game("flags")])
-		);
-
-		CAPTURE_ACTION.set(CaptureAction::Refuse);
-		assert_eq!(flags(harness, &mut rules), (false, vec![Ran::Flags]));
-
-		// Without an answer, the game decides, and gives its reason.
-		let mut reason = [b'?' as c_char; 8];
-		let mut block = |harness, rules: &mut GameRules| {
-			round_call::<PlayerMayBlockPoint>(
-				harness,
-				rules,
-				PLAYER_MAY_BLOCK_POINT_SLOT,
-				(player, 3, reason.as_mut_ptr(), reason.len() as c_int),
-			)
-		};
-
-		BLOCK.set(None);
-		assert_eq!(
-			block(harness, &mut rules),
-			(false, vec![Ran::Block(0x9a7, 3), Ran::Game("block")])
-		);
-
-		BLOCK.set(Some(true));
-		assert_eq!(
-			block(harness, &mut rules),
-			(true, vec![Ran::Block(0x9a7, 3)])
-		);
-		assert_eq!(reason[0], 0);
-
-		let keep = |harness, rules: &mut GameRules, entity| {
-			round_call::<RoundCleanupShouldIgnore>(
-				harness,
-				rules,
-				ROUND_CLEANUP_SHOULD_IGNORE_SLOT,
-				(entity,),
-			)
-		};
-
-		KEEP_ACTION.set(CleanupKeepAction::Allow);
-		assert_eq!(
-			keep(harness, &mut rules, entity),
-			(false, vec![Ran::Keep(0xe47), Ran::Game("keep")])
-		);
-
-		KEEP_ACTION.set(CleanupKeepAction::Keep);
-		assert_eq!(
-			keep(harness, &mut rules, entity),
-			(true, vec![Ran::Keep(0xe47)])
+			round_call::<RoundSetup>(harness, &mut rules, SETUP_ON_ROUND_START_SLOT, ()).1,
+			[Ran::Game("setup"), Ran::Setup]
 		);
 		assert_eq!(
-			keep(harness, &mut rules, ptr::null_mut()),
-			(false, vec![Ran::Game("keep")])
-		);
-
-		let create = |harness, rules: &mut GameRules, class_name| {
-			round_call::<ShouldCreateEntity>(
-				harness,
-				rules,
-				SHOULD_CREATE_ENTITY_SLOT,
-				(class_name,),
-			)
-		};
-
-		CREATE_ACTION.set(CleanupCreateAction::Allow);
-		assert_eq!(
-			create(harness, &mut rules, prop),
-			(true, vec![Ran::Create(prop.addr()), Ran::Game("create")])
-		);
-
-		CREATE_ACTION.set(CleanupCreateAction::Skip);
-		assert_eq!(
-			create(harness, &mut rules, prop),
-			(false, vec![Ran::Create(prop.addr())])
-		);
-		assert_eq!(
-			create(harness, &mut rules, ptr::null()),
-			(true, vec![Ran::Game("create")])
+			round_call::<RoundSetup>(harness, &mut rules, SETUP_ON_ROUND_RUNNING_SLOT, ()).1,
+			[Ran::Game("running"), Ran::Running]
 		);
 	});
 }

@@ -60,31 +60,31 @@ const ANIMATING_METHODS: &[Method] = &[
 	(c"StudioFrameAdvanceManual", VOID, &[FLOAT]),
 ];
 
-/// The fake model's sequences: their names, the activities they play, and
-/// their durations.
-const SEQUENCES: [(&CStr, &CStr, f32); 2] = [
-	(c"stand_MELEE", c"ACT_MP_STAND_MELEE", 2.0),
-	(c"run_MELEE", c"ACT_MP_RUN_MELEE", 0.5),
-];
-
-/// The number the fake game gives the activity of the first of
-/// [`SEQUENCES`], and the next numbers to the next.
-const FIRST_ACTIVITY: c_int = 100;
-
-/// The fake model's bones.
-const BONES: [&CStr; 2] = [c"bip_pelvis", c"bip_head"];
-
-/// The fake model's pose parameters, which it clamps to -1 to 1.
-const POSE_PARAMETERS: [&CStr; 2] = [c"move_x", c"move_y"];
-
 /// The fake model's bodygroups, and the names of their parts.
 const BODYGROUPS: [(&CStr, &[&CStr]); 2] = [
 	(c"hat", &[c"hat_none", c"hat_beanie"]),
 	(c"backpack", &[c"backpack"]),
 ];
 
+/// The fake model's bones.
+const BONES: [&CStr; 2] = [c"bip_pelvis", c"bip_head"];
+
+/// The number the fake game gives the activity of the first of
+/// [`SEQUENCES`], and the next numbers to the next.
+const FIRST_ACTIVITY: c_int = 100;
+
 /// The model the mock model info knows as precached.
 const MODEL: &CStr = c"models/bots/headless_hatman.mdl";
+
+/// The fake model's pose parameters, which it clamps to -1 to 1.
+const POSE_PARAMETERS: [&CStr; 2] = [c"move_x", c"move_y"];
+
+/// The fake model's sequences: their names, the activities they play, and
+/// their durations.
+const SEQUENCES: [(&CStr, &CStr, f32); 2] = [
+	(c"stand_MELEE", c"ACT_MP_STAND_MELEE", 2.0),
+	(c"run_MELEE", c"ACT_MP_RUN_MELEE", 0.5),
+];
 
 thread_local! {
 	/// The index the adapter returns.
@@ -127,26 +127,6 @@ struct FakeState {
 	rejects: bool,
 	/// The calls that reached a member, refused or not.
 	calls: usize,
-}
-
-/// Reads the fake state.
-fn state<T>(read: impl FnOnce(&FakeState) -> T) -> T {
-	STATE.with_borrow(read)
-}
-
-/// The index of `name` among `names`, or -1, as the game's lookups return.
-///
-/// # Safety
-///
-/// `name` must be NUL-terminated.
-unsafe fn index_of<'a>(names: impl IntoIterator<Item = &'a CStr>, name: *const c_char) -> c_int {
-	// SAFETY: As the caller promises.
-	let name = unsafe { CStr::from_ptr(name) };
-
-	names
-		.into_iter()
-		.position(|candidate| candidate == name)
-		.map_or(-1, |index| c_int::try_from(index).unwrap())
 }
 
 /// A fake binding's adapter, which runs the fake member named by the
@@ -253,6 +233,7 @@ unsafe extern "C" fn adapter(
 							SEQUENCES.map(|(_, activity, _)| activity),
 							argument(0).m_pszString,
 						),
+
 						index => index,
 					},
 				)),
@@ -340,132 +321,6 @@ unsafe extern "C" fn adapter(
 	})
 }
 
-/// The leaked descriptors of the fake `CBaseAnimating` script class,
-/// declaring [`ANIMATING_METHODS`] through [`adapter`], and of
-/// `CDynamicProp`, which derives from it.
-fn prop_description() -> *mut sys::ScriptClassDesc_t {
-	let bindings = ANIMATING_METHODS
-		.iter()
-		.map(|&(method, returns, parameters)| {
-			let mut binding =
-				member_binding(method, returns, Vec::from(parameters).leak(), Some(adapter));
-
-			binding.m_pFunction.val_0 = method.as_ptr() as isize;
-			binding
-		})
-		.collect::<Vec<_>>();
-
-	let animating = leak(class_description(
-		c"CBaseAnimating",
-		bindings.leak(),
-		null_mut(),
-	));
-
-	leak(class_description(c"CDynamicProp", &mut [], animating))
-}
-
-/// A mock entity whose data maps are a `CBaseAnimating`'s and whose script
-/// descriptors are the fake prop's, wrapped, with the vtable it uses, which
-/// must outlive it.
-fn mock_animating<'s>(
-	server: Server<'s>,
-	mock: &mut MockEntity,
-) -> (Animating<'s>, Vec<*const ()>) {
-	let (entity, vtable) = described(mock);
-
-	set_datamap(state_maps(vec![(c"CBaseAnimating", Vec::new())]));
-	set_script_description(prop_description());
-
-	(Animating::new(server, entity).unwrap(), vtable)
-}
-
-/// `IVModelInfo::GetModelIndex`, which knows only [`MODEL`] as precached.
-unsafe extern "C" fn model_index(_: *const sys::IVModelInfo, name: *const c_char) -> c_int {
-	// SAFETY: The wrapper passes a NUL-terminated name.
-	if unsafe { CStr::from_ptr(name) } == MODEL {
-		5
-	} else {
-		-1
-	}
-}
-
-/// Mock model info, which knows only [`MODEL`] as precached.
-fn models() -> ModelInfo<'static> {
-	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
-	// whichever slot reaches it, and the patch only writes a slot of the vtable
-	// being built.
-	let vtable = unsafe {
-		mock_vtable::<sys::IVModelInfo__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).IVModelInfo_GetModelIndex).write(model_index);
-		})
-	};
-	let raw = leak(sys::IVModelInfo {
-		vtable_: Box::leak(vtable),
-	});
-
-	// SAFETY: The model info and its vtable are leaked, and the vtable answers
-	// what setting a model calls.
-	unsafe { ModelInfo::from_raw(NonNull::new(raw).unwrap()) }
-}
-
-/// A mock entity whose `GetScriptDesc` returns the descriptor
-/// [`set_script_description`] sets, for as long as the mocks live, with the
-/// vtable it then uses, which must outlive it.
-fn described(mock: &mut MockEntity) -> (Entity<'static>, Vec<*const ()>) {
-	let pointer = mock.as_ptr();
-	let mut vtable = vec![std::ptr::null::<()>(); SCRIPT_DESCRIPTION_SLOT + 1];
-
-	// The mock's own vtable answers every slot before the descriptor's, which
-	// include the datamap's.
-	// SAFETY: A mock entity starts with the pointer to its vtable, which has
-	// slots up to TF2's `Teleport`, past `GetScriptDesc`.
-	unsafe {
-		let original = pointer.cast::<*const *const ()>().read();
-
-		for (slot, entry) in vtable.iter_mut().enumerate().take(SCRIPT_DESCRIPTION_SLOT) {
-			*entry = original.add(slot).read();
-		}
-	}
-
-	vtable[SCRIPT_DESCRIPTION_SLOT] = script_description as *const ();
-	// SAFETY: A mock entity starts with the pointer to its vtable, and the
-	// caller keeps the new vtable alive while the entity is used.
-	unsafe { pointer.cast::<*const *const ()>().write(vtable.as_ptr()) };
-
-	// SAFETY: Mock entities are leaked, and their vtable answers what the
-	// lookup calls of an entity.
-	(
-		unsafe { Entity::from_raw(NonNull::new(pointer).unwrap()) },
-		vtable,
-	)
-}
-
-/// The adapter of `CBaseAnimating::LookupAttachment`, which records the
-/// entity and the name, and returns [`INDEX`], unless [`REJECTS`] is set.
-unsafe extern "C" fn lookup_adapter(
-	_: sys::ScriptFunctionBindingStorageType_t,
-	object: *mut c_void,
-	arguments: *mut sys::ScriptVariant_t,
-	count: c_int,
-	result: *mut sys::ScriptVariant_t,
-) -> bool {
-	assert_eq!(count, 1);
-
-	if REJECTS.get() {
-		return false;
-	}
-
-	// SAFETY: The binding declares one string parameter, so the caller passes
-	// one string variant, NUL-terminated.
-	let name = unsafe { CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString) };
-
-	LOOKED_UP.with_borrow_mut(|looked_up| looked_up.push((object, name.to_owned())));
-	// SAFETY: The binding returns an integer, so the caller passes a writable
-	// result.
-	unsafe { result.write(sdk_raw::tf2::script_binding::int(INDEX.get())) };
-	true
-}
-
 #[test]
 fn attachments_are_looked_up_through_the_animating_member() {
 	let scope = ();
@@ -551,6 +406,101 @@ fn attachments_are_looked_up_through_the_animating_member() {
 }
 
 #[test]
+fn bodygroups_skins_poses_and_scale_are_set_through_the_members() {
+	let scope = ();
+	let mut mock = MockEntity::new(1);
+	let (animating, _vtable) = mock_animating(mock_server(&scope), &mut mock);
+
+	animating.set_bodygroup(0, 1).unwrap();
+	assert_eq!(animating.bodygroup(0), Ok(1));
+	assert_eq!(animating.bodygroup(1), Ok(0));
+	animating.set_skin(1).unwrap();
+	assert_eq!(animating.skin(), Ok(1));
+
+	// The model clamps the value, and the member returns what it kept.
+	assert_eq!(animating.set_pose_parameter(0, 3.0), Ok(1.0));
+	assert_eq!(animating.set_pose_parameter(1, -0.5), Ok(-0.5));
+	assert_eq!(state(|state| state.poses), [1.0, -0.5]);
+
+	animating.set_model_scale(2.0, 0.5).unwrap();
+	assert_eq!(animating.model_scale(), Ok(2.0));
+	assert_eq!(state(|state| state.scale_durations.clone()), [0.5]);
+}
+
+/// A mock entity whose `GetScriptDesc` returns the descriptor
+/// [`set_script_description`] sets, for as long as the mocks live, with the
+/// vtable it then uses, which must outlive it.
+fn described(mock: &mut MockEntity) -> (Entity<'static>, Vec<*const ()>) {
+	let pointer = mock.as_ptr();
+	let mut vtable = vec![std::ptr::null::<()>(); SCRIPT_DESCRIPTION_SLOT + 1];
+
+	// The mock's own vtable answers every slot before the descriptor's, which
+	// include the datamap's.
+	// SAFETY: A mock entity starts with the pointer to its vtable, which has
+	// slots up to TF2's `Teleport`, past `GetScriptDesc`.
+	unsafe {
+		let original = pointer.cast::<*const *const ()>().read();
+
+		for (slot, entry) in vtable.iter_mut().enumerate().take(SCRIPT_DESCRIPTION_SLOT) {
+			*entry = original.add(slot).read();
+		}
+	}
+
+	vtable[SCRIPT_DESCRIPTION_SLOT] = script_description as *const ();
+	// SAFETY: A mock entity starts with the pointer to its vtable, and the
+	// caller keeps the new vtable alive while the entity is used.
+	unsafe { pointer.cast::<*const *const ()>().write(vtable.as_ptr()) };
+
+	// SAFETY: Mock entities are leaked, and their vtable answers what the
+	// lookup calls of an entity.
+	(
+		unsafe { Entity::from_raw(NonNull::new(pointer).unwrap()) },
+		vtable,
+	)
+}
+
+/// The index of `name` among `names`, or -1, as the game's lookups return.
+///
+/// # Safety
+///
+/// `name` must be NUL-terminated.
+unsafe fn index_of<'a>(names: impl IntoIterator<Item = &'a CStr>, name: *const c_char) -> c_int {
+	// SAFETY: As the caller promises.
+	let name = unsafe { CStr::from_ptr(name) };
+
+	names
+		.into_iter()
+		.position(|candidate| candidate == name)
+		.map_or(-1, |index| c_int::try_from(index).unwrap())
+}
+
+/// The adapter of `CBaseAnimating::LookupAttachment`, which records the
+/// entity and the name, and returns [`INDEX`], unless [`REJECTS`] is set.
+unsafe extern "C" fn lookup_adapter(
+	_: sys::ScriptFunctionBindingStorageType_t,
+	object: *mut c_void,
+	arguments: *mut sys::ScriptVariant_t,
+	count: c_int,
+	result: *mut sys::ScriptVariant_t,
+) -> bool {
+	assert_eq!(count, 1);
+
+	if REJECTS.get() {
+		return false;
+	}
+
+	// SAFETY: The binding declares one string parameter, so the caller passes
+	// one string variant, NUL-terminated.
+	let name = unsafe { CStr::from_ptr((*arguments).__bindgen_anon_1.m_pszString) };
+
+	LOOKED_UP.with_borrow_mut(|looked_up| looked_up.push((object, name.to_owned())));
+	// SAFETY: The binding returns an integer, so the caller passes a writable
+	// result.
+	unsafe { result.write(sdk_raw::tf2::script_binding::int(INDEX.get())) };
+	true
+}
+
+#[test]
 fn lookups_find_the_models_names_or_nothing() {
 	let scope = ();
 	let mut mock = MockEntity::new(1);
@@ -595,74 +545,48 @@ fn lookups_find_the_models_names_or_nothing() {
 	assert_eq!(animating.entity().as_ptr(), mock.as_ptr());
 }
 
-#[test]
-fn sequences_play_and_advance_through_the_members() {
-	let scope = ();
-	let mut mock = MockEntity::new(1);
-	let (animating, _vtable) = mock_animating(mock_server(&scope), &mut mock);
+/// A mock entity whose data maps are a `CBaseAnimating`'s and whose script
+/// descriptors are the fake prop's, wrapped, with the vtable it uses, which
+/// must outlive it.
+fn mock_animating<'s>(
+	server: Server<'s>,
+	mock: &mut MockEntity,
+) -> (Animating<'s>, Vec<*const ()>) {
+	let (entity, vtable) = described(mock);
 
-	animating.set_sequence(1).unwrap();
-	assert_eq!(animating.sequence(), Ok(1));
-	assert!(state(|state| state.resets.is_empty()));
+	set_datamap(state_maps(vec![(c"CBaseAnimating", Vec::new())]));
+	set_script_description(prop_description());
 
-	animating.set_playback_rate(2.0).unwrap();
-	assert_eq!(animating.playback_rate(), Ok(2.0));
-	animating.reset_sequence(0).unwrap();
-	assert_eq!(state(|state| state.resets.clone()), [0]);
-	assert_eq!(animating.sequence(), Ok(0));
-	assert_eq!(animating.playback_rate(), Ok(1.0));
-
-	animating.set_cycle(0.25).unwrap();
-	assert_eq!(animating.cycle(), Ok(0.25));
-	animating.stop_animation().unwrap();
-	assert_eq!(animating.playback_rate(), Ok(0.0));
-
-	assert_eq!(animating.is_sequence_finished(), Ok(false));
-	STATE.with_borrow_mut(|state| state.finished = true);
-	assert_eq!(animating.is_sequence_finished(), Ok(true));
-
-	animating.studio_frame_advance().unwrap();
-	animating.studio_frame_advance_manual(0.1).unwrap();
-	assert_eq!(state(|state| state.advances.clone()), [None, Some(0.1)]);
+	(Animating::new(server, entity).unwrap(), vtable)
 }
 
-#[test]
-fn bodygroups_skins_poses_and_scale_are_set_through_the_members() {
-	let scope = ();
-	let mut mock = MockEntity::new(1);
-	let (animating, _vtable) = mock_animating(mock_server(&scope), &mut mock);
-
-	animating.set_bodygroup(0, 1).unwrap();
-	assert_eq!(animating.bodygroup(0), Ok(1));
-	assert_eq!(animating.bodygroup(1), Ok(0));
-	animating.set_skin(1).unwrap();
-	assert_eq!(animating.skin(), Ok(1));
-
-	// The model clamps the value, and the member returns what it kept.
-	assert_eq!(animating.set_pose_parameter(0, 3.0), Ok(1.0));
-	assert_eq!(animating.set_pose_parameter(1, -0.5), Ok(-0.5));
-	assert_eq!(state(|state| state.poses), [1.0, -0.5]);
-
-	animating.set_model_scale(2.0, 0.5).unwrap();
-	assert_eq!(animating.model_scale(), Ok(2.0));
-	assert_eq!(state(|state| state.scale_durations.clone()), [0.5]);
+/// `IVModelInfo::GetModelIndex`, which knows only [`MODEL`] as precached.
+unsafe extern "C" fn model_index(_: *const sys::IVModelInfo, name: *const c_char) -> c_int {
+	// SAFETY: The wrapper passes a NUL-terminated name.
+	if unsafe { CStr::from_ptr(name) } == MODEL {
+		5
+	} else {
+		-1
+	}
 }
 
-#[test]
-fn only_precached_models_are_set() {
-	let scope = ();
-	let mut mock = MockEntity::new(1);
-	let (animating, _vtable) = mock_animating(mock_server(&scope), &mut mock);
-	let models = models();
+/// Mock model info, which knows only [`MODEL`] as precached.
+fn models() -> ModelInfo<'static> {
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever slot reaches it, and the patch only writes a slot of the vtable
+	// being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::IVModelInfo__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IVModelInfo_GetModelIndex).write(model_index);
+		})
+	};
+	let raw = leak(sys::IVModelInfo {
+		vtable_: Box::leak(vtable),
+	});
 
-	animating.set_model(models, MODEL).unwrap();
-	assert_eq!(state(|state| state.models.clone()), [MODEL.to_owned()]);
-
-	assert_eq!(
-		animating.set_model(models, c"models/bots/merasmus/merasmus.mdl"),
-		Err(AnimatingError::ModelNotPrecached)
-	);
-	assert_eq!(state(|state| (state.models.len(), state.calls)), (1, 1));
+	// SAFETY: The model info and its vtable are leaked, and the vtable answers
+	// what setting a model calls.
+	unsafe { ModelInfo::from_raw(NonNull::new(raw).unwrap()) }
 }
 
 #[test]
@@ -714,4 +638,81 @@ fn only_live_animating_entities_on_tf2_servers_are_used() {
 	assert_eq!(animating.skin(), Err(AnimatingError::UnsupportedMethod));
 	assert_eq!(state(|state| state.calls), 2);
 	set_script_description(null_mut());
+}
+
+#[test]
+fn only_precached_models_are_set() {
+	let scope = ();
+	let mut mock = MockEntity::new(1);
+	let (animating, _vtable) = mock_animating(mock_server(&scope), &mut mock);
+	let models = models();
+
+	animating.set_model(models, MODEL).unwrap();
+	assert_eq!(state(|state| state.models.clone()), [MODEL.to_owned()]);
+
+	assert_eq!(
+		animating.set_model(models, c"models/bots/merasmus/merasmus.mdl"),
+		Err(AnimatingError::ModelNotPrecached)
+	);
+	assert_eq!(state(|state| (state.models.len(), state.calls)), (1, 1));
+}
+
+/// The leaked descriptors of the fake `CBaseAnimating` script class,
+/// declaring [`ANIMATING_METHODS`] through [`adapter`], and of
+/// `CDynamicProp`, which derives from it.
+fn prop_description() -> *mut sys::ScriptClassDesc_t {
+	let bindings = ANIMATING_METHODS
+		.iter()
+		.map(|&(method, returns, parameters)| {
+			let mut binding =
+				member_binding(method, returns, Vec::from(parameters).leak(), Some(adapter));
+
+			binding.m_pFunction.val_0 = method.as_ptr() as isize;
+			binding
+		})
+		.collect::<Vec<_>>();
+
+	let animating = leak(class_description(
+		c"CBaseAnimating",
+		bindings.leak(),
+		null_mut(),
+	));
+
+	leak(class_description(c"CDynamicProp", &mut [], animating))
+}
+
+#[test]
+fn sequences_play_and_advance_through_the_members() {
+	let scope = ();
+	let mut mock = MockEntity::new(1);
+	let (animating, _vtable) = mock_animating(mock_server(&scope), &mut mock);
+
+	animating.set_sequence(1).unwrap();
+	assert_eq!(animating.sequence(), Ok(1));
+	assert!(state(|state| state.resets.is_empty()));
+
+	animating.set_playback_rate(2.0).unwrap();
+	assert_eq!(animating.playback_rate(), Ok(2.0));
+	animating.reset_sequence(0).unwrap();
+	assert_eq!(state(|state| state.resets.clone()), [0]);
+	assert_eq!(animating.sequence(), Ok(0));
+	assert_eq!(animating.playback_rate(), Ok(1.0));
+
+	animating.set_cycle(0.25).unwrap();
+	assert_eq!(animating.cycle(), Ok(0.25));
+	animating.stop_animation().unwrap();
+	assert_eq!(animating.playback_rate(), Ok(0.0));
+
+	assert_eq!(animating.is_sequence_finished(), Ok(false));
+	STATE.with_borrow_mut(|state| state.finished = true);
+	assert_eq!(animating.is_sequence_finished(), Ok(true));
+
+	animating.studio_frame_advance().unwrap();
+	animating.studio_frame_advance_manual(0.1).unwrap();
+	assert_eq!(state(|state| state.advances.clone()), [None, Some(0.1)]);
+}
+
+/// Reads the fake state.
+fn state<T>(read: impl FnOnce(&FakeState) -> T) -> T {
+	STATE.with_borrow(read)
 }

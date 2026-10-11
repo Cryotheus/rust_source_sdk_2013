@@ -91,17 +91,17 @@ impl PluginDescriptor {
 		}
 	}
 
-	/// Compares the supplied plugin object with our selected C++ shell.
-	pub fn is_selected_plugin(&self, version: MetamodVersion, plugin: NonNull<c_void>) -> bool {
-		raw::cpp_metamod_plugin_for_version(version.plugin_api_version()) == plugin.as_ptr()
-	}
-
 	/// The ID Metamod gave the plugin as it loaded it through the shell for
 	/// `version`, while it stays loaded.
 	pub fn id(&self, version: MetamodVersion) -> Option<PluginId> {
 		let status = raw::cpp_metamod_plugin_status(version.plugin_api_version());
 
 		(status.loaded && status.id >= PL_MIN_ID).then_some(status.id)
+	}
+
+	/// Compares the supplied plugin object with our selected C++ shell.
+	pub fn is_selected_plugin(&self, version: MetamodVersion, plugin: NonNull<c_void>) -> bool {
+		raw::cpp_metamod_plugin_for_version(version.plugin_api_version()) == plugin.as_ptr()
 	}
 }
 

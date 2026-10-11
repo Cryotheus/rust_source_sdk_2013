@@ -3,22 +3,9 @@
 use super::{Bsp, Child, Coverage, Error, Invalid, Resource, Work, bound, finite, reserve};
 use std::ops::Range;
 
-/// Side of a splitting plane under the query's exact boundary convention.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Side {
-	/// Signed distance greater than or equal to zero, including negative zero.
-	Front,
-	/// Signed distance strictly below zero.
-	Back,
-}
-
-impl Side {
-	fn accepts(self, distance: f64) -> bool {
-		match self {
-			Self::Front => distance >= 0.0,
-			Self::Back => distance < 0.0,
-		}
-	}
+enum Event {
+	Enter(Child, Option<HalfSpace>),
+	Leave,
 }
 
 /// A half-space using a plane index in the BSP that produced it.
@@ -41,6 +28,24 @@ pub struct Partition {
 	constraints: Range<usize>,
 }
 
+/// Side of a splitting plane under the query's exact boundary convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+	/// Signed distance greater than or equal to zero, including negative zero.
+	Front,
+	/// Signed distance strictly below zero.
+	Back,
+}
+
+impl Side {
+	fn accepts(self, distance: f64) -> bool {
+		match self {
+			Self::Front => distance >= 0.0,
+			Self::Back => distance < 0.0,
+		}
+	}
+}
+
 /// Owned, deterministic world-tree occurrences and their plane constraints.
 ///
 /// Order is depth first, front before back. A shared node is expanded once for
@@ -53,11 +58,6 @@ pub struct WorldPartitions {
 }
 
 impl WorldPartitions {
-	/// All unfolded leaf occurrences, in deterministic traversal order.
-	pub fn partitions(&self) -> &[Partition] {
-		&self.partitions
-	}
-
 	/// The constraints for an occurrence, or None for an invalid index.
 	pub fn constraints(&self, partition: usize) -> Option<&[HalfSpace]> {
 		self.partitions
@@ -68,6 +68,11 @@ impl WorldPartitions {
 	/// These are structural constraints, not complete collision volumes.
 	pub fn coverage(&self) -> Coverage {
 		Coverage::PartitionConstraints
+	}
+
+	/// All unfolded leaf occurrences, in deterministic traversal order.
+	pub fn partitions(&self) -> &[Partition] {
+		&self.partitions
 	}
 }
 
@@ -212,11 +217,6 @@ impl Bsp {
 		}
 		Ok(output)
 	}
-}
-
-enum Event {
-	Enter(Child, Option<HalfSpace>),
-	Leave,
 }
 
 fn grow(

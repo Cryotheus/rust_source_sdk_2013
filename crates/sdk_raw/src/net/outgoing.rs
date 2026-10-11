@@ -15,6 +15,43 @@ use crate::abi::CppDestructors;
 use crate::vtable_slot;
 use std::ffi::c_int;
 
+/// `bool INetChannel::SendData(bf_write &msg, bool bReliable)`: appends the
+/// bits written to `data`, which are whole encoded messages, to the channel's
+/// reliable stream if `reliable` is set, and to its unreliable stream
+/// otherwise. Returns false if they do not fit.
+///
+/// The C++ reference is passed as a pointer.
+#[doc(alias("SendData"))]
+pub type SendDataFn = unsafe extern "C" fn(
+	this: *mut sys::INetChannel,
+	data: *mut sys::bf_write,
+	reliable: bool,
+) -> bool;
+
+/// `int INetChannel::SendDatagram(bf_write *data)`: sends the client a packet
+/// at once, with what the channel's streams hold and, unless `data` is null,
+/// the messages written to it, which go in this packet alone, such as a
+/// snapshot that updates the client's last. Returns the packet's sequence
+/// number.
+#[doc(alias("SendDatagram"))]
+pub type SendDatagramFn =
+	unsafe extern "C" fn(this: *mut sys::INetChannel, data: *mut sys::bf_write) -> c_int;
+
+/// `bool INetChannel::SendNetMsg(INetMessage &msg, bool bForceReliable, bool
+/// bVoice)`: has `message` encode itself with its `WriteToBuffer` into one of
+/// the channel's streams: the voice stream if `voice` is set, the reliable
+/// stream if the message is reliable or `force_reliable` is set, and the
+/// unreliable stream otherwise. Returns false if it does not fit.
+///
+/// The C++ reference is passed as a pointer.
+#[doc(alias("SendNetMsg"))]
+pub type SendNetMsgFn = unsafe extern "C" fn(
+	this: *mut sys::INetChannel,
+	message: *mut sys::INetMessage,
+	force_reliable: bool,
+	voice: bool,
+) -> bool;
+
 // `INetChannelInfo`'s methods take the slots from `GetName` (0) to
 // `GetTimeoutSeconds` (25), and `INetChannel`'s destructor those after them.
 const _: () = {
@@ -83,40 +120,3 @@ pub const SEND_DATAGRAM_SLOT: usize =
 #[doc(alias("SendNetMsg"))]
 pub const SEND_NET_MSG_SLOT: usize =
 	vtable_slot!(sys::INetChannel__bindgen_vtable, INetChannel_SendNetMsg);
-
-/// `bool INetChannel::SendData(bf_write &msg, bool bReliable)`: appends the
-/// bits written to `data`, which are whole encoded messages, to the channel's
-/// reliable stream if `reliable` is set, and to its unreliable stream
-/// otherwise. Returns false if they do not fit.
-///
-/// The C++ reference is passed as a pointer.
-#[doc(alias("SendData"))]
-pub type SendDataFn = unsafe extern "C" fn(
-	this: *mut sys::INetChannel,
-	data: *mut sys::bf_write,
-	reliable: bool,
-) -> bool;
-
-/// `int INetChannel::SendDatagram(bf_write *data)`: sends the client a packet
-/// at once, with what the channel's streams hold and, unless `data` is null,
-/// the messages written to it, which go in this packet alone, such as a
-/// snapshot that updates the client's last. Returns the packet's sequence
-/// number.
-#[doc(alias("SendDatagram"))]
-pub type SendDatagramFn =
-	unsafe extern "C" fn(this: *mut sys::INetChannel, data: *mut sys::bf_write) -> c_int;
-
-/// `bool INetChannel::SendNetMsg(INetMessage &msg, bool bForceReliable, bool
-/// bVoice)`: has `message` encode itself with its `WriteToBuffer` into one of
-/// the channel's streams: the voice stream if `voice` is set, the reliable
-/// stream if the message is reliable or `force_reliable` is set, and the
-/// unreliable stream otherwise. Returns false if it does not fit.
-///
-/// The C++ reference is passed as a pointer.
-#[doc(alias("SendNetMsg"))]
-pub type SendNetMsgFn = unsafe extern "C" fn(
-	this: *mut sys::INetChannel,
-	message: *mut sys::INetMessage,
-	force_reliable: bool,
-	voice: bool,
-) -> bool;

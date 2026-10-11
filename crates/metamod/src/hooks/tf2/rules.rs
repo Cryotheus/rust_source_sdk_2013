@@ -214,96 +214,6 @@ impl RulesHooks {
 	}
 }
 
-impl Handler<HavePlayers> for RoundRoute<HavePlayersFn> {
-	fn call(&self, call: &HookCall<'_, HavePlayers>) -> HookAction<bool> {
-		let scope = ();
-		let Some((callback, server)) = self.enter(&scope) else {
-			return HookAction::Ignore;
-		};
-		let ready = call.return_value().unwrap_or_default();
-
-		match callback(server, ready) {
-			Some(ready) => HookAction::Override(ready),
-			None => HookAction::Ignore,
-		}
-	}
-}
-
-impl Handler<IsHolidayActive> for RoundRoute<HolidayFn> {
-	fn call(&self, call: &HookCall<'_, IsHolidayActive>) -> HookAction<bool> {
-		let Some(holiday) = Holiday::from_raw(call.args().0) else {
-			return HookAction::Ignore;
-		};
-
-		let scope = ();
-		let Some((callback, server)) = self.enter(&scope) else {
-			return HookAction::Ignore;
-		};
-		let active = call.return_value().unwrap_or_default();
-
-		match callback(server, holiday, active) {
-			Some(active) => HookAction::Override(active),
-			None => HookAction::Ignore,
-		}
-	}
-}
-
-impl Handler<PlayerCanTakeDamage> for RoundRoute<PlayerDamageFn> {
-	fn call(&self, call: &HookCall<'_, PlayerCanTakeDamage>) -> HookAction<bool> {
-		let (player, attacker, info) = call.args();
-
-		// The game refuses damage without either.
-		let (Some(player), Some(attacker), Some(info)) = (
-			NonNull::new(player),
-			NonNull::new(attacker),
-			NonNull::new(info.cast_mut()),
-		) else {
-			return HookAction::Ignore;
-		};
-
-		let scope = ();
-		let Some((callback, server)) = self.enter(&scope) else {
-			return HookAction::Ignore;
-		};
-		let check = PlayerDamageCheck {
-			// SAFETY: The game passes a live player and attacker, which stay in
-			// the entity list through the call, and whose `CBaseEntity` bases
-			// are at their addresses.
-			player: unsafe { Entity::from_live(server, player.cast()) },
-			attacker: unsafe { Entity::from_live(server, attacker) },
-			// SAFETY: The game passes the live damage record it is dealing.
-			info: unsafe { DamageInfo::copy_from_raw(info) },
-			takes_damage: call.return_value().unwrap_or_default(),
-		};
-
-		match callback(server, check) {
-			Some(takes_damage) => HookAction::Override(takes_damage),
-			None => HookAction::Ignore,
-		}
-	}
-}
-
-// `ShouldScrambleTeams` and `ShouldSwitchTeams` have the same signature, so
-// their routes take this handler too.
-impl Handler<ShouldBalanceTeams> for RoundRoute<TeamsFn> {
-	fn call(&self, call: &HookCall<'_, ShouldBalanceTeams>) -> HookAction<bool> {
-		// An earlier hook already answered.
-		if call.superseded() == Some(true) {
-			return HookAction::Ignore;
-		}
-
-		let scope = ();
-		let Some((callback, server)) = self.enter(&scope) else {
-			return HookAction::Ignore;
-		};
-
-		match callback(server) {
-			TeamsAction::Allow => HookAction::Ignore,
-			TeamsAction::Refuse => HookAction::Supersede(false),
-		}
-	}
-}
-
 /// What a team hook does with the game's question whether it balances,
 /// switches or scrambles the teams.
 #[must_use]
@@ -523,5 +433,95 @@ impl MetamodApi<'_> {
 			|| PLAYER_DAMAGE_ROUTE.is_routed(self)
 			|| SCRAMBLE_ROUTE.is_routed(self)
 			|| SWITCH_ROUTE.is_routed(self)
+	}
+}
+
+impl Handler<HavePlayers> for RoundRoute<HavePlayersFn> {
+	fn call(&self, call: &HookCall<'_, HavePlayers>) -> HookAction<bool> {
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let ready = call.return_value().unwrap_or_default();
+
+		match callback(server, ready) {
+			Some(ready) => HookAction::Override(ready),
+			None => HookAction::Ignore,
+		}
+	}
+}
+
+impl Handler<IsHolidayActive> for RoundRoute<HolidayFn> {
+	fn call(&self, call: &HookCall<'_, IsHolidayActive>) -> HookAction<bool> {
+		let Some(holiday) = Holiday::from_raw(call.args().0) else {
+			return HookAction::Ignore;
+		};
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let active = call.return_value().unwrap_or_default();
+
+		match callback(server, holiday, active) {
+			Some(active) => HookAction::Override(active),
+			None => HookAction::Ignore,
+		}
+	}
+}
+
+impl Handler<PlayerCanTakeDamage> for RoundRoute<PlayerDamageFn> {
+	fn call(&self, call: &HookCall<'_, PlayerCanTakeDamage>) -> HookAction<bool> {
+		let (player, attacker, info) = call.args();
+
+		// The game refuses damage without either.
+		let (Some(player), Some(attacker), Some(info)) = (
+			NonNull::new(player),
+			NonNull::new(attacker),
+			NonNull::new(info.cast_mut()),
+		) else {
+			return HookAction::Ignore;
+		};
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+		let check = PlayerDamageCheck {
+			// SAFETY: The game passes a live player and attacker, which stay in
+			// the entity list through the call, and whose `CBaseEntity` bases
+			// are at their addresses.
+			player: unsafe { Entity::from_live(server, player.cast()) },
+			attacker: unsafe { Entity::from_live(server, attacker) },
+			// SAFETY: The game passes the live damage record it is dealing.
+			info: unsafe { DamageInfo::copy_from_raw(info) },
+			takes_damage: call.return_value().unwrap_or_default(),
+		};
+
+		match callback(server, check) {
+			Some(takes_damage) => HookAction::Override(takes_damage),
+			None => HookAction::Ignore,
+		}
+	}
+}
+
+// `ShouldScrambleTeams` and `ShouldSwitchTeams` have the same signature, so
+// their routes take this handler too.
+impl Handler<ShouldBalanceTeams> for RoundRoute<TeamsFn> {
+	fn call(&self, call: &HookCall<'_, ShouldBalanceTeams>) -> HookAction<bool> {
+		// An earlier hook already answered.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let scope = ();
+		let Some((callback, server)) = self.enter(&scope) else {
+			return HookAction::Ignore;
+		};
+
+		match callback(server) {
+			TeamsAction::Allow => HookAction::Ignore,
+			TeamsAction::Refuse => HookAction::Supersede(false),
+		}
 	}
 }

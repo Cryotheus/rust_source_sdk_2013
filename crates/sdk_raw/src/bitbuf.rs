@@ -63,11 +63,6 @@ pub struct BfRead {
 }
 
 impl BfRead {
-	/// The mirror of the engine's buffer `buffer` points to.
-	pub const fn from_sys(buffer: NonNull<sys::bf_read>) -> NonNull<Self> {
-		buffer.cast()
-	}
-
 	/// A buffer for the engine to read the first `bits` bits of `words` from
 	/// their start, as `bf_read::StartReading` sets one up.
 	///
@@ -95,6 +90,11 @@ impl BfRead {
 			assert_on_overflow: 0,
 			debug_name: BfWrite::DEBUG_NAME.as_ptr(),
 		}
+	}
+
+	/// The mirror of the engine's buffer `buffer` points to.
+	pub const fn from_sys(buffer: NonNull<sys::bf_read>) -> NonNull<Self> {
+		buffer.cast()
 	}
 
 	/// The engine's type for the buffer, for the calls that take one.

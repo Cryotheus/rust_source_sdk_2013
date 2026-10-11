@@ -83,33 +83,6 @@ pub type FindPlayerStatsFn =
 #[doc(alias("ResetScores"))]
 pub type ResetScoresFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
 
-// The generated method takes no argument and returns nothing.
-const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) =
-	|vtable| vtable.CTFPlayer_ResetScores;
-
-// SourceMod's `sdktools.games/game.tf.txt` gamedata lists
-// `CTFPlayer::CommitSuicide(bool, bool)` at 454 under both ABIs, where the
-// generated vtable has it too, a few slots after `ResetScores`.
-const _: () = {
-	let commit_suicide = vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CommitSuicide);
-
-	assert!(commit_suicide == 454 && RESET_SCORES_SLOT < commit_suicide);
-};
-
-// `PlayerStats_t` starts with its life, round, and session `RoundStats_t`,
-// each `TFSTAT_TOTAL` `int`s, and is made of `int`s only.
-const _: () = {
-	assert!(size_of::<RoundStats>() == TFSTAT_TOTAL * size_of::<c_int>());
-	assert!(size_of::<RoundStats>() == 180);
-	assert!(align_of::<RoundStats>() == align_of::<c_int>());
-	assert!(STATS_CURRENT_LIFE == 0);
-	assert!(STATS_CURRENT_ROUND == size_of::<RoundStats>());
-	assert!(STATS_ACCUMULATED == 2 * size_of::<RoundStats>());
-	assert!(STATS_ACCUMULATED + size_of::<RoundStats>() <= PLAYER_STATS_SIZE);
-	assert!(PLAYER_STATS_SIZE.is_multiple_of(align_of::<c_int>()));
-	assert!(stat::FLAGRETURNS + 1 == TFSTAT_TOTAL);
-};
-
 // `KillStats_t` follows the three `RoundMapStats_t`, each `TFMAPSTAT_TOTAL`
 // `int`s, and is made of `int`s only. The loadout's indices, qualities, and
 // styles, of `CLASS_LOADOUT_POSITION_COUNT`, 19, `uint16`s, `int`s, and
@@ -128,6 +101,20 @@ const _: () = {
 	assert!(STATS_KILLS + offset_of!(KillStats, killed_by_unanswered) == 0x564);
 };
 
+// `PlayerStats_t` starts with its life, round, and session `RoundStats_t`,
+// each `TFSTAT_TOTAL` `int`s, and is made of `int`s only.
+const _: () = {
+	assert!(size_of::<RoundStats>() == TFSTAT_TOTAL * size_of::<c_int>());
+	assert!(size_of::<RoundStats>() == 180);
+	assert!(align_of::<RoundStats>() == align_of::<c_int>());
+	assert!(STATS_CURRENT_LIFE == 0);
+	assert!(STATS_CURRENT_ROUND == size_of::<RoundStats>());
+	assert!(STATS_ACCUMULATED == 2 * size_of::<RoundStats>());
+	assert!(STATS_ACCUMULATED + size_of::<RoundStats>() <= PLAYER_STATS_SIZE);
+	assert!(PLAYER_STATS_SIZE.is_multiple_of(align_of::<c_int>()));
+	assert!(stat::FLAGRETURNS + 1 == TFSTAT_TOTAL);
+};
+
 // `GameStats` is a plain bundle of addresses, which only its unsafe methods
 // use, so it can be copied and shared between threads.
 const _: () = {
@@ -136,11 +123,24 @@ const _: () = {
 	assert_plain::<GameStats>();
 };
 
+// SourceMod's `sdktools.games/game.tf.txt` gamedata lists
+// `CTFPlayer::CommitSuicide(bool, bool)` at 454 under both ABIs, where the
+// generated vtable has it too, a few slots after `ResetScores`.
+const _: () = {
+	let commit_suicide = vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CommitSuicide);
+
+	assert!(commit_suicide == 454 && RESET_SCORES_SLOT < commit_suicide);
+};
+
 // Each player slot's group of streaks includes its kill streak.
 const _: () = assert!(KILL_STREAK < STREAKS_PER_SLOT);
 
 // The test's expected score follows from the header's weights.
 const _: () = assert!(SELF_TEST_SCORE == 7 * TF_SCORE_KILL_RUNECARRIER + 2 * TF_SCORE_KILL);
+
+// The generated method takes no argument and returns nothing.
+const _: fn(&sys::CTFPlayer__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CTFPlayer) =
+	|vtable| vtable.CTFPlayer_ResetScores;
 
 /// Bytes between the elements of the player resource's arrays of `int`s
 /// (`CNetworkArray( int, ... )`), which include every scoreboard column.

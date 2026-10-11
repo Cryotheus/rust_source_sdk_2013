@@ -4,11 +4,11 @@ use super::*;
 use std::mem::MaybeUninit;
 use std::ptr;
 
-/// The definitions' indices, by node.
-const KEYS: [c_int; 5] = [5, 0, 18, 738, 49];
-
 /// The node no definition is in, which is free.
 const FREE: c_int = 1;
+
+/// The definitions' indices, by node.
+const KEYS: [c_int; 5] = [5, 0, 18, 738, 49];
 
 /// A schema whose sorted map holds 5, 18, 49 and 738, stored out of order
 /// with a free node among them:

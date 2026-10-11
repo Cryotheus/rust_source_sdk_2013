@@ -404,6 +404,23 @@ impl MetamodApi<'_> {
 		)
 	}
 
+	/// The level listener's notification generation for this plugin load.
+	///
+	/// After [`Self::listen_level_events`] registers the listener, this starts at
+	/// zero and advances on every level init and shutdown, even while paused
+	/// callbacks are suppressed. Compare saved owned values on unpause to retire
+	/// stale map bookkeeping before touching current entities. It counts boundaries,
+	/// including same-map reloads; it is not a map name or an engine entity serial.
+	///
+	/// Returns `None` before registration, after unload, for an unsupported API,
+	/// or after counter exhaustion. Values reset on registration in a new load,
+	/// so never compare them across plugin loads. The callback-scoped API keeps
+	/// reads on the same main thread as the native listener.
+	pub fn level_generation(self) -> Option<u64> {
+		// SAFETY: MetamodApi is confined to its live main-thread callback.
+		unsafe { raw::cpp_metamod_level_generation(self.version().plugin_api_version()) }
+	}
+
 	/// Passes Metamod's level notifications to `events`.
 	///
 	/// This registers an `IMetamodListener`. It stops calling back while the
@@ -468,23 +485,6 @@ impl MetamodApi<'_> {
 	/// [`Self::unhook_game_frame`] does.
 	pub fn unhook_server_think(self) -> bool {
 		SERVER_THINKS.remove(self)
-	}
-
-	/// The level listener's notification generation for this plugin load.
-	///
-	/// After [`Self::listen_level_events`] registers the listener, this starts at
-	/// zero and advances on every level init and shutdown, even while paused
-	/// callbacks are suppressed. Compare saved owned values on unpause to retire
-	/// stale map bookkeeping before touching current entities. It counts boundaries,
-	/// including same-map reloads; it is not a map name or an engine entity serial.
-	///
-	/// Returns `None` before registration, after unload, for an unsupported API,
-	/// or after counter exhaustion. Values reset on registration in a new load,
-	/// so never compare them across plugin loads. The callback-scoped API keeps
-	/// reads on the same main thread as the native listener.
-	pub fn level_generation(self) -> Option<u64> {
-		// SAFETY: MetamodApi is confined to its live main-thread callback.
-		unsafe { raw::cpp_metamod_level_generation(self.version().plugin_api_version()) }
 	}
 }
 

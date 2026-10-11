@@ -103,26 +103,6 @@ impl MockTree {
 		tree
 	}
 
-	/// The root key values.
-	pub fn root(&self) -> NonNull<sys::KeyValues> {
-		self.keys[0].cast()
-	}
-
-	/// The current string value of the key values named `name` in the
-	/// section of the root's key values named `section`, as the tree holds
-	/// it, or `None` if there is no such value.
-	pub fn string(&self, section: &CStr, name: &CStr) -> Option<&CStr> {
-		let section = self.find(self.keys[0], section)?;
-		let key = self.find(section, name)?;
-
-		// SAFETY: The tree owns its key values and their strings, which live
-		// until it drops.
-		let string = unsafe { key.as_ref() }.string;
-
-		// SAFETY: As above; each string is NUL-terminated.
-		(!string.is_null()).then(|| unsafe { CStr::from_ptr(string) })
-	}
-
 	/// Boxes the key values `key` describes, and those it holds, and returns
 	/// them.
 	fn build(&mut self, key: &MockKey<'_>) -> NonNull<MockKeyValues> {
@@ -196,6 +176,26 @@ impl MockTree {
 		}
 
 		None
+	}
+
+	/// The root key values.
+	pub fn root(&self) -> NonNull<sys::KeyValues> {
+		self.keys[0].cast()
+	}
+
+	/// The current string value of the key values named `name` in the
+	/// section of the root's key values named `section`, as the tree holds
+	/// it, or `None` if there is no such value.
+	pub fn string(&self, section: &CStr, name: &CStr) -> Option<&CStr> {
+		let section = self.find(self.keys[0], section)?;
+		let key = self.find(section, name)?;
+
+		// SAFETY: The tree owns its key values and their strings, which live
+		// until it drops.
+		let string = unsafe { key.as_ref() }.string;
+
+		// SAFETY: As above; each string is NUL-terminated.
+		(!string.is_null()).then(|| unsafe { CStr::from_ptr(string) })
 	}
 }
 

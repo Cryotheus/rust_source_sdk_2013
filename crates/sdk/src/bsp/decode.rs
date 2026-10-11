@@ -3,6 +3,37 @@
 use super::{Bounds, Bsp, Child, Error, Invalid, Leaf, Limits, Model, Node, Plane, Resource, Work};
 use super::{bound, finite, raw, reserve};
 
+fn checked_bounds(
+	min: [f32; 3],
+	max: [f32; 3],
+	lump: usize,
+	record: usize,
+) -> Result<Bounds, Error> {
+	if !finite(min) || !finite(max) || (0..3).any(|axis| min[axis] > max[axis]) {
+		return Err(Invalid::Bounds { lump, record }.into());
+	}
+	Ok(Bounds { min, max })
+}
+
+fn child(
+	value: i32,
+	nodes: usize,
+	leaves: usize,
+	lump: usize,
+	record: usize,
+) -> Result<Child, Error> {
+	if value >= 0 {
+		return index(value, nodes, lump, record).map(Child::Node);
+	}
+	// Widen before negating: i32::MIN must report an invalid index, not panic.
+	let leaf = -(i64::from(value) + 1);
+	let leaf = usize::try_from(leaf).map_err(|_| Invalid::Reference { lump, record })?;
+	if leaf >= leaves {
+		return Err(Invalid::Reference { lump, record }.into());
+	}
+	Ok(Child::Leaf(leaf))
+}
+
 pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 	let mut work = Work::new(limits.work);
 	let directory = super::lumps::Directory::read(bytes, limits, &mut work)?;
@@ -127,6 +158,35 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 	})
 }
 
+fn float(value: &[u8], at: usize) -> f32 {
+	f32::from_bits(word(value, at))
+}
+
+fn index(value: i32, count: usize, lump: usize, record: usize) -> Result<usize, Error> {
+	usize::try_from(value)
+		.ok()
+		.filter(|&value| value < count)
+		.ok_or_else(|| Invalid::Reference { lump, record }.into())
+}
+
+fn integer(value: &[u8], at: usize) -> i32 {
+	i32::from_le_bytes([value[at], value[at + 1], value[at + 2], value[at + 3]])
+}
+
+fn short(value: &[u8], at: usize) -> i16 {
+	i16::from_le_bytes([value[at], value[at + 1]])
+}
+
+fn short_bounds(value: &[u8], at: usize, lump: usize, record: usize) -> Result<Bounds, Error> {
+	let min = [0, 2, 4].map(|offset| f32::from(short(value, at + offset)));
+	let max = [6, 8, 10].map(|offset| f32::from(short(value, at + offset)));
+	checked_bounds(min, max, lump, record)
+}
+
+fn unsigned_short(value: &[u8], at: usize) -> u16 {
+	u16::from_le_bytes([value[at], value[at + 1]])
+}
+
 fn validate_nodes(nodes: &[Node], limits: Limits, work: &mut Work) -> Result<Vec<usize>, Error> {
 	let mut state = Vec::new();
 	reserve(&mut state, nodes.len(), Resource::Records)?;
@@ -189,70 +249,10 @@ fn validate_nodes(nodes: &[Node], limits: Limits, work: &mut Work) -> Result<Vec
 	Ok(depths)
 }
 
-fn index(value: i32, count: usize, lump: usize, record: usize) -> Result<usize, Error> {
-	usize::try_from(value)
-		.ok()
-		.filter(|&value| value < count)
-		.ok_or_else(|| Invalid::Reference { lump, record }.into())
-}
-
-fn child(
-	value: i32,
-	nodes: usize,
-	leaves: usize,
-	lump: usize,
-	record: usize,
-) -> Result<Child, Error> {
-	if value >= 0 {
-		return index(value, nodes, lump, record).map(Child::Node);
-	}
-	// Widen before negating: i32::MIN must report an invalid index, not panic.
-	let leaf = -(i64::from(value) + 1);
-	let leaf = usize::try_from(leaf).map_err(|_| Invalid::Reference { lump, record })?;
-	if leaf >= leaves {
-		return Err(Invalid::Reference { lump, record }.into());
-	}
-	Ok(Child::Leaf(leaf))
-}
-
-fn checked_bounds(
-	min: [f32; 3],
-	max: [f32; 3],
-	lump: usize,
-	record: usize,
-) -> Result<Bounds, Error> {
-	if !finite(min) || !finite(max) || (0..3).any(|axis| min[axis] > max[axis]) {
-		return Err(Invalid::Bounds { lump, record }.into());
-	}
-	Ok(Bounds { min, max })
-}
-
-fn short_bounds(value: &[u8], at: usize, lump: usize, record: usize) -> Result<Bounds, Error> {
-	let min = [0, 2, 4].map(|offset| f32::from(short(value, at + offset)));
-	let max = [6, 8, 10].map(|offset| f32::from(short(value, at + offset)));
-	checked_bounds(min, max, lump, record)
-}
-
 fn vector(value: &[u8], at: usize) -> [f32; 3] {
 	[0, 4, 8].map(|offset| float(value, at + offset))
 }
 
-fn float(value: &[u8], at: usize) -> f32 {
-	f32::from_bits(word(value, at))
-}
-
-fn integer(value: &[u8], at: usize) -> i32 {
-	i32::from_le_bytes([value[at], value[at + 1], value[at + 2], value[at + 3]])
-}
-
 fn word(value: &[u8], at: usize) -> u32 {
 	u32::from_le_bytes([value[at], value[at + 1], value[at + 2], value[at + 3]])
-}
-
-fn short(value: &[u8], at: usize) -> i16 {
-	i16::from_le_bytes([value[at], value[at + 1]])
-}
-
-fn unsigned_short(value: &[u8], at: usize) -> u16 {
-	u16::from_le_bytes([value[at], value[at + 1]])
 }

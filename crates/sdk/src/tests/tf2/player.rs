@@ -36,6 +36,10 @@ use std::ptr::{NonNull, null_mut};
 
 const _: () = assert!(offset_of!(FakeEntity, flags) == MOCK_EFLAGS_OFFSET);
 
+/// The members of [`MEMBERS`] that `CBasePlayer` declares rather than
+/// `CTFPlayer`.
+const BASE_MEMBERS: &[&CStr] = &[c"SnapEyeAngles"];
+
 /// The native members the fake player declares on `CTFPlayer`: each one's
 /// name, return type and parameter types. Others are missing.
 const MEMBERS: [(&CStr, sys::ScriptDataType_t, &[sys::ScriptDataType_t]); 14] = [
@@ -54,10 +58,6 @@ const MEMBERS: [(&CStr, sys::ScriptDataType_t, &[sys::ScriptDataType_t]); 14] = 
 	(c"IsCallingForMedic", BOOL, &[]),
 	(c"SnapEyeAngles", binding::VOID, &[QANGLE]),
 ];
-
-/// The members of [`MEMBERS`] that `CBasePlayer` declares rather than
-/// `CTFPlayer`.
-const BASE_MEMBERS: &[&CStr] = &[c"SnapEyeAngles"];
 
 /// A null handle, in a fake entity's fields.
 const NULL: u32 = u32::MAX;

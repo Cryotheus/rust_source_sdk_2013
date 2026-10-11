@@ -6,9 +6,6 @@
 use std::ffi::CStr;
 use std::mem::{align_of, offset_of, size_of};
 
-/// `IBaseFileSystem` as declared by the SDK's `filesystem.h`.
-pub const VERSION: &CStr = c"VBaseFileSystem011";
-
 const _: () = {
 	assert!(size_of::<sys::IBaseFileSystem>() == 8);
 	assert!(align_of::<sys::IBaseFileSystem>() == 8);
@@ -32,3 +29,6 @@ const _: () = {
 		assert!(offset_of!(sys::IBaseFileSystem__bindgen_vtable, IBaseFileSystem_Size1) == 6 * 8);
 	}
 };
+
+/// `IBaseFileSystem` as declared by the SDK's `filesystem.h`.
+pub const VERSION: &CStr = c"VBaseFileSystem011";

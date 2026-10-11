@@ -364,6 +364,29 @@ pub enum WrenchHitAction {
 }
 
 impl MetamodApi<'_> {
+	/// The addresses of the functions at `function`'s slot of each of
+	/// `vtables`, before any hook.
+	///
+	/// # Safety
+	///
+	/// Each vtable must be live, and hold a function of the signature `S` at
+	/// the slot.
+	unsafe fn building_functions<S: Signature>(
+		self,
+		function: VirtualFunction<S>,
+		vtables: [NonNull<*mut c_void>; 7],
+	) -> Result<[NonNull<c_void>; 7], HookError> {
+		let mut functions = [NonNull::dangling(); 7];
+
+		for (address, vtable) in functions.iter_mut().zip(vtables) {
+			// SAFETY: As the caller promises.
+			*address =
+				unsafe { self.original_function(function, HookTarget::vtable(vtable)) }?.address();
+		}
+
+		Ok(functions)
+	}
+
 	/// Whether any building hook is installed, for this load of the plugin.
 	fn buildings_hooked(self) -> bool {
 		routed(self, &FINISHED_ROUTES)
@@ -423,27 +446,25 @@ impl MetamodApi<'_> {
 		}
 	}
 
-	/// The addresses of the functions at `function`'s slot of each of
-	/// `vtables`, before any hook.
+	/// As [`Self::hook_buildings`], with the building classes found in
+	/// `targets`, a snapshot of the game module that other hooks, such as
+	/// [`ClassHooks`](crate::hooks::tf2::class::ClassHooks), can share.
+	///
+	/// `targets` must come from the server `binding` describes. Installing again
+	/// while any of the hooks is installed returns [`HookError::AlreadyInstalled`]
+	/// without searching `targets`.
 	///
 	/// # Safety
 	///
-	/// Each vtable must be live, and hold a function of the signature `S` at
-	/// the slot.
-	unsafe fn building_functions<S: Signature>(
+	/// As for [`Self::hook_buildings`].
+	pub unsafe fn hook_building_classes(
 		self,
-		function: VirtualFunction<S>,
-		vtables: [NonNull<*mut c_void>; 7],
-	) -> Result<[NonNull<c_void>; 7], HookError> {
-		let mut functions = [NonNull::dangling(); 7];
-
-		for (address, vtable) in functions.iter_mut().zip(vtables) {
-			// SAFETY: As the caller promises.
-			*address =
-				unsafe { self.original_function(function, HookTarget::vtable(vtable)) }?.address();
-		}
-
-		Ok(functions)
+		targets: &ClassTargets<'_>,
+		binding: ServerBinding,
+		callbacks: BuildingCallbacks,
+	) -> Result<BuildingHooks, BuildingHookError> {
+		// SAFETY: As the caller promises.
+		unsafe { self.hook_found_buildings(binding, callbacks, || BuildingVtables::find(targets)) }
 	}
 
 	/// Runs `callbacks` as TF2's buildings die, finish being built and start
@@ -491,27 +512,6 @@ impl MetamodApi<'_> {
 	) -> Result<BuildingHooks, BuildingHookError> {
 		// SAFETY: As the caller promises.
 		unsafe { self.hook_found_buildings(binding, callbacks, || building_vtables(server)) }
-	}
-
-	/// As [`Self::hook_buildings`], with the building classes found in
-	/// `targets`, a snapshot of the game module that other hooks, such as
-	/// [`ClassHooks`](crate::hooks::tf2::class::ClassHooks), can share.
-	///
-	/// `targets` must come from the server `binding` describes. Installing again
-	/// while any of the hooks is installed returns [`HookError::AlreadyInstalled`]
-	/// without searching `targets`.
-	///
-	/// # Safety
-	///
-	/// As for [`Self::hook_buildings`].
-	pub unsafe fn hook_building_classes(
-		self,
-		targets: &ClassTargets<'_>,
-		binding: ServerBinding,
-		callbacks: BuildingCallbacks,
-	) -> Result<BuildingHooks, BuildingHookError> {
-		// SAFETY: As the caller promises.
-		unsafe { self.hook_found_buildings(binding, callbacks, || BuildingVtables::find(targets)) }
 	}
 
 	/// Hooks the methods `callbacks` names a callback for through the vtables

@@ -16,6 +16,21 @@ thread_local! {
 	static SENT: RefCell<Vec<(BitWriter, bool)>> = const { RefCell::new(Vec::new()) };
 }
 
+/// What a [`MockMessage`] points to: the `INetMessage`, then what its methods
+/// answer.
+#[repr(C)]
+struct MessageObject {
+	base: sys::INetMessage,
+	id: c_int,
+	group: c_int,
+	name: &'static CStr,
+	description: CString,
+	bits: BitWriter,
+	reliable: Cell<bool>,
+	fails: Cell<bool>,
+	writes: Cell<usize>,
+}
+
 /// A channel whose `SendData` records what it is given.
 ///
 /// For tests only. The channel is leaked, so its pointer stays valid for the
@@ -79,22 +94,6 @@ impl Default for MockChannel {
 	fn default() -> Self {
 		Self::new()
 	}
-}
-
-/// `INetChannel::SendData`, which records the data for
-/// [`MockChannel::take_sent`].
-unsafe extern "C" fn record_send_data(
-	_: *mut sys::INetChannel,
-	buffer: *mut sys::bf_write,
-	reliable: bool,
-) -> bool {
-	// SAFETY: `NetChannel::send_encoded` passes a live `bf_write` it wrote.
-	let bits = unsafe { BfWrite::read_back(NonNull::new(buffer.cast()).unwrap()) }
-		.map(BitWriter::from)
-		.expect("a readable buffer");
-
-	SENT.with_borrow_mut(|sent| sent.push((bits, reliable)));
-	ACCEPTS.get()
 }
 
 /// One of the engine's message objects, whose `WriteToBuffer` appends the
@@ -176,21 +175,6 @@ impl MockMessage {
 	}
 }
 
-/// What a [`MockMessage`] points to: the `INetMessage`, then what its methods
-/// answer.
-#[repr(C)]
-struct MessageObject {
-	base: sys::INetMessage,
-	id: c_int,
-	group: c_int,
-	name: &'static CStr,
-	description: CString,
-	bits: BitWriter,
-	reliable: Cell<bool>,
-	fails: Cell<bool>,
-	writes: Cell<usize>,
-}
-
 /// The mock message's `GetGroup`.
 unsafe extern "C" fn message_group(this: *const sys::INetMessage) -> c_int {
 	// SAFETY: Only mock messages have this vtable.
@@ -241,4 +225,20 @@ unsafe extern "C" fn message_write(
 	// SAFETY: The code under test passes a live buffer, whose storage nothing
 	// else accesses during the call.
 	unsafe { BfWrite::append(buffer, message.bits.as_words(), message.bits.len()) }
+}
+
+/// `INetChannel::SendData`, which records the data for
+/// [`MockChannel::take_sent`].
+unsafe extern "C" fn record_send_data(
+	_: *mut sys::INetChannel,
+	buffer: *mut sys::bf_write,
+	reliable: bool,
+) -> bool {
+	// SAFETY: `NetChannel::send_encoded` passes a live `bf_write` it wrote.
+	let bits = unsafe { BfWrite::read_back(NonNull::new(buffer.cast()).unwrap()) }
+		.map(BitWriter::from)
+		.expect("a readable buffer");
+
+	SENT.with_borrow_mut(|sent| sent.push((bits, reliable)));
+	ACCEPTS.get()
 }

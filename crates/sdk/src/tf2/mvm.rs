@@ -41,11 +41,11 @@ use std::ffi::{CStr, CString, c_int};
 /// `CTFPlayer::AddCurrency` caps it.
 pub const MAX_ADDED_CURRENCY: c_int = 30_000;
 
-/// The data map class of the objective resource.
-const OBJECTIVE_RESOURCE_CLASS: &CStr = c"CTFObjectiveResource";
-
 /// The class name of the objective resource.
 const OBJECTIVE_RESOURCE: &CStr = c"tf_objective_resource";
+
+/// The data map class of the objective resource.
+const OBJECTIVE_RESOURCE_CLASS: &CStr = c"CTFObjectiveResource";
 
 /// The class name of the populator interface.
 const POPULATOR: &CStr = c"point_populator_interface";
@@ -502,42 +502,6 @@ impl<'s> Populator<'s> {
 	}
 }
 
-/// Queues `tf_mvm_popfile` with `name`, which the server runs from its
-/// command buffer, normally on the next frame. The game then finds the
-/// population file by its short name, such as `mvm_decoy_advanced`, and, if
-/// it is valid, plays its mission from the start, resetting the map.
-/// Outside Mann vs. Machine, or for a file it does not find, the game only
-/// prints a message.
-///
-/// Fails with [`MvmError::InvalidPopfileName`] for an empty name, or one
-/// holding a `"` or a control character.
-#[doc(alias("tf_mvm_popfile"))]
-pub fn load_popfile(server: Server<'_>, name: &CStr) -> Result<(), MvmError> {
-	if server.game() != Game::TeamFortress2 {
-		return Err(MvmError::UnsupportedGame);
-	}
-
-	let bytes = name.to_bytes();
-
-	if bytes.is_empty()
-		|| bytes
-			.iter()
-			.any(|&byte| byte < 0x20 || byte == 0x7f || byte == b'"')
-	{
-		return Err(MvmError::InvalidPopfileName);
-	}
-
-	let mut command = b"tf_mvm_popfile \"".to_vec();
-
-	command.extend_from_slice(bytes);
-	command.extend_from_slice(b"\"\n");
-
-	let command = CString::new(command).expect("the name holds no NUL");
-
-	server.valve_engine()?.server_command(&command);
-	Ok(())
-}
-
 /// Fails with [`MvmError::UnsupportedGame`] outside TF2, and with
 /// [`MvmError::WrongClass`] unless `entity`'s data maps include `class`'s.
 fn check_class(
@@ -581,4 +545,40 @@ fn find<'s, T>(
 	}
 
 	Ok(None)
+}
+
+/// Queues `tf_mvm_popfile` with `name`, which the server runs from its
+/// command buffer, normally on the next frame. The game then finds the
+/// population file by its short name, such as `mvm_decoy_advanced`, and, if
+/// it is valid, plays its mission from the start, resetting the map.
+/// Outside Mann vs. Machine, or for a file it does not find, the game only
+/// prints a message.
+///
+/// Fails with [`MvmError::InvalidPopfileName`] for an empty name, or one
+/// holding a `"` or a control character.
+#[doc(alias("tf_mvm_popfile"))]
+pub fn load_popfile(server: Server<'_>, name: &CStr) -> Result<(), MvmError> {
+	if server.game() != Game::TeamFortress2 {
+		return Err(MvmError::UnsupportedGame);
+	}
+
+	let bytes = name.to_bytes();
+
+	if bytes.is_empty()
+		|| bytes
+			.iter()
+			.any(|&byte| byte < 0x20 || byte == 0x7f || byte == b'"')
+	{
+		return Err(MvmError::InvalidPopfileName);
+	}
+
+	let mut command = b"tf_mvm_popfile \"".to_vec();
+
+	command.extend_from_slice(bytes);
+	command.extend_from_slice(b"\"\n");
+
+	let command = CString::new(command).expect("the name holds no NUL");
+
+	server.valve_engine()?.server_command(&command);
+	Ok(())
 }

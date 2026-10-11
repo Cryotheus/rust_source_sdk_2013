@@ -15,7 +15,6 @@ pub mod events;
 pub mod incoming;
 pub mod messages;
 pub mod outgoing;
-
 pub mod steam_voice;
 
 #[cfg(test)]

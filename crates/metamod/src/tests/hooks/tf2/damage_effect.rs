@@ -39,48 +39,6 @@ impl Player {
 	}
 }
 
-/// The game's `DamageEffect`, which notes that it ran.
-unsafe extern "C" fn game_effect(this: *mut sys::CBaseEntity, damage: f32, damage_type: c_int) {
-	CALLS.with_borrow_mut(|calls| calls.push(("game", this.addr(), damage, damage_type)));
-}
-
-/// The callback, which notes the player and the hit, and skips the effects of
-/// [`SKIPPED`]'s.
-fn on_effect(
-	_server: Server<'_>,
-	player: Entity<'_>,
-	damage: f32,
-	damage_type: DamageType,
-) -> DamageEffectAction {
-	let address = player.as_ptr().addr();
-
-	CALLS.with_borrow_mut(|calls| {
-		calls.push(("callback", address, damage, damage_type.bits() as c_int))
-	});
-
-	if address == SKIPPED.get() {
-		DamageEffectAction::Skip
-	} else {
-		DamageEffectAction::Show
-	}
-}
-
-/// Calls `player`'s hooked `DamageEffect` for a hit of `damage` drowning
-/// damage, and returns what ran.
-fn hit(
-	harness: &Harness,
-	player: &mut Player,
-	damage: f32,
-) -> Vec<(&'static str, usize, f32, c_int)> {
-	CALLS.take();
-	harness.call::<DamageEffect>(
-		player.ptr().as_ptr(),
-		DAMAGE_EFFECT_SLOT,
-		(damage, DMG_DROWN | DMG_PREVENT_PHYSICS_FORCE),
-	);
-	CALLS.take()
-}
-
 #[test]
 fn effects_show_unless_a_hook_skips_them() {
 	on_both(|harness| {
@@ -144,4 +102,46 @@ fn effects_show_unless_a_hook_skips_them() {
 
 		assert_eq!(hit(harness, &mut blocked, 7.5), []);
 	});
+}
+
+/// The game's `DamageEffect`, which notes that it ran.
+unsafe extern "C" fn game_effect(this: *mut sys::CBaseEntity, damage: f32, damage_type: c_int) {
+	CALLS.with_borrow_mut(|calls| calls.push(("game", this.addr(), damage, damage_type)));
+}
+
+/// Calls `player`'s hooked `DamageEffect` for a hit of `damage` drowning
+/// damage, and returns what ran.
+fn hit(
+	harness: &Harness,
+	player: &mut Player,
+	damage: f32,
+) -> Vec<(&'static str, usize, f32, c_int)> {
+	CALLS.take();
+	harness.call::<DamageEffect>(
+		player.ptr().as_ptr(),
+		DAMAGE_EFFECT_SLOT,
+		(damage, DMG_DROWN | DMG_PREVENT_PHYSICS_FORCE),
+	);
+	CALLS.take()
+}
+
+/// The callback, which notes the player and the hit, and skips the effects of
+/// [`SKIPPED`]'s.
+fn on_effect(
+	_server: Server<'_>,
+	player: Entity<'_>,
+	damage: f32,
+	damage_type: DamageType,
+) -> DamageEffectAction {
+	let address = player.as_ptr().addr();
+
+	CALLS.with_borrow_mut(|calls| {
+		calls.push(("callback", address, damage, damage_type.bits() as c_int))
+	});
+
+	if address == SKIPPED.get() {
+		DamageEffectAction::Skip
+	} else {
+		DamageEffectAction::Show
+	}
 }

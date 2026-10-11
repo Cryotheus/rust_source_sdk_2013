@@ -19,77 +19,23 @@
 #[path = "../tests/net/steam_voice.rs"]
 mod tests;
 
-/// The bytes of a packet's Steam ID.
-const STEAM_ID_BYTES: usize = 8;
-
 /// The bytes of a packet's CRC-32.
 const CRC_BYTES: usize = 4;
-
-/// The type byte of a [`Section::Silence`].
-const SILENCE: u8 = 0;
 
 /// The type byte of a [`Section::Opus`].
 const OPUS_PLC: u8 = 6;
 
-/// The type byte of a [`Section::SampleRate`].
-const SAMPLE_RATE: u8 = 11;
-
 /// The length of an [`OpusFrame::Reset`] in place of a frame's.
 const RESET: u16 = u16::MAX;
 
-/// Why a packet could not be read or written.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum SteamVoiceError {
-	/// The packet is too short for a Steam ID and a CRC.
-	#[error("the packet is {len} bytes long, too short for a Steam ID and a CRC")]
-	TooShort {
-		/// The packet's length.
-		len: usize,
-	},
+/// The type byte of a [`Section::SampleRate`].
+const SAMPLE_RATE: u8 = 11;
 
-	/// The packet's CRC does not match its contents.
-	#[error("the packet's CRC is {stored:#010x}, but its contents' is {computed:#010x}")]
-	Crc {
-		/// The CRC the packet ends with.
-		stored: u32,
+/// The type byte of a [`Section::Silence`].
+const SILENCE: u8 = 0;
 
-		/// The CRC of the packet's contents.
-		computed: u32,
-	},
-
-	/// A section of a type this module cannot measure, so nothing after it
-	/// can be read.
-	#[error("a section has the unknown type {kind}")]
-	UnknownSection {
-		/// The section's type byte.
-		kind: u8,
-	},
-
-	/// A section or frame runs past the end of what holds it.
-	#[error("a section or frame is cut short")]
-	Truncated,
-
-	/// An Opus section or frame to encode is longer than its 16-bit length
-	/// can say.
-	#[error("an Opus section or frame of {len} bytes is too long to encode")]
-	TooLong {
-		/// Its length in bytes.
-		len: usize,
-	},
-}
-
-/// A part of a packet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Section<'a> {
-	/// Silence, as a number of samples.
-	Silence(u16),
-
-	/// The sample rate of the Opus frames, such as 24000.
-	SampleRate(u16),
-
-	/// Opus frames, which [`opus_frames`] reads.
-	Opus(&'a [u8]),
-}
+/// The bytes of a packet's Steam ID.
+const STEAM_ID_BYTES: usize = 8;
 
 /// One of the frames of a [`Section::Opus`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +54,19 @@ pub enum OpusFrame<'a> {
 		/// The frame's number.
 		sequence: u16,
 	},
+}
+
+/// A part of a packet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section<'a> {
+	/// Silence, as a number of samples.
+	Silence(u16),
+
+	/// The sample rate of the Opus frames, such as 24000.
+	SampleRate(u16),
+
+	/// Opus frames, which [`opus_frames`] reads.
+	Opus(&'a [u8]),
 }
 
 /// A packet of voice, checked against its CRC.
@@ -189,6 +148,47 @@ impl<'a> SteamVoice<'a> {
 	pub fn with_steam_id(self, steam_id: u64) -> Vec<u8> {
 		packet(steam_id, self.sections)
 	}
+}
+
+/// Why a packet could not be read or written.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SteamVoiceError {
+	/// The packet is too short for a Steam ID and a CRC.
+	#[error("the packet is {len} bytes long, too short for a Steam ID and a CRC")]
+	TooShort {
+		/// The packet's length.
+		len: usize,
+	},
+
+	/// The packet's CRC does not match its contents.
+	#[error("the packet's CRC is {stored:#010x}, but its contents' is {computed:#010x}")]
+	Crc {
+		/// The CRC the packet ends with.
+		stored: u32,
+
+		/// The CRC of the packet's contents.
+		computed: u32,
+	},
+
+	/// A section of a type this module cannot measure, so nothing after it
+	/// can be read.
+	#[error("a section has the unknown type {kind}")]
+	UnknownSection {
+		/// The section's type byte.
+		kind: u8,
+	},
+
+	/// A section or frame runs past the end of what holds it.
+	#[error("a section or frame is cut short")]
+	Truncated,
+
+	/// An Opus section or frame to encode is longer than its 16-bit length
+	/// can say.
+	#[error("an Opus section or frame of {len} bytes is too long to encode")]
+	TooLong {
+		/// Its length in bytes.
+		len: usize,
+	},
 }
 
 /// The standard CRC-32 (IEEE 802.3, reflected), as a packet ends with.

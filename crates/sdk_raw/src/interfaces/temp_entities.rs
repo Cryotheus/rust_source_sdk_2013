@@ -6,6 +6,27 @@
 use std::ffi::{CStr, c_int, c_short};
 use std::mem::offset_of;
 
+// The layout of `CEffectData` in the server's game DLL, from the header's
+// declaration order, which both ABIs pack alike: 4-byte fields, with the one-
+// and two-byte fields padded up to the next.
+const _: () = {
+	assert!(offset_of!(EffectData, angles) == 36);
+	assert!(offset_of!(EffectData, flags) == 48);
+	assert!(offset_of!(EffectData, entity_index) == 52);
+	assert!(offset_of!(EffectData, attachment_index) == 68);
+	assert!(offset_of!(EffectData, surface_prop) == 72);
+	assert!(offset_of!(EffectData, material) == 76);
+	assert!(offset_of!(EffectData, hit_box) == 84);
+	assert!(offset_of!(EffectData, color) == 88);
+	assert!(offset_of!(EffectData, custom_colors) == 89);
+	assert!(offset_of!(EffectData, custom_color_1) == 92);
+	assert!(offset_of!(EffectData, control_point_1) == 116);
+	assert!(offset_of!(EffectData, control_point_1_attachment) == 120);
+	assert!(offset_of!(EffectData, effect_name) == 136);
+	assert!(size_of::<EffectData>() == 140);
+	assert!(align_of::<EffectData>() == 4);
+};
+
 /// The number of particle systems the `ParticleEffectNames` table holds, which
 /// bounds the index clients receive in [`EffectData::hit_box`]
 /// (`MAX_PARTICLESYSTEMS_STRINGS` from
@@ -49,27 +70,6 @@ pub const PATTACH_ROOTBONE_FOLLOW: c_int = 6;
 
 /// A control point attached to no entity.
 pub const PATTACH_WORLDORIGIN: c_int = 5;
-
-// The layout of `CEffectData` in the server's game DLL, from the header's
-// declaration order, which both ABIs pack alike: 4-byte fields, with the one-
-// and two-byte fields padded up to the next.
-const _: () = {
-	assert!(offset_of!(EffectData, angles) == 36);
-	assert!(offset_of!(EffectData, flags) == 48);
-	assert!(offset_of!(EffectData, entity_index) == 52);
-	assert!(offset_of!(EffectData, attachment_index) == 68);
-	assert!(offset_of!(EffectData, surface_prop) == 72);
-	assert!(offset_of!(EffectData, material) == 76);
-	assert!(offset_of!(EffectData, hit_box) == 84);
-	assert!(offset_of!(EffectData, color) == 88);
-	assert!(offset_of!(EffectData, custom_colors) == 89);
-	assert!(offset_of!(EffectData, custom_color_1) == 92);
-	assert!(offset_of!(EffectData, control_point_1) == 116);
-	assert!(offset_of!(EffectData, control_point_1_attachment) == 120);
-	assert!(offset_of!(EffectData, effect_name) == 136);
-	assert!(size_of::<EffectData>() == 140);
-	assert!(align_of::<EffectData>() == 4);
-};
 
 /// The data the server sends with an effect it dispatches to clients,
 /// `CEffectData` as the server's game DLL lays it out.

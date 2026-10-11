@@ -18,19 +18,19 @@ mod tests;
 use std::ffi::{c_int, c_void};
 use std::ptr::NonNull;
 
-/// `CUtlRBTree::InvalidIndex()`, the index of no node.
-const INVALID: c_int = -1;
-
-/// The most nodes a map is believed to allocate: far more than the schema's
-/// definitions, so that a misread count cannot make a walk run away.
-const MAX_NODES: c_int = 1 << 20;
-
 // The tree must fill the opaque map exactly, as the map adds no fields to it.
 const _: () = {
 	assert!(size_of::<Tree>() == size_of::<sys::CEconItemSchema_SortedItemDefinitionMap_t>());
 	assert!(align_of::<Tree>() == align_of::<sys::CEconItemSchema_SortedItemDefinitionMap_t>());
 	assert!(size_of::<Node>() == 32);
 };
+
+/// `CUtlRBTree::InvalidIndex()`, the index of no node.
+const INVALID: c_int = -1;
+
+/// The most nodes a map is believed to allocate: far more than the schema's
+/// definitions, so that a misread count cannot make a walk run away.
+const MAX_NODES: c_int = 1 << 20;
 
 /// `UtlRBTreeNode_t<CUtlMap::Node_t, int>`: a node's links, then the map's key
 /// and element.

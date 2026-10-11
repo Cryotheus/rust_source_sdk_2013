@@ -104,33 +104,6 @@ impl FakePlayer {
 		)
 	}
 
-	/// Another networked entity, of class name `class_name` and of server
-	/// class and datamap `class`, whose send table, named `table`, declares
-	/// `vars`. Its script class is `CBaseEntity`.
-	pub fn other(
-		class_name: &'static CStr,
-		class: &'static CStr,
-		table: &'static CStr,
-		vars: &[Var],
-	) -> &'static Self {
-		let base = data_map(c"CBaseEntity", base_entity_fields(), null_mut());
-
-		Self::build(
-			class_name,
-			(class, table),
-			data_map(class, vec![], base),
-			None,
-			&[],
-			vars,
-		)
-	}
-
-	/// Sets what answers the entity's method calls, other than
-	/// `ValidateScriptScope`, which registers its script instance.
-	pub fn answer(&self, handler: impl FnMut(&Self, &CStr, &[Value]) -> Option<Value> + 'static) {
-		self.handler.replace(Some(Box::new(handler)));
-	}
-
 	fn build(
 		class_name: &'static CStr,
 		(class, table_name): (&'static CStr, &'static CStr),
@@ -282,24 +255,38 @@ impl FakePlayer {
 		}))
 	}
 
+	/// Another networked entity, of class name `class_name` and of server
+	/// class and datamap `class`, whose send table, named `table`, declares
+	/// `vars`. Its script class is `CBaseEntity`.
+	pub fn other(
+		class_name: &'static CStr,
+		class: &'static CStr,
+		table: &'static CStr,
+		vars: &[Var],
+	) -> &'static Self {
+		let base = data_map(c"CBaseEntity", base_entity_fields(), null_mut());
+
+		Self::build(
+			class_name,
+			(class, table),
+			data_map(class, vec![], base),
+			None,
+			&[],
+			vars,
+		)
+	}
+
+	/// Sets what answers the entity's method calls, other than
+	/// `ValidateScriptScope`, which registers its script instance.
+	pub fn answer(&self, handler: impl FnMut(&Self, &CStr, &[Value]) -> Option<Value> + 'static) {
+		self.handler.replace(Some(Box::new(handler)));
+	}
+
 	/// The callback-scoped entity of the fake.
 	pub fn entity(&'static self) -> Entity<'static> {
 		// SAFETY: Fake entities are leaked, and their vtables answer what the
 		// wrappers call of an entity.
 		unsafe { Entity::from_raw(NonNull::from(self).cast()) }
-	}
-
-	/// The first slot of the variable `name`.
-	///
-	/// # Panics
-	///
-	/// If the entity declares no such variable.
-	fn slot(&self, name: &CStr) -> usize {
-		self.layout
-			.iter()
-			.find(|(declared, _)| *declared == name)
-			.unwrap_or_else(|| panic!("no networked variable {name:?}"))
-			.1
 	}
 
 	/// The float the variable `name` holds, or its element `index`.
@@ -322,9 +309,10 @@ impl FakePlayer {
 		self.instance.get()
 	}
 
-	/// Sets the float of the variable `name`, or of its element `index`.
-	pub fn set_float(&self, name: &CStr, index: usize, value: f32) {
-		self.slots[self.slot(name) + index].set(value.to_bits());
+	/// Sets the bits of the variable `name`. A `bool` keeps its value in the
+	/// lowest byte.
+	pub fn set(&self, name: &CStr, bits: u32) {
+		self.slots[self.slot(name)].set(bits);
 	}
 
 	/// Sets the entity's `m_iEFlags`.
@@ -332,10 +320,22 @@ impl FakePlayer {
 		self.flags.set(flags);
 	}
 
-	/// Sets the bits of the variable `name`. A `bool` keeps its value in the
-	/// lowest byte.
-	pub fn set(&self, name: &CStr, bits: u32) {
-		self.slots[self.slot(name)].set(bits);
+	/// Sets the float of the variable `name`, or of its element `index`.
+	pub fn set_float(&self, name: &CStr, index: usize, value: f32) {
+		self.slots[self.slot(name) + index].set(value.to_bits());
+	}
+
+	/// The first slot of the variable `name`.
+	///
+	/// # Panics
+	///
+	/// If the entity declares no such variable.
+	fn slot(&self, name: &CStr) -> usize {
+		self.layout
+			.iter()
+			.find(|(declared, _)| *declared == name)
+			.unwrap_or_else(|| panic!("no networked variable {name:?}"))
+			.1
 	}
 
 	/// The calls of the entity's methods since the last take, with their

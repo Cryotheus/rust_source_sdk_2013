@@ -27,71 +27,8 @@ thread_local! {
 	static QUERIES: RefCell<Vec<(&'static str, c_int, bool)>> = const { RefCell::new(Vec::new()) };
 }
 
-/// `CBaseCombatCharacter::GetLastKnownArea`, which returns [`LAST_KNOWN`].
-unsafe extern "C" fn last_known_area(_: *const sys::CBaseCombatCharacter) -> *mut sys::CNavArea {
-	LAST_KNOWN.get()
-}
-
 /// The ID of the areas [`is_blocked`] blocks for every team.
 const BLOCKED_ID: u32 = 9;
-
-/// `CTFNavArea::IsBlocked`, blocked for RED, and for every team in the area
-/// with [`BLOCKED_ID`].
-unsafe extern "C" fn is_blocked(area: *const sys::CTFNavArea, team: c_int, ignore: bool) -> bool {
-	QUERIES.with_borrow_mut(|queries| queries.push(("IsBlocked", team, ignore)));
-
-	// SAFETY: The mock vtable belongs to the leaked areas of these tests.
-	team == TF_TEAM_RED || unsafe { (*area)._base.m_id } == BLOCKED_ID
-}
-
-/// `CTFNavArea::IsPotentiallyVisibleToTeam`, visible to BLU only.
-unsafe extern "C" fn is_visible(_: *const sys::CTFNavArea, team: c_int) -> bool {
-	QUERIES.with_borrow_mut(|queries| queries.push(("IsPotentiallyVisibleToTeam", team, false)));
-
-	team == TF_TEAM_BLUE
-}
-
-/// Points an area's opaque vector to `data`, leaked.
-fn set_vector<T, const N: usize>(vector: *mut sys::NavConnectVector, elements: [T; N]) {
-	let data = Box::leak(Box::new(VectorData {
-		size: c_int::try_from(N).unwrap(),
-		elements,
-	}));
-
-	// SAFETY: The opaque vector is a pointer to its data.
-	unsafe { vector.cast::<*const VectorData<T, N>>().write(data) };
-}
-
-/// A leaked area with no connections, hiding spots, attributes or players,
-/// whose vtable answers [`is_blocked`] and [`is_visible`].
-fn empty_area(id: u32) -> NonNull<sys::CTFNavArea> {
-	// SAFETY: Every field of an area is an integer, float, bool, or pointer,
-	// for which zero is valid.
-	let area = Box::leak(unsafe { Box::<sys::CTFNavArea>::new_zeroed().assume_init() });
-
-	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
-	// whichever other slot reaches it, and the patch only writes slots of the
-	// vtable being built.
-	let vtable = unsafe {
-		mock_vtable::<sys::CTFNavArea__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).CTFNavArea_IsBlocked).write(is_blocked);
-			(&raw mut (*vtable).CTFNavArea_IsPotentiallyVisibleToTeam).write(is_visible);
-		})
-	};
-
-	let base = &mut area._base;
-
-	base.vtable_ = Box::leak(vtable) as *const sys::CTFNavArea__bindgen_vtable as *const _;
-	base.m_id = id;
-
-	for direction in &mut base._base.m_connect {
-		set_vector::<sys::NavConnect, 0>(direction, []);
-	}
-
-	set_vector::<*mut sys::HidingSpot, 0>(&raw mut base.m_hidingSpots, []);
-
-	NonNull::from(area)
-}
 
 /// An area from (0, 0) to (100, 200), whose ground rises from 10 at its
 /// north-west corner to 20 at its north-east one, 30 at its south-east one,
@@ -152,6 +89,206 @@ fn area() -> (NavArea<'static>, NonNull<sys::CTFNavArea>) {
 	(unsafe { NavArea::from_raw(raw) }, raw)
 }
 
+/// A leaked list of `areas`, as `TheNavAreas` holds them.
+fn area_list(areas: Vec<NonNull<sys::CTFNavArea>>) -> NonNull<raw::NavAreaVector> {
+	let elements = Box::leak(
+		areas
+			.into_iter()
+			.map(|area| area.as_ptr().cast::<sys::CNavArea>())
+			.collect::<Box<[_]>>(),
+	);
+
+	// SAFETY: A zeroed vector, of null pointers and counts, is an empty one.
+	let list = Box::leak(unsafe { Box::<raw::NavAreaVector>::new_zeroed().assume_init() });
+
+	list.m_Memory.m_pMemory = elements.as_mut_ptr();
+	list.m_Memory.m_nAllocationCount = c_int::try_from(elements.len()).unwrap();
+	list.m_Size = list.m_Memory.m_nAllocationCount;
+	list.m_pElements = elements.as_mut_ptr();
+
+	NonNull::from(list)
+}
+
+#[test]
+fn areas_ask_their_vtable_whether_they_are_blocked_or_visible() {
+	let (area, _) = area();
+
+	assert!(area.is_blocked(Some(ScoringTeam::Red)));
+	assert!(!area.is_blocked(Some(ScoringTeam::Blue)));
+	assert!(!area.is_blocked(None));
+	assert!(area.is_potentially_visible_to(ScoringTeam::Blue));
+	assert!(!area.is_potentially_visible_to(ScoringTeam::Red));
+	assert_eq!(
+		QUERIES.take(),
+		[
+			("IsBlocked", TF_TEAM_RED, false),
+			("IsBlocked", TF_TEAM_BLUE, false),
+			("IsBlocked", raw::TEAM_ANY, false),
+			("IsPotentiallyVisibleToTeam", TF_TEAM_BLUE, false),
+			("IsPotentiallyVisibleToTeam", TF_TEAM_RED, false),
+		]
+	);
+}
+
+#[test]
+fn areas_list_their_connections_and_hiding_spots() {
+	let (area, _) = area();
+
+	let east = area.connections(NavDirection::East).collect::<Vec<_>>();
+
+	assert_eq!(east.len(), 1, "the null connection is skipped");
+	assert_eq!(east[0].area.id(), 8);
+	assert_eq!(east[0].length, 150.0);
+	assert_eq!(area.connections(NavDirection::West).count(), 0);
+	assert_eq!(east[0].area.connections(NavDirection::West).count(), 0);
+	assert_eq!(
+		area.hiding_spots().collect::<Vec<_>>(),
+		[HidingSpot {
+			id: 11,
+			flags: HidingSpotFlags::IN_COVER | HidingSpotFlags::EXPOSED,
+			position: Vector::new(5.0, 6.0, 12.0),
+		}]
+	);
+	assert_eq!(east[0].area.hiding_spots().count(), 0);
+}
+
+#[test]
+fn areas_report_their_attributes_and_teams() {
+	let (area, _) = area();
+
+	assert_eq!(
+		area.attributes(),
+		NavAttributes::CROUCH | NavAttributes::NAV_BLOCKER
+	);
+	assert_eq!(
+		area.tf_attributes(),
+		TfNavAttributes::SPAWN_ROOM_RED
+			| TfNavAttributes::HAS_HEALTH
+			| TfNavAttributes::from_bits_retain(1 << 31)
+	);
+	assert_eq!(area.player_count(Some(ScoringTeam::Red)), 2);
+	assert_eq!(area.player_count(Some(ScoringTeam::Blue)), 3);
+	assert_eq!(area.player_count(None), 5);
+	assert_eq!(area.incursion_distance(ScoringTeam::Red), Some(500.0));
+	assert_eq!(area.incursion_distance(ScoringTeam::Blue), None);
+	assert_eq!(area.travel_distance_to_bomb_target(), None);
+}
+
+#[test]
+fn areas_report_their_shape() {
+	let (area, _) = area();
+
+	assert_eq!(area.id(), 7);
+	assert_eq!(area.center(), Vector::new(50.0, 100.0, 25.0));
+	assert_eq!(
+		NavCorner::ALL.map(|corner| area.corner(corner)),
+		[
+			Vector::new(0.0, 0.0, 10.0),
+			Vector::new(100.0, 0.0, 20.0),
+			Vector::new(100.0, 200.0, 30.0),
+			Vector::new(0.0, 200.0, 40.0),
+		]
+	);
+	assert_eq!(
+		area.extent(),
+		(Vector::new(0.0, 0.0, 10.0), Vector::new(100.0, 200.0, 40.0))
+	);
+
+	// Halfway along each axis, the ground is halfway between the north edge's
+	// 15 and the south edge's 35.
+	assert_eq!(area.ground_height(50.0, 100.0), 25.0);
+	assert_eq!(area.ground_height(-50.0, 300.0), 40.0);
+	assert_eq!(
+		area.closest_point(Vector::new(150.0, -10.0, 0.0)),
+		Vector::new(100.0, 0.0, 20.0)
+	);
+	assert!(area.is_overlapping(Vector::new(105.0, 100.0, 0.0), 5.0));
+	assert!(!area.is_overlapping(Vector::new(105.0, 100.0, 0.0), 4.0));
+	assert!(area.is_underwater());
+}
+
+#[test]
+fn characters_report_their_last_known_area() {
+	let scope = ();
+	let server = null_server(Game::TeamFortress2, &scope);
+	let (area, raw) = area();
+	let mut character = MockEntity::new(1);
+	let mut prop = MockEntity::new(2);
+
+	patch_slots(
+		&mut character,
+		&[(GET_LAST_KNOWN_AREA_SLOT, last_known_area as *const ())],
+	);
+
+	// SAFETY: Mock entities are leaked, and their vtables answer what the
+	// wrappers call of a `CBaseEntity` and of a combat character.
+	let (character, prop) = unsafe {
+		(
+			Entity::from_raw(NonNull::new(character.as_ptr()).unwrap()),
+			Entity::from_raw(NonNull::new(prop.as_ptr()).unwrap()),
+		)
+	};
+
+	set_datamap(state_maps(vec![(c"CBaseCombatCharacter", Vec::new())]));
+
+	assert_eq!(NavArea::last_known(server, character), Ok(None));
+
+	LAST_KNOWN.set(raw.as_ptr().cast());
+
+	assert_eq!(NavArea::last_known(server, character), Ok(Some(area)));
+
+	let other_game = null_server(Game::SourceSdk2013, &scope);
+
+	assert_eq!(
+		NavArea::last_known(other_game, character),
+		Err(NavError::UnsupportedGame)
+	);
+
+	set_datamap(state_maps(Vec::new()));
+
+	assert_eq!(
+		NavArea::last_known(server, prop),
+		Err(NavError::NotACombatCharacter)
+	);
+}
+
+#[test]
+fn directions_and_corners_have_their_game_values() {
+	assert_eq!(NavDirection::ALL.map(NavDirection::to_raw), [0, 1, 2, 3]);
+	assert_eq!(NavCorner::ALL.map(NavCorner::to_raw), [0, 1, 2, 3]);
+}
+
+/// A leaked area with no connections, hiding spots, attributes or players,
+/// whose vtable answers [`is_blocked`] and [`is_visible`].
+fn empty_area(id: u32) -> NonNull<sys::CTFNavArea> {
+	// SAFETY: Every field of an area is an integer, float, bool, or pointer,
+	// for which zero is valid.
+	let area = Box::leak(unsafe { Box::<sys::CTFNavArea>::new_zeroed().assume_init() });
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call` aborts
+	// whichever other slot reaches it, and the patch only writes slots of the
+	// vtable being built.
+	let vtable = unsafe {
+		mock_vtable::<sys::CTFNavArea__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).CTFNavArea_IsBlocked).write(is_blocked);
+			(&raw mut (*vtable).CTFNavArea_IsPotentiallyVisibleToTeam).write(is_visible);
+		})
+	};
+
+	let base = &mut area._base;
+
+	base.vtable_ = Box::leak(vtable) as *const sys::CTFNavArea__bindgen_vtable as *const _;
+	base.m_id = id;
+
+	for direction in &mut base._base.m_connect {
+		set_vector::<sys::NavConnect, 0>(direction, []);
+	}
+
+	set_vector::<*mut sys::HidingSpot, 0>(&raw mut base.m_hidingSpots, []);
+
+	NonNull::from(area)
+}
+
 /// A leaked flat area at `height`, from `north_west` to `south_east` in x
 /// and y.
 fn flat_area(
@@ -175,24 +312,30 @@ fn flat_area(
 	raw
 }
 
-/// A leaked list of `areas`, as `TheNavAreas` holds them.
-fn area_list(areas: Vec<NonNull<sys::CTFNavArea>>) -> NonNull<raw::NavAreaVector> {
-	let elements = Box::leak(
-		areas
-			.into_iter()
-			.map(|area| area.as_ptr().cast::<sys::CNavArea>())
-			.collect::<Box<[_]>>(),
-	);
+/// The ID of `area`, if any.
+fn id(area: Option<NavArea<'_>>) -> Option<u32> {
+	area.map(NavArea::id)
+}
 
-	// SAFETY: A zeroed vector, of null pointers and counts, is an empty one.
-	let list = Box::leak(unsafe { Box::<raw::NavAreaVector>::new_zeroed().assume_init() });
+/// `CTFNavArea::IsBlocked`, blocked for RED, and for every team in the area
+/// with [`BLOCKED_ID`].
+unsafe extern "C" fn is_blocked(area: *const sys::CTFNavArea, team: c_int, ignore: bool) -> bool {
+	QUERIES.with_borrow_mut(|queries| queries.push(("IsBlocked", team, ignore)));
 
-	list.m_Memory.m_pMemory = elements.as_mut_ptr();
-	list.m_Memory.m_nAllocationCount = c_int::try_from(elements.len()).unwrap();
-	list.m_Size = list.m_Memory.m_nAllocationCount;
-	list.m_pElements = elements.as_mut_ptr();
+	// SAFETY: The mock vtable belongs to the leaked areas of these tests.
+	team == TF_TEAM_RED || unsafe { (*area)._base.m_id } == BLOCKED_ID
+}
 
-	NonNull::from(list)
+/// `CTFNavArea::IsPotentiallyVisibleToTeam`, visible to BLU only.
+unsafe extern "C" fn is_visible(_: *const sys::CTFNavArea, team: c_int) -> bool {
+	QUERIES.with_borrow_mut(|queries| queries.push(("IsPotentiallyVisibleToTeam", team, false)));
+
+	team == TF_TEAM_BLUE
+}
+
+/// `CBaseCombatCharacter::GetLastKnownArea`, which returns [`LAST_KNOWN`].
+unsafe extern "C" fn last_known_area(_: *const sys::CBaseCombatCharacter) -> *mut sys::CNavArea {
+	LAST_KNOWN.get()
 }
 
 /// A mesh of two floors over (0, 0) to (100, 100), at heights 0 and 100, an
@@ -210,36 +353,13 @@ fn mesh() -> NavMesh<'static> {
 	unsafe { NavMesh::from_raw(areas) }
 }
 
-/// The ID of `area`, if any.
-fn id(area: Option<NavArea<'_>>) -> Option<u32> {
-	area.map(NavArea::id)
-}
-
 #[test]
-fn meshes_list_their_areas() {
-	let mesh = mesh();
+fn meshes_are_found_in_tf2_only() {
+	let scope = ();
 
-	assert_eq!(mesh.area_count(), 4);
 	assert_eq!(
-		mesh.areas().map(NavArea::id).collect::<Vec<_>>(),
-		[1, 2, 3, BLOCKED_ID]
-	);
-	assert_eq!(id(mesh.area_by_id(3)), Some(3));
-	assert_eq!(id(mesh.area_by_id(42)), None);
-	assert_eq!(id(mesh.area_by_id(0)), None);
-
-	// SAFETY: The list is leaked, and empty, as on a level without a mesh.
-	let empty = unsafe { NavMesh::from_raw(area_list(Vec::new())) };
-
-	assert_eq!(empty.area_count(), 0);
-	assert_eq!(empty.areas().count(), 0);
-	assert_eq!(
-		id(empty.area_at(Vector::new(0.0, 0.0, 0.0), NavMesh::BENEATH_LIMIT)),
-		None
-	);
-	assert_eq!(
-		id(empty.nearest_area(Vector::new(0.0, 0.0, 0.0), 1000.0, None)),
-		None
+		NavMesh::find(null_server(Game::SourceSdk2013, &scope)),
+		Err(NavError::UnsupportedGame)
 	);
 }
 
@@ -289,160 +409,40 @@ fn meshes_find_the_nearest_area_not_blocked() {
 }
 
 #[test]
-fn meshes_are_found_in_tf2_only() {
-	let scope = ();
+fn meshes_list_their_areas() {
+	let mesh = mesh();
 
+	assert_eq!(mesh.area_count(), 4);
 	assert_eq!(
-		NavMesh::find(null_server(Game::SourceSdk2013, &scope)),
-		Err(NavError::UnsupportedGame)
+		mesh.areas().map(NavArea::id).collect::<Vec<_>>(),
+		[1, 2, 3, BLOCKED_ID]
+	);
+	assert_eq!(id(mesh.area_by_id(3)), Some(3));
+	assert_eq!(id(mesh.area_by_id(42)), None);
+	assert_eq!(id(mesh.area_by_id(0)), None);
+
+	// SAFETY: The list is leaked, and empty, as on a level without a mesh.
+	let empty = unsafe { NavMesh::from_raw(area_list(Vec::new())) };
+
+	assert_eq!(empty.area_count(), 0);
+	assert_eq!(empty.areas().count(), 0);
+	assert_eq!(
+		id(empty.area_at(Vector::new(0.0, 0.0, 0.0), NavMesh::BENEATH_LIMIT)),
+		None
+	);
+	assert_eq!(
+		id(empty.nearest_area(Vector::new(0.0, 0.0, 0.0), 1000.0, None)),
+		None
 	);
 }
 
-#[test]
-fn areas_report_their_shape() {
-	let (area, _) = area();
+/// Points an area's opaque vector to `data`, leaked.
+fn set_vector<T, const N: usize>(vector: *mut sys::NavConnectVector, elements: [T; N]) {
+	let data = Box::leak(Box::new(VectorData {
+		size: c_int::try_from(N).unwrap(),
+		elements,
+	}));
 
-	assert_eq!(area.id(), 7);
-	assert_eq!(area.center(), Vector::new(50.0, 100.0, 25.0));
-	assert_eq!(
-		NavCorner::ALL.map(|corner| area.corner(corner)),
-		[
-			Vector::new(0.0, 0.0, 10.0),
-			Vector::new(100.0, 0.0, 20.0),
-			Vector::new(100.0, 200.0, 30.0),
-			Vector::new(0.0, 200.0, 40.0),
-		]
-	);
-	assert_eq!(
-		area.extent(),
-		(Vector::new(0.0, 0.0, 10.0), Vector::new(100.0, 200.0, 40.0))
-	);
-
-	// Halfway along each axis, the ground is halfway between the north edge's
-	// 15 and the south edge's 35.
-	assert_eq!(area.ground_height(50.0, 100.0), 25.0);
-	assert_eq!(area.ground_height(-50.0, 300.0), 40.0);
-	assert_eq!(
-		area.closest_point(Vector::new(150.0, -10.0, 0.0)),
-		Vector::new(100.0, 0.0, 20.0)
-	);
-	assert!(area.is_overlapping(Vector::new(105.0, 100.0, 0.0), 5.0));
-	assert!(!area.is_overlapping(Vector::new(105.0, 100.0, 0.0), 4.0));
-	assert!(area.is_underwater());
-}
-
-#[test]
-fn areas_report_their_attributes_and_teams() {
-	let (area, _) = area();
-
-	assert_eq!(
-		area.attributes(),
-		NavAttributes::CROUCH | NavAttributes::NAV_BLOCKER
-	);
-	assert_eq!(
-		area.tf_attributes(),
-		TfNavAttributes::SPAWN_ROOM_RED
-			| TfNavAttributes::HAS_HEALTH
-			| TfNavAttributes::from_bits_retain(1 << 31)
-	);
-	assert_eq!(area.player_count(Some(ScoringTeam::Red)), 2);
-	assert_eq!(area.player_count(Some(ScoringTeam::Blue)), 3);
-	assert_eq!(area.player_count(None), 5);
-	assert_eq!(area.incursion_distance(ScoringTeam::Red), Some(500.0));
-	assert_eq!(area.incursion_distance(ScoringTeam::Blue), None);
-	assert_eq!(area.travel_distance_to_bomb_target(), None);
-}
-
-#[test]
-fn areas_ask_their_vtable_whether_they_are_blocked_or_visible() {
-	let (area, _) = area();
-
-	assert!(area.is_blocked(Some(ScoringTeam::Red)));
-	assert!(!area.is_blocked(Some(ScoringTeam::Blue)));
-	assert!(!area.is_blocked(None));
-	assert!(area.is_potentially_visible_to(ScoringTeam::Blue));
-	assert!(!area.is_potentially_visible_to(ScoringTeam::Red));
-	assert_eq!(
-		QUERIES.take(),
-		[
-			("IsBlocked", TF_TEAM_RED, false),
-			("IsBlocked", TF_TEAM_BLUE, false),
-			("IsBlocked", raw::TEAM_ANY, false),
-			("IsPotentiallyVisibleToTeam", TF_TEAM_BLUE, false),
-			("IsPotentiallyVisibleToTeam", TF_TEAM_RED, false),
-		]
-	);
-}
-
-#[test]
-fn areas_list_their_connections_and_hiding_spots() {
-	let (area, _) = area();
-
-	let east = area.connections(NavDirection::East).collect::<Vec<_>>();
-
-	assert_eq!(east.len(), 1, "the null connection is skipped");
-	assert_eq!(east[0].area.id(), 8);
-	assert_eq!(east[0].length, 150.0);
-	assert_eq!(area.connections(NavDirection::West).count(), 0);
-	assert_eq!(east[0].area.connections(NavDirection::West).count(), 0);
-	assert_eq!(
-		area.hiding_spots().collect::<Vec<_>>(),
-		[HidingSpot {
-			id: 11,
-			flags: HidingSpotFlags::IN_COVER | HidingSpotFlags::EXPOSED,
-			position: Vector::new(5.0, 6.0, 12.0),
-		}]
-	);
-	assert_eq!(east[0].area.hiding_spots().count(), 0);
-}
-
-#[test]
-fn directions_and_corners_have_their_game_values() {
-	assert_eq!(NavDirection::ALL.map(NavDirection::to_raw), [0, 1, 2, 3]);
-	assert_eq!(NavCorner::ALL.map(NavCorner::to_raw), [0, 1, 2, 3]);
-}
-
-#[test]
-fn characters_report_their_last_known_area() {
-	let scope = ();
-	let server = null_server(Game::TeamFortress2, &scope);
-	let (area, raw) = area();
-	let mut character = MockEntity::new(1);
-	let mut prop = MockEntity::new(2);
-
-	patch_slots(
-		&mut character,
-		&[(GET_LAST_KNOWN_AREA_SLOT, last_known_area as *const ())],
-	);
-
-	// SAFETY: Mock entities are leaked, and their vtables answer what the
-	// wrappers call of a `CBaseEntity` and of a combat character.
-	let (character, prop) = unsafe {
-		(
-			Entity::from_raw(NonNull::new(character.as_ptr()).unwrap()),
-			Entity::from_raw(NonNull::new(prop.as_ptr()).unwrap()),
-		)
-	};
-
-	set_datamap(state_maps(vec![(c"CBaseCombatCharacter", Vec::new())]));
-
-	assert_eq!(NavArea::last_known(server, character), Ok(None));
-
-	LAST_KNOWN.set(raw.as_ptr().cast());
-
-	assert_eq!(NavArea::last_known(server, character), Ok(Some(area)));
-
-	let other_game = null_server(Game::SourceSdk2013, &scope);
-
-	assert_eq!(
-		NavArea::last_known(other_game, character),
-		Err(NavError::UnsupportedGame)
-	);
-
-	set_datamap(state_maps(Vec::new()));
-
-	assert_eq!(
-		NavArea::last_known(server, prop),
-		Err(NavError::NotACombatCharacter)
-	);
+	// SAFETY: The opaque vector is a pointer to its data.
+	unsafe { vector.cast::<*const VectorData<T, N>>().write(data) };
 }

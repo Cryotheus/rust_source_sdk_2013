@@ -3,13 +3,13 @@
 
 mod in_game;
 
-pub use in_game::{KickError, Player};
 use std::error::Error;
 use std::ffi::c_int;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::hint;
 use std::num::NonZero;
 
+pub use in_game::{KickError, Player};
 pub use sdk_raw::players::ABSOLUTE_PLAYER_LIMIT;
 
 /// The largest `int` that is a [`UserId`], which stores user IDs in 16 bits.

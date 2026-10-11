@@ -4,9 +4,8 @@
 use super::*;
 use crate::test_support::harness::{Harness, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
-use std::cell::RefCell;
-
 use source_sdk_2013::sys;
+use std::cell::RefCell;
 
 thread_local! {
 	/// What ran during the calls since the last [`run_scripts`], in order,
@@ -38,23 +37,6 @@ impl Mock {
 	fn vtable(&self) -> NonNull<*mut c_void> {
 		NonNull::new(self.vtable).unwrap()
 	}
-}
-
-/// Calls `entity`'s hooked `RunVScripts`, and returns what ran.
-fn run_scripts(harness: &Harness, entity: &mut Mock) -> Vec<(&'static str, usize)> {
-	CALLS.take();
-	harness.call::<RunVScripts>(entity.ptr().as_ptr(), RUN_VSCRIPTS_SLOT, ());
-	CALLS.take()
-}
-
-/// The game's `RunVScripts`, which notes the entity it ran on.
-unsafe extern "C" fn game_run_vscripts(this: *mut sys::CBaseEntity) {
-	CALLS.with_borrow_mut(|calls| calls.push(("game", this.addr())));
-}
-
-/// The callback, which notes the entity it saw.
-fn on_scripts(_server: Server<'_>, entity: Entity<'_>) {
-	CALLS.with_borrow_mut(|calls| calls.push(("callback", entity.as_ptr().addr())));
 }
 
 #[test]
@@ -138,4 +120,21 @@ fn classes_hooked_by_vtable_cover_their_later_entities() {
 			[("callback", address), ("game", address)]
 		);
 	});
+}
+
+/// The game's `RunVScripts`, which notes the entity it ran on.
+unsafe extern "C" fn game_run_vscripts(this: *mut sys::CBaseEntity) {
+	CALLS.with_borrow_mut(|calls| calls.push(("game", this.addr())));
+}
+
+/// The callback, which notes the entity it saw.
+fn on_scripts(_server: Server<'_>, entity: Entity<'_>) {
+	CALLS.with_borrow_mut(|calls| calls.push(("callback", entity.as_ptr().addr())));
+}
+
+/// Calls `entity`'s hooked `RunVScripts`, and returns what ran.
+fn run_scripts(harness: &Harness, entity: &mut Mock) -> Vec<(&'static str, usize)> {
+	CALLS.take();
+	harness.call::<RunVScripts>(entity.ptr().as_ptr(), RUN_VSCRIPTS_SLOT, ());
+	CALLS.take()
 }

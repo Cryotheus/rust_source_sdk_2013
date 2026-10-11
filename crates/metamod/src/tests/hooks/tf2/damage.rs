@@ -105,27 +105,6 @@ fn block(_: Server<'_>, _: DamageStage, _: &mut DamageEvent<'_>) -> DamageAction
 	DamageAction::Block
 }
 
-/// Notes the damage taken.
-fn on_taken(_: Server<'_>, stage: DamageStage, event: &DamageEvent<'_>, dealt: c_int) {
-	TAKEN.with_borrow_mut(|taken| taken.push((stage, event.info.amount(), dealt)));
-}
-
-/// Calls `victim`'s method of `stage` with 11 bullet damage. Returns what it
-/// returned, how many times [`original`] ran, and the damage [`on_taken`] saw.
-fn take_damage(
-	harness: &Harness,
-	victim: &mut Mock,
-	stage: DamageStage,
-) -> (c_int, usize, Vec<(DamageStage, f32, c_int)>) {
-	CALLS.with(|calls| calls.set(0));
-	TAKEN.take();
-	let info = DamageInfo::new(11.0, DamageType::BULLET);
-	let result =
-		harness.call::<TakeDamage>(victim.ptr(), stage.function().index(), (info.as_ptr(),));
-
-	(result, CALLS.with(Cell::get), TAKEN.take())
-}
-
 #[test]
 fn class_hooks_see_the_damage_taken_after_the_game() {
 	on_both(|harness| {
@@ -176,4 +155,25 @@ fn class_hooks_see_the_damage_taken_after_the_game() {
 			(0, 0, vec![(DamageStage::Incoming, 11.0, 0)])
 		);
 	});
+}
+
+/// Notes the damage taken.
+fn on_taken(_: Server<'_>, stage: DamageStage, event: &DamageEvent<'_>, dealt: c_int) {
+	TAKEN.with_borrow_mut(|taken| taken.push((stage, event.info.amount(), dealt)));
+}
+
+/// Calls `victim`'s method of `stage` with 11 bullet damage. Returns what it
+/// returned, how many times [`original`] ran, and the damage [`on_taken`] saw.
+fn take_damage(
+	harness: &Harness,
+	victim: &mut Mock,
+	stage: DamageStage,
+) -> (c_int, usize, Vec<(DamageStage, f32, c_int)>) {
+	CALLS.with(|calls| calls.set(0));
+	TAKEN.take();
+	let info = DamageInfo::new(11.0, DamageType::BULLET);
+	let result =
+		harness.call::<TakeDamage>(victim.ptr(), stage.function().index(), (info.as_ptr(),));
+
+	(result, CALLS.with(Cell::get), TAKEN.take())
 }

@@ -39,22 +39,23 @@
 mod tests;
 
 use crate::MetamodApi;
-use crate::recipients::Recipients;
 
 use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
+use crate::recipients::Recipients;
 use source_sdk_2013::interfaces::ValveEngine;
+
+use source_sdk_2013::raw::interfaces::valve_engine::{
+	PLAYBACK_TEMP_ENTITY_SLOT, PlaybackTempEntityFn as PlaybackTempEntity,
+};
+
 use source_sdk_2013::raw::util::cstr::borrow_cstr;
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
-
-use source_sdk_2013::raw::interfaces::valve_engine::{
-	PLAYBACK_TEMP_ENTITY_SLOT, PlaybackTempEntityFn as PlaybackTempEntity,
-};
 
 /// Decides whether a temporary entity the server plays back is sent. A panic
 /// is contained by the hook dispatcher, and lets the temporary entity through.
@@ -85,6 +86,13 @@ pub struct PlayedTempEntity<'a> {
 	pub class_id: c_int,
 }
 
+#[derive(Clone, Copy)]
+struct RoutedTempEntities {
+	binding: ServerBinding,
+	callback: PlaybackTempEntityFn,
+	hook: HookId,
+}
+
 /// What to do with a temporary entity the server plays back.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TempEntityAction {
@@ -94,13 +102,6 @@ pub enum TempEntityAction {
 
 	/// Do not queue it for any client.
 	Block,
-}
-
-#[derive(Clone, Copy)]
-struct RoutedTempEntities {
-	binding: ServerBinding,
-	callback: PlaybackTempEntityFn,
-	hook: HookId,
 }
 
 struct TempEntityRoute {

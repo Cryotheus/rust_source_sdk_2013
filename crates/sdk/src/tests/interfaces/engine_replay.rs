@@ -14,9 +14,19 @@ thread_local! {
 	static RECALCULATED: RefCell<Vec<*mut IEngineReplay>> = const { RefCell::new(Vec::new()) };
 }
 
-/// `IEngineReplay::RecalculateTags`, which notes the call.
-unsafe extern "C" fn recalculate_tags(this: *mut IEngineReplay) {
-	RECALCULATED.with_borrow_mut(|calls| calls.push(this));
+#[test]
+fn a_game_server_module_does_not_export_it() {
+	export(Module::GameServer, VERSION, mock_engine_replay());
+
+	let scope = ();
+
+	assert!(mock_server(&scope).engine_replay().is_err());
+	assert!(
+		null_server(crate::server::Game::TeamFortress2, &scope)
+			.engine_replay()
+			.is_err()
+	);
+	assert!(RECALCULATED.with_borrow(Vec::is_empty));
 }
 
 /// A leaked `IEngineReplay` whose every slot but `RecalculateTags` fails the
@@ -36,6 +46,11 @@ fn mock_engine_replay() -> *mut IEngineReplay {
 	})
 }
 
+/// `IEngineReplay::RecalculateTags`, which notes the call.
+unsafe extern "C" fn recalculate_tags(this: *mut IEngineReplay) {
+	RECALCULATED.with_borrow_mut(|calls| calls.push(this));
+}
+
 #[test]
 fn tags_are_recalculated_through_the_engines_interface() {
 	let replay = mock_engine_replay();
@@ -51,19 +66,4 @@ fn tags_are_recalculated_through_the_engines_interface() {
 	engine_replay.recalculate_tags();
 
 	assert_eq!(RECALCULATED.with_borrow(Clone::clone), [replay, replay]);
-}
-
-#[test]
-fn a_game_server_module_does_not_export_it() {
-	export(Module::GameServer, VERSION, mock_engine_replay());
-
-	let scope = ();
-
-	assert!(mock_server(&scope).engine_replay().is_err());
-	assert!(
-		null_server(crate::server::Game::TeamFortress2, &scope)
-			.engine_replay()
-			.is_err()
-	);
-	assert!(RECALCULATED.with_borrow(Vec::is_empty));
 }

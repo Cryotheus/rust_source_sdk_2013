@@ -73,11 +73,6 @@ impl GameRules {
 	}
 }
 
-/// Notes that `ran` ran.
-fn ran(ran: Ran) {
-	CALLS.with_borrow_mut(|calls| calls.push(ran));
-}
-
 /// Every game rules callback, each noting that it ran, and deciding as
 /// [`TEAMS`], [`HAVE_PLAYERS`], [`HOLIDAY`] and [`DAMAGE`] say.
 fn every_callback() -> RulesCallbacks {
@@ -112,96 +107,6 @@ fn every_callback() -> RulesCallbacks {
 			TEAMS.get()
 		}),
 	}
-}
-
-/// The vtable of a new game rules class, which holds the game's methods at
-/// their slots, each noting that it ran: no player is ready, only Halloween
-/// is active, players take all damage, and the teams are kept balanced,
-/// switched and scrambled.
-fn new_rules_class() -> NonNull<*mut c_void> {
-	unsafe extern "C" fn have_players(_: *mut c_void) -> bool {
-		ran(Ran::Game("have players"));
-		false
-	}
-
-	unsafe extern "C" fn is_holiday_active(_: *mut c_void, holiday: c_int) -> bool {
-		ran(Ran::Game("holiday"));
-		holiday == Holiday::Halloween.to_raw()
-	}
-
-	unsafe extern "C" fn player_can_take_damage(
-		_: *mut c_void,
-		_: *mut sys::CBasePlayer,
-		_: *mut sys::CBaseEntity,
-		_: *const sys::CTakeDamageInfo,
-	) -> bool {
-		ran(Ran::Game("damage"));
-		true
-	}
-
-	unsafe extern "C" fn should_balance_teams(_: *mut c_void) -> bool {
-		ran(Ran::Game("balance"));
-		true
-	}
-
-	unsafe extern "C" fn should_scramble_teams(_: *mut c_void) -> bool {
-		ran(Ran::Game("scramble"));
-		true
-	}
-
-	unsafe extern "C" fn should_switch_teams(_: *mut c_void) -> bool {
-		ran(Ran::Game("switch"));
-		true
-	}
-
-	let methods: [(usize, *mut c_void); 6] = [
-		(HAVE_PLAYERS_SLOT, have_players as HavePlayers as _),
-		(
-			IS_HOLIDAY_ACTIVE_SLOT,
-			is_holiday_active as IsHolidayActive as _,
-		),
-		(
-			PLAYER_CAN_TAKE_DAMAGE_SLOT,
-			player_can_take_damage as PlayerCanTakeDamage as _,
-		),
-		(
-			SHOULD_BALANCE_TEAMS_SLOT,
-			should_balance_teams as ShouldBalanceTeams as _,
-		),
-		(
-			SHOULD_SCRAMBLE_TEAMS_SLOT,
-			should_scramble_teams as ShouldScrambleTeams as _,
-		),
-		(
-			SHOULD_SWITCH_TEAMS_SLOT,
-			should_switch_teams as ShouldSwitchTeams as _,
-		),
-	];
-
-	let length = methods.iter().map(|&(slot, _)| slot).max().unwrap() + 1;
-	let filler = should_balance_teams as ShouldBalanceTeams as *mut c_void;
-	let slots = Vec::leak(vec![filler; length]);
-
-	for (slot, method) in methods {
-		slots[slot] = method;
-	}
-
-	NonNull::new(slots.as_mut_ptr()).unwrap()
-}
-
-/// Calls `rules`'s hooked method of the signature `S` at `slot`, and returns
-/// what it returned and what ran.
-fn rules_call<S: Signature<This = c_void>>(
-	harness: &Harness,
-	rules: &mut GameRules,
-	slot: usize,
-	args: S::Args,
-) -> (S::Output, Vec<Ran>) {
-	CALLS.take();
-
-	let output = harness.call::<S>(rules.ptr().as_ptr(), slot, args);
-
-	(output, CALLS.take())
 }
 
 #[test]
@@ -284,6 +189,86 @@ fn holidays_and_damage_are_decided_again_after_the_game() {
 	});
 }
 
+/// The vtable of a new game rules class, which holds the game's methods at
+/// their slots, each noting that it ran: no player is ready, only Halloween
+/// is active, players take all damage, and the teams are kept balanced,
+/// switched and scrambled.
+fn new_rules_class() -> NonNull<*mut c_void> {
+	unsafe extern "C" fn have_players(_: *mut c_void) -> bool {
+		ran(Ran::Game("have players"));
+		false
+	}
+
+	unsafe extern "C" fn is_holiday_active(_: *mut c_void, holiday: c_int) -> bool {
+		ran(Ran::Game("holiday"));
+		holiday == Holiday::Halloween.to_raw()
+	}
+
+	unsafe extern "C" fn player_can_take_damage(
+		_: *mut c_void,
+		_: *mut sys::CBasePlayer,
+		_: *mut sys::CBaseEntity,
+		_: *const sys::CTakeDamageInfo,
+	) -> bool {
+		ran(Ran::Game("damage"));
+		true
+	}
+
+	unsafe extern "C" fn should_balance_teams(_: *mut c_void) -> bool {
+		ran(Ran::Game("balance"));
+		true
+	}
+
+	unsafe extern "C" fn should_scramble_teams(_: *mut c_void) -> bool {
+		ran(Ran::Game("scramble"));
+		true
+	}
+
+	unsafe extern "C" fn should_switch_teams(_: *mut c_void) -> bool {
+		ran(Ran::Game("switch"));
+		true
+	}
+
+	let methods: [(usize, *mut c_void); 6] = [
+		(HAVE_PLAYERS_SLOT, have_players as HavePlayers as _),
+		(
+			IS_HOLIDAY_ACTIVE_SLOT,
+			is_holiday_active as IsHolidayActive as _,
+		),
+		(
+			PLAYER_CAN_TAKE_DAMAGE_SLOT,
+			player_can_take_damage as PlayerCanTakeDamage as _,
+		),
+		(
+			SHOULD_BALANCE_TEAMS_SLOT,
+			should_balance_teams as ShouldBalanceTeams as _,
+		),
+		(
+			SHOULD_SCRAMBLE_TEAMS_SLOT,
+			should_scramble_teams as ShouldScrambleTeams as _,
+		),
+		(
+			SHOULD_SWITCH_TEAMS_SLOT,
+			should_switch_teams as ShouldSwitchTeams as _,
+		),
+	];
+
+	let length = methods.iter().map(|&(slot, _)| slot).max().unwrap() + 1;
+	let filler = should_balance_teams as ShouldBalanceTeams as *mut c_void;
+	let slots = Vec::leak(vec![filler; length]);
+
+	for (slot, method) in methods {
+		slots[slot] = method;
+	}
+
+	NonNull::new(slots.as_mut_ptr()).unwrap()
+}
+
+/// Notes that `ran` ran.
+fn ran(ran: Ran) {
+	CALLS.with_borrow_mut(|calls| calls.push(ran));
+}
+
 #[test]
 fn ready_players_are_decided_again_after_the_game() {
 	on_both(|harness| {
@@ -328,48 +313,19 @@ fn ready_players_are_decided_again_after_the_game() {
 	});
 }
 
-#[test]
-fn team_balance_switches_and_scrambles_are_refused_where_the_hooks_say_so() {
-	on_both(|harness| {
-		let api = harness.api();
-		let class = new_rules_class();
-		let mut rules = GameRules::of_class(class);
+/// Calls `rules`'s hooked method of the signature `S` at `slot`, and returns
+/// what it returned and what ran.
+fn rules_call<S: Signature<This = c_void>>(
+	harness: &Harness,
+	rules: &mut GameRules,
+	slot: usize,
+	args: S::Args,
+) -> (S::Output, Vec<Ran>) {
+	CALLS.take();
 
-		// SAFETY: As above.
-		let hooks =
-			unsafe { api.install_rules(class, tf2_binding(no_interfaces), every_callback()) }
-				.unwrap();
+	let output = harness.call::<S>(rules.ptr().as_ptr(), slot, args);
 
-		let teams = |harness, rules: &mut GameRules, slot| {
-			rules_call::<ShouldBalanceTeams>(harness, rules, slot, ())
-		};
-		let decisions = [
-			(SHOULD_BALANCE_TEAMS_SLOT, Ran::Balance, "balance"),
-			(SHOULD_SCRAMBLE_TEAMS_SLOT, Ran::Scramble, "scramble"),
-			(SHOULD_SWITCH_TEAMS_SLOT, Ran::Switch, "switch"),
-		];
-
-		for (slot, callback, game) in decisions {
-			TEAMS.set(TeamsAction::Allow);
-			assert_eq!(
-				teams(harness, &mut rules, slot),
-				(true, vec![callback, Ran::Game(game)])
-			);
-
-			TEAMS.set(TeamsAction::Refuse);
-			assert_eq!(teams(harness, &mut rules, slot), (false, vec![callback]));
-		}
-
-		// Removed hooks run no callback.
-		hooks.remove(api);
-
-		for (slot, _, game) in decisions {
-			assert_eq!(
-				teams(harness, &mut rules, slot),
-				(true, vec![Ran::Game(game)])
-			);
-		}
-	});
+	(output, CALLS.take())
 }
 
 #[test]
@@ -417,5 +373,49 @@ fn rules_hooks_are_installed_all_at_once() {
 		let hooks = unsafe { api.install_rules(class, binding, callbacks) }.unwrap();
 
 		assert_eq!(hooks.hooks.len(), 1);
+	});
+}
+
+#[test]
+fn team_balance_switches_and_scrambles_are_refused_where_the_hooks_say_so() {
+	on_both(|harness| {
+		let api = harness.api();
+		let class = new_rules_class();
+		let mut rules = GameRules::of_class(class);
+
+		// SAFETY: As above.
+		let hooks =
+			unsafe { api.install_rules(class, tf2_binding(no_interfaces), every_callback()) }
+				.unwrap();
+
+		let teams = |harness, rules: &mut GameRules, slot| {
+			rules_call::<ShouldBalanceTeams>(harness, rules, slot, ())
+		};
+		let decisions = [
+			(SHOULD_BALANCE_TEAMS_SLOT, Ran::Balance, "balance"),
+			(SHOULD_SCRAMBLE_TEAMS_SLOT, Ran::Scramble, "scramble"),
+			(SHOULD_SWITCH_TEAMS_SLOT, Ran::Switch, "switch"),
+		];
+
+		for (slot, callback, game) in decisions {
+			TEAMS.set(TeamsAction::Allow);
+			assert_eq!(
+				teams(harness, &mut rules, slot),
+				(true, vec![callback, Ran::Game(game)])
+			);
+
+			TEAMS.set(TeamsAction::Refuse);
+			assert_eq!(teams(harness, &mut rules, slot), (false, vec![callback]));
+		}
+
+		// Removed hooks run no callback.
+		hooks.remove(api);
+
+		for (slot, _, game) in decisions {
+			assert_eq!(
+				teams(harness, &mut rules, slot),
+				(true, vec![Ran::Game(game)])
+			);
+		}
 	});
 }

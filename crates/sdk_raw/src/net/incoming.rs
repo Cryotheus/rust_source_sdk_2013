@@ -724,18 +724,6 @@ pub struct StringCmdMessage {
 }
 
 impl StringCmdMessage {
-	/// The message, as the `INetMessage` its class derives from, for calls
-	/// this module does not wrap.
-	pub const fn as_ptr(&self) -> NonNull<sys::INetMessage> {
-		self.object.cast()
-	}
-
-	/// The handler the message names, which the class's `Process` passes it
-	/// to.
-	pub const fn handler(&self) -> NonNull<sys::IClientMessageHandler> {
-		self.handler
-	}
-
 	/// Builds a message holding `command`, for `handler`, a client's handler,
 	/// to process as though the client sent it through `channel`, the client's
 	/// channel.
@@ -827,6 +815,18 @@ impl StringCmdMessage {
 		}
 
 		Ok(message)
+	}
+
+	/// The message, as the `INetMessage` its class derives from, for calls
+	/// this module does not wrap.
+	pub const fn as_ptr(&self) -> NonNull<sys::INetMessage> {
+		self.object.cast()
+	}
+
+	/// The handler the message names, which the class's `Process` passes it
+	/// to.
+	pub const fn handler(&self) -> NonNull<sys::IClientMessageHandler> {
+		self.handler
 	}
 
 	/// Processes the message as the engine processes one a client sent: calls

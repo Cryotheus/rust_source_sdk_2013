@@ -52,56 +52,6 @@ use std::ptr::NonNull;
 /// The data map class of every entity that tracks its area.
 const COMBAT_CHARACTER_CLASS: &CStr = c"CBaseCombatCharacter";
 
-/// Why an entity's area could not be found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum NavError {
-	/// The server is not running Team Fortress 2, whose areas these wrappers
-	/// read as `CTFNavArea`s.
-	#[error("navigation areas require Team Fortress 2")]
-	UnsupportedGame,
-
-	/// The entity is not a combat character, so it tracks no area.
-	#[error("the entity is not a combat character")]
-	NotACombatCharacter,
-
-	/// The game server module's list of areas was not found, as in a build
-	/// whose code differs from the one its search was checked against.
-	#[error("the navigation mesh's list of areas was not found")]
-	MeshNotFound,
-}
-
-/// One of the four sides of an area, along which it connects to others
-/// (`NavDirType`). North is towards −y and east towards +x.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NavDirection {
-	/// Towards −y (`NORTH`).
-	North,
-
-	/// Towards +x (`EAST`).
-	East,
-
-	/// Towards +y (`SOUTH`).
-	South,
-
-	/// Towards −x (`WEST`).
-	West,
-}
-
-impl NavDirection {
-	/// Every direction, in native order.
-	pub const ALL: [Self; 4] = [Self::North, Self::East, Self::South, Self::West];
-
-	/// The direction's `NavDirType`.
-	pub const fn to_raw(self) -> sys::NavDirType {
-		match self {
-			Self::North => sys::NavDirType_NORTH,
-			Self::East => sys::NavDirType_EAST,
-			Self::South => sys::NavDirType_SOUTH,
-			Self::West => sys::NavDirType_WEST,
-		}
-	}
-}
-
 /// One of the four corners of an area (`NavCornerType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NavCorner {
@@ -136,6 +86,56 @@ impl NavCorner {
 			Self::SouthWest => sys::NavCornerType_SOUTH_WEST,
 		}
 	}
+}
+
+/// One of the four sides of an area, along which it connects to others
+/// (`NavDirType`). North is towards −y and east towards +x.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NavDirection {
+	/// Towards −y (`NORTH`).
+	North,
+
+	/// Towards +x (`EAST`).
+	East,
+
+	/// Towards +y (`SOUTH`).
+	South,
+
+	/// Towards −x (`WEST`).
+	West,
+}
+
+impl NavDirection {
+	/// Every direction, in native order.
+	pub const ALL: [Self; 4] = [Self::North, Self::East, Self::South, Self::West];
+
+	/// The direction's `NavDirType`.
+	pub const fn to_raw(self) -> sys::NavDirType {
+		match self {
+			Self::North => sys::NavDirType_NORTH,
+			Self::East => sys::NavDirType_EAST,
+			Self::South => sys::NavDirType_SOUTH,
+			Self::West => sys::NavDirType_WEST,
+		}
+	}
+}
+
+/// Why an entity's area could not be found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NavError {
+	/// The server is not running Team Fortress 2, whose areas these wrappers
+	/// read as `CTFNavArea`s.
+	#[error("navigation areas require Team Fortress 2")]
+	UnsupportedGame,
+
+	/// The entity is not a combat character, so it tracks no area.
+	#[error("the entity is not a combat character")]
+	NotACombatCharacter,
+
+	/// The game server module's list of areas was not found, as in a build
+	/// whose code differs from the one its search was checked against.
+	#[error("the navigation mesh's list of areas was not found")]
+	MeshNotFound,
 }
 
 bitflags::bitflags! {
@@ -364,17 +364,6 @@ bitflags::bitflags! {
 	}
 }
 
-/// A connection from an area to one next to it, in one direction
-/// (`NavConnect`).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct NavConnection<'s> {
-	/// The area connected to.
-	pub area: NavArea<'s>,
-
-	/// The distance between the two areas' centres.
-	pub length: f32,
-}
-
 /// A spot in an area where a bot can hide (`HidingSpot`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HidingSpot {
@@ -446,9 +435,25 @@ impl<'s> NavArea<'s> {
 		Ok(NonNull::new(area).map(|area| unsafe { Self::from_raw(area.cast()) }))
 	}
 
+	/// The area's raw pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut sys::CTFNavArea {
+		self.area.as_ptr()
+	}
+
 	/// The area's attributes.
 	pub fn attributes(self) -> NavAttributes {
 		NavAttributes::from_bits_retain(self.critical().m_attributeFlags as u32)
+	}
+
+	/// The area's `CNavArea` part.
+	fn base(&self) -> &sys::CNavArea {
+		&self.tf()._base
+	}
+
+	/// The area's centre (`GetCenter`).
+	#[doc(alias("GetCenter"))]
+	pub fn center(self) -> Vector {
+		self.critical().m_center.into()
 	}
 
 	/// The point of the area's ground nearest to `position`
@@ -466,26 +471,6 @@ impl<'s> NavArea<'s> {
 			.min(critical.m_seCorner.y);
 
 		Vector::new(x, y, self.ground_height(x, y))
-	}
-
-	/// The area's centre (`GetCenter`).
-	#[doc(alias("GetCenter"))]
-	pub fn center(self) -> Vector {
-		self.critical().m_center.into()
-	}
-
-	/// The area's ground at one of its corners (`GetCorner`).
-	#[doc(alias("GetCorner"))]
-	pub fn corner(self, corner: NavCorner) -> Vector {
-		let critical = self.critical();
-		let (north_west, south_east) = (critical.m_nwCorner, critical.m_seCorner);
-
-		match corner {
-			NavCorner::NorthWest => north_west.into(),
-			NavCorner::NorthEast => Vector::new(south_east.x, north_west.y, critical.m_neZ),
-			NavCorner::SouthEast => south_east.into(),
-			NavCorner::SouthWest => Vector::new(north_west.x, south_east.y, critical.m_swZ),
-		}
 	}
 
 	/// The areas the area connects to along one side (`GetAdjacentArea`).
@@ -515,6 +500,26 @@ impl<'s> NavArea<'s> {
 				length: connection.length,
 			})
 		})
+	}
+
+	/// The area's ground at one of its corners (`GetCorner`).
+	#[doc(alias("GetCorner"))]
+	pub fn corner(self, corner: NavCorner) -> Vector {
+		let critical = self.critical();
+		let (north_west, south_east) = (critical.m_nwCorner, critical.m_seCorner);
+
+		match corner {
+			NavCorner::NorthWest => north_west.into(),
+			NavCorner::NorthEast => Vector::new(south_east.x, north_west.y, critical.m_neZ),
+			NavCorner::SouthEast => south_east.into(),
+			NavCorner::SouthWest => Vector::new(north_west.x, south_east.y, critical.m_swZ),
+		}
+	}
+
+	/// The fields of the area that searches through the mesh read most
+	/// (`CNavAreaCriticalData`).
+	fn critical(&self) -> &sys::CNavAreaCriticalData {
+		&self.base()._base
 	}
 
 	/// The lowest and highest corners of the box that holds the area's ground
@@ -653,6 +658,16 @@ impl<'s> NavArea<'s> {
 		}
 	}
 
+	/// The area's `CTFNavArea` fields, borrowed only while a method reads
+	/// them, since the game changes some of them, such as its player counts,
+	/// as characters move.
+	fn tf(&self) -> &sys::CTFNavArea {
+		// SAFETY: `from_raw`'s caller vouches that the area is live for `'s`,
+		// and the borrow ends before the method returns, with no game code run
+		// while it lasts.
+		unsafe { self.area.as_ref() }
+	}
+
 	/// The area's TF2 attributes (`GetAttributesTF`).
 	#[doc(alias("GetAttributesTF"))]
 	pub fn tf_attributes(self) -> TfNavAttributes {
@@ -669,32 +684,17 @@ impl<'s> NavArea<'s> {
 
 		(distance >= 0.0).then_some(distance)
 	}
+}
 
-	/// The area's raw pointer, for calls this crate does not wrap.
-	pub const fn as_ptr(self) -> *mut sys::CTFNavArea {
-		self.area.as_ptr()
-	}
+/// A connection from an area to one next to it, in one direction
+/// (`NavConnect`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NavConnection<'s> {
+	/// The area connected to.
+	pub area: NavArea<'s>,
 
-	/// The area's `CNavArea` part.
-	fn base(&self) -> &sys::CNavArea {
-		&self.tf()._base
-	}
-
-	/// The fields of the area that searches through the mesh read most
-	/// (`CNavAreaCriticalData`).
-	fn critical(&self) -> &sys::CNavAreaCriticalData {
-		&self.base()._base
-	}
-
-	/// The area's `CTFNavArea` fields, borrowed only while a method reads
-	/// them, since the game changes some of them, such as its player counts,
-	/// as characters move.
-	fn tf(&self) -> &sys::CTFNavArea {
-		// SAFETY: `from_raw`'s caller vouches that the area is live for `'s`,
-		// and the borrow ends before the method returns, with no game code run
-		// while it lasts.
-		unsafe { self.area.as_ref() }
-	}
+	/// The distance between the two areas' centres.
+	pub length: f32,
 }
 
 /// TF2's navigation mesh, read through its list of every area
@@ -759,22 +759,6 @@ impl<'s> NavMesh<'s> {
 		}
 	}
 
-	/// How many areas the mesh holds, 0 on a level without one.
-	pub fn area_count(self) -> usize {
-		self.elements().len()
-	}
-
-	/// The area with an ID, which is never 0, or `None` if the mesh has none
-	/// (`GetNavAreaByID`).
-	#[doc(alias("GetNavAreaByID"))]
-	pub fn area_by_id(self, id: u32) -> Option<NavArea<'s>> {
-		if id == 0 {
-			return None;
-		}
-
-		self.areas().find(|area| area.id() == id)
-	}
-
 	/// The area whose ground lies under `position`, or `None` if none does
 	/// (`GetNavArea`).
 	///
@@ -804,6 +788,22 @@ impl<'s> NavMesh<'s> {
 		found
 	}
 
+	/// The area with an ID, which is never 0, or `None` if the mesh has none
+	/// (`GetNavAreaByID`).
+	#[doc(alias("GetNavAreaByID"))]
+	pub fn area_by_id(self, id: u32) -> Option<NavArea<'s>> {
+		if id == 0 {
+			return None;
+		}
+
+		self.areas().find(|area| area.id() == id)
+	}
+
+	/// How many areas the mesh holds, 0 on a level without one.
+	pub fn area_count(self) -> usize {
+		self.elements().len()
+	}
+
 	/// The areas the mesh holds, in the order of its list.
 	pub fn areas(self) -> impl Iterator<Item = NavArea<'s>> + use<'s> {
 		(0..)
@@ -813,6 +813,19 @@ impl<'s> NavMesh<'s> {
 				// areas, which live as the module documentation describes.
 				NonNull::new(area).map(|area| unsafe { NavArea::from_raw(area.cast()) })
 			})
+	}
+
+	/// The list's raw pointer, for calls this crate does not wrap.
+	pub const fn as_ptr(self) -> *mut raw::NavAreaVector {
+		self.areas.as_ptr()
+	}
+
+	/// The list's areas, borrowed only while a method reads them, since the
+	/// game reallocates them as the mesh changes.
+	fn elements(&self) -> &[*mut sys::CNavArea] {
+		// SAFETY: `from_raw`'s caller vouches that the list is live for `'s`,
+		// and the borrow ends before game code runs again.
+		unsafe { raw::nav_area_elements(self.areas) }
 	}
 
 	/// The area nearest to `position`, by the distance from `position` to the
@@ -844,18 +857,5 @@ impl<'s> NavMesh<'s> {
 		}
 
 		found
-	}
-
-	/// The list's raw pointer, for calls this crate does not wrap.
-	pub const fn as_ptr(self) -> *mut raw::NavAreaVector {
-		self.areas.as_ptr()
-	}
-
-	/// The list's areas, borrowed only while a method reads them, since the
-	/// game reallocates them as the mesh changes.
-	fn elements(&self) -> &[*mut sys::CNavArea] {
-		// SAFETY: `from_raw`'s caller vouches that the list is live for `'s`,
-		// and the borrow ends before game code runs again.
-		unsafe { raw::nav_area_elements(self.areas) }
 	}
 }

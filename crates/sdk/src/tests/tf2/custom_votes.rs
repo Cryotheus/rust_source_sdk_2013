@@ -335,18 +335,6 @@ fn controller(capacity: usize) -> Controller {
 }
 
 #[test]
-fn cuts_long_text_at_a_character() {
-	assert_eq!(cut_text(b"short"), b"short");
-
-	let long = "é".repeat(40);
-	let cut = cut_text(long.as_bytes());
-
-	assert_eq!(cut.len(), 62);
-	assert!(str::from_utf8(cut).is_ok());
-	assert_eq!(cut_text(&[0xFF; 80]).len(), MAX_TEXT_LEN);
-}
-
-#[test]
 fn custom_issues_keep_the_restart_votes_rtti() {
 	let controller = controller(16);
 	let (votes, _calls) = install();
@@ -360,6 +348,18 @@ fn custom_issues_keep_the_restart_votes_rtti() {
 	drop(votes);
 	assert_eq!(state(issue), DEAD_VTABLE);
 	assert_eq!(rtti(), RESTART_RTTI);
+}
+
+#[test]
+fn cuts_long_text_at_a_character() {
+	assert_eq!(cut_text(b"short"), b"short");
+
+	let long = "é".repeat(40);
+	let cut = cut_text(long.as_bytes());
+
+	assert_eq!(cut.len(), 62);
+	assert!(str::from_utf8(cut).is_ok());
+	assert_eq!(cut_text(&[0xFF; 80]).len(), MAX_TEXT_LEN);
 }
 
 #[test]
@@ -509,6 +509,21 @@ fn names_are_ascii_words_that_fit_before_the_tag() {
 	));
 }
 
+/// Calls the issue's `ProcessResults`.
+unsafe fn process(issue: *mut sys::CBaseIssue) -> sys::CBaseIssue_EVoteAction {
+	unsafe {
+		((*(*issue).vtable_).CBaseIssue_ProcessResults)(
+			issue,
+			ptr::null(),
+			ptr::null(),
+			ptr::null(),
+			0,
+			1,
+			1,
+		)
+	}
+}
+
 #[test]
 fn reloaded_votes_keep_their_places() {
 	let controller = controller(16);
@@ -535,21 +550,6 @@ fn reloaded_votes_keep_their_places() {
 
 	controller.attach().unwrap();
 	assert_eq!(controller.issues(), issues);
-}
-
-/// Calls the issue's `ProcessResults`.
-unsafe fn process(issue: *mut sys::CBaseIssue) -> sys::CBaseIssue_EVoteAction {
-	unsafe {
-		((*(*issue).vtable_).CBaseIssue_ProcessResults)(
-			issue,
-			ptr::null(),
-			ptr::null(),
-			ptr::null(),
-			0,
-			1,
-			1,
-		)
-	}
 }
 
 /// The mock restart vote's vtable, as its issue points to it.

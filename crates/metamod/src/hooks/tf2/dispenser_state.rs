@@ -231,22 +231,17 @@ mod tests {
 				supplied: 0,
 			}
 		}
+
 		fn ptr(&mut self) -> *mut sys::CBaseEntity {
 			std::ptr::from_mut(self).cast()
 		}
+
 		fn service(&mut self) {
 			// StartTouch, DispenseThink and RefillThink all gate new service
 			// on IsDisabled. Simulate the later call in the same native frame.
 			if !self.disabled {
 				self.supplied += 1;
 			}
-		}
-	}
-
-	unsafe extern "C" fn native_update(this: *mut sys::CBaseEntity) {
-		// SAFETY: Fixture receivers are NativeDispenser instances.
-		unsafe {
-			(*this.cast::<NativeDispenser>()).disabled = false;
 		}
 	}
 
@@ -258,58 +253,6 @@ mod tests {
 		} else {
 			DispenserDisabledAction::Update
 		}
-	}
-
-	fn table() -> NonNull<*mut c_void> {
-		let slots = vec![native_update as *mut c_void; UPDATE_DISABLED_STATE_SLOT + 1];
-		NonNull::new(Vec::leak(slots).as_mut_ptr()).unwrap()
-	}
-
-	fn install(harness: &Harness, vtable: NonNull<*mut c_void>) -> DispenserDisabledHook {
-		PANIC.set(false);
-		// SAFETY: The leaked mock table holds the generated void signature.
-		unsafe {
-			harness.api().install_dispenser_disabled_state(
-				vtable,
-				tf2_binding(no_interfaces),
-				callback,
-			)
-		}
-		.unwrap()
-	}
-
-	fn update(harness: &Harness, entity: &mut NativeDispenser) -> bool {
-		OBSERVED.set(false);
-		harness.call::<UpdateDisabledStateFn>(entity.ptr(), UPDATE_DISABLED_STATE_SLOT, ());
-		OBSERVED.get()
-	}
-
-	#[test]
-	fn owned_disable_survives_native_updates_before_every_service_entry() {
-		on_both(|harness| {
-			let vtable = table();
-			let hook = install(harness, vtable);
-			let mut held = NativeDispenser::new(vtable);
-			let mut ordinary = NativeDispenser::new(vtable);
-			OWNED.set(held.ptr().addr());
-			// Expiring plasma, removing a sapper and Show all reach this
-			// updater before the remainder of the game frame runs.
-			for _ in 0..3 {
-				assert!(update(harness, &mut held));
-				held.service();
-				assert!(held.disabled);
-				assert_eq!(held.supplied, 0);
-			}
-			assert!(update(harness, &mut ordinary));
-			ordinary.service();
-			assert!(!ordinary.disabled);
-			assert_eq!(ordinary.supplied, 1);
-			OWNED.set(0);
-			assert!(update(harness, &mut held));
-			held.service();
-			assert_eq!(held.supplied, 1);
-			hook.remove(harness.api());
-		});
 	}
 
 	#[test]
@@ -352,5 +295,64 @@ mod tests {
 			assert!(held.disabled);
 			again.remove(harness.api());
 		});
+	}
+
+	fn install(harness: &Harness, vtable: NonNull<*mut c_void>) -> DispenserDisabledHook {
+		PANIC.set(false);
+		// SAFETY: The leaked mock table holds the generated void signature.
+		unsafe {
+			harness.api().install_dispenser_disabled_state(
+				vtable,
+				tf2_binding(no_interfaces),
+				callback,
+			)
+		}
+		.unwrap()
+	}
+
+	unsafe extern "C" fn native_update(this: *mut sys::CBaseEntity) {
+		// SAFETY: Fixture receivers are NativeDispenser instances.
+		unsafe {
+			(*this.cast::<NativeDispenser>()).disabled = false;
+		}
+	}
+
+	#[test]
+	fn owned_disable_survives_native_updates_before_every_service_entry() {
+		on_both(|harness| {
+			let vtable = table();
+			let hook = install(harness, vtable);
+			let mut held = NativeDispenser::new(vtable);
+			let mut ordinary = NativeDispenser::new(vtable);
+			OWNED.set(held.ptr().addr());
+			// Expiring plasma, removing a sapper and Show all reach this
+			// updater before the remainder of the game frame runs.
+			for _ in 0..3 {
+				assert!(update(harness, &mut held));
+				held.service();
+				assert!(held.disabled);
+				assert_eq!(held.supplied, 0);
+			}
+			assert!(update(harness, &mut ordinary));
+			ordinary.service();
+			assert!(!ordinary.disabled);
+			assert_eq!(ordinary.supplied, 1);
+			OWNED.set(0);
+			assert!(update(harness, &mut held));
+			held.service();
+			assert_eq!(held.supplied, 1);
+			hook.remove(harness.api());
+		});
+	}
+
+	fn table() -> NonNull<*mut c_void> {
+		let slots = vec![native_update as *mut c_void; UPDATE_DISABLED_STATE_SLOT + 1];
+		NonNull::new(Vec::leak(slots).as_mut_ptr()).unwrap()
+	}
+
+	fn update(harness: &Harness, entity: &mut NativeDispenser) -> bool {
+		OBSERVED.set(false);
+		harness.call::<UpdateDisabledStateFn>(entity.ptr(), UPDATE_DISABLED_STATE_SLOT, ());
+		OBSERVED.get()
 	}
 }

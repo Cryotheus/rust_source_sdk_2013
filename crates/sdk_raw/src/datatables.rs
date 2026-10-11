@@ -163,44 +163,6 @@ pub struct StandardVarProxies {
 	pub vector: bool,
 }
 
-/// Calls the property's variable proxy (`m_ProxyFn`) as the engine does when
-/// it encodes the variable, and returns the value it gave, or `None` if the
-/// property has no proxy.
-///
-/// The proxy is passed the property, `struct_base` and `data`, the value to
-/// fill in, which starts zeroed, `element`, and `object_id`.
-///
-/// # Safety
-///
-/// - `prop` must point to a live `SendProp` of the loaded game DLL, and the
-///   call must be made on the server's main thread.
-/// - The arguments must be those the engine passes the proxy: `struct_base`
-///   must point to the structure the property's table describes, and `data`
-///   to the variable within it, both within a live object of a class the
-///   property belongs to. `element` must be the variable's index in its
-///   array, or 0, and `object_id` the object's edict index.
-#[doc(alias("SendVarProxyFn"))]
-pub unsafe fn call_var_proxy(
-	prop: *const sys::SendProp,
-	struct_base: *const c_void,
-	data: *const c_void,
-	element: c_int,
-	object_id: c_int,
-) -> Option<sys::DVariant> {
-	// SAFETY: The property is live, and its field is read without forming a
-	// reference.
-	let proxy = unsafe { (&raw const (*prop).m_ProxyFn).read() }?;
-
-	// SAFETY: The union is plain data, for which zeroes are valid.
-	let mut value: sys::DVariant = unsafe { zeroed() };
-
-	// SAFETY: The proxy is the game's own, called with the arguments the
-	// engine passes, as the caller promises, and the value is a local.
-	unsafe { proxy(prop, struct_base, data, &raw mut value, element, object_id) };
-
-	Some(value)
-}
-
 /// Calls the property's data table proxy (`m_DataTableProxyFn`) as the
 /// engine does when it encodes the nested table, and returns the structure it
 /// gave, which is null when the table is not sent, or `None` if the property
@@ -239,6 +201,44 @@ pub unsafe fn call_table_proxy(
 	// SAFETY: The proxy is the game's own, called with the arguments the
 	// engine passes, as the caller promises, and the recipients are a local.
 	Some(unsafe { proxy(prop, struct_base, data, &raw mut recipients, object_id) })
+}
+
+/// Calls the property's variable proxy (`m_ProxyFn`) as the engine does when
+/// it encodes the variable, and returns the value it gave, or `None` if the
+/// property has no proxy.
+///
+/// The proxy is passed the property, `struct_base` and `data`, the value to
+/// fill in, which starts zeroed, `element`, and `object_id`.
+///
+/// # Safety
+///
+/// - `prop` must point to a live `SendProp` of the loaded game DLL, and the
+///   call must be made on the server's main thread.
+/// - The arguments must be those the engine passes the proxy: `struct_base`
+///   must point to the structure the property's table describes, and `data`
+///   to the variable within it, both within a live object of a class the
+///   property belongs to. `element` must be the variable's index in its
+///   array, or 0, and `object_id` the object's edict index.
+#[doc(alias("SendVarProxyFn"))]
+pub unsafe fn call_var_proxy(
+	prop: *const sys::SendProp,
+	struct_base: *const c_void,
+	data: *const c_void,
+	element: c_int,
+	object_id: c_int,
+) -> Option<sys::DVariant> {
+	// SAFETY: The property is live, and its field is read without forming a
+	// reference.
+	let proxy = unsafe { (&raw const (*prop).m_ProxyFn).read() }?;
+
+	// SAFETY: The union is plain data, for which zeroes are valid.
+	let mut value: sys::DVariant = unsafe { zeroed() };
+
+	// SAFETY: The proxy is the game's own, called with the arguments the
+	// engine passes, as the caller promises, and the value is a local.
+	unsafe { proxy(prop, struct_base, data, &raw mut value, element, object_id) };
+
+	Some(value)
 }
 
 /// Whether the property's data table proxy (`m_DataTableProxyFn`) passes the

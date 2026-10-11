@@ -56,6 +56,14 @@ const THINK: VirtualFunction<Think> = VirtualFunction::new(THINK_SLOT);
 
 static ROUTE: UpdateRoute = UpdateRoute::new();
 
+#[derive(Clone, Copy)]
+struct RoutedUpdate {
+	binding: ServerBinding,
+	callback: ScoreboardUpdateFn,
+	hook: HookId,
+	vtable: usize,
+}
+
 /// Why a scoreboard hook could not be installed.
 #[derive(Debug, thiserror::Error)]
 pub enum ScoreboardHookError {
@@ -76,14 +84,6 @@ pub enum ScoreboardHookError {
 	/// more than once can ignore.
 	#[error(transparent)]
 	Hook(#[from] HookError),
-}
-
-#[derive(Clone, Copy)]
-struct RoutedUpdate {
-	binding: ServerBinding,
-	callback: ScoreboardUpdateFn,
-	hook: HookId,
-	vtable: usize,
 }
 
 struct UpdateRoute {

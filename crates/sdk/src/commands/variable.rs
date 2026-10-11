@@ -258,16 +258,6 @@ impl ConsoleVariable {
 		NonNull::from(self).cast()
 	}
 
-	/// Makes the variable read-only: the engine refuses to change it, from the
-	/// console, from a config or from another plugin, and prints that it is
-	/// read-only to the server console instead. Its own setters, such as
-	/// [`set_string`](Self::set_string), still change it, and run the change
-	/// callbacks as for any variable.
-	pub const fn read_only(mut self) -> Self {
-		self.read_only = true;
-		self
-	}
-
 	/// Fills in the engine-visible fields before linking.
 	///
 	/// # Safety
@@ -291,6 +281,16 @@ impl ConsoleVariable {
 		};
 
 		self.binding.set(Some(binding));
+	}
+
+	/// Makes the variable read-only: the engine refuses to change it, from the
+	/// console, from a config or from another plugin, and prints that it is
+	/// read-only to the server console instead. Its own setters, such as
+	/// [`set_string`](Self::set_string), still change it, and run the change
+	/// callbacks as for any variable.
+	pub const fn read_only(mut self) -> Self {
+		self.read_only = true;
+		self
 	}
 
 	/// Registers the variable with the engine through a registrar whose host

@@ -38,6 +38,64 @@ fn binding() -> ServerBinding {
 	tf2_binding(game_server_factory)
 }
 
+#[test]
+fn client_events_only_hook_their_callbacks() {
+	on_both(|harness| {
+		let api = harness.api();
+		let scope = ();
+		let clients = game_clients(&scope);
+		let edict = edict();
+
+		let events = ClientEvents {
+			active: Some(on_active),
+			..ClientEvents::default()
+		};
+
+		api.hook_client_events(clients, binding(), events).unwrap();
+
+		assert_eq!(
+			put_in_server(harness, clients, edict),
+			[("game", edict.addr())]
+		);
+		assert_eq!(
+			activate(harness, clients, edict),
+			[("game", edict.addr()), ("active", edict.addr())]
+		);
+	});
+}
+
+#[test]
+fn client_events_run_after_the_game() {
+	on_both(|harness| {
+		let api = harness.api();
+		let scope = ();
+		let clients = game_clients(&scope);
+		let edict = edict();
+
+		let events = ClientEvents {
+			put_in_server: Some(on_put_in_server),
+			active: Some(on_active),
+		};
+
+		api.hook_client_events(clients, binding(), events).unwrap();
+
+		// The callbacks are installed once.
+		assert_eq!(
+			api.hook_client_events(clients, binding(), events),
+			Err(HookError::AlreadyInstalled)
+		);
+
+		assert_eq!(
+			put_in_server(harness, clients, edict),
+			[("game", edict.addr()), ("put in server", edict.addr())]
+		);
+		assert_eq!(
+			activate(harness, clients, edict),
+			[("game", edict.addr()), ("active", edict.addr())]
+		);
+	});
+}
+
 /// An edict for the tests, which only compare its address.
 fn edict() -> *mut sys::edict_t {
 	Box::into_raw(Box::new([0_u8; 64])).cast()
@@ -121,62 +179,4 @@ fn put_in_server(
 		(edict, c"player".as_ptr()),
 	);
 	CALLS.take()
-}
-
-#[test]
-fn client_events_run_after_the_game() {
-	on_both(|harness| {
-		let api = harness.api();
-		let scope = ();
-		let clients = game_clients(&scope);
-		let edict = edict();
-
-		let events = ClientEvents {
-			put_in_server: Some(on_put_in_server),
-			active: Some(on_active),
-		};
-
-		api.hook_client_events(clients, binding(), events).unwrap();
-
-		// The callbacks are installed once.
-		assert_eq!(
-			api.hook_client_events(clients, binding(), events),
-			Err(HookError::AlreadyInstalled)
-		);
-
-		assert_eq!(
-			put_in_server(harness, clients, edict),
-			[("game", edict.addr()), ("put in server", edict.addr())]
-		);
-		assert_eq!(
-			activate(harness, clients, edict),
-			[("game", edict.addr()), ("active", edict.addr())]
-		);
-	});
-}
-
-#[test]
-fn client_events_only_hook_their_callbacks() {
-	on_both(|harness| {
-		let api = harness.api();
-		let scope = ();
-		let clients = game_clients(&scope);
-		let edict = edict();
-
-		let events = ClientEvents {
-			active: Some(on_active),
-			..ClientEvents::default()
-		};
-
-		api.hook_client_events(clients, binding(), events).unwrap();
-
-		assert_eq!(
-			put_in_server(harness, clients, edict),
-			[("game", edict.addr())]
-		);
-		assert_eq!(
-			activate(harness, clients, edict),
-			[("game", edict.addr()), ("active", edict.addr())]
-		);
-	});
 }

@@ -78,15 +78,15 @@ impl TaggedConVar<'_> {
 		unsafe { string.write(0) };
 	}
 
+	/// The string value of the entry's key values named `name`.
+	fn string(&self, name: &CStr) -> Option<&CStr> {
+		self.entry.find_key(name)?.string()
+	}
+
 	/// The tag, as the entry's `tag` holds it, or `None` if it holds none or
 	/// its name cannot be found (see [`KeyValues::name`]).
 	pub fn tag(&self) -> Option<&CStr> {
 		self.string(c"tag")
-	}
-
-	/// The string value of the entry's key values named `name`.
-	fn string(&self, name: &CStr) -> Option<&CStr> {
-		self.entry.find_key(name)?.string()
 	}
 }
 

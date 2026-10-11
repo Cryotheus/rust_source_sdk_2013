@@ -10,6 +10,38 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Amount(f32);
 
+impl Amount {
+	/// No change.
+	pub const ZERO: Self = Self(0.0);
+
+	/// A finite amount, or `None` for NaN and infinities. Negative zero
+	/// becomes zero.
+	pub const fn new(amount: f32) -> Option<Self> {
+		if amount.is_finite() {
+			Some(Self(amount + 0.0))
+		} else {
+			None
+		}
+	}
+
+	/// The amount.
+	pub const fn get(self) -> f32 {
+		self.0
+	}
+}
+
+impl AttributeValue for Amount {
+	fn from_stored(stored: f32) -> Option<Self> {
+		Self::new(stored)
+	}
+
+	fn to_stored(self) -> f32 {
+		self.0
+	}
+}
+
+impl sealed::Sealed for Amount {}
+
 /// A [catalog](super::catalog) definition of any value type, as
 /// [`catalog::ALL`](super::catalog::ALL) lists them, for attributes chosen
 /// while the plugin runs, such as by name from a configuration file. Its
@@ -103,38 +135,6 @@ impl AnyAttributeDef {
 		}
 	}
 }
-
-impl Amount {
-	/// No change.
-	pub const ZERO: Self = Self(0.0);
-
-	/// A finite amount, or `None` for NaN and infinities. Negative zero
-	/// becomes zero.
-	pub const fn new(amount: f32) -> Option<Self> {
-		if amount.is_finite() {
-			Some(Self(amount + 0.0))
-		} else {
-			None
-		}
-	}
-
-	/// The amount.
-	pub const fn get(self) -> f32 {
-		self.0
-	}
-}
-
-impl AttributeValue for Amount {
-	fn from_stored(stored: f32) -> Option<Self> {
-		Self::new(stored)
-	}
-
-	fn to_stored(self) -> f32 {
-		self.0
-	}
-}
-
-impl sealed::Sealed for Amount {}
 
 /// A schema attribute vetted against the item schema TF2 ships: its name,
 /// definition index, attribute class, description format, and the values

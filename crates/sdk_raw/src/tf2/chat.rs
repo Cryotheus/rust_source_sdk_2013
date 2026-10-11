@@ -41,6 +41,20 @@ pub type CanHearAndReadChatFromFn =
 pub type CheckChatTextFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, text: *mut c_char, size: c_int);
 
+// In the same vtables, `CanHearAndReadChatFrom` is second after
+// `PlayerRunCommand`, with `ChangeTeam`'s overload between them. The generated
+// method has the signature of `CanHearAndReadChatFromFn`, with `CTFPlayer` and
+// `CBasePlayer` pointers.
+const _: () = {
+	assert!(CAN_HEAR_AND_READ_CHAT_FROM_SLOT == 432 + CppDestructors::VTABLE_SLOTS);
+	assert!(CAN_HEAR_AND_READ_CHAT_FROM_SLOT + 3 == CHECK_CHAT_TEXT_SLOT);
+
+	let _: fn(
+		&sys::CTFPlayer__bindgen_vtable,
+	) -> unsafe extern "C" fn(*mut sys::CTFPlayer, *mut sys::CBasePlayer) -> bool =
+		|vtable| vtable.CTFPlayer_CanHearAndReadChatFrom;
+};
+
 // The slot lies between those of `PlayerRunCommand` and `RemoveWearable`,
 // which SourceMod's `gamedata/sdktools.games/game.tf.txt` and
 // `gamedata/sm-tf2.games.txt` list as 431 and 440 on Windows, one more on
@@ -57,20 +71,6 @@ const _: () = {
 		&sys::CTFPlayer__bindgen_vtable,
 	) -> unsafe extern "C" fn(*mut sys::CTFPlayer, *mut c_char, c_int) =
 		|vtable| vtable.CTFPlayer_CheckChatText;
-};
-
-// In the same vtables, `CanHearAndReadChatFrom` is second after
-// `PlayerRunCommand`, with `ChangeTeam`'s overload between them. The generated
-// method has the signature of `CanHearAndReadChatFromFn`, with `CTFPlayer` and
-// `CBasePlayer` pointers.
-const _: () = {
-	assert!(CAN_HEAR_AND_READ_CHAT_FROM_SLOT == 432 + CppDestructors::VTABLE_SLOTS);
-	assert!(CAN_HEAR_AND_READ_CHAT_FROM_SLOT + 3 == CHECK_CHAT_TEXT_SLOT);
-
-	let _: fn(
-		&sys::CTFPlayer__bindgen_vtable,
-	) -> unsafe extern "C" fn(*mut sys::CTFPlayer, *mut sys::CBasePlayer) -> bool =
-		|vtable| vtable.CTFPlayer_CanHearAndReadChatFrom;
 };
 
 /// The slot of `CBasePlayer::CanHearAndReadChatFrom` in a TF2 player's

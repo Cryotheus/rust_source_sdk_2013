@@ -6,125 +6,23 @@ mod regional;
 use super::super::{brushes::BrushGeometry, partitions::Side};
 use super::bounds::{Bounds, Index, heap_sort};
 use super::predicates::widen;
+
 use super::{
 	AnalysisDomain, Budget, Cell, Error, Kernel, Limits, Plane, Sign, Statistics, coefficients,
 	det4, negate, reserve,
 };
+
 use sdk_raw::interfaces::engine_trace::CONTENTS_SOLID;
 
-/// Provenance of one original closed set in the conservative solid union.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SolidSource {
-	WorldBrush(usize),
-	StructuralPartition { partition: usize, leaf: usize },
-}
+pub use incidence::{
+	RegionComponentIncidence, RegionIncidence, RegionQueryError, RegionQueryLimits,
+	RegionQueryStatistics,
+};
 
-/// All original constraints survive, including after an intermediate rank drop.
-#[derive(Debug)]
-pub struct Solid {
-	source: SolidSource,
-	constraints: Vec<usize>,
-}
-
-impl Solid {
-	pub fn source(&self) -> SolidSource {
-		self.source
-	}
-	pub fn constraints(&self) -> &[usize] {
-		&self.constraints
-	}
-}
-
-#[derive(Debug)]
-struct Source {
-	partition: usize,
-	leaf: usize,
-	constraints: Vec<usize>,
-	strict: Vec<bool>,
-}
-
-/// Closure of a full-dimensional free piece. Solid surfaces are excluded by locate.
-#[derive(Debug)]
-pub struct Fragment {
-	source: usize,
-	partition: usize,
-	leaf: usize,
-	cell: Cell,
-	bounds: Bounds,
-	component: usize,
-	touches_domain: bool,
-}
-
-impl Fragment {
-	pub fn partition(&self) -> usize {
-		self.partition
-	}
-	pub fn leaf(&self) -> usize {
-		self.leaf
-	}
-	pub fn constraints(&self) -> &[usize] {
-		&self.cell.constraints
-	}
-	pub fn component(&self) -> usize {
-		self.component
-	}
-	/// Includes face, edge and point contact with the artificial domain boundary.
-	pub fn touches_domain(&self) -> bool {
-		self.touches_domain
-	}
-}
-
-/// Positive-area geometric aperture after subtraction of every relevant original solid.
-/// This is neither an authored visibility areaportal nor a controller movement link.
-/// Several convex pieces may connect the same pair of fragments. Stored polygons
-/// are closures whose relative interiors exclude the original closed solid union.
-/// Structural ownership is separate: BrushSpace::locate may report Unrepresented
-/// even in that relative interior. Stored boundary points may also be solid.
-#[derive(Debug)]
-pub struct Interface {
-	fragments: [usize; 2],
-	cell: Cell,
-}
-
-impl Interface {
-	pub fn fragments(&self) -> [usize; 2] {
-		self.fragments
-	}
-	pub fn constraints(&self) -> &[usize] {
-		&self.cell.constraints
-	}
-	pub fn support_plane(&self) -> usize {
-		self.cell.flat.expect("interface has an affine plane")
-	}
-}
-
-/// Connectivity of the represented open free volume inside the artificial domain.
-#[derive(Debug)]
-pub struct Component {
-	fragments: Vec<usize>,
-	touches_domain: bool,
-}
-
-impl Component {
-	pub fn fragments(&self) -> &[usize] {
-		&self.fragments
-	}
-	pub fn touches_domain(&self) -> bool {
-		self.touches_domain
-	}
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum PointRelation {
-	/// Includes the artificial boundary: connectivity is only claimed in its interior.
-	OutsideDomain,
-	/// In the original closed union, including structural solid occurrences.
-	Solid,
-	/// No retained full-dimensional nonsolid source occurrence owns this point.
-	Unrepresented,
-	/// All incident closures whose structural half-open occurrence owns the point.
-	Free { fragments: Vec<usize> },
-}
+pub use regional::{
+	ComponentPairCertificate, RegionalOverlapLimits, RegionalOverlapStatistics, RegionalPair,
+	RegionalPairError, RegionalSplit,
+};
 
 /// A complete result within one finite artificial domain and one explicit source model.
 ///
@@ -274,27 +172,20 @@ impl BrushSpace {
 		)
 	}
 
-	pub fn domain(&self) -> AnalysisDomain {
-		self.domain
-	}
-	/// Owned original and reversed support planes; constraint indices refer here.
-	pub fn planes(&self) -> &[Plane] {
-		&self.kernel.planes
-	}
-	pub fn solids(&self) -> &[Solid] {
-		&self.solids
-	}
-	pub fn fragments(&self) -> &[Fragment] {
-		&self.fragments
-	}
-	pub fn interfaces(&self) -> &[Interface] {
-		&self.interfaces
-	}
 	pub fn components(&self) -> &[Component] {
 		&self.components
 	}
-	pub fn statistics(&self) -> Statistics {
-		self.kernel.budget.stats
+
+	pub fn domain(&self) -> AnalysisDomain {
+		self.domain
+	}
+
+	pub fn fragments(&self) -> &[Fragment] {
+		&self.fragments
+	}
+
+	pub fn interfaces(&self) -> &[Interface] {
+		&self.interfaces
 	}
 
 	/// Exact finite-f32 point membership, with a fresh copy of the build work limits.
@@ -360,33 +251,178 @@ impl BrushSpace {
 			PointRelation::Free { fragments }
 		})
 	}
+
+	/// Owned original and reversed support planes; constraint indices refer here.
+	pub fn planes(&self) -> &[Plane] {
+		&self.kernel.planes
+	}
+
+	pub fn solids(&self) -> &[Solid] {
+		&self.solids
+	}
+
+	pub fn statistics(&self) -> Statistics {
+		self.kernel.budget.stats
+	}
 }
 
-fn point_side(point: [f32; 3], plane: Plane, budget: &mut Budget) -> Result<Sign, Error> {
-	Ok(negate(det4(
-		[
-			[1.0, 0.0, 0.0, point[0]],
-			[0.0, 1.0, 0.0, point[1]],
-			[0.0, 0.0, 1.0, point[2]],
-			coefficients(plane),
-		],
-		budget,
-	)?))
+impl BrushSpace {
+	pub fn coverage(&self) -> Coverage {
+		Coverage::BoundedSourceSolids
+	}
 }
 
-fn push_solid(
-	kernel: &mut Kernel,
-	solids: &mut Vec<Solid>,
+impl BrushSpace {
+	pub fn source_statistics(&self) -> SourceStatistics {
+		self.source_statistics
+	}
+}
+
+/// Connectivity of the represented open free volume inside the artificial domain.
+#[derive(Debug)]
+pub struct Component {
+	fragments: Vec<usize>,
+	touches_domain: bool,
+}
+
+impl Component {
+	pub fn fragments(&self) -> &[usize] {
+		&self.fragments
+	}
+
+	pub fn touches_domain(&self) -> bool {
+		self.touches_domain
+	}
+}
+
+/// Scope of a successfully completed atlas, independent of gameplay role evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Coverage {
+	/// Explicit artificial domain; nonsolid structural volume minus the closed
+	/// union of world solid brushes and solid structural occurrences. Missing
+	/// displacement, prop, submodel and controller geometry remains unresolved.
+	BoundedSourceSolids,
+}
+
+#[derive(Clone, Copy)]
+struct Facet {
+	key: [u64; 4],
+	positive: bool,
+	fragment: usize,
+	plane: usize,
+}
+
+/// Closure of a full-dimensional free piece. Solid surfaces are excluded by locate.
+#[derive(Debug)]
+pub struct Fragment {
+	source: usize,
+	partition: usize,
+	leaf: usize,
+	cell: Cell,
+	bounds: Bounds,
+	component: usize,
+	touches_domain: bool,
+}
+
+impl Fragment {
+	pub fn component(&self) -> usize {
+		self.component
+	}
+
+	pub fn constraints(&self) -> &[usize] {
+		&self.cell.constraints
+	}
+
+	pub fn leaf(&self) -> usize {
+		self.leaf
+	}
+
+	pub fn partition(&self) -> usize {
+		self.partition
+	}
+
+	/// Includes face, edge and point contact with the artificial domain boundary.
+	pub fn touches_domain(&self) -> bool {
+		self.touches_domain
+	}
+}
+
+/// Positive-area geometric aperture after subtraction of every relevant original solid.
+/// This is neither an authored visibility areaportal nor a controller movement link.
+/// Several convex pieces may connect the same pair of fragments. Stored polygons
+/// are closures whose relative interiors exclude the original closed solid union.
+/// Structural ownership is separate: BrushSpace::locate may report Unrepresented
+/// even in that relative interior. Stored boundary points may also be solid.
+#[derive(Debug)]
+pub struct Interface {
+	fragments: [usize; 2],
+	cell: Cell,
+}
+
+impl Interface {
+	pub fn constraints(&self) -> &[usize] {
+		&self.cell.constraints
+	}
+
+	pub fn fragments(&self) -> [usize; 2] {
+		self.fragments
+	}
+
+	pub fn support_plane(&self) -> usize {
+		self.cell.flat.expect("interface has an affine plane")
+	}
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PointRelation {
+	/// Includes the artificial boundary: connectivity is only claimed in its interior.
+	OutsideDomain,
+	/// In the original closed union, including structural solid occurrences.
+	Solid,
+	/// No retained full-dimensional nonsolid source occurrence owns this point.
+	Unrepresented,
+	/// All incident closures whose structural half-open occurrence owns the point.
+	Free { fragments: Vec<usize> },
+}
+
+/// All original constraints survive, including after an intermediate rank drop.
+#[derive(Debug)]
+pub struct Solid {
 	source: SolidSource,
 	constraints: Vec<usize>,
-) -> Result<(), Error> {
-	kernel.budget.cell()?;
-	reserve(solids, 1)?;
-	solids.push(Solid {
-		source,
-		constraints,
-	});
-	Ok(())
+}
+
+impl Solid {
+	pub fn constraints(&self) -> &[usize] {
+		&self.constraints
+	}
+
+	pub fn source(&self) -> SolidSource {
+		self.source
+	}
+}
+
+/// Provenance of one original closed set in the conservative solid union.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolidSource {
+	WorldBrush(usize),
+	StructuralPartition { partition: usize, leaf: usize },
+}
+
+#[derive(Debug)]
+struct Source {
+	partition: usize,
+	leaf: usize,
+	constraints: Vec<usize>,
+	strict: Vec<bool>,
+}
+
+/// Checked outputs of the two separately bounded input-BSP traversal phases.
+/// These are counts, not estimates of their work or allocation totals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceStatistics {
+	pub partitions: usize,
+	pub world_brushes: usize,
 }
 
 fn cell_bounds(kernel: &mut Kernel, domain: AnalysisDomain, cell: &Cell) -> Result<Bounds, Error> {
@@ -396,6 +432,48 @@ fn cell_bounds(kernel: &mut Kernel, domain: AnalysisDomain, cell: &Cell) -> Resu
 		&mut kernel.budget,
 	)?
 	.ok_or(Error::Invariant)
+}
+
+fn components(
+	kernel: &mut Kernel,
+	fragments: &mut [Fragment],
+	interfaces: &[Interface],
+) -> Result<Vec<Component>, Error> {
+	let mut parents = Vec::new();
+	let mut ids = Vec::new();
+	kernel
+		.budget
+		.constraints(fragments.len().checked_mul(2).ok_or(Error::Arithmetic)?)?;
+	reserve(&mut parents, fragments.len())?;
+	reserve(&mut ids, fragments.len())?;
+	parents.extend(0..fragments.len());
+	ids.resize(fragments.len(), usize::MAX);
+	for interface in interfaces {
+		kernel.budget.work(1)?;
+		let left = root(&mut parents, interface.fragments[0], &mut kernel.budget)?;
+		let right = root(&mut parents, interface.fragments[1], &mut kernel.budget)?;
+		parents[left.max(right)] = left.min(right);
+	}
+	let mut output = Vec::new();
+	for (id, fragment) in fragments.iter_mut().enumerate() {
+		let representative = root(&mut parents, id, &mut kernel.budget)?;
+		if ids[representative] == usize::MAX {
+			kernel.budget.cell()?;
+			reserve(&mut output, 1)?;
+			ids[representative] = output.len();
+			output.push(Component {
+				fragments: Vec::new(),
+				touches_domain: false,
+			});
+		}
+		let component = ids[representative];
+		fragment.component = component;
+		kernel.budget.constraints(1)?;
+		reserve(&mut output[component].fragments, 1)?;
+		output[component].fragments.push(id);
+		output[component].touches_domain |= fragment.touches_domain;
+	}
+	Ok(output)
 }
 
 fn entry(
@@ -410,50 +488,25 @@ fn entry(
 	Ok(())
 }
 
-/// Bounds only reject impossible overlap. Every admitted original set is subtracted
-/// in full; a dropped 3D interior never removes the original set from this index.
-fn subtract_solids(
-	kernel: &mut Kernel,
-	domain: AnalysisDomain,
-	solids: &[Solid],
-	index: &Index,
-	cell: Cell,
-) -> Result<Vec<Cell>, Error> {
-	let bounds = cell_bounds(kernel, domain, &cell)?;
-	let candidates = index.query(bounds, &mut kernel.budget)?;
-	let mut pieces = Vec::new();
-	reserve(&mut pieces, 1)?;
-	pieces.push(cell);
-	for id in candidates {
-		let solid_bounds = Bounds::from_planes(
-			domain,
-			solids[id]
-				.constraints
-				.iter()
-				.map(|&plane| kernel.planes[plane]),
-			&mut kernel.budget,
-		)?
+/// Equal exact planes have equal correctly rounded ratios under a fixed rounding
+/// mode. Hash/key collisions are harmless: exact proportionality is checked later.
+/// All f32 ratios fit in the normal f64 range; signed zero is canonicalized.
+fn facet_key(plane: Plane) -> Result<([u64; 4], bool), Error> {
+	let values = coefficients(plane).map(widen);
+	let pivot = (0..3)
+		.find(|&axis| values[axis] != 0.0)
 		.ok_or(Error::Invariant)?;
-		let mut next = Vec::new();
-		for piece in pieces {
-			kernel.budget.work(1)?;
-			// Descendants can be disjoint even when the original cell was a candidate.
-			// Closed overlap retains sheets and all face, edge and point contacts.
-			if !cell_bounds(kernel, domain, &piece)?.overlaps(solid_bounds) {
-				reserve(&mut next, 1)?;
-				next.push(piece);
-				continue;
+	let divisor = values[pivot];
+	Ok((
+		values.map(|value| {
+			if value == 0.0 {
+				0
+			} else {
+				(value / divisor).to_bits()
 			}
-			let outside = kernel.subtract(piece, &solids[id].constraints)?;
-			reserve(&mut next, outside.len())?;
-			next.extend(outside);
-		}
-		pieces = next;
-		if pieces.is_empty() {
-			break;
-		}
-	}
-	Ok(pieces)
+		}),
+		divisor > 0.0,
+	))
 }
 
 fn finish(
@@ -534,35 +587,6 @@ fn finish(
 		interfaces,
 		components,
 	})
-}
-
-#[derive(Clone, Copy)]
-struct Facet {
-	key: [u64; 4],
-	positive: bool,
-	fragment: usize,
-	plane: usize,
-}
-
-/// Equal exact planes have equal correctly rounded ratios under a fixed rounding
-/// mode. Hash/key collisions are harmless: exact proportionality is checked later.
-/// All f32 ratios fit in the normal f64 range; signed zero is canonicalized.
-fn facet_key(plane: Plane) -> Result<([u64; 4], bool), Error> {
-	let values = coefficients(plane).map(widen);
-	let pivot = (0..3)
-		.find(|&axis| values[axis] != 0.0)
-		.ok_or(Error::Invariant)?;
-	let divisor = values[pivot];
-	Ok((
-		values.map(|value| {
-			if value == 0.0 {
-				0
-			} else {
-				(value / divisor).to_bits()
-			}
-		}),
-		divisor > 0.0,
-	))
 }
 
 fn interfaces(
@@ -648,6 +672,33 @@ fn interfaces(
 	Ok(output)
 }
 
+fn point_side(point: [f32; 3], plane: Plane, budget: &mut Budget) -> Result<Sign, Error> {
+	Ok(negate(det4(
+		[
+			[1.0, 0.0, 0.0, point[0]],
+			[0.0, 1.0, 0.0, point[1]],
+			[0.0, 0.0, 1.0, point[2]],
+			coefficients(plane),
+		],
+		budget,
+	)?))
+}
+
+fn push_solid(
+	kernel: &mut Kernel,
+	solids: &mut Vec<Solid>,
+	source: SolidSource,
+	constraints: Vec<usize>,
+) -> Result<(), Error> {
+	kernel.budget.cell()?;
+	reserve(solids, 1)?;
+	solids.push(Solid {
+		source,
+		constraints,
+	});
+	Ok(())
+}
+
 fn root(parents: &mut [usize], mut id: usize, budget: &mut Budget) -> Result<usize, Error> {
 	while parents[id] != id {
 		budget.work(1)?;
@@ -657,46 +708,50 @@ fn root(parents: &mut [usize], mut id: usize, budget: &mut Budget) -> Result<usi
 	Ok(id)
 }
 
-fn components(
+/// Bounds only reject impossible overlap. Every admitted original set is subtracted
+/// in full; a dropped 3D interior never removes the original set from this index.
+fn subtract_solids(
 	kernel: &mut Kernel,
-	fragments: &mut [Fragment],
-	interfaces: &[Interface],
-) -> Result<Vec<Component>, Error> {
-	let mut parents = Vec::new();
-	let mut ids = Vec::new();
-	kernel
-		.budget
-		.constraints(fragments.len().checked_mul(2).ok_or(Error::Arithmetic)?)?;
-	reserve(&mut parents, fragments.len())?;
-	reserve(&mut ids, fragments.len())?;
-	parents.extend(0..fragments.len());
-	ids.resize(fragments.len(), usize::MAX);
-	for interface in interfaces {
-		kernel.budget.work(1)?;
-		let left = root(&mut parents, interface.fragments[0], &mut kernel.budget)?;
-		let right = root(&mut parents, interface.fragments[1], &mut kernel.budget)?;
-		parents[left.max(right)] = left.min(right);
-	}
-	let mut output = Vec::new();
-	for (id, fragment) in fragments.iter_mut().enumerate() {
-		let representative = root(&mut parents, id, &mut kernel.budget)?;
-		if ids[representative] == usize::MAX {
-			kernel.budget.cell()?;
-			reserve(&mut output, 1)?;
-			ids[representative] = output.len();
-			output.push(Component {
-				fragments: Vec::new(),
-				touches_domain: false,
-			});
+	domain: AnalysisDomain,
+	solids: &[Solid],
+	index: &Index,
+	cell: Cell,
+) -> Result<Vec<Cell>, Error> {
+	let bounds = cell_bounds(kernel, domain, &cell)?;
+	let candidates = index.query(bounds, &mut kernel.budget)?;
+	let mut pieces = Vec::new();
+	reserve(&mut pieces, 1)?;
+	pieces.push(cell);
+	for id in candidates {
+		let solid_bounds = Bounds::from_planes(
+			domain,
+			solids[id]
+				.constraints
+				.iter()
+				.map(|&plane| kernel.planes[plane]),
+			&mut kernel.budget,
+		)?
+		.ok_or(Error::Invariant)?;
+		let mut next = Vec::new();
+		for piece in pieces {
+			kernel.budget.work(1)?;
+			// Descendants can be disjoint even when the original cell was a candidate.
+			// Closed overlap retains sheets and all face, edge and point contacts.
+			if !cell_bounds(kernel, domain, &piece)?.overlaps(solid_bounds) {
+				reserve(&mut next, 1)?;
+				next.push(piece);
+				continue;
+			}
+			let outside = kernel.subtract(piece, &solids[id].constraints)?;
+			reserve(&mut next, outside.len())?;
+			next.extend(outside);
 		}
-		let component = ids[representative];
-		fragment.component = component;
-		kernel.budget.constraints(1)?;
-		reserve(&mut output[component].fragments, 1)?;
-		output[component].fragments.push(id);
-		output[component].touches_domain |= fragment.touches_domain;
+		pieces = next;
+		if pieces.is_empty() {
+			break;
+		}
 	}
-	Ok(output)
+	Ok(pieces)
 }
 
 #[cfg(test)]
@@ -738,38 +793,64 @@ pub(super) fn test_space(
 	finish(kernel, domain, cell, solids, sources, source_statistics)
 }
 
-/// Scope of a successfully completed atlas, independent of gameplay role evidence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Coverage {
-	/// Explicit artificial domain; nonsolid structural volume minus the closed
-	/// union of world solid brushes and solid structural occurrences. Missing
-	/// displacement, prop, submodel and controller geometry remains unresolved.
-	BoundedSourceSolids,
-}
-
-impl BrushSpace {
-	pub fn coverage(&self) -> Coverage {
-		Coverage::BoundedSourceSolids
-	}
-}
-
-/// Checked outputs of the two separately bounded input-BSP traversal phases.
-/// These are counts, not estimates of their work or allocation totals.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceStatistics {
-	pub partitions: usize,
-	pub world_brushes: usize,
-}
-impl BrushSpace {
-	pub fn source_statistics(&self) -> SourceStatistics {
-		self.source_statistics
-	}
-}
-
 #[cfg(test)]
 mod culling_tests {
 	use super::super::Budget;
 	use super::*;
+
+	#[test]
+	fn added_piece_bound_scan_refuses_work_atomically() {
+		for (limit, succeeds) in [(19, false), (20, true)] {
+			let domain = AnalysisDomain::new([-1.0; 3], [1.0; 3]).unwrap();
+			let mut kernel = Kernel::new(Limits::default());
+			let cell = kernel.domain(domain).unwrap();
+			// An empty H-representation is the whole closed space, not an empty solid.
+			let solids = vec![Solid {
+				source: SolidSource::WorldBrush(0),
+				constraints: Vec::new(),
+			}];
+			let index = solid_index(&mut kernel, domain, &solids);
+			kernel.budget = Budget::new(Limits {
+				work: limit,
+				..Limits::default()
+			});
+			let result = subtract_solids(&mut kernel, domain, &solids, &index, cell);
+			if succeeds {
+				assert!(result.unwrap().is_empty());
+				assert_eq!(kernel.budget.stats.work, 20);
+			} else {
+				assert!(matches!(
+					result,
+					Err(Error::Budget {
+						resource: "work",
+						limit: 19
+					})
+				));
+				assert_eq!(kernel.budget.stats.work, 19);
+			}
+			// Bounds/query temporaries were created, but no geometric predicate or
+			// partial result escaped the failure in the final plane-scan charge.
+			assert_eq!(kernel.budget.stats.predicates, 0);
+			assert_eq!(kernel.budget.stats.constraints, 1);
+		}
+	}
+
+	fn aperture(kernel: &mut Kernel, cell: Cell) -> Cell {
+		let plane = kernel
+			.plane(Plane {
+				normal: [0.0, 0.0, 1.0],
+				distance: 0.0,
+			})
+			.unwrap();
+		let reverse = kernel.reverse(plane).unwrap();
+		let copied = kernel.copy_cell(&cell).unwrap();
+		let left = kernel.clip(copied, plane).unwrap().unwrap();
+		let right = kernel.clip(cell, reverse).unwrap().unwrap();
+		kernel
+			.interface(&left, &right, plane, reverse)
+			.unwrap()
+			.unwrap()
+	}
 
 	fn box_constraints(kernel: &mut Kernel, min: [f32; 3], max: [f32; 3]) -> Vec<usize> {
 		let mut constraints = Vec::new();
@@ -797,36 +878,63 @@ mod culling_tests {
 		constraints
 	}
 
-	fn solid_index(kernel: &mut Kernel, domain: AnalysisDomain, solids: &[Solid]) -> Index {
-		let mut entries = Vec::new();
-		for (id, solid) in solids.iter().enumerate() {
-			let bounds = Bounds::from_planes(
-				domain,
-				solid.constraints.iter().map(|&id| kernel.planes[id]),
-				&mut kernel.budget,
-			)
-			.unwrap()
-			.unwrap();
-			entry(kernel, &mut entries, id, bounds).unwrap();
-		}
-		Index::new(entries, &mut kernel.budget).unwrap()
+	fn contains(kernel: &Kernel, cell: &Cell, point: [f32; 3]) -> bool {
+		cell.flat
+			.is_none_or(|plane| value(kernel.planes[plane], point) == 0.0)
+			&& cell
+				.constraints
+				.iter()
+				.all(|&plane| value(kernel.planes[plane], point) <= 0.0)
 	}
 
-	fn aperture(kernel: &mut Kernel, cell: Cell) -> Cell {
-		let plane = kernel
-			.plane(Plane {
-				normal: [0.0, 0.0, 1.0],
-				distance: 0.0,
-			})
-			.unwrap();
-		let reverse = kernel.reverse(plane).unwrap();
-		let copied = kernel.copy_cell(&cell).unwrap();
-		let left = kernel.clip(copied, plane).unwrap().unwrap();
-		let right = kernel.clip(cell, reverse).unwrap().unwrap();
-		kernel
-			.interface(&left, &right, plane, reverse)
-			.unwrap()
-			.unwrap()
+	#[test]
+	fn evolving_planar_pieces_skip_disjoint_nested_solid() {
+		verify_nested(true);
+	}
+
+	#[test]
+	fn evolving_volume_pieces_skip_disjoint_nested_solid() {
+		verify_nested(false);
+	}
+
+	#[test]
+	fn inclusive_piece_bounds_retain_face_edge_point_and_sheet_contacts() {
+		let unit = Bounds {
+			min: [0.0; 3],
+			max: [1.0; 3],
+		};
+		for min in [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0; 3]] {
+			let touching = Bounds {
+				min,
+				max: min.map(|x| x + 1.0),
+			};
+			assert!(unit.overlaps(touching));
+			assert!(touching.overlaps(unit));
+			let mut separated = touching;
+			separated.min[0] = 1.0_f64.next_up();
+			assert!(!unit.overlaps(separated));
+		}
+		let flat = Bounds {
+			min: [0.0; 3],
+			max: [1.0, 1.0, 0.0],
+		};
+		assert!(flat.overlaps(flat));
+		// The coincident closed sheet must remove the entire planar aperture.
+		let domain = AnalysisDomain::new([-4.0; 3], [4.0; 3]).unwrap();
+		let mut kernel = Kernel::new(Limits::default());
+		let cell = kernel.domain(domain).unwrap();
+		let cell = aperture(&mut kernel, cell);
+		let constraints = box_constraints(&mut kernel, [-4.0, -4.0, 0.0], [4.0, 4.0, 0.0]);
+		let solids = vec![Solid {
+			source: SolidSource::WorldBrush(0),
+			constraints,
+		}];
+		let index = solid_index(&mut kernel, domain, &solids);
+		assert!(
+			subtract_solids(&mut kernel, domain, &solids, &index, cell)
+				.unwrap()
+				.is_empty()
+		);
 	}
 
 	fn nested_fixture(planar: bool) -> (Kernel, AnalysisDomain, Cell, Vec<Solid>, Index) {
@@ -853,6 +961,21 @@ mod culling_tests {
 		}
 		let index = solid_index(&mut kernel, domain, &solids);
 		(kernel, domain, cell, solids, index)
+	}
+
+	fn solid_index(kernel: &mut Kernel, domain: AnalysisDomain, solids: &[Solid]) -> Index {
+		let mut entries = Vec::new();
+		for (id, solid) in solids.iter().enumerate() {
+			let bounds = Bounds::from_planes(
+				domain,
+				solid.constraints.iter().map(|&id| kernel.planes[id]),
+				&mut kernel.budget,
+			)
+			.unwrap()
+			.unwrap();
+			entry(kernel, &mut entries, id, bounds).unwrap();
+		}
+		Index::new(entries, &mut kernel.budget).unwrap()
 	}
 
 	/// The previous candidate loop is retained only as a focused comparison oracle.
@@ -892,15 +1015,6 @@ mod culling_tests {
 			.map(|(a, b)| f64::from(a) * f64::from(b))
 			.sum::<f64>()
 			- f64::from(plane.distance)
-	}
-
-	fn contains(kernel: &Kernel, cell: &Cell, point: [f32; 3]) -> bool {
-		cell.flat
-			.is_none_or(|plane| value(kernel.planes[plane], point) == 0.0)
-			&& cell
-				.constraints
-				.iter()
-				.all(|&plane| value(kernel.planes[plane], point) <= 0.0)
 	}
 
 	fn verify_nested(planar: bool) {
@@ -987,101 +1101,4 @@ mod culling_tests {
 			assert_ne!(component(across[0]), component([0.0, -3.0, 0.0]));
 		}
 	}
-
-	#[test]
-	fn evolving_volume_pieces_skip_disjoint_nested_solid() {
-		verify_nested(false);
-	}
-
-	#[test]
-	fn evolving_planar_pieces_skip_disjoint_nested_solid() {
-		verify_nested(true);
-	}
-
-	#[test]
-	fn inclusive_piece_bounds_retain_face_edge_point_and_sheet_contacts() {
-		let unit = Bounds {
-			min: [0.0; 3],
-			max: [1.0; 3],
-		};
-		for min in [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0; 3]] {
-			let touching = Bounds {
-				min,
-				max: min.map(|x| x + 1.0),
-			};
-			assert!(unit.overlaps(touching));
-			assert!(touching.overlaps(unit));
-			let mut separated = touching;
-			separated.min[0] = 1.0_f64.next_up();
-			assert!(!unit.overlaps(separated));
-		}
-		let flat = Bounds {
-			min: [0.0; 3],
-			max: [1.0, 1.0, 0.0],
-		};
-		assert!(flat.overlaps(flat));
-		// The coincident closed sheet must remove the entire planar aperture.
-		let domain = AnalysisDomain::new([-4.0; 3], [4.0; 3]).unwrap();
-		let mut kernel = Kernel::new(Limits::default());
-		let cell = kernel.domain(domain).unwrap();
-		let cell = aperture(&mut kernel, cell);
-		let constraints = box_constraints(&mut kernel, [-4.0, -4.0, 0.0], [4.0, 4.0, 0.0]);
-		let solids = vec![Solid {
-			source: SolidSource::WorldBrush(0),
-			constraints,
-		}];
-		let index = solid_index(&mut kernel, domain, &solids);
-		assert!(
-			subtract_solids(&mut kernel, domain, &solids, &index, cell)
-				.unwrap()
-				.is_empty()
-		);
-	}
-
-	#[test]
-	fn added_piece_bound_scan_refuses_work_atomically() {
-		for (limit, succeeds) in [(19, false), (20, true)] {
-			let domain = AnalysisDomain::new([-1.0; 3], [1.0; 3]).unwrap();
-			let mut kernel = Kernel::new(Limits::default());
-			let cell = kernel.domain(domain).unwrap();
-			// An empty H-representation is the whole closed space, not an empty solid.
-			let solids = vec![Solid {
-				source: SolidSource::WorldBrush(0),
-				constraints: Vec::new(),
-			}];
-			let index = solid_index(&mut kernel, domain, &solids);
-			kernel.budget = Budget::new(Limits {
-				work: limit,
-				..Limits::default()
-			});
-			let result = subtract_solids(&mut kernel, domain, &solids, &index, cell);
-			if succeeds {
-				assert!(result.unwrap().is_empty());
-				assert_eq!(kernel.budget.stats.work, 20);
-			} else {
-				assert!(matches!(
-					result,
-					Err(Error::Budget {
-						resource: "work",
-						limit: 19
-					})
-				));
-				assert_eq!(kernel.budget.stats.work, 19);
-			}
-			// Bounds/query temporaries were created, but no geometric predicate or
-			// partial result escaped the failure in the final plane-scan charge.
-			assert_eq!(kernel.budget.stats.predicates, 0);
-			assert_eq!(kernel.budget.stats.constraints, 1);
-		}
-	}
 }
-
-pub use incidence::{
-	RegionComponentIncidence, RegionIncidence, RegionQueryError, RegionQueryLimits,
-	RegionQueryStatistics,
-};
-
-pub use regional::{
-	ComponentPairCertificate, RegionalOverlapLimits, RegionalOverlapStatistics, RegionalPair,
-	RegionalPairError, RegionalSplit,
-};

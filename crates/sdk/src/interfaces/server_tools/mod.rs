@@ -613,18 +613,6 @@ impl<'s> ServerTools<'s> {
 		}
 	}
 
-	/// The game's temporary entities, which send effects to clients once, or
-	/// `None` if the game has none.
-	#[doc(alias("GetTempEntsSystem"))]
-	pub fn temp_entities(self) -> Option<TempEntities<'s>> {
-		// SAFETY: `Server::new` guarantees the interface is live.
-		let raw = unsafe { vcall!(self.as_ptr() => IServerTools_GetTempEntsSystem()) };
-
-		// SAFETY: The game returns null or its `te`, a static of the game DLL,
-		// which stays loaded for `'s`, and the caller is on the main thread.
-		NonNull::new(raw).map(|raw| unsafe { TempEntities::from_raw(raw) })
-	}
-
 	/// Moves an entity through Source's `Teleport` method, which also updates
 	/// its physics state and may move child entities. Each argument left as
 	/// `None` is unchanged.
@@ -643,6 +631,18 @@ impl<'s> ServerTools<'s> {
 		// `self.game`, as `bind` does from `Server::new` condition 2, so its
 		// slot is where that DLL's primary `CBaseEntity` vtable has `Teleport`.
 		unsafe { entity.teleport(self.game.teleport_vtable_slot(), origin, angles, velocity) }
+	}
+
+	/// The game's temporary entities, which send effects to clients once, or
+	/// `None` if the game has none.
+	#[doc(alias("GetTempEntsSystem"))]
+	pub fn temp_entities(self) -> Option<TempEntities<'s>> {
+		// SAFETY: `Server::new` guarantees the interface is live.
+		let raw = unsafe { vcall!(self.as_ptr() => IServerTools_GetTempEntsSystem()) };
+
+		// SAFETY: The game returns null or its `te`, a static of the game DLL,
+		// which stays loaded for `'s`, and the caller is on the main thread.
+		NonNull::new(raw).map(|raw| unsafe { TempEntities::from_raw(raw) })
 	}
 }
 

@@ -32,10 +32,6 @@
 //! same base with its `CreateInterface` at the same address, and assumes, as
 //! [`ModuleCache`] describes, that this does not happen.
 
-#[cfg(test)]
-#[path = "../../tests/tf2/item_generation.rs"]
-mod tests;
-
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
@@ -43,6 +39,10 @@ mod platform;
 #[cfg(target_os = "windows")]
 #[path = "windows.rs"]
 mod platform;
+
+#[cfg(test)]
+#[path = "../../tests/tf2/item_generation.rs"]
+mod tests;
 
 use crate::interfaces::CreateInterfaceFn;
 use crate::sig;

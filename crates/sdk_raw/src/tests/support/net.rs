@@ -92,32 +92,6 @@ pub fn mock_message(size: usize) -> NonNull<sys::INetMessage> {
 }
 
 /// What the vtable of each base of a [`mock_game_client`] holds before its
-/// first slot, in the order of the bases, under the Itanium ABI: the offset
-/// from the base back to the object's start, then the class's type
-/// information.
-#[cfg(not(target_os = "windows"))]
-fn vtable_prefixes(class: &str) -> [Vec<*const ()>; 3] {
-	use crate::util::rtti::{ClassTypeInfo, class_type_info_vtable};
-	use std::ffi::CString;
-
-	let name = CString::new(format!("{}{class}", class.len())).unwrap();
-
-	let type_info: &'static ClassTypeInfo = Box::leak(Box::new(ClassTypeInfo {
-		vtable: class_type_info_vtable(),
-		name: name.into_raw().cast_const(),
-	}));
-
-	std::array::from_fn(|base| {
-		let offset_to_top = (base * size_of::<*const ()>()) as isize;
-
-		vec![
-			ptr::without_provenance(offset_to_top.wrapping_neg() as usize),
-			ptr::from_ref(type_info).cast(),
-		]
-	})
-}
-
-/// What the vtable of each base of a [`mock_game_client`] holds before its
 /// first slot, in the order of the bases, under MSVC's ABI: the base's
 /// complete object locator, which references the class's type descriptor
 /// from the start of the records holding both, as from an image's base.
@@ -165,5 +139,31 @@ fn vtable_prefixes(class: &str) -> [Vec<*const ()>; 3] {
 	std::array::from_fn(|base| {
 		// SAFETY: The records are leaked, and hold a locator for each base.
 		vec![unsafe { &raw const (*information).locators[base] }.cast()]
+	})
+}
+
+/// What the vtable of each base of a [`mock_game_client`] holds before its
+/// first slot, in the order of the bases, under the Itanium ABI: the offset
+/// from the base back to the object's start, then the class's type
+/// information.
+#[cfg(not(target_os = "windows"))]
+fn vtable_prefixes(class: &str) -> [Vec<*const ()>; 3] {
+	use crate::util::rtti::{ClassTypeInfo, class_type_info_vtable};
+	use std::ffi::CString;
+
+	let name = CString::new(format!("{}{class}", class.len())).unwrap();
+
+	let type_info: &'static ClassTypeInfo = Box::leak(Box::new(ClassTypeInfo {
+		vtable: class_type_info_vtable(),
+		name: name.into_raw().cast_const(),
+	}));
+
+	std::array::from_fn(|base| {
+		let offset_to_top = (base * size_of::<*const ()>()) as isize;
+
+		vec![
+			ptr::without_provenance(offset_to_top.wrapping_neg() as usize),
+			ptr::from_ref(type_info).cast(),
+		]
 	})
 }

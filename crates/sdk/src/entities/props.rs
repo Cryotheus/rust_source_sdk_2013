@@ -32,33 +32,6 @@ const DYNAMIC_PROP_CLASS: &CStr = c"CDynamicProp";
 /// The data map class of `prop_dynamic_ornament`.
 const ORNAMENT_PROP_CLASS: &CStr = c"COrnamentProp";
 
-/// Why an animated prop could not be spawned, wrapped or controlled.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum PropError {
-	/// The entity is not of the class the wrapper or method takes.
-	#[error("the entity is not a {class:?}")]
-	WrongClass {
-		/// The data map class it takes.
-		class: &'static CStr,
-	},
-
-	/// The model given is not precached, or is a dynamic model.
-	#[error("the model {model:?} is not precached")]
-	ModelNotPrecached {
-		/// The model.
-		model: CString,
-	},
-
-	/// An input was not sent, or the prop rejected it.
-	#[error(transparent)]
-	Input(#[from] InputError),
-
-	/// The game created no prop, the prop refused a key value and was
-	/// removed, or it removed itself as it spawned.
-	#[error(transparent)]
-	Spawn(#[from] SpawnError),
-}
-
 /// An animated prop (`CDynamicProp`) within the current engine callback: a
 /// `prop_dynamic`, `prop_dynamic_override` or `prop_dynamic_ornament`, or one
 /// of the classes deriving from them, such as doors.
@@ -316,6 +289,33 @@ impl<'a> DynamicPropSpawn<'a> {
 			name: None,
 		}
 	}
+}
+
+/// Why an animated prop could not be spawned, wrapped or controlled.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PropError {
+	/// The entity is not of the class the wrapper or method takes.
+	#[error("the entity is not a {class:?}")]
+	WrongClass {
+		/// The data map class it takes.
+		class: &'static CStr,
+	},
+
+	/// The model given is not precached, or is a dynamic model.
+	#[error("the model {model:?} is not precached")]
+	ModelNotPrecached {
+		/// The model.
+		model: CString,
+	},
+
+	/// An input was not sent, or the prop rejected it.
+	#[error(transparent)]
+	Input(#[from] InputError),
+
+	/// The game created no prop, the prop refused a key value and was
+	/// removed, or it removed itself as it spawned.
+	#[error(transparent)]
+	Spawn(#[from] SpawnError),
 }
 
 /// How a prop collides (`SolidType_t`), as the prop's `solid` key value

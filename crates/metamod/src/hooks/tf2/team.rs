@@ -33,10 +33,8 @@ use crate::hook::{
 
 use source_sdk_2013::entities::Entity;
 use source_sdk_2013::raw::tf2::teams::{CHANGE_TEAM_SLOT, ChangeTeamFn as ChangeTeam};
-
-use source_sdk_2013::tf2::teams::TeamTarget;
-
 use source_sdk_2013::raw::util::vtable::vtable_pointer;
+use source_sdk_2013::tf2::teams::TeamTarget;
 use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
 use std::ffi::{c_int, c_void};
@@ -153,6 +151,41 @@ unsafe impl Sync for TeamRoute {}
 
 impl MetamodApi<'_> {
 	/// Runs `callback` before each `CBaseEntity::ChangeTeam` of a TF2 entity
+	/// of `target`'s class, as [`Self::hook_team_changes`] does, but from the
+	/// class's vtable, so that it covers the class's entities created later
+	/// even when none exists yet. Find the vtables of the classes to hook
+	/// together with
+	/// [`TeamTargets::find_all`](source_sdk_2013::tf2::teams::TeamTargets::find_all).
+	///
+	/// `binding` must describe the running server the target was found in. The
+	/// hook holds no entity, so it lasts through level changes, until removed
+	/// or the plugin unloads. A class hooked from one of its entities is
+	/// already installed, and the other way around.
+	///
+	/// # Safety
+	///
+	/// `target`'s class must derive from `CBaseEntity` through its primary
+	/// bases, as the game's entity classes do, so that its vtable holds
+	/// `ChangeTeam` at [`CHANGE_TEAM_SLOT`]. The search only checks that the
+	/// slot holds code, which any class with enough virtual methods has.
+	pub unsafe fn hook_class_team_changes(
+		self,
+		target: TeamTarget<'_>,
+		binding: ServerBinding,
+		callback: TeamChangeFn,
+	) -> Result<HookId, TeamHookError> {
+		if binding.game() != Game::TeamFortress2 {
+			return Err(TeamHookError::NotTf2);
+		}
+
+		// SAFETY: The target is a primary vtable from TF2's game module, whose
+		// class the caller promises is an entity class, so the slot holds its
+		// `ChangeTeam`. The game module stays loaded until Metamod unloads this
+		// plugin.
+		unsafe { self.install_team(target.as_ptr(), binding, callback) }
+	}
+
+	/// Runs `callback` before each `CBaseEntity::ChangeTeam` of a TF2 entity
 	/// of this entity's class, which puts the entity on the team the callback
 	/// decides.
 	///
@@ -192,41 +225,6 @@ impl MetamodApi<'_> {
 		// SAFETY: The entity is live on a TF2 server, whose entities' vtables
 		// belong to the server DLL, which outlives this plugin.
 		unsafe { self.install_team(vtable, binding, callback) }
-	}
-
-	/// Runs `callback` before each `CBaseEntity::ChangeTeam` of a TF2 entity
-	/// of `target`'s class, as [`Self::hook_team_changes`] does, but from the
-	/// class's vtable, so that it covers the class's entities created later
-	/// even when none exists yet. Find the vtables of the classes to hook
-	/// together with
-	/// [`TeamTargets::find_all`](source_sdk_2013::tf2::teams::TeamTargets::find_all).
-	///
-	/// `binding` must describe the running server the target was found in. The
-	/// hook holds no entity, so it lasts through level changes, until removed
-	/// or the plugin unloads. A class hooked from one of its entities is
-	/// already installed, and the other way around.
-	///
-	/// # Safety
-	///
-	/// `target`'s class must derive from `CBaseEntity` through its primary
-	/// bases, as the game's entity classes do, so that its vtable holds
-	/// `ChangeTeam` at [`CHANGE_TEAM_SLOT`]. The search only checks that the
-	/// slot holds code, which any class with enough virtual methods has.
-	pub unsafe fn hook_class_team_changes(
-		self,
-		target: TeamTarget<'_>,
-		binding: ServerBinding,
-		callback: TeamChangeFn,
-	) -> Result<HookId, TeamHookError> {
-		if binding.game() != Game::TeamFortress2 {
-			return Err(TeamHookError::NotTf2);
-		}
-
-		// SAFETY: The target is a primary vtable from TF2's game module, whose
-		// class the caller promises is an entity class, so the slot holds its
-		// `ChangeTeam`. The game module stays loaded until Metamod unloads this
-		// plugin.
-		unsafe { self.install_team(target.as_ptr(), binding, callback) }
 	}
 
 	/// Hooks `ChangeTeam` through `vtable`, for every entity of its class.

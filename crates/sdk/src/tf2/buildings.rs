@@ -338,13 +338,6 @@ impl<'s> Building<'s> {
 		Ok(())
 	}
 
-	/// How much of the building is built (`m_flPercentageConstructed`), from 0
-	/// to 1.
-	#[doc(alias("m_flPercentageConstructed", "GetPercentageConstructed"))]
-	pub fn construction_progress(self) -> Result<f32, BuildingError> {
-		self.get(c"m_flPercentageConstructed")
-	}
-
 	/// Applies native construction work (`CBaseObject::Construct`).
 	/// `health` is a nonnegative finite health increment before the game's
 	/// construction multiplier. During construction it also advances stored
@@ -369,6 +362,13 @@ impl<'s> Building<'s> {
 		Ok(unsafe {
 			sdk_raw::vcall!(this as sys::CBaseObject__bindgen_vtable => CBaseObject_Construct(health))
 		})
+	}
+
+	/// How much of the building is built (`m_flPercentageConstructed`), from 0
+	/// to 1.
+	#[doc(alias("m_flPercentageConstructed", "GetPercentageConstructed"))]
+	pub fn construction_progress(self) -> Result<f32, BuildingError> {
+		self.get(c"m_flPercentageConstructed")
 	}
 
 	/// Removes the building silently, as its builder's leaving the game does
@@ -1155,11 +1155,6 @@ pub struct BuildingVtables<'s> {
 }
 
 impl<'s> BuildingVtables<'s> {
-	/// The vtables of the classes of [`BuildingClass::ALL`], in its order.
-	pub const fn all(self) -> [NonNull<*mut c_void>; 7] {
-		self.vtables
-	}
-
 	/// Finds the primary vtable of every building class in `targets`, a
 	/// snapshot of the game module other searches can share, as
 	/// [`building_vtables`] finds them in a snapshot of its own.
@@ -1170,6 +1165,11 @@ impl<'s> BuildingVtables<'s> {
 			vtables: objects.map(ClassTarget::as_ptr),
 			_scope: PhantomData,
 		})
+	}
+
+	/// The vtables of the classes of [`BuildingClass::ALL`], in its order.
+	pub const fn all(self) -> [NonNull<*mut c_void>; 7] {
+		self.vtables
 	}
 
 	/// The vtable of `class`.
@@ -1212,6 +1212,30 @@ impl<'s> Dispenser<'s> {
 		self.0.int(c"m_iAmmoMetal")
 	}
 
+	/// Sets the dispenser's real stored metal (`m_iAmmoMetal`) and records
+	/// the change for clients, as native dispensing/regeneration does.
+	/// Any nonnegative stock is accepted; TF2 normally caps regenerated stock
+	/// at 400. This is inventory accounting, not giving a player metal.
+	/// Payload carts normally retain their native infinite supply semantics.
+	#[doc(alias("m_iAmmoMetal"))]
+	pub fn set_metal(self, metal: c_int) -> Result<(), BuildingError> {
+		if metal < 0 {
+			return Err(BuildingError::InvalidMetal(metal));
+		}
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+		let engine = self.0.server.valve_engine()?;
+		// SAFETY: Native dispensing and regeneration store nonnegative inventory
+		// in m_iAmmoMetal, independently of a player's own metal reserve.
+		unsafe {
+			self.0
+				.net_prop(c"m_iAmmoMetal")?
+				.set(engine, self.0.entity, metal)
+		}?;
+		Ok(())
+	}
+
 	/// Changes a stock dispenser's service-disabled flag without running its
 	/// activation inputs. Native dispense and refill thinks observe the flag;
 	/// existing healing ends on the next dispense think (normally within 0.1 s).
@@ -1242,30 +1266,6 @@ impl<'s> Dispenser<'s> {
 			self.0
 				.net_prop(c"m_bDisabled")?
 				.set(engine, self.0.entity, disabled)
-		}?;
-		Ok(())
-	}
-
-	/// Sets the dispenser's real stored metal (`m_iAmmoMetal`) and records
-	/// the change for clients, as native dispensing/regeneration does.
-	/// Any nonnegative stock is accepted; TF2 normally caps regenerated stock
-	/// at 400. This is inventory accounting, not giving a player metal.
-	/// Payload carts normally retain their native infinite supply semantics.
-	#[doc(alias("m_iAmmoMetal"))]
-	pub fn set_metal(self, metal: c_int) -> Result<(), BuildingError> {
-		if metal < 0 {
-			return Err(BuildingError::InvalidMetal(metal));
-		}
-		if self.0.entity.is_marked_for_deletion() {
-			return Err(BuildingError::MarkedForDeletion);
-		}
-		let engine = self.0.server.valve_engine()?;
-		// SAFETY: Native dispensing and regeneration store nonnegative inventory
-		// in m_iAmmoMetal, independently of a player's own metal reserve.
-		unsafe {
-			self.0
-				.net_prop(c"m_iAmmoMetal")?
-				.set(engine, self.0.entity, metal)
 		}?;
 		Ok(())
 	}

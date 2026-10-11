@@ -247,117 +247,6 @@ unsafe extern "C" fn datamap(entity: *mut sys::CBaseEntity) -> *mut sys::datamap
 	unsafe { (*entity.cast::<FakeEntity>()).map }
 }
 
-/// The dominations of a fake player.
-fn dominations<'s>(server: Server<'s>, fake: *mut FakeEntity) -> PlayerDominations<'s> {
-	PlayerDominations::new(server, entity(fake)).unwrap()
-}
-
-unsafe extern "C" fn edict(this: *const sys::IServerNetworkable) -> *mut sys::edict_t {
-	// SAFETY: As for `class_name`.
-	unsafe { (*fake_of(this)).edict }
-}
-
-/// A leaked name for element `index` of an array, as `SendPropArray3` names
-/// them.
-fn element_name(index: usize) -> &'static CStr {
-	Box::leak(
-		CString::new(format!("{index:03}"))
-			.unwrap()
-			.into_boxed_c_str(),
-	)
-}
-
-/// A callback-scoped entity for a fake one.
-fn entity<'s>(fake: *mut FakeEntity) -> Entity<'s> {
-	// SAFETY: Fake entities are leaked, so they outlive every scope, and their
-	// vtables answer what the wrappers call of an entity.
-	unsafe { Entity::from_raw(NonNull::new(fake).unwrap().cast()) }
-}
-
-unsafe extern "C" fn entity_by_index(
-	_: *mut sys::IServerTools,
-	index: c_int,
-) -> *mut sys::CBaseEntity {
-	ENTITIES.with_borrow(|entities| {
-		entities
-			.iter()
-			.find(|(found, _)| *found == index)
-			.map_or(null_mut(), |(_, fake)| fake.cast())
-	})
-}
-
-/// Exports the engine and game interfaces the module uses.
-fn export_interfaces() {
-	export_standard_proxies();
-
-	// SAFETY: The vtable holds only function pointers, `unexpected_call`
-	// aborts whichever slot reaches it, and the patch only writes slots of the
-	// vtable being built.
-	let tools = Box::leak(unsafe {
-		mock_vtable::<sys::IServerTools__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).IServerTools_GetBaseEntityByEntIndex).write(entity_by_index);
-		})
-	});
-	export(
-		Module::GameServer,
-		ServerTools::VERSION,
-		leak(sys::IServerTools { vtable_: tools }),
-	);
-
-	// SAFETY: As for the tools' vtable.
-	let engine = Box::leak(unsafe {
-		mock_vtable::<sys::IVEngineServer__bindgen_vtable>(unexpected_call as *const (), |vtable| {
-			(&raw mut (*vtable).IVEngineServer_GetChangeAccessor).write(change_accessor);
-			(&raw mut (*vtable).IVEngineServer_GetSharedEdictChangeInfo).write(shared_change_info);
-		})
-	});
-	export(
-		Module::Engine,
-		ValveEngine::VERSION,
-		leak(sys::IVEngineServer { vtable_: engine }),
-	);
-}
-
-/// The fake entity whose networkable is `this`.
-fn fake_of(this: *const sys::IServerNetworkable) -> *mut FakeEntity {
-	// SAFETY: Callers pass the networkable of a fake entity, so the entity
-	// starts that far before it.
-	unsafe { this.byte_sub(offset_of!(FakeEntity, networkable)) }
-		.cast_mut()
-		.cast()
-}
-
-/// `CTFPlayer::GetNumberofDominations`, which returns the fake's count.
-unsafe extern "C" fn get_count(player: *mut sys::CTFPlayer) -> c_int {
-	// SAFETY: Only fake players have this method in their vtables.
-	unsafe { (*player.cast::<FakeEntity>()).count }
-}
-
-/// `IHandleEntity::GetRefEHandle`, which returns the fake entity's handle.
-unsafe extern "C" fn handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
-	// SAFETY: As for `datamap`.
-	unsafe { (&raw const (*this.cast::<FakeEntity>()).handle).cast() }
-}
-
-unsafe extern "C" fn networkable(entity: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
-	// SAFETY: As for `datamap`.
-	unsafe { &raw mut (*entity.cast::<FakeEntity>()).networkable }
-}
-
-unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
-	// SAFETY: As for `class_name`.
-	unsafe { (*fake_of(this)).class }
-}
-
-/// `CTFPlayer::SetNumberofDominations`, which notes the call and clamps the
-/// count as the game does.
-unsafe extern "C" fn set_count(player: *mut sys::CTFPlayer, count: c_int) {
-	SET.with_borrow_mut(|set| set.push((player.addr(), count)));
-
-	// SAFETY: As for `get_count`.
-	unsafe { (*player.cast::<FakeEntity>()).count = count.clamp(0, 100) };
-}
-
 /// Marks `dominator` as dominating `victim` in both halves of the pair, and
 /// counts it, as `CalcDominationAndRevenge` does.
 fn dominate(dominator: (c_int, *mut FakeEntity), victim: (c_int, *mut FakeEntity)) {
@@ -369,33 +258,9 @@ fn dominate(dominator: (c_int, *mut FakeEntity), victim: (c_int, *mut FakeEntity
 	}
 }
 
-#[test]
-fn only_tf2_players_with_player_indices_are_wrapped() {
-	let world = World::new();
-	let scope = ();
-	let server = mock_server(&scope);
-	let player = world.player(1);
-
-	assert!(matches!(
-		PlayerDominations::new(null_server(Game::SourceSdk2013, &scope), entity(player)),
-		Err(DominationError::NotTfPlayer)
-	));
-	assert!(matches!(
-		PlayerDominations::new(
-			server,
-			entity(world.spawn(3, world.prop_class, world.prop_map))
-		),
-		Err(DominationError::NotTfPlayer)
-	));
-
-	for index in [0, MAX_PLAYERS_ARRAY_SAFE as c_int] {
-		assert!(matches!(
-			PlayerDominations::new(server, entity(world.player(index))),
-			Err(DominationError::NotTfPlayer)
-		));
-	}
-
-	assert_eq!(dominations(server, player).player().as_ptr(), player.cast());
+/// The dominations of a fake player.
+fn dominations<'s>(server: Server<'s>, fake: *mut FakeEntity) -> PlayerDominations<'s> {
+	PlayerDominations::new(server, entity(fake)).unwrap()
 }
 
 #[test]
@@ -416,6 +281,21 @@ fn dominations_are_read_from_each_half_and_the_count() {
 	assert!(!soldiers.dominates(scouts).unwrap());
 	assert_eq!((scouts.count(), soldiers.count()), (1, 0));
 	assert!(SET.take().is_empty());
+}
+
+unsafe extern "C" fn edict(this: *const sys::IServerNetworkable) -> *mut sys::edict_t {
+	// SAFETY: As for `class_name`.
+	unsafe { (*fake_of(this)).edict }
+}
+
+/// A leaked name for element `index` of an array, as `SendPropArray3` names
+/// them.
+fn element_name(index: usize) -> &'static CStr {
+	Box::leak(
+		CString::new(format!("{index:03}"))
+			.unwrap()
+			.into_boxed_c_str(),
+	)
 }
 
 #[test]
@@ -504,4 +384,124 @@ fn ending_all_clears_every_pair_of_the_player_and_their_counts() {
 	// With nothing left, the count is not written again.
 	assert_eq!(dominations(server, scout.1).end_all().unwrap(), 0);
 	assert!(SET.take().is_empty());
+}
+
+/// A callback-scoped entity for a fake one.
+fn entity<'s>(fake: *mut FakeEntity) -> Entity<'s> {
+	// SAFETY: Fake entities are leaked, so they outlive every scope, and their
+	// vtables answer what the wrappers call of an entity.
+	unsafe { Entity::from_raw(NonNull::new(fake).unwrap().cast()) }
+}
+
+unsafe extern "C" fn entity_by_index(
+	_: *mut sys::IServerTools,
+	index: c_int,
+) -> *mut sys::CBaseEntity {
+	ENTITIES.with_borrow(|entities| {
+		entities
+			.iter()
+			.find(|(found, _)| *found == index)
+			.map_or(null_mut(), |(_, fake)| fake.cast())
+	})
+}
+
+/// Exports the engine and game interfaces the module uses.
+fn export_interfaces() {
+	export_standard_proxies();
+
+	// SAFETY: The vtable holds only function pointers, `unexpected_call`
+	// aborts whichever slot reaches it, and the patch only writes slots of the
+	// vtable being built.
+	let tools = Box::leak(unsafe {
+		mock_vtable::<sys::IServerTools__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IServerTools_GetBaseEntityByEntIndex).write(entity_by_index);
+		})
+	});
+	export(
+		Module::GameServer,
+		ServerTools::VERSION,
+		leak(sys::IServerTools { vtable_: tools }),
+	);
+
+	// SAFETY: As for the tools' vtable.
+	let engine = Box::leak(unsafe {
+		mock_vtable::<sys::IVEngineServer__bindgen_vtable>(unexpected_call as *const (), |vtable| {
+			(&raw mut (*vtable).IVEngineServer_GetChangeAccessor).write(change_accessor);
+			(&raw mut (*vtable).IVEngineServer_GetSharedEdictChangeInfo).write(shared_change_info);
+		})
+	});
+	export(
+		Module::Engine,
+		ValveEngine::VERSION,
+		leak(sys::IVEngineServer { vtable_: engine }),
+	);
+}
+
+/// The fake entity whose networkable is `this`.
+fn fake_of(this: *const sys::IServerNetworkable) -> *mut FakeEntity {
+	// SAFETY: Callers pass the networkable of a fake entity, so the entity
+	// starts that far before it.
+	unsafe { this.byte_sub(offset_of!(FakeEntity, networkable)) }
+		.cast_mut()
+		.cast()
+}
+
+/// `CTFPlayer::GetNumberofDominations`, which returns the fake's count.
+unsafe extern "C" fn get_count(player: *mut sys::CTFPlayer) -> c_int {
+	// SAFETY: Only fake players have this method in their vtables.
+	unsafe { (*player.cast::<FakeEntity>()).count }
+}
+
+/// `IHandleEntity::GetRefEHandle`, which returns the fake entity's handle.
+unsafe extern "C" fn handle(this: *const sys::IServerUnknown) -> *const sys::CBaseHandle {
+	// SAFETY: As for `datamap`.
+	unsafe { (&raw const (*this.cast::<FakeEntity>()).handle).cast() }
+}
+
+unsafe extern "C" fn networkable(entity: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
+	// SAFETY: As for `datamap`.
+	unsafe { &raw mut (*entity.cast::<FakeEntity>()).networkable }
+}
+
+#[test]
+fn only_tf2_players_with_player_indices_are_wrapped() {
+	let world = World::new();
+	let scope = ();
+	let server = mock_server(&scope);
+	let player = world.player(1);
+
+	assert!(matches!(
+		PlayerDominations::new(null_server(Game::SourceSdk2013, &scope), entity(player)),
+		Err(DominationError::NotTfPlayer)
+	));
+	assert!(matches!(
+		PlayerDominations::new(
+			server,
+			entity(world.spawn(3, world.prop_class, world.prop_map))
+		),
+		Err(DominationError::NotTfPlayer)
+	));
+
+	for index in [0, MAX_PLAYERS_ARRAY_SAFE as c_int] {
+		assert!(matches!(
+			PlayerDominations::new(server, entity(world.player(index))),
+			Err(DominationError::NotTfPlayer)
+		));
+	}
+
+	assert_eq!(dominations(server, player).player().as_ptr(), player.cast());
+}
+
+unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
+	// SAFETY: As for `class_name`.
+	unsafe { (*fake_of(this)).class }
+}
+
+/// `CTFPlayer::SetNumberofDominations`, which notes the call and clamps the
+/// count as the game does.
+unsafe extern "C" fn set_count(player: *mut sys::CTFPlayer, count: c_int) {
+	SET.with_borrow_mut(|set| set.push((player.addr(), count)));
+
+	// SAFETY: As for `get_count`.
+	unsafe { (*player.cast::<FakeEntity>()).count = count.clamp(0, 100) };
 }

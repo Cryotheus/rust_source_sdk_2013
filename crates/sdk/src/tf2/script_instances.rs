@@ -42,42 +42,6 @@ pub struct ScriptInstance<'s> {
 }
 
 impl<'s> ScriptInstance<'s> {
-	/// The raw handle, to pass to a native method, as through
-	/// [`sdk_raw::tf2::script_binding::handle`].
-	pub const fn as_raw(self) -> sys::HSCRIPT {
-		self.raw.as_ptr()
-	}
-
-	/// The entity whose script instance this is, or `None` if no entity's is,
-	/// as for the instance of a script object that is not an entity, or of an
-	/// entity removed since.
-	///
-	/// Every entity's instance is compared with this one, so this costs a pass
-	/// over the entity list, and nothing is asked of the script VM. Fails if
-	/// the server does not run TF2, or lacks `IServerTools`.
-	#[doc(alias("ToEnt"))]
-	pub fn entity(self, server: Server<'s>) -> Result<Option<Entity<'s>>, ScriptInstanceError> {
-		if server.game() != Game::TeamFortress2 {
-			return Err(ScriptInstanceError::WrongGame);
-		}
-
-		let tools = server
-			.server_tools()
-			.map_err(|_| ScriptInstanceError::NoServerTools)?;
-
-		for entity in tools.entities() {
-			let offset = instance_offset(entity)?;
-
-			// SAFETY: The entity is live in this callback, and the offset is its
-			// script instance's, validated against its `CBaseEntity` datamap.
-			if unsafe { raw::script_instance(raw_entity(entity), offset) } == self.as_raw() {
-				return Ok(Some(entity));
-			}
-		}
-
-		Ok(None)
-	}
-
 	/// The entity's script instance, if something already made it, such as a
 	/// script, or an earlier [`Self::of`]. This never makes one.
 	///
@@ -157,6 +121,42 @@ impl<'s> ScriptInstance<'s> {
 			raw,
 			_scope: PhantomData,
 		})
+	}
+
+	/// The raw handle, to pass to a native method, as through
+	/// [`sdk_raw::tf2::script_binding::handle`].
+	pub const fn as_raw(self) -> sys::HSCRIPT {
+		self.raw.as_ptr()
+	}
+
+	/// The entity whose script instance this is, or `None` if no entity's is,
+	/// as for the instance of a script object that is not an entity, or of an
+	/// entity removed since.
+	///
+	/// Every entity's instance is compared with this one, so this costs a pass
+	/// over the entity list, and nothing is asked of the script VM. Fails if
+	/// the server does not run TF2, or lacks `IServerTools`.
+	#[doc(alias("ToEnt"))]
+	pub fn entity(self, server: Server<'s>) -> Result<Option<Entity<'s>>, ScriptInstanceError> {
+		if server.game() != Game::TeamFortress2 {
+			return Err(ScriptInstanceError::WrongGame);
+		}
+
+		let tools = server
+			.server_tools()
+			.map_err(|_| ScriptInstanceError::NoServerTools)?;
+
+		for entity in tools.entities() {
+			let offset = instance_offset(entity)?;
+
+			// SAFETY: The entity is live in this callback, and the offset is its
+			// script instance's, validated against its `CBaseEntity` datamap.
+			if unsafe { raw::script_instance(raw_entity(entity), offset) } == self.as_raw() {
+				return Ok(Some(entity));
+			}
+		}
+
+		Ok(None)
 	}
 }
 

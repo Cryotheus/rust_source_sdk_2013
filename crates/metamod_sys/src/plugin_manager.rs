@@ -4,6 +4,13 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::{align_of, offset_of, size_of};
 
+/// `Pl_Status`: whether a plugin runs.
+pub type PlStatus = c_int;
+
+/// `PluginId`: a plugin's number, which Metamod gives each load in turn, from
+/// [`PL_MIN_ID`], and never gives again.
+pub type PluginId = c_int;
+
 const _: () = {
 	const SLOT: usize = size_of::<*const ()>();
 
@@ -31,15 +38,14 @@ const _: () = {
 /// `MMIFACE_PLMANAGER`.
 pub const MMIFACE_PLMANAGER: &CStr = c"IPluginManager";
 
-/// `PluginId`: a plugin's number, which Metamod gives each load in turn, from
-/// [`PL_MIN_ID`], and never gives again.
-pub type PluginId = c_int;
-
 /// `Pl_BadLoad`: the ID of a load that failed.
 pub const PL_BAD_LOAD: PluginId = 0;
 
 /// `Pl_Console`: the source of a plugin loaded from the console.
 pub const PL_CONSOLE: PluginId = -1;
+
+/// `Pl_Error`: its file could not be loaded as a plugin.
+pub const PL_ERROR: PlStatus = -3;
 
 /// `Pl_File`: the source of a plugin loaded from Metamod's plugin files.
 pub const PL_FILE: PluginId = -2;
@@ -47,20 +53,14 @@ pub const PL_FILE: PluginId = -2;
 /// `Pl_MinId`: the first plugin's ID.
 pub const PL_MIN_ID: PluginId = 1;
 
-/// `Pl_Status`: whether a plugin runs.
-pub type PlStatus = c_int;
-
 /// `Pl_NotFound`: its file was not found.
 pub const PL_NOT_FOUND: PlStatus = -4;
 
-/// `Pl_Error`: its file could not be loaded as a plugin.
-pub const PL_ERROR: PlStatus = -3;
+/// `Pl_Paused`: paused, so its hooks are skipped.
+pub const PL_PAUSED: PlStatus = -1;
 
 /// `Pl_Refused`: its `Load` refused.
 pub const PL_REFUSED: PlStatus = -2;
-
-/// `Pl_Paused`: paused, so its hooks are skipped.
-pub const PL_PAUSED: PlStatus = -1;
 
 /// `Pl_Running`: loaded and running.
 pub const PL_RUNNING: PlStatus = 0;

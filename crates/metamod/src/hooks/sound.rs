@@ -36,12 +36,12 @@
 mod tests;
 
 use crate::MetamodApi;
-use crate::recipients::Recipients;
 
 use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
+use crate::recipients::Recipients;
 use source_sdk_2013::interfaces::EngineSound;
 use source_sdk_2013::math::Vector;
 use source_sdk_2013::raw::interfaces::engine_sound::{EMIT_SOUND_SLOT, EmitSoundFn as EmitSound};
@@ -54,6 +54,10 @@ use std::ptr::NonNull;
 /// Decides whether a sound the server emits is sent. A panic is contained by
 /// the hook dispatcher, and lets the sound through.
 pub type EmitSoundFn = for<'s> fn(Server<'s>, &EmittedSound<'_>) -> EmitSoundAction;
+
+/// The recipient filter of a sound the server is emitting, which lists the
+/// clients the engine sends it to. Valid only for the call.
+pub type SoundRecipients<'a> = Recipients<'a>;
 
 /// `IEngineSound::EmitSound`, the overload that takes a sound level.
 const EMIT_SOUND: VirtualFunction<EmitSound> = VirtualFunction::new(EMIT_SOUND_SLOT);
@@ -123,10 +127,6 @@ struct RoutedSounds {
 	callback: EmitSoundFn,
 	hook: HookId,
 }
-
-/// The recipient filter of a sound the server is emitting, which lists the
-/// clients the engine sends it to. Valid only for the call.
-pub type SoundRecipients<'a> = Recipients<'a>;
 
 struct SoundRoute {
 	state: Cell<Option<RoutedSounds>>,

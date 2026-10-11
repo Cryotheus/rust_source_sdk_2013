@@ -109,29 +109,6 @@ struct RoutedDeath {
 }
 
 impl MetamodApi<'_> {
-	/// Runs `callback` before each death of a TF2 player of this player's
-	/// class is handled, as `CTFPlayer::Event_Killed` is called: the player is
-	/// still alive, and neither the game rules (`CTFGameRules::PlayerKilled`),
-	/// which decide dominations and revenges and count the kill, nor the
-	/// `player_death` event have seen the death.
-	///
-	/// The callback may change what the game reads as it handles the death,
-	/// such as the victim's statistics, but not the damage, of which it gets a
-	/// copy. Another plugin's pre hook may supersede the call, so that the
-	/// player does not die after all.
-	///
-	/// Installs as [`Self::hook_player_killed`] does, with the same
-	/// requirements, refusals, and caveats about KHook's activation, and a
-	/// class of its own: either hook can be installed without the other.
-	pub fn hook_player_dying(
-		self,
-		player: Entity<'_>,
-		binding: ServerBinding,
-		callback: DyingFn,
-	) -> Result<HookId, DeathHookError> {
-		self.hook_player_death(player, binding, callback, HookTiming::Pre)
-	}
-
 	/// Checks the player, then hooks `Event_Killed` on its class, at `timing`.
 	fn hook_player_death(
 		self,
@@ -158,6 +135,29 @@ impl MetamodApi<'_> {
 				timing,
 			)
 		}
+	}
+
+	/// Runs `callback` before each death of a TF2 player of this player's
+	/// class is handled, as `CTFPlayer::Event_Killed` is called: the player is
+	/// still alive, and neither the game rules (`CTFGameRules::PlayerKilled`),
+	/// which decide dominations and revenges and count the kill, nor the
+	/// `player_death` event have seen the death.
+	///
+	/// The callback may change what the game reads as it handles the death,
+	/// such as the victim's statistics, but not the damage, of which it gets a
+	/// copy. Another plugin's pre hook may supersede the call, so that the
+	/// player does not die after all.
+	///
+	/// Installs as [`Self::hook_player_killed`] does, with the same
+	/// requirements, refusals, and caveats about KHook's activation, and a
+	/// class of its own: either hook can be installed without the other.
+	pub fn hook_player_dying(
+		self,
+		player: Entity<'_>,
+		binding: ServerBinding,
+		callback: DyingFn,
+	) -> Result<HookId, DeathHookError> {
+		self.hook_player_death(player, binding, callback, HookTiming::Pre)
 	}
 
 	/// Runs `callback` after each death of a TF2 player of this player's

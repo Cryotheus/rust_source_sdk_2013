@@ -18,16 +18,6 @@ thread_local! {
 	static SEEN: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The game's `CalcIsAttackCriticalHelper`, which rolls no crit.
-unsafe extern "C" fn game_random_crits(_: *mut sys::CBaseEntity) -> bool {
-	false
-}
-
-/// The game's `CalcIsAttackCriticalHelperNoCrits`, which finds a crit boost.
-unsafe extern "C" fn game_no_random_crits(_: *mut sys::CBaseEntity) -> bool {
-	true
-}
-
 #[test]
 fn crit_decisions_are_changed_after_the_game() {
 	/// A weapon of a C++ class, as far as hooks know it.
@@ -74,6 +64,16 @@ fn crit_decisions_are_changed_after_the_game() {
 		ACTION.set(CritAction::NoCrit);
 		assert_eq!(crits(CritCheck::NoRandomCrits), (false, vec![true]));
 	});
+}
+
+/// The game's `CalcIsAttackCriticalHelperNoCrits`, which finds a crit boost.
+unsafe extern "C" fn game_no_random_crits(_: *mut sys::CBaseEntity) -> bool {
+	true
+}
+
+/// The game's `CalcIsAttackCriticalHelper`, which rolls no crit.
+unsafe extern "C" fn game_random_crits(_: *mut sys::CBaseEntity) -> bool {
+	false
 }
 
 /// The callback, which notes the game's decision and decides [`ACTION`].
