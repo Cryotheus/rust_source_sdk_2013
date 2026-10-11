@@ -55,7 +55,17 @@ impl FakeWeapon {
 			sys::CTFWeaponBase__bindgen_vtable,
 			CTFWeaponBase_GetWeaponID
 		);
-		let mut vtable = vec![unexpected_call as *const (); weapon_id + 1];
+		let initial = vtable_slot!(
+			sys::CTFWeaponBase__bindgen_vtable,
+			CTFWeaponBase_GetInitialAfterburnDuration
+		);
+		let added = vtable_slot!(
+			sys::CTFWeaponBase__bindgen_vtable,
+			CTFWeaponBase_GetAfterburnRateOnHit
+		);
+		let mut vtable = vec![unexpected_call as *const (); weapon_id.max(initial).max(added) + 1];
+		vtable[initial] = afterburn_initial as *const ();
+		vtable[added] = afterburn_added as *const ();
 
 		vtable[GET_DATA_DESC_MAP_SLOT] = datamap as *const ();
 		vtable[slot(offset_of!(
@@ -287,6 +297,7 @@ fn weapons_report_what_they_are_and_are_doing() {
 	let flames = weapon(server, flame_thrower);
 
 	assert_eq!(flames.weapon_id().unwrap(), WeaponId::FLAMETHROWER);
+	assert_eq!(flames.afterburn_duration().unwrap(), (25.0, 0.4));
 	assert_eq!(flames.ammo_type().unwrap(), Some(AmmoType::Primary));
 	assert_eq!(flames.charge_begin_time().unwrap(), 12.5);
 	assert!(flames.is_firing_crits().unwrap());
@@ -314,6 +325,10 @@ fn weapons_report_what_they_are_and_are_doing() {
 
 	// SAFETY: As above.
 	unsafe { (*bottle).flags |= EFL_KILLME };
+	assert!(matches!(
+		bottle_weapon.afterburn_duration(),
+		Err(WeaponError::MarkedForDeletion)
+	));
 
 	assert!(matches!(
 		bottle_weapon.weapon_id(),
@@ -323,4 +338,13 @@ fn weapons_report_what_they_are_and_are_doing() {
 		bottle_weapon.ammo_type(),
 		Err(WeaponError::MarkedForDeletion)
 	));
+}
+
+/// Const getter mock returns a weapon-dependent value to detect bad this/slots.
+unsafe extern "C" fn afterburn_initial(this: *const sys::CTFWeaponBase) -> f32 {
+	// SAFETY: Installed only on the leaked fake weapon's vtable.
+	unsafe { (*this.cast::<FakeWeapon>()).id as f32 }
+}
+unsafe extern "C" fn afterburn_added(_this: *const sys::CTFWeaponBase) -> f32 {
+	0.4
 }

@@ -595,6 +595,27 @@ impl<'s> Weapon<'s> {
 			.entity_net_prop(self.entity, name)?)
 	}
 
+	/// The initial afterburn duration and duration added by each hit, in seconds.
+	/// Reads the weapon's virtual getters, including flame thrower overrides.
+	/// These values precede the caller's burn-time attribute multiplier.
+	#[doc(alias("GetInitialAfterburnDuration", "GetAfterburnRateOnHit"))]
+	pub fn afterburn_duration(self) -> Result<(f32, f32), WeaponError> {
+		check_live(self.entity)?;
+		let weapon = self
+			.entity
+			.as_ptr()
+			.cast::<sys::CTFWeaponBase>()
+			.cast_const();
+		// SAFETY: `new` verified CTFWeaponBase; these generated const getters
+		// return scalars and retain no callback-scoped pointers.
+		Ok(unsafe {
+			(
+				vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetInitialAfterburnDuration()),
+				vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_GetAfterburnRateOnHit()),
+			)
+		})
+	}
+
 	/// The id the weapon's C++ class reports (`GetWeaponID`), such as
 	/// [`WeaponId::FLAMETHROWER`] for every flame thrower but the Dragon's
 	/// Fury.
