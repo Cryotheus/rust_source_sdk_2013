@@ -348,6 +348,62 @@ fn entities_are_refused_unless_live_on_tf2_with_the_members() {
 	assert!(CALLS.take().is_empty());
 }
 
+#[test]
+fn eye_position_uses_the_native_virtual_and_refuses_deleted_entities() {
+	thread_local! { static READS: Cell<usize> = const { Cell::new(0) }; }
+	fn result() -> sys::Vector {
+		READS.set(READS.get() + 1);
+		sys::Vector {
+			x: 12.0,
+			y: -8.0,
+			z: 96.0,
+		}
+	}
+	#[cfg(target_os = "windows")]
+	unsafe extern "C" fn eye(
+		_entity: *mut sys::CBaseEntity,
+		out: *mut sys::Vector,
+	) -> *mut sys::Vector {
+		// SAFETY: The by-value ABI adapter provides writable result storage.
+		unsafe { out.write(result()) };
+		out
+	}
+	#[cfg(not(target_os = "windows"))]
+	unsafe extern "C" fn eye(_entity: *mut sys::CBaseEntity) -> sys::Vector {
+		result()
+	}
+
+	let mut mock = MockEntity::new(1);
+	let slot = sdk_raw::vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_EyePosition);
+	// SAFETY: Copy the mock's initialized entries into a table large enough
+	// for EyePosition, installing the target platform's generated signature.
+	unsafe {
+		let object = mock.as_ptr().cast::<*const *const ()>();
+		let mut vtable =
+			std::slice::from_raw_parts(object.read(), MockEntity::vtable_slots()).to_vec();
+		vtable.resize(vtable.len().max(slot + 1), eye as *const ());
+		vtable[slot] = eye as *const ();
+		object.write(vtable.leak().as_ptr());
+	}
+	set_maps();
+	let scope = ();
+	let server = mock_server(&scope);
+	assert_eq!(
+		TfEntity::new(server, mock.entity())
+			.unwrap()
+			.eye_position()
+			.unwrap(),
+		Vector::new(12.0, -8.0, 96.0)
+	);
+	assert_eq!(READS.get(), 1);
+	mock.set_eflags(EFL_KILLME);
+	assert_eq!(
+		TfEntity::new(server, mock.entity()).unwrap().eye_position(),
+		Err(TfEntityError::MarkedForDeletion)
+	);
+	assert_eq!(READS.get(), 1);
+}
+
 /// Gives a mock entity a script instance, which stands for it in native
 /// members' arguments, and returns it.
 fn give_instance(mock: &mut MockEntity) -> sys::HSCRIPT {
