@@ -74,6 +74,39 @@ fn decide(_: Server<'_>, _: Entity<'_>, check: TransmitCheck<'_>) -> TransmitDec
 	DECISION.get()
 }
 
+fn filter_snapshot(_: Server<'_>, check: TransmitCheck<'_>, candidates: &[u16]) {
+	note("filter snapshot");
+	assert_eq!(candidates, &[1, 9]);
+	assert_eq!(check.sent_indices().collect::<Vec<_>>(), vec![0, 1, 9, 12]);
+	// The parent's mark is absent from the original candidate list.
+	for index in check.sent_indices().filter(|&index| index >= 9) {
+		assert!(check.withhold(index));
+	}
+	assert!(!check.withhold(1));
+	assert!(!check.withhold(0));
+}
+
+/// Simulates game marks, including ones that skipped entity transmit hooks.
+unsafe extern "C" fn game_check_transmit(
+	_: *mut sys::IServerGameEnts,
+	info: *mut sys::CCheckTransmitInfo,
+	_: *const u16,
+	_: c_int,
+) {
+	note("game snapshot");
+	// SAFETY: The test passes live writable records and bit sets.
+	unsafe {
+		(*info)
+			.m_pTransmitEdict
+			.cast::<u32>()
+			.write(1 | (1 << 1) | (1 << 9) | (1 << 12));
+		(*info)
+			.m_pTransmitAlways
+			.cast::<u32>()
+			.write(1 | (1 << 1) | (1 << 9) | (1 << 12));
+	}
+}
+
 /// The game's `SetTransmit`, which notes that it ran.
 unsafe extern "C" fn game_set_transmit(
 	_: *mut sys::CBaseEntity,
@@ -106,6 +139,10 @@ fn mark(_: Server<'_>, _: Entity<'_>, _: TransmitCheck<'_>, always: bool) -> Tra
 
 fn note(name: &'static str) {
 	CALLS.with_borrow_mut(|calls| calls.push(name));
+}
+
+fn panicking_snapshot(_: Server<'_>, _: TransmitCheck<'_>, _: &[u16]) {
+	panic!("snapshot callback panic");
 }
 
 /// Calls the mock's hooked `SetTransmit`, and returns what ran.
@@ -219,5 +256,67 @@ fn should_transmit_hooks_decide_in_place_of_the_game() {
 				(flag, vec!["decide"])
 			);
 		}
+	});
+}
+
+#[test]
+fn snapshot_post_hooks_filter_final_marks_and_follow_pause_removal_and_panics() {
+	on_both(|harness| {
+		let api = harness.api();
+		let slots = Vec::leak(vec![
+			game_check_transmit as *mut c_void;
+			CHECK_TRANSMIT_SLOT + 1
+		]);
+		let mut interface = Mock {
+			vtable: slots.as_mut_ptr(),
+		};
+		let game = NonNull::from(&mut interface).cast::<sys::IServerGameEnts>();
+		let mut client = mock_edict(1, false);
+		let mut info = check_info(&mut client);
+		let mut sent = [0_u32; source_sdk_2013::edicts::MAX_EDICTS as usize / 32];
+		let mut always = sent;
+		info.m_pTransmitEdict = sent.as_mut_ptr().cast();
+		info.m_pTransmitAlways = always.as_mut_ptr().cast();
+		let candidates = [1_u16, 9];
+		let run = || {
+			CALLS.take();
+			harness.call::<CheckTransmit>(
+				game.as_ptr(),
+				CHECK_TRANSMIT_SLOT,
+				(ptr::from_mut(&mut *info), candidates.as_ptr(), 2),
+			);
+			CALLS.take()
+		};
+		// SAFETY: The mock interface and its generated-slot signature stay
+		// live throughout this harness's calls and hook removal.
+		let hook = unsafe {
+			api.install_check_transmit(game, tf2_binding(no_interfaces), filter_snapshot)
+		}
+		.unwrap();
+		assert!(matches!(
+			unsafe {
+				api.install_check_transmit(game, tf2_binding(no_interfaces), filter_snapshot)
+			},
+			Err(HookError::AlreadyInstalled)
+		));
+		let mut run = run;
+		assert_eq!(run(), ["game snapshot", "filter snapshot"]);
+		assert_eq!(sent[0], 1 | (1 << 1));
+		assert_eq!(always[0], sent[0]);
+		harness.set_status(true, true, harness.generation);
+		assert_eq!(run(), ["game snapshot"]);
+		assert_eq!(sent[0], 1 | (1 << 1) | (1 << 9) | (1 << 12));
+		harness.set_status(true, false, harness.generation);
+		assert_eq!(run(), ["game snapshot", "filter snapshot"]);
+		assert!(api.remove_hook(hook));
+		assert_eq!(run(), ["game snapshot"]);
+		// SAFETY: The same live mock, now without the earlier hook.
+		let hook = unsafe {
+			api.install_check_transmit(game, tf2_binding(no_interfaces), panicking_snapshot)
+		}
+		.unwrap();
+		assert_eq!(run(), ["game snapshot"]);
+		assert_eq!(sent[0], 1 | (1 << 1) | (1 << 9) | (1 << 12));
+		assert!(api.remove_hook(hook));
 	});
 }

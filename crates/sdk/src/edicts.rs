@@ -269,6 +269,45 @@ impl<'s> TransmitCheck<'s> {
 		// for the client, which it fills on this thread.
 		unsafe { sdk_raw::transmit::has_edict_bit(sent, index) }
 	}
+
+	/// The entity indices marked in the finished snapshot, including marks
+	/// made for parents and other dependencies absent from the candidate list.
+	/// No engine storage escapes the callback scope; the bits are read as the
+	/// iterator advances, so withholding a later edict removes it from the list.
+	pub fn sent_indices(self) -> impl Iterator<Item = c_int> + 's {
+		(0..MAX_EDICTS).filter(move |&index| self.is_sent(index))
+	}
+
+	/// Withholds one edict from this client's snapshot, including its
+	/// SourceTV/replay always set. Returns whether either set contained it.
+	/// The world and the client's own player are never withheld; neither is
+	/// anything when the client record has no player.
+	///
+	/// Call after the game's `CheckTransmit` to cover direct marks and entity
+	/// dependencies. Removing a parent while sending a child can leave the child
+	/// with a missing dependency: the caller must withhold related children too.
+	/// This changes only the current snapshot, never the entity's transmit flags.
+	pub fn withhold(self, index: c_int) -> bool {
+		let Some(client) = self.client() else {
+			return false;
+		};
+		if index <= 0 || index == client.index() {
+			return false;
+		}
+		// SAFETY: The callback-scoped record is live on the server's main thread.
+		let (sent, always) = unsafe {
+			(
+				(&raw const (*self.as_ptr()).m_pTransmitEdict).read(),
+				(&raw const (*self.as_ptr()).m_pTransmitAlways).read(),
+			)
+		};
+		// SAFETY: The engine owns these writable `MAX_EDICTS` sets for this
+		// snapshot and accesses them only on this thread. The raw helper bounds
+		// the index and accepts a null always set on ordinary clients.
+		let sent = unsafe { sdk_raw::transmit::clear_edict_bit(sent, index) };
+		let always = unsafe { sdk_raw::transmit::clear_edict_bit(always, index) };
+		sent || always
+	}
 }
 
 /// Which clients the engine sends an edict's entity to, as the edict's

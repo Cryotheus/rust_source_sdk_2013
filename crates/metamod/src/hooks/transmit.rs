@@ -1,19 +1,22 @@
-//! Hooks of which entities the engine sends each client: an entity class's
-//! `ShouldTransmit`, which decides for each client whether the class's
-//! entities with a [full check] are sent, and `SetTransmit`, which marks an
-//! entity as sent to a client.
+//! Hooks of which entities the engine sends each client: the game's final
+//! `CheckTransmit`, and an entity class's `ShouldTransmit` and `SetTransmit`.
 //!
-//! [`source_sdk_2013::raw::transmit`] describes when the engine calls them.
-//! Hooks cover the class of the entity they were installed from, but not the
-//! classes deriving from it, which have vtables of their own, until removed or
-//! the plugin unloads. As with other Metamod hooks, they stop calling handlers
-//! while the plugin is paused.
+//! [`source_sdk_2013::raw::transmit`] describes how the game builds a snapshot.
+//! Class hooks cover the class they were installed from, but not classes
+//! deriving from it, which have separate vtables. Direct always marks and
+//! entity dependencies can bypass or replace their decisions.
 //!
-//! The engine calls them on the main thread, for each client and each entity
-//! it checks at every snapshot, so callbacks should be cheap. They are not
-//! called for the client's own player, which every client must be sent.
+//! [`MetamodApi::hook_check_transmit`] runs after the game's complete decision
+//! and exposes the final bit sets through [`TransmitCheck`], so a policy can
+//! withhold unwanted entities regardless of those earlier paths. The caller
+//! must also withhold their related children to keep dependencies coherent.
+//! The world and the client's own player are protected by the safe API. A
+//! later plugin's post-hook can still change the snapshot.
 //!
-//! [full check]: source_sdk_2013::edicts::TransmitState::FullCheck
+//! All callbacks run on the main thread at each client snapshot and must stay
+//! cheap, without mutating server entities. Class hooks skip the client's own
+//! player; the complete snapshot callback includes its protected mark. Hooks
+//! stop calling handlers while paused and are removed on unload.
 
 #[cfg(test)]
 #[path = "../tests/hooks/transmit.rs"]
@@ -27,11 +30,12 @@ use crate::hook::{
 
 use source_sdk_2013::edicts::TransmitCheck;
 use source_sdk_2013::entities::Entity;
+use source_sdk_2013::interfaces::ServerGameEnts;
 use source_sdk_2013::raw::edicts::{FL_EDICT_ALWAYS, FL_EDICT_DONTSEND, FL_EDICT_PVSCHECK};
 
 use source_sdk_2013::raw::transmit::{
-	SET_TRANSMIT_SLOT, SHOULD_TRANSMIT_SLOT, SetTransmitFn as SetTransmit,
-	ShouldTransmitFn as ShouldTransmit,
+	CHECK_TRANSMIT_SLOT, CheckTransmitFn as CheckTransmit, SET_TRANSMIT_SLOT, SHOULD_TRANSMIT_SLOT,
+	SetTransmitFn as SetTransmit, ShouldTransmitFn as ShouldTransmit,
 };
 
 use source_sdk_2013::raw::util::vtable::vtable_pointer;
@@ -39,6 +43,12 @@ use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
 use std::ffi::{c_int, c_void};
 use std::ptr::{self, NonNull};
+
+/// A callback-scoped final snapshot set and the engine's candidate indices,
+/// after the game's `CheckTransmit`. Clear unwanted marks with
+/// [`TransmitCheck::withhold`]. A panic is contained by the hook dispatcher.
+/// Callbacks must stay cheap and never mutate entities while snapshots build.
+pub type CheckTransmitFn = for<'s> fn(Server<'s>, TransmitCheck<'s>, &'s [u16]);
 
 /// A callback-scoped server, an entity of the hooked class about to be marked
 /// as sent, the record of the client it is sent to, and whether it is sent
@@ -54,14 +64,66 @@ pub type SetTransmitFn =
 pub type ShouldTransmitFn =
 	for<'s> fn(Server<'s>, Entity<'s>, TransmitCheck<'s>) -> TransmitDecision;
 
+const CHECK_TRANSMIT: VirtualFunction<CheckTransmit> = VirtualFunction::new(CHECK_TRANSMIT_SLOT);
+
 /// `SetTransmit` in an entity's primary vtable.
 const SET_TRANSMIT: VirtualFunction<SetTransmit> = VirtualFunction::new(SET_TRANSMIT_SLOT);
 
 /// `ShouldTransmit` in an entity's primary vtable.
 const SHOULD_TRANSMIT: VirtualFunction<ShouldTransmit> = VirtualFunction::new(SHOULD_TRANSMIT_SLOT);
 
+static CHECK_ROUTE: CheckTransmitRoute = CheckTransmitRoute {
+	state: Cell::new(None),
+};
+
 static SET_ROUTES: [TransmitRoute<SetTransmitFn>; 32] = [const { TransmitRoute::new() }; 32];
 static SHOULD_ROUTES: [TransmitRoute<ShouldTransmitFn>; 32] = [const { TransmitRoute::new() }; 32];
+
+struct CheckTransmitRoute {
+	state: Cell<Option<RoutedCheckTransmit>>,
+}
+
+impl Handler<CheckTransmit> for CheckTransmitRoute {
+	fn call(&self, call: &HookCall<'_, CheckTransmit>) -> HookAction<()> {
+		let Some(route) = self.state.get() else {
+			return HookAction::Ignore;
+		};
+		let (info, indices, count) = call.args();
+		let Some(info) = NonNull::new(info) else {
+			return HookAction::Ignore;
+		};
+		if !(0..=source_sdk_2013::edicts::MAX_EDICTS).contains(&count)
+			|| (count != 0 && indices.is_null())
+		{
+			return HookAction::Ignore;
+		}
+		let scope = ();
+		// SAFETY: This is a main-thread hook of the game's snapshot check.
+		// The binding and native arguments remain live through the callback.
+		let server = unsafe { route.binding.server(&scope) };
+		let check = unsafe { TransmitCheck::from_live(server, info) };
+		let indices = if count == 0 {
+			&[]
+		} else {
+			// SAFETY: The engine passes `count` candidate indices with its
+			// live snapshot record; the range and null pointer were checked.
+			unsafe { std::slice::from_raw_parts(indices, count as usize) }
+		};
+		(route.callback)(server, check, indices);
+		HookAction::Ignore
+	}
+}
+
+// SAFETY: The dispatcher and installation run only on the server's main
+// thread. Copying the route releases its Cell access before the callback.
+unsafe impl Sync for CheckTransmitRoute {}
+
+#[derive(Clone, Copy)]
+struct RoutedCheckTransmit {
+	binding: ServerBinding,
+	callback: CheckTransmitFn,
+	hook: HookId,
+}
 
 #[derive(Clone, Copy)]
 struct RoutedTransmit<F> {
@@ -249,6 +311,31 @@ impl Handler<ShouldTransmit> for TransmitRoute<ShouldTransmitFn> {
 unsafe impl<F> Sync for TransmitRoute<F> {}
 
 impl MetamodApi<'_> {
+	/// Runs `callback` after the game's final `IServerGameEnts::CheckTransmit`,
+	/// allowing selective withholding even of entities marked directly as
+	/// always sent or through their parent/child dependencies.
+	///
+	/// This does not change server entities or their transmit flags. The
+	/// callback must keep the dependencies of entities left in the snapshot;
+	/// [`TransmitCheck::withhold`] protects the world and the client's own
+	/// player. This hook uses one hook manager and runs once per client snapshot.
+	/// It stops calling back while paused and is removed on unload. A later
+	/// plugin's post-hook can still alter the same set.
+	///
+	/// `game` and `binding` must describe the same live server. A second
+	/// installation returns [`HookError::AlreadyInstalled`] until removed.
+	pub fn hook_check_transmit(
+		self,
+		game: ServerGameEnts<'_>,
+		binding: ServerBinding,
+		callback: CheckTransmitFn,
+	) -> Result<HookId, HookError> {
+		let game = NonNull::new(game.as_ptr()).ok_or(HookError::InvalidArgument)?;
+		// SAFETY: The game interface outlives the plugin and has the checked
+		// generated CheckTransmit signature and slot.
+		unsafe { self.install_check_transmit(game, binding, callback) }
+	}
+
 	/// Runs `callback` before each `CBaseEntity::SetTransmit` of the entities
 	/// of `entity`'s class: as the game marks one as sent to a client, for
 	/// being in the client's potentially visible set or 3D skybox, for
@@ -318,6 +405,42 @@ impl MetamodApi<'_> {
 				callback,
 			)
 		}
+	}
+
+	/// Installs the snapshot post-hook on a live game interface.
+	///
+	/// # Safety
+	///
+	/// `game` must stay live until plugin unload and have `CheckTransmit` of
+	/// the generated signature at `CHECK_TRANSMIT_SLOT`.
+	unsafe fn install_check_transmit(
+		self,
+		game: NonNull<sys::IServerGameEnts>,
+		binding: ServerBinding,
+		callback: CheckTransmitFn,
+	) -> Result<HookId, HookError> {
+		if CHECK_ROUTE
+			.state
+			.get()
+			.is_some_and(|route| self.has_hook(route.hook))
+		{
+			return Err(HookError::AlreadyInstalled);
+		}
+		// SAFETY: As promised by the caller; installation is main-thread only.
+		let hook = unsafe {
+			self.add_hook(
+				CHECK_TRANSMIT,
+				HookTarget::instance(game),
+				HookTiming::Post,
+				&CHECK_ROUTE,
+			)
+		}?;
+		CHECK_ROUTE.state.set(Some(RoutedCheckTransmit {
+			binding,
+			callback,
+			hook,
+		}));
+		Ok(hook)
 	}
 }
 
