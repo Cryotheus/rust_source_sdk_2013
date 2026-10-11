@@ -120,6 +120,10 @@ pub enum BuildingError {
 	#[error("the building is not a {0:?}")]
 	NotKind(BuildingKind),
 
+	/// The operation needs a stock dispenser, not a derived cart dispenser.
+	#[error("the entity is not an obj_dispenser")]
+	NotStockDispenser,
+
 	/// The entity is not a TF2 player.
 	#[error("the entity is not a TF2 player")]
 	NotTfPlayer,
@@ -1205,6 +1209,38 @@ impl<'s> Dispenser<'s> {
 	#[doc(alias("m_iAmmoMetal"))]
 	pub fn metal(self) -> Result<c_int, BuildingError> {
 		self.0.int(c"m_iAmmoMetal")
+	}
+
+	/// Changes a stock dispenser's service-disabled flag without running its
+	/// activation inputs. Native dispense and refill thinks observe the flag;
+	/// existing healing ends on the next dispense think (normally within 0.1 s).
+	///
+	/// This is restricted to `obj_dispenser`: `CObjectDispenser` inherits empty
+	/// `OnStartDisabled`/`OnEndDisabled` hooks. Derived cart dispensers are refused.
+	/// Unlike `Enable`, clearing this flag does not call `OnGoActive`, which can
+	/// replace the finished model and seed the metal inventory. It does not change
+	/// construction, upgrade level, metal, body groups, or think schedules.
+	///
+	/// The caller owns this temporary suspension and must preserve any previous
+	/// disabled state and native sapper, plasma, or losing-round disable reasons
+	/// before clearing it. Native disabled-state updates may change the flag.
+	pub fn set_service_disabled(self, disabled: bool) -> Result<(), BuildingError> {
+		if self.0.entity.class_name() != c"obj_dispenser" {
+			return Err(BuildingError::NotStockDispenser);
+		}
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+		let engine = self.0.server.valve_engine()?;
+		// SAFETY: CBaseObject::SetDisabled writes this bool after hooks that are
+		// empty for CObjectDispenser. The checked sendprop validates its storage
+		// and records the update without rerunning dispenser activation.
+		unsafe {
+			self.0
+				.net_prop(c"m_bDisabled")?
+				.set(engine, self.0.entity, disabled)
+		}?;
+		Ok(())
 	}
 
 	/// Sets the dispenser's real stored metal (`m_iAmmoMetal`) and records
