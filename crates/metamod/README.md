@@ -20,6 +20,26 @@ Omit `tf2` for the core API, or select `sdk` for game-independent SDK hooks.
 docs.rs builds document the Rust API without compiling the native shells;
 ordinary plugin builds still require both external checkouts.
 
+## Hook Modules
+
+With `sdk`, game-independent hook families live under `metamod_source::hooks`,
+for example `hooks::channel`, `hooks::event` and `hooks::server`. With `tf2`,
+TF2 hook families live under `metamod_source::hooks::tf2`, for example
+`hooks::tf2::player`, `hooks::tf2::round` and `hooks::tf2::weapon`.
+The leaf modules use the family name without the old `_hooks` suffix:
+
+```rust
+use metamod_source::hooks::channel::{ChannelHooks, ChannelSend};
+use metamod_source::hooks::tf2::round::{RoundCallbacks, RoundHooks};
+```
+
+The low-level `metamod_source::hook` module still owns hook registration,
+dispatch and handles. Existing root type exports such as `ClientEvents`,
+`LevelEvents` and `VoteHooks` remain available. Published root `_hooks` module
+paths remain hidden compatibility reexports of the moved modules; new code
+should use the namespaces above. Registration, callback lifetimes, supported
+ABIs and feature requirements are unchanged.
+
 ## Optional Logging
 
 `logger` provides a direct `log::Log` implementation with an injected Rust sink
