@@ -1,6 +1,7 @@
 //! Hand-written ABI of which entities the engine sends each client: the
-//! vtable slots and signatures of `CBaseEntity`'s transmit methods, and reads
-//! of the sets of `CCheckTransmitInfo` they mark entities in.
+//! generated interface slot of the game's `CheckTransmit`, the vtable slots
+//! and signatures of `CBaseEntity`'s transmit methods, and bounded reads and
+//! writes of the sets of `CCheckTransmitInfo` they mark entities in.
 //!
 //! For each client, at each snapshot, the engine has the game's
 //! `CServerGameEnts::CheckTransmit` mark the entities the client is sent in
@@ -37,6 +38,15 @@ use crate::edicts::MAX_EDICTS;
 use crate::entities::SPAWN_SLOT;
 use crate::{vcall, vtable_slot};
 use std::ffi::c_int;
+
+/// The game's final snapshot check (`IServerGameEnts::CheckTransmit`).
+#[doc(alias("CheckTransmit"))]
+pub type CheckTransmitFn = unsafe extern "C" fn(
+	this: *mut sys::IServerGameEnts,
+	info: *mut sys::CCheckTransmitInfo,
+	indices: *const u16,
+	count: c_int,
+);
 
 /// The signature of `CBaseEntity::SetTransmit`,
 /// `void (CCheckTransmitInfo *, bool)`, which marks the entity, and those it
@@ -84,6 +94,16 @@ const _: () = {
 	let _: fn(&Vtable) -> UpdateTransmitStateFn = |vtable| vtable.CBaseEntity_UpdateTransmitState;
 };
 
+const _: fn(&sys::IServerGameEnts__bindgen_vtable) -> CheckTransmitFn =
+	|vtable| vtable.IServerGameEnts_CheckTransmit;
+
+/// The generated interface slot of `IServerGameEnts::CheckTransmit`.
+#[doc(alias("CheckTransmit"))]
+pub const CHECK_TRANSMIT_SLOT: usize = vtable_slot!(
+	sys::IServerGameEnts__bindgen_vtable,
+	IServerGameEnts_CheckTransmit
+);
+
 /// The slot of `CBaseEntity::SetTransmit` in an entity's primary vtable,
 /// from the generated binding.
 #[doc(alias("SetTransmit"))]
@@ -103,6 +123,28 @@ pub const UPDATE_TRANSMIT_STATE_SLOT: usize = vtable_slot!(
 	sys::CBaseEntity__bindgen_vtable,
 	CBaseEntity_UpdateTransmitState
 );
+
+/// Clears one edict from a live `CBitVec<MAX_EDICTS>`, returning whether it
+/// was marked. Null sets and out-of-range indices leave the set unchanged.
+///
+/// # Safety
+///
+/// `bits` must be null or point to a writable `CBitVec<MAX_EDICTS>` on the
+/// server's main thread. No other thread may access the set during the write.
+pub unsafe fn clear_edict_bit(bits: *mut u8, index: c_int) -> bool {
+	if bits.is_null() || !(0..MAX_EDICTS).contains(&index) {
+		return false;
+	}
+	let index = index.cast_unsigned() as usize;
+	// SAFETY: The index is within the live set promised by the caller.
+	let word = unsafe { bits.cast::<u32>().add(index / 32) };
+	// SAFETY: The caller supplies exclusive main-thread access to this word.
+	let before = unsafe { word.read() };
+	let mask = 1 << (index % 32);
+	// SAFETY: As for the read. Other bits are preserved.
+	unsafe { word.write(before & !mask) };
+	before & mask != 0
+}
 
 /// Whether the `CBitVec<MAX_EDICTS>` at `bits`, such as a
 /// `CCheckTransmitInfo`'s `m_pTransmitEdict`, has the bit of the edict
