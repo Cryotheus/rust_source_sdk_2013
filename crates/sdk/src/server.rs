@@ -7,9 +7,9 @@ mod tests;
 use crate::NotThreadSafe;
 
 use crate::interfaces::{
-	BotManager, Cvar, EngineReplay, EngineSound, EngineTrace, GameEventManager, ModelInfo,
-	NetworkStringTables, PlayerInfoManager, PluginHelpers, ServerGameClients, ServerGameDll,
-	ServerGameEnts, ServerGameTags, ServerTools, ValveEngine, VoiceServer,
+	BaseFileSystem, BotManager, Cvar, EngineReplay, EngineSound, EngineTrace, GameEventManager,
+	ModelInfo, NetworkStringTables, PlayerInfoManager, PluginHelpers, ServerGameClients,
+	ServerGameDll, ServerGameEnts, ServerGameTags, ServerTools, ValveEngine, VoiceServer,
 };
 
 use sdk_raw::entities::TeleportSlot;
@@ -219,6 +219,16 @@ impl<'s> Server<'s> {
 			_scope: PhantomData,
 			_not_thread_safe: PhantomData,
 		}
+	}
+
+	/// `IBaseFileSystem`, for bounded read-only copies from the VFS.
+	///
+	/// Requests exactly `VBaseFileSystem011` from the engine factory supplied
+	/// to `Server::new`. Availability depends on that factory; a missing
+	/// export returns `InterfaceError`. No full-filesystem base cast or
+	/// alternate factory/version lookup is attempted.
+	pub fn base_file_system(&self) -> Result<BaseFileSystem<'s>, InterfaceError> {
+		self.interface()
 	}
 
 	/// `IBotManager`, which creates bots.
