@@ -593,3 +593,8 @@ pub use atlas::{
 	RegionIncidence, RegionQueryError, RegionQueryLimits, RegionQueryStatistics, Solid,
 	SolidSource, SourceStatistics,
 };
+
+pub use atlas::{
+	ComponentPairCertificate, RegionalOverlapLimits, RegionalOverlapStatistics, RegionalPair,
+	RegionalPairError, RegionalSplit,
+};

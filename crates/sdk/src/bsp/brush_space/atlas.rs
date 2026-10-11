@@ -1,6 +1,7 @@
 //! Owned bounded-domain source geometry; see BrushSpace for the coverage contract.
 
 mod incidence;
+mod regional;
 
 use super::super::{brushes::BrushGeometry, partitions::Side};
 use super::bounds::{Bounds, Index, heap_sort};
@@ -1078,4 +1079,9 @@ mod culling_tests {
 pub use incidence::{
 	RegionComponentIncidence, RegionIncidence, RegionQueryError, RegionQueryLimits,
 	RegionQueryStatistics,
+};
+
+pub use regional::{
+	ComponentPairCertificate, RegionalOverlapLimits, RegionalOverlapStatistics, RegionalPair,
+	RegionalPairError, RegionalSplit,
 };
