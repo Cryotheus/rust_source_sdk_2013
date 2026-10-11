@@ -26,6 +26,11 @@
 //! Mildly Disturbing Halloween Mask (115) and the Pet Balloonicorn, and only
 //! the methods reading them fail with them.
 //!
+//! Untranslated item-type tokens are checked independently on the Rocket
+//! Launcher, Football Helmet and Pet Balloonicorn too. An unavailable or
+//! incompatible field makes [`ItemDefinition::item_type_name`] fail without
+//! disabling the other string readers.
+//!
 //! Equip-region and conflict masks are checked independently on the Rocket
 //! Launcher, Football Helmet and Pet Balloonicorn. An unavailable or
 //! incompatible layout makes [`ItemDefinition::equip_regions`] fail; it is
@@ -105,6 +110,15 @@ const CHECKED_DETAILS: [Details; 4] = [
 		levels: Some((20, 20)),
 		holiday: None,
 	},
+];
+
+/// Definitions whose untranslated item-type tokens the shipped schema fixes.
+/// Checked independently so an incompatible token layout leaves existing name
+/// and item-class readers available.
+const CHECKED_ITEM_TYPES: [(u16, &CStr); 3] = [
+	(18, c"#TF_Weapon_RocketLauncher"),
+	(49, c"#TF_Wearable_Helmet"),
+	(738, c"#TF_Wearable_Balloon"),
 ];
 
 /// The definitions whose name and item class the shipped schema fixes, to
@@ -239,6 +253,9 @@ const CLASS_ITEM_CLASSES: [(&CStr, [Option<&CStr>; 9]); 8] = [
 /// did or failed them.
 static DETAILS: OnceLock<bool> = OnceLock::new();
 
+/// Whether the definition's item-type token layout passed its checks.
+static ITEM_TYPES: OnceLock<bool> = OnceLock::new();
+
 /// Whether the layout passed its checks, once it did or failed them.
 static LAYOUT: OnceLock<bool> = OnceLock::new();
 
@@ -332,6 +349,22 @@ impl<'s> ItemDefinition<'s> {
 			.and_then(|item_class| class_item_class(item_class, class)))
 	}
 
+	/// The untranslated type token of the definition (`item_type_name`), such
+	/// as `#TF_Wearable_TournamentMedal`. This describes the item category;
+	/// it is neither the definition's name nor a localized English string.
+	///
+	/// A null native pointer is `None`; the schema's valid empty token is
+	/// `Some(c"")`. Fails with [`ItemSchemaError::UnsupportedLayout`] unless
+	/// this field passed its independent shipped-schema checks.
+	#[doc(alias("m_pszItemTypeName", "GetItemTypeName"))]
+	pub fn item_type_name(self) -> Result<Option<&'s CStr>, ItemSchemaError> {
+		checked_item_type(ITEM_TYPES.get().copied(), || {
+			// SAFETY: The schema keeps its definition through the callback, and
+			// the item-type token field passed its independent layout checks.
+			unsafe { self.read_item_type() }
+		})
+	}
+
 	/// The definition's name (`m_pszDefinitionName`, the `name` of
 	/// `items_game.txt`), such as `Pet Balloonicorn` or
 	/// `TF_WEAPON_ROCKETLAUNCHER`, which [`ItemSchema::definition_by_name`] finds
@@ -353,6 +386,17 @@ impl<'s> ItemDefinition<'s> {
 			_scope: PhantomData,
 			_not_thread_safe: PhantomData,
 		}
+	}
+
+	/// Reads the native item-type token before its layout is checked.
+	///
+	/// # Safety
+	///
+	/// The schema keeps the definition and its strings through this callback,
+	/// and the caller guarantees the native item-type field's layout.
+	unsafe fn read_item_type(self) -> Option<&'s CStr> {
+		// SAFETY: The caller vouches for this field and the schema-owned string.
+		unsafe { self.read_string(|raw| &raw const (*raw).m_pszItemTypeName) }
 	}
 
 	/// Reads the string `field` places in the definition, or `None` if the
@@ -758,6 +802,14 @@ impl<'s> ItemSchema<'s> {
 			DETAILS.set(checked).ok();
 		}
 
+		// Item-type tokens have their own field check; a mismatch must not
+		// disable the existing definition-name and item-class readers.
+		if ITEM_TYPES.get().is_none()
+			&& let Ok(Some(checked)) = schema.check_item_types()
+		{
+			ITEM_TYPES.set(checked).ok();
+		}
+
 		// Equip masks are checked apart too: a missing or incompatible mask
 		// layout must never turn into an unrestricted item.
 		if EQUIP_REGIONS.get().is_none()
@@ -892,6 +944,25 @@ impl<'s> ItemSchema<'s> {
 					definition.read_string(|raw| &raw const (*raw).m_pszHolidayRestriction)
 				} != details.holiday
 			{
+				return Ok(Some(false));
+			}
+		}
+
+		Ok(Some(true))
+	}
+
+	/// Whether independently checked item-type tokens match the shipped schema,
+	/// or `None` when a sentinel definition is unavailable.
+	fn check_item_types(self) -> Result<Option<bool>, ItemSchemaError> {
+		for (index, expected) in CHECKED_ITEM_TYPES {
+			let Some(definition) = self.find(index)? else {
+				return Ok(None);
+			};
+
+			// SAFETY: The lookup returned the live schema's definition. Its
+			// index and vision filter, on either side of the strings, passed
+			// the base layout checks before this independent field check.
+			if unsafe { definition.read_item_type() } != Some(expected) {
 				return Ok(Some(false));
 			}
 		}
@@ -1252,6 +1323,18 @@ fn checked_equip_regions(
 	checked: Option<bool>,
 	read: impl FnOnce() -> EquipRegions,
 ) -> Result<EquipRegions, ItemSchemaError> {
+	match checked {
+		Some(true) => Ok(read()),
+		_ => Err(ItemSchemaError::UnsupportedLayout),
+	}
+}
+
+/// Refuses unavailable item-type metadata before reading native memory;
+/// a checked schema's null or empty token remains a valid result.
+fn checked_item_type<'s>(
+	checked: Option<bool>,
+	read: impl FnOnce() -> Option<&'s CStr>,
+) -> Result<Option<&'s CStr>, ItemSchemaError> {
 	match checked {
 		Some(true) => Ok(read()),
 		_ => Err(ItemSchemaError::UnsupportedLayout),
