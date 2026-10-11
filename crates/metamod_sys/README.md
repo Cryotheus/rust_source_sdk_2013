@@ -41,3 +41,11 @@ This project is licensed under either of
   https://www.apache.org/licenses/LICENSE-2.0)
 * MIT license ([LICENSE-MIT](https://github.com/Cryotheus/rust_source_sdk_2013/blob/master/LICENSE-MIT) or
   https://opensource.org/licenses/MIT)
+
+The native level-generation fixture includes the production shell and listener,
+and exercises paused same-map and different-map boundaries, callback suppression,
+ordinary pause, unload/load reset, closed registration and counter exhaustion on
+both supported headers. With `METAMOD_SOURCE_STABLE` and `METAMOD_SOURCE_DEV` set,
+run `bash crates/metamod_sys/tests/run_level_generation.sh` from the workspace root.
+It supplies the owned result of registration; actual Metamod listener registration
+and server delivery still need an integration check.

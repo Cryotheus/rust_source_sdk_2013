@@ -201,3 +201,27 @@ pub fn cpp_metamod_plugin_status(api_version: c_int) -> PluginStatus {
 		_ => PluginStatus::UNLOADED,
 	}
 }
+
+/// The listener's notification generation, including notifications while paused.
+/// Starts at zero on registration and advances for each init or shutdown;
+/// unavailable before registration, after unload, for unsupported APIs or
+/// counter exhaustion. It contains no map pointers and resets on a new load.
+///
+/// # Safety
+///
+/// Call only on the server's main thread during a live shell callback. The
+/// listener and getter use ordinary non-atomic state on that thread.
+pub unsafe fn cpp_metamod_level_generation(api_version: c_int) -> Option<u64> {
+	let mut generation = 0;
+	let found = match api_version {
+		16 => unsafe { cpp_metamod_level_generation_stable(&mut generation) },
+		18 => unsafe { cpp_metamod_level_generation_dev(&mut generation) },
+		_ => return None,
+	};
+	found.then_some(generation)
+}
+
+unsafe extern "C" {
+	fn cpp_metamod_level_generation_dev(generation: *mut u64) -> bool;
+	fn cpp_metamod_level_generation_stable(generation: *mut u64) -> bool;
+}
