@@ -13,6 +13,7 @@ pub mod damage;
 pub mod damage_effect;
 pub mod death;
 pub mod dispenser;
+pub mod dispenser_state;
 pub mod duel;
 pub mod give_item;
 pub mod input;
