@@ -1,5 +1,7 @@
 //! One privately constructed two-region cover and exact positive-volume stitches.
 
+#[cfg(test)]
+mod measurements;
 mod tests;
 
 use super::super::{Budget, reserve};
