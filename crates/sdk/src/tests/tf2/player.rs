@@ -491,6 +491,44 @@ fn class_menu_state_goes_through_the_clients_commands() {
 }
 
 #[test]
+fn class_selection_includes_random_without_changing_it() {
+	let world = World::new();
+	let scope = ();
+	let player = world.wrap(&scope);
+	let newcomer = TfPlayer::new(mock_server(&scope), entity(world.newcomer)).unwrap();
+
+	assert!(player.has_desired_class().unwrap());
+	assert!(!newcomer.has_desired_class().unwrap());
+
+	for raw in 1..=9 {
+		// SAFETY: As for the fields written in `World::new`.
+		unsafe { (*world.player).desired_class = raw };
+		assert!(player.has_desired_class().unwrap());
+	}
+
+	// `ETFClass::TF_CLASS_RANDOM` in the game's `tf_shareddefs.h`.
+	let random = 12;
+	// Random remains selected after the game resolves a concrete class.
+	// SAFETY: As for the fields written in `World::new`.
+	unsafe { (*world.player).desired_class = random };
+	assert!(player.has_desired_class().unwrap());
+	assert_eq!(player.class().unwrap(), Some(PlayerClass::Medic));
+	assert!(matches!(player.desired_class(), Err(PlayerError::UnknownClass(raw)) if raw == random));
+	// Reading the selection must not replace Random or network a change.
+	// SAFETY: As above.
+	assert_eq!(unsafe { (*world.player).desired_class }, random);
+	assert!(!world.changed(world.player));
+
+	for raw in [-1, 10, 11, 13] {
+		// SAFETY: As for the fields written in `World::new`.
+		unsafe { (*world.player).desired_class = raw };
+		assert!(
+			matches!(player.has_desired_class(), Err(PlayerError::UnknownClass(value)) if value == raw)
+		);
+	}
+}
+
+#[test]
 fn classes_states_and_teams_read_as_tf2_numbers_them() {
 	let world = World::new();
 	let scope = ();
