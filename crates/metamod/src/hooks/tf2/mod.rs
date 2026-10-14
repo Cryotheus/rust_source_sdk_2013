@@ -17,6 +17,7 @@ pub mod dispenser;
 pub mod dispenser_state;
 pub mod duel;
 pub mod give_item;
+pub mod gunfire;
 pub mod input;
 pub mod max_health;
 pub mod melee;
