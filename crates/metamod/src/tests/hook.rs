@@ -142,6 +142,63 @@ fn class() -> *mut *mut c_void {
 }
 
 #[test]
+fn detoured_functions_run_handlers_on_khook_only() {
+	fn double_after(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+
+		match call.timing() {
+			HookTiming::Pre => HookAction::Ignore,
+			HookTiming::Post => HookAction::Override(call.return_value().unwrap_or_default() * 2),
+		}
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let mut object = Object::new(class(), 5);
+		let address = NonNull::new(add as Add as *mut c_void).unwrap();
+
+		// SAFETY: `add` is a function of signature `Add`.
+		let function = unsafe { DetouredFunction::<Add>::new(address) };
+
+		match harness.version {
+			MetamodVersion::Stable1226 => {
+				assert_eq!(
+					api.add_function_hook(function, HookTiming::Post, &double_after),
+					Err(HookError::DetourUnsupported)
+				);
+				assert_eq!(
+					harness.call_function::<Add>(address, &raw mut *object, (1,)),
+					6
+				);
+			}
+
+			MetamodVersion::Dev1469 => {
+				let id = api
+					.add_function_hook(function, HookTiming::Post, &double_after)
+					.unwrap();
+
+				assert!(api.has_hook(id));
+				assert_eq!(
+					harness.call_function::<Add>(address, &raw mut *object, (1,)),
+					12
+				);
+				assert_eq!(
+					harness.call_function::<Add>(address, &raw mut *object, (3,)),
+					16
+				);
+				assert_eq!((HANDLER_CALLS.get(), ORIGINAL_CALLS.get()), (2, 2));
+
+				assert!(api.remove_hook(id));
+				assert_eq!(
+					harness.call_function::<Add>(address, &raw mut *object, (1,)),
+					6
+				);
+			}
+		}
+	});
+}
+
+#[test]
 fn functions_returning_nothing_can_be_superseded() {
 	fn supersede(call: &HookCall<'_, Poke>) -> HookAction<()> {
 		note_handler(call.superseded());
@@ -236,63 +293,6 @@ fn handlers_decide_calls_before_and_after_the_function() {
 
 		// After the superseding value, the function's own values.
 		assert_eq!(SEEN_RETURNS.take(), [Some(10), Some(7), Some(8), Some(6)]);
-	});
-}
-
-#[test]
-fn detoured_functions_run_handlers_on_khook_only() {
-	fn double_after(call: &HookCall<'_, Add>) -> HookAction<i32> {
-		note_handler(call.superseded());
-
-		match call.timing() {
-			HookTiming::Pre => HookAction::Ignore,
-			HookTiming::Post => HookAction::Override(call.return_value().unwrap_or_default() * 2),
-		}
-	}
-
-	on_both(|harness| {
-		let api = harness.api();
-		let mut object = Object::new(class(), 5);
-		let address = NonNull::new(add as Add as *mut c_void).unwrap();
-
-		// SAFETY: `add` is a function of signature `Add`.
-		let function = unsafe { DetouredFunction::<Add>::new(address) };
-
-		match harness.version {
-			MetamodVersion::Stable1226 => {
-				assert_eq!(
-					api.add_function_hook(function, HookTiming::Post, &double_after),
-					Err(HookError::DetourUnsupported)
-				);
-				assert_eq!(
-					harness.call_function::<Add>(address, &raw mut *object, (1,)),
-					6
-				);
-			}
-
-			MetamodVersion::Dev1469 => {
-				let id = api
-					.add_function_hook(function, HookTiming::Post, &double_after)
-					.unwrap();
-
-				assert!(api.has_hook(id));
-				assert_eq!(
-					harness.call_function::<Add>(address, &raw mut *object, (1,)),
-					12
-				);
-				assert_eq!(
-					harness.call_function::<Add>(address, &raw mut *object, (3,)),
-					16
-				);
-				assert_eq!((HANDLER_CALLS.get(), ORIGINAL_CALLS.get()), (2, 2));
-
-				assert!(api.remove_hook(id));
-				assert_eq!(
-					harness.call_function::<Add>(address, &raw mut *object, (1,)),
-					6
-				);
-			}
-		}
 	});
 }
 
@@ -684,4 +684,48 @@ fn sourcehook_loops_stay_on_the_main_thread() {
 	assert_eq!(harness.sourcehook.state.borrow().loops, 0);
 	assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 0);
 	assert_eq!(harness.sourcehook.state.borrow().loops, 1);
+}
+
+#[test]
+fn the_detours_of_functions_are_removed_as_the_plugin_unloads() {
+	fn double_after(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		match call.timing() {
+			HookTiming::Pre => HookAction::Ignore,
+			HookTiming::Post => HookAction::Override(call.return_value().unwrap_or_default() * 2),
+		}
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let address = NonNull::new(add as Add as *mut c_void).unwrap();
+
+		// SAFETY: `add` is a function of signature `Add`.
+		let function = unsafe { DetouredFunction::<Add>::new(address) };
+
+		// Nothing is installed yet, or ever, on SourceHook.
+		api.remove_function_hooks();
+		assert_eq!(harness.khook.state.borrow().removed, 0);
+
+		if harness.version != MetamodVersion::Dev1469 {
+			return;
+		}
+
+		let first = api
+			.add_function_hook(function, HookTiming::Post, &double_after)
+			.unwrap();
+
+		api.remove_function_hooks();
+		assert!(!api.has_hook(first));
+		assert_eq!(harness.khook.state.borrow().removed, 1);
+
+		// The plugin can hook the function again, which detours it anew.
+		let second = api
+			.add_function_hook(function, HookTiming::Post, &double_after)
+			.unwrap();
+
+		assert!(api.has_hook(second));
+
+		api.remove_function_hooks();
+		assert_eq!(harness.khook.state.borrow().removed, 2);
+	});
 }

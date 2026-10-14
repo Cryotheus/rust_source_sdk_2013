@@ -96,6 +96,38 @@ enum CallBackend {
 	KHook,
 }
 
+/// A function the game calls directly rather than through a vtable, by its
+/// address and [`Signature`]: like KHook's `Function`.
+///
+/// Every call of it reaches the handlers, whatever object it is on, except the
+/// calls the compiler inlined into other functions. A member function takes its
+/// object as [`Signature::This`].
+#[derive(Debug, Clone, Copy)]
+pub struct DetouredFunction<S: Signature> {
+	address: NonNull<c_void>,
+	_signature: PhantomData<fn() -> S>,
+}
+
+impl<S: Signature> DetouredFunction<S> {
+	/// The function whose entry is at `address`.
+	///
+	/// # Safety
+	///
+	/// `address` must be the entry of a function of the C++ type `S` stands for,
+	/// in a module that stays loaded until Metamod unloads the plugin, and not
+	/// one the compiler merged with another.
+	pub const unsafe fn new(address: NonNull<c_void>) -> Self {
+		Self {
+			address,
+			_signature: PhantomData,
+		}
+	}
+
+	pub const fn address(self) -> NonNull<c_void> {
+		self.address
+	}
+}
+
 /// Runs for the calls of a hooked function. Implemented for functions and
 /// closures of the same signature as [`Handler::call`].
 pub trait Handler<S: Signature>: 'static {
@@ -399,38 +431,6 @@ impl<S: Signature> VirtualFunction<S> {
 	}
 }
 
-/// A function the game calls directly rather than through a vtable, by its
-/// address and [`Signature`]: like KHook's `Function`.
-///
-/// Every call of it reaches the handlers, whatever object it is on, except the
-/// calls the compiler inlined into other functions. A member function takes its
-/// object as [`Signature::This`].
-#[derive(Debug, Clone, Copy)]
-pub struct DetouredFunction<S: Signature> {
-	address: NonNull<c_void>,
-	_signature: PhantomData<fn() -> S>,
-}
-
-impl<S: Signature> DetouredFunction<S> {
-	/// The function whose entry is at `address`.
-	///
-	/// # Safety
-	///
-	/// `address` must be the entry of a function of the C++ type `S` stands for,
-	/// in a module that stays loaded until Metamod unloads the plugin, and not
-	/// one the compiler merged with another.
-	pub const unsafe fn new(address: NonNull<c_void>) -> Self {
-		Self {
-			address,
-			_signature: PhantomData,
-		}
-	}
-
-	pub const fn address(self) -> NonNull<c_void> {
-		self.address
-	}
-}
-
 impl MetamodApi<'_> {
 	/// Runs `handler` for the calls of `function`, before or after each as
 	/// `timing` says.
@@ -531,6 +531,20 @@ impl MetamodApi<'_> {
 		NonNull::new(original)
 			.map(S::from_address)
 			.ok_or(HookError::InvalidArgument)
+	}
+
+	/// Removes every hook of a [`DetouredFunction`], and the detours themselves.
+	///
+	/// Call it in the plugin's `Unload`, before it returns. Metamod removes the
+	/// plugin's hooks of vtable slots after `Unload`, and unloads the library once
+	/// it has, but it keeps no record of the detours of functions, which would stay
+	/// installed and call into the unloaded library. Does nothing under
+	/// SourceHook, which installs none. Hooks added afterwards install new
+	/// detours.
+	pub fn remove_function_hooks(self) {
+		if let Some(mut registry) = Registry::current(self) {
+			registry.remove_detours();
+		}
 	}
 
 	/// Stops the hook's handler. Returns whether the hook was installed, for

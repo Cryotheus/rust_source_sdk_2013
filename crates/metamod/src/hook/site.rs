@@ -29,23 +29,14 @@ trait AnySite: Any {
 
 	fn contains(&self, id: HookId) -> bool;
 
-	fn remove(&self, id: HookId) -> bool;
+	/// Drops the handlers and the installed state of a site that hooks a
+	/// function, whose detour was removed.
+	fn forget_detour(&self);
 
 	/// What the site hooks.
 	fn place(&self) -> Place;
-}
 
-/// What a site hooks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Place {
-	/// A slot of a vtable.
-	Slot {
-		vtable: NonNull<*mut c_void>,
-		index: usize,
-	},
-
-	/// A function, by its address, called directly.
-	Function(NonNull<c_void>),
+	fn remove(&self, id: HookId) -> bool;
 }
 
 /// The hooking library a registry installs hooks with.
@@ -78,6 +69,19 @@ struct MainThread<T>(T);
 // `MetamodApi` only exists on the main thread.
 unsafe impl<T> Sync for MainThread<T> {}
 
+/// What a site hooks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Place {
+	/// A slot of a vtable.
+	Slot {
+		vtable: NonNull<*mut c_void>,
+		index: usize,
+	},
+
+	/// A function, by its address, called directly.
+	Function(NonNull<c_void>),
+}
+
 /// The sites of one load of the plugin, and the library hooking them.
 pub(super) struct Registry {
 	/// The plugin API version of the Metamod running.
@@ -88,6 +92,8 @@ pub(super) struct Registry {
 	/// SourceHook's hook manager for each signature and vtable slot.
 	hook_managers: [Option<(TypeId, c_int)>; HOOK_MANAGERS],
 	sites: Vec<&'static dyn AnySite>,
+	/// The KHook hooks of detoured functions, which Metamod does not track.
+	detours: Vec<crate::sys::khook::HookId>,
 }
 
 impl Registry {
@@ -98,6 +104,7 @@ impl Registry {
 			generation: None,
 			hook_managers: [None; HOOK_MANAGERS],
 			sites: Vec::new(),
+			detours: Vec::new(),
 		}
 	}
 
@@ -158,6 +165,14 @@ impl Registry {
 		self.sites.iter().any(|site| site.contains(id))
 	}
 
+	/// The site of a function, created on first use.
+	pub(super) fn function_site<S: Signature>(
+		&mut self,
+		function: NonNull<c_void>,
+	) -> Result<&'static Site<S>, HookError> {
+		self.site_at(Place::Function(function))
+	}
+
 	/// Installs the site's hook for `timing` with the hooking library.
 	///
 	/// # Safety
@@ -177,7 +192,7 @@ impl Registry {
 
 			// SAFETY: As the caller promises.
 			(Some(Backend::KHook), Place::Function(function)) => unsafe {
-				khook::install_function(site, function, timing)
+				khook::install_function(site, function, timing).map(|id| self.detours.push(id))
 			},
 
 			(Some(Backend::SourceHook { sourcehook, plugin }), Place::Slot { vtable, index }) => {
@@ -225,6 +240,17 @@ impl Registry {
 		self.sites.iter().any(|site| site.remove(id))
 	}
 
+	/// Removes the detours of function hooks, and their handlers.
+	pub(super) fn remove_detours(&mut self) {
+		for site in &self.sites {
+			site.forget_detour();
+		}
+
+		if matches!(self.backend, Some(Backend::KHook)) {
+			khook::remove_detours(std::mem::take(&mut self.detours));
+		}
+	}
+
 	/// The site of a vtable slot, created on first use.
 	pub(super) fn site<S: Signature>(
 		&mut self,
@@ -236,14 +262,6 @@ impl Registry {
 		}
 
 		self.site_at(Place::Slot { vtable, index })
-	}
-
-	/// The site of a function, created on first use.
-	pub(super) fn function_site<S: Signature>(
-		&mut self,
-		function: NonNull<c_void>,
-	) -> Result<&'static Site<S>, HookError> {
-		self.site_at(Place::Function(function))
 	}
 
 	fn site_at<S: Signature>(&mut self, place: Place) -> Result<&'static Site<S>, HookError> {
@@ -332,12 +350,12 @@ impl<S: Signature> Site<S> {
 		}
 	}
 
-	pub(super) const fn place(&self) -> Place {
-		self.place
-	}
-
 	pub(super) fn installed(&self, timing: HookTiming) -> bool {
 		self.installed[timing as usize].get()
+	}
+
+	pub(super) const fn place(&self) -> Place {
+		self.place
 	}
 
 	pub(super) fn push(
@@ -373,6 +391,28 @@ impl<S: Signature> AnySite for Site<S> {
 			.any(|entry| entry.id == id && !entry.removed)
 	}
 
+	fn forget_detour(&self) {
+		if !matches!(self.place, Place::Function(_)) {
+			return;
+		}
+
+		let mut entries = self.entries.borrow_mut();
+
+		if self.depth.get() == 0 {
+			entries.clear();
+		} else {
+			entries.iter_mut().for_each(|entry| entry.removed = true);
+		}
+
+		self.installed
+			.iter()
+			.for_each(|installed| installed.set(false));
+	}
+
+	fn place(&self) -> Place {
+		self.place
+	}
+
 	fn remove(&self, id: HookId) -> bool {
 		let mut entries = self.entries.borrow_mut();
 
@@ -390,10 +430,6 @@ impl<S: Signature> AnySite for Site<S> {
 		}
 
 		true
-	}
-
-	fn place(&self) -> Place {
-		self.place
 	}
 }
 
