@@ -25,36 +25,6 @@ thread_local! {
 	static TABLES: RefCell<Vec<*mut TableObject>> = const { RefCell::new(Vec::new()) };
 }
 
-/// `INetworkStringTableContainer::FindTable`.
-unsafe extern "C" fn find_table(
-	_: *const sys::INetworkStringTableContainer,
-	name: *const c_char,
-) -> *mut sys::INetworkStringTable {
-	// SAFETY: The wrapper passes a NUL-terminated name.
-	let name = unsafe { CStr::from_ptr(name) };
-
-	TABLES.with_borrow(|tables| {
-		tables
-			.iter()
-			.copied()
-			// SAFETY: Tables are leaked.
-			.find(|&table| unsafe { (*table).name } == name)
-			.map_or(null_mut(), |table| table.cast())
-	})
-}
-
-/// `INetworkStringTable::GetMaxStrings`.
-unsafe extern "C" fn table_max(this: *const sys::INetworkStringTable) -> c_int {
-	// SAFETY: Every table the container returns is a `TableObject`.
-	unsafe { (*this.cast::<TableObject>()).max }
-}
-
-/// `INetworkStringTable::GetNumStrings`.
-unsafe extern "C" fn table_len(this: *const sys::INetworkStringTable) -> c_int {
-	// SAFETY: As for `table_max`.
-	unsafe { (*this.cast::<TableObject>()).len.get() }
-}
-
 /// Exports a container of the tables `(name, strings held, most strings)`
 /// names, to the engine of this thread's mock servers.
 ///
@@ -112,6 +82,24 @@ pub fn export_tables(tables: &[(&'static CStr, c_int, c_int)]) {
 	);
 }
 
+/// `INetworkStringTableContainer::FindTable`.
+unsafe extern "C" fn find_table(
+	_: *const sys::INetworkStringTableContainer,
+	name: *const c_char,
+) -> *mut sys::INetworkStringTable {
+	// SAFETY: The wrapper passes a NUL-terminated name.
+	let name = unsafe { CStr::from_ptr(name) };
+
+	TABLES.with_borrow(|tables| {
+		tables
+			.iter()
+			.copied()
+			// SAFETY: Tables are leaked.
+			.find(|&table| unsafe { (*table).name } == name)
+			.map_or(null_mut(), |table| table.cast())
+	})
+}
+
 /// Sets how many strings the table `name` holds, of those [`export_tables`]
 /// made on this thread.
 ///
@@ -132,4 +120,16 @@ pub fn set_table_len(name: &CStr, len: c_int) {
 		// SAFETY: As above.
 		unsafe { (*table).len.set(len) };
 	});
+}
+
+/// `INetworkStringTable::GetNumStrings`.
+unsafe extern "C" fn table_len(this: *const sys::INetworkStringTable) -> c_int {
+	// SAFETY: As for `table_max`.
+	unsafe { (*this.cast::<TableObject>()).len.get() }
+}
+
+/// `INetworkStringTable::GetMaxStrings`.
+unsafe extern "C" fn table_max(this: *const sys::INetworkStringTable) -> c_int {
+	// SAFETY: Every table the container returns is a `TableObject`.
+	unsafe { (*this.cast::<TableObject>()).max }
 }
