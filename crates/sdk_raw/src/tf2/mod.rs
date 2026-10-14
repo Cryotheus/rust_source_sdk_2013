@@ -48,6 +48,7 @@ pub mod respawn;
 pub mod scoreboard;
 pub mod script_binding;
 pub mod scripts;
+pub mod sentry_targets;
 pub mod spawn;
 pub mod teams;
 pub mod touch;
