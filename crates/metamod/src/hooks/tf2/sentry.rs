@@ -30,37 +30,14 @@ use source_sdk_2013::tf2::buildings::{Building, Sentry};
 use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
 
-/// What a callback of [`MetamodApi::hook_sentry_targets`] decides.
-#[derive(Debug, Clone, Copy)]
-pub enum SentryTarget<'s> {
-	/// Leaves the sentry with what the game decided.
-	Keep,
-
-	/// Has the sentry attack this entity.
-	Attack(Entity<'s>),
-}
-
 /// A callback-scoped server, a sentry that has searched for a target, and
 /// whether the game found it one, deciding whom the sentry attacks. A panic is
 /// contained by the hook dispatcher, and keeps the game's decision.
 pub type SentryTargetFn = for<'s> fn(Server<'s>, Entity<'s>, bool) -> SentryTarget<'s>;
 
-/// Why a sentry hook could not be installed.
-#[derive(Debug, thiserror::Error)]
-pub enum SentryHookError {
-	/// The server does not run TF2.
-	#[error("sentry hooks require a TF2 server")]
-	NotTf2,
-
-	/// The game's `FindTarget` was not found.
-	#[error(transparent)]
-	Unresolved(#[from] SentryTargetsError),
-
-	/// Metamod refused the hook. [`HookError::AlreadyInstalled`] means it is
-	/// installed, which callers installing more than once can ignore.
-	#[error(transparent)]
-	Hook(#[from] HookError),
-}
+static ROUTE: SearchRoute = SearchRoute {
+	state: Cell::new(None),
+};
 
 #[derive(Clone, Copy)]
 struct Routed {
@@ -69,17 +46,9 @@ struct Routed {
 	hook: HookId,
 }
 
-static ROUTE: SearchRoute = SearchRoute {
-	state: Cell::new(None),
-};
-
 struct SearchRoute {
 	state: Cell<Option<Routed>>,
 }
-
-// SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
-// calls handlers only on that thread. Cell borrows are never held over calls.
-unsafe impl Sync for SearchRoute {}
 
 impl Handler<FindTargetFn> for SearchRoute {
 	fn call(&self, call: &HookCall<'_, FindTargetFn>) -> HookAction<bool> {
@@ -115,6 +84,37 @@ impl Handler<FindTargetFn> for SearchRoute {
 			Err(_) => HookAction::Ignore,
 		}
 	}
+}
+
+// SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
+// calls handlers only on that thread. Cell borrows are never held over calls.
+unsafe impl Sync for SearchRoute {}
+
+/// Why a sentry hook could not be installed.
+#[derive(Debug, thiserror::Error)]
+pub enum SentryHookError {
+	/// The server does not run TF2.
+	#[error("sentry hooks require a TF2 server")]
+	NotTf2,
+
+	/// The game's `FindTarget` was not found.
+	#[error(transparent)]
+	Unresolved(#[from] SentryTargetsError),
+
+	/// Metamod refused the hook. [`HookError::AlreadyInstalled`] means it is
+	/// installed, which callers installing more than once can ignore.
+	#[error(transparent)]
+	Hook(#[from] HookError),
+}
+
+/// What a callback of [`MetamodApi::hook_sentry_targets`] decides.
+#[derive(Debug, Clone, Copy)]
+pub enum SentryTarget<'s> {
+	/// Leaves the sentry with what the game decided.
+	Keep,
+
+	/// Has the sentry attack this entity.
+	Attack(Entity<'s>),
 }
 
 impl MetamodApi<'_> {

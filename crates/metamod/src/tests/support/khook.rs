@@ -94,6 +94,26 @@ pub(crate) struct KhState {
 }
 
 impl KhState {
+	fn function_slot(&mut self, function: *mut c_void) -> &mut KhSlot {
+		let position = self.slots.iter().position(|slot| slot.function == function);
+
+		match position {
+			Some(position) => &mut self.slots[position],
+
+			None => {
+				self.slots.push(KhSlot {
+					vtable: ptr::null_mut(),
+					index: -1,
+					function,
+					original: function,
+					hooks: Vec::new(),
+				});
+
+				self.slots.last_mut().unwrap()
+			}
+		}
+	}
+
 	fn slot(&mut self, vtable: *mut *mut c_void, index: c_int) -> &mut KhSlot {
 		let position = self
 			.slots
@@ -110,26 +130,6 @@ impl KhState {
 					function: ptr::null_mut(),
 					// SAFETY: KHook is given live vtables with the slot.
 					original: unsafe { vtable.offset(index as isize).read() },
-					hooks: Vec::new(),
-				});
-
-				self.slots.last_mut().unwrap()
-			}
-		}
-	}
-
-	fn function_slot(&mut self, function: *mut c_void) -> &mut KhSlot {
-		let position = self.slots.iter().position(|slot| slot.function == function);
-
-		match position {
-			Some(position) => &mut self.slots[position],
-
-			None => {
-				self.slots.push(KhSlot {
-					vtable: ptr::null_mut(),
-					index: -1,
-					function,
-					original: function,
 					hooks: Vec::new(),
 				});
 
@@ -251,6 +251,10 @@ impl MockKHook {
 		self.run::<S>(found, function, this, args)
 	}
 
+	pub(crate) fn ptr(&self) -> *mut IKHook {
+		ptr::from_ref(self).cast::<IKHook>().cast_mut()
+	}
+
 	/// Runs a detour's loop for a call, or the `undetoured` function if nothing
 	/// hooks it.
 	fn run<S: Signature>(
@@ -312,10 +316,6 @@ impl MockKHook {
 
 		self.state.borrow_mut().last = finished;
 		invoke(hooks[0].make_return)
-	}
-
-	pub(crate) fn ptr(&self) -> *mut IKHook {
-		ptr::from_ref(self).cast::<IKHook>().cast_mut()
 	}
 
 	fn with_context<R>(&self, context: *mut c_void, f: impl FnOnce() -> R) -> R {
