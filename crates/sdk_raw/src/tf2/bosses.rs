@@ -34,7 +34,7 @@ pub const MONSTER_RESOURCE_CLASS: &CStr = c"CMonsterResource";
 /// is neither RED nor BLU (`TF_TEAM_HALLOWEEN` in
 /// `game/shared/tf/tf_shareddefs.h`). It shares its number, 5, with
 /// `TF_TEAM_AUTOASSIGN`, past the four teams
-/// [`TF_TEAM_COUNT`](crate::players::TF_TEAM_COUNT) counts, so no team entity
+/// [`TF_TEAM_COUNT`] counts, so no team entity
 /// has it.
 pub const TF_TEAM_HALLOWEEN: c_int = TF_TEAM_COUNT + 1;
 
