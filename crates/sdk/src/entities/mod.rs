@@ -30,7 +30,7 @@ pub mod spawn;
 pub mod think;
 
 #[cfg(test)]
-#[path = "tests/entities.rs"]
+#[path = "../tests/entities.rs"]
 mod tests;
 
 use crate::datatables::ServerClass;
