@@ -30,6 +30,7 @@ pub mod round;
 pub mod rules;
 pub mod scoreboard;
 pub mod script;
+pub mod sentry;
 pub mod spawn;
 pub mod team;
 pub mod think;
