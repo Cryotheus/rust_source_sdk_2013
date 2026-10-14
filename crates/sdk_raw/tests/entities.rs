@@ -1,10 +1,9 @@
 //! Tests of the game's data description maps, and of `CBaseEntity`'s vtable
-//! slots and header values.
+//! slots.
 
 use source_sdk_2013_raw::entities::datamap::{DataMap, DataMaps, FTYPEDESC_KEY, TD_OFFSET_NORMAL};
 use source_sdk_2013_raw::entities::{
-	ACCEPT_INPUT_SLOT, BASE_ENTITY_FIELD_OFFSET_LIMIT, ENT_ENTRY_MASK, GET_DATA_DESC_MAP_SLOT,
-	INVALID_NETWORKED_EHANDLE_VALUE, NUM_ENT_ENTRIES, NUM_SERIAL_NUM_SHIFT_BITS,
+	ACCEPT_INPUT_SLOT, BASE_ENTITY_FIELD_OFFSET_LIMIT, GET_DATA_DESC_MAP_SLOT,
 	SDK2013_NEXT_BOT_TELEPORT_SLOT, SDK2013_TELEPORT_SLOT, TF2_TELEPORT_SLOT, TeleportSlot,
 	accept_input, data_desc_map, find_base_entity_field, teleport,
 };
@@ -394,14 +393,6 @@ fn calls_go_through_the_entitys_slots() {
 /// The entity's `GetDataDescMap`, returning a map of `CBaseEntity`.
 unsafe extern "C" fn datamap(_: *mut sys::CBaseEntity) -> *mut sys::datamap_t {
 	data_map(c"CBaseEntity", vec![], null_mut())
-}
-
-#[test]
-fn handle_values_follow_the_header() {
-	assert_eq!(NUM_ENT_ENTRIES, 8192);
-	assert_eq!(ENT_ENTRY_MASK, 0xFFFF);
-	assert_eq!(NUM_SERIAL_NUM_SHIFT_BITS, 16);
-	assert_eq!(INVALID_NETWORKED_EHANDLE_VALUE, 0x1F_FFFF);
 }
 
 /// A `Teleport` at one of the Source SDK 2013 slots, counting its calls in

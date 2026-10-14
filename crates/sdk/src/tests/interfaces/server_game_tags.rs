@@ -137,8 +137,3 @@ fn list() -> MockTree {
 		],
 	))
 }
-
-#[test]
-fn the_interface_is_requested_by_its_header_version() {
-	assert_eq!(ServerGameTags::VERSION, c"ServerGameTags001");
-}

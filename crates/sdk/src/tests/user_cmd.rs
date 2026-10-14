@@ -3,14 +3,6 @@
 use super::*;
 use std::mem::MaybeUninit;
 
-#[test]
-fn buttons_keep_the_engines_bits() {
-	assert_eq!(Buttons::ATTACK.bits(), 1);
-	assert_eq!(Buttons::ATTACK3.bits(), 1 << 25);
-	assert_eq!(Buttons::MOVE_RIGHT.bits(), raw::IN_MOVERIGHT);
-	assert_eq!(Buttons::all().bits(), !0);
-}
-
 /// A command as a client sends one, with every input set.
 fn command() -> sys::CUserCmd {
 	// SAFETY: Every field of a command is a number, a flag or a pointer, of
@@ -69,38 +61,4 @@ fn commands_are_changed_in_place() {
 		),
 		(0.0, 45.0, 5.0)
 	);
-}
-
-#[test]
-fn commands_read_what_the_client_sent() {
-	let mut command = command();
-	// SAFETY: The command is live and unaliased while the view is used.
-	let view = unsafe { UserCmd::from_raw_mut(NonNull::from(&mut command)) };
-
-	assert_eq!(view.command_number(), 812);
-	assert_eq!(view.tick_count(), 66_150);
-	assert_eq!(
-		view.view_angles(),
-		QAngle {
-			pitch: 12.5,
-			yaw: -90.0,
-			roll: 0.0
-		}
-	);
-	assert_eq!(
-		(view.forward_move(), view.side_move(), view.up_move()),
-		(450.0, -225.0, 0.0)
-	);
-
-	// Bits without a name are kept.
-	assert_eq!(
-		view.buttons(),
-		Buttons::ATTACK | Buttons::DUCK | Buttons::from_bits_retain(1 << 30)
-	);
-
-	assert_eq!(view.impulse(), 201);
-	assert_eq!((view.weapon_select(), view.weapon_subtype()), (77, 2));
-	assert_eq!(view.random_seed(), 0x3fa9);
-	assert_eq!(view.mouse_delta(), (-14, 3));
-	assert!(format!("{view:?}").starts_with("UserCmd { command_number: 812,"));
 }

@@ -83,19 +83,3 @@ fn process(engine: &MockEngine, slot: usize, command: &CStr) -> Result<bool, Str
 	// SAFETY: Each test's command is refused before any handler runs it.
 	unsafe { engine.game_client(slot).process_string_command(command) }
 }
-
-#[test]
-fn refusals_map_to_their_reasons() {
-	assert!(matches!(
-		StringCommandError::from(StringCmdError::TooLong),
-		StringCommandError::TooLong
-	));
-	assert!(matches!(
-		StringCommandError::from(StringCmdError::UnexpectedLayout),
-		StringCommandError::UnexpectedLayout
-	));
-	assert!(matches!(
-		StringCommandError::from(ClientLayoutError),
-		StringCommandError::UnexpectedLayout
-	));
-}

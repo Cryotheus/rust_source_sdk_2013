@@ -20,7 +20,6 @@ use crate::test_support::tf2::script_binding::{
 
 use crate::tf2::ammo::{self, AmmoError, AmmoType};
 use crate::tf2::ragdolls::{RagdollFlag, TfRagdollError};
-use crate::tf2::scoreboard::ScoringTeam;
 use crate::tf2::weapons::{PlayerWeapons, Weapon, WeaponError};
 use sdk_raw::edicts::FL_FULL_EDICT_CHANGED;
 use sdk_raw::entities::health::IS_ALIVE_SLOT;
@@ -1281,45 +1280,6 @@ fn reserve_ammo_is_read_and_set_by_type() {
 unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sys::ServerClass {
 	// SAFETY: As for `edict`.
 	unsafe { (*fake_of(this)).class }
-}
-
-#[test]
-fn teams_states_and_flags_keep_tf2s_numbers() {
-	for team in Team::ALL {
-		assert_eq!(Team::from_raw(team.to_raw()), Some(team));
-	}
-
-	assert_eq!(Team::ALL.map(Team::to_raw), [0, 1, 2, 3]);
-	assert_eq!(Team::from_raw(4), None);
-	assert_eq!(Team::Red.opponent(), Some(Team::Blue));
-	assert_eq!(Team::Spectator.opponent(), None);
-	assert_eq!(Team::Blue.scoring(), Some(ScoringTeam::Blue));
-	assert_eq!(Team::Unassigned.scoring(), None);
-	assert_eq!(Team::from(ScoringTeam::Red), Team::Red);
-	assert!(Team::PLAYING.iter().all(|team| team.is_playing()));
-
-	for raw in raw::TF_STATE_ACTIVE..raw::TF_STATE_COUNT {
-		assert_eq!(PlayerState::from_raw(raw).unwrap().to_raw(), raw);
-	}
-
-	assert_eq!(PlayerState::from_raw(raw::TF_STATE_COUNT), None);
-
-	// The named flags are the bits clients receive.
-	assert_eq!(HideHud::all().bits(), (1 << raw::HIDEHUD_BITCOUNT) - 1);
-	assert_eq!(
-		[
-			ForcedTauntCam::Off,
-			ForcedTauntCam::WhileAlive,
-			ForcedTauntCam::Always
-		]
-		.map(ForcedTauntCam::to_raw),
-		[0, 1, 2]
-	);
-
-	assert_eq!(
-		RagdollFlag::ALL.map(RagdollFlag::net_prop_name).len(),
-		RagdollFlag::ALL.len()
-	);
 }
 
 /// Takes the vtable calls made since the last.

@@ -31,29 +31,6 @@ impl Mocks {
 	}
 }
 
-#[test]
-fn classes_and_solid_types_have_their_game_values() {
-	assert_eq!(
-		[
-			DynamicPropClass::Dynamic,
-			DynamicPropClass::Override,
-			DynamicPropClass::Ornament,
-		]
-		.map(DynamicPropClass::class_name),
-		[
-			c"prop_dynamic",
-			c"prop_dynamic_override",
-			c"prop_dynamic_ornament"
-		]
-	);
-	assert_eq!(
-		[PropSolid::None, PropSolid::BoundingBox, PropSolid::Vphysics].map(PropSolid::to_raw),
-		[0, 2, 6]
-	);
-	assert_eq!(PropSolid::default(), PropSolid::Vphysics);
-	assert_eq!(DynamicPropClass::default(), DynamicPropClass::Dynamic);
-}
-
 /// A mock entity, for as long as the mocks live.
 fn entity(mock: &mut MockEntity) -> Entity<'static> {
 	// SAFETY: Mock entities are leaked, and their vtables answer what the

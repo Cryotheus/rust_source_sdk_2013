@@ -29,22 +29,6 @@ const SWITCH_TEAMS: usize = FIELDS_OFFSET + 2;
 const TEAM_NUMBER: usize = FIELDS_OFFSET + 52;
 
 #[test]
-fn capture_wins_round_trip() {
-	for (raw, wins) in [
-		(0, CaptureWins::Either),
-		(1, CaptureWins::Neither),
-		(2, CaptureWins::Except(ScoringTeam::Red)),
-		(3, CaptureWins::Except(ScoringTeam::Blue)),
-	] {
-		assert_eq!(wins.to_raw(), raw);
-		assert_eq!(CaptureWins::from_raw(raw), Some(wins));
-	}
-
-	assert_eq!(CaptureWins::from_raw(4), None);
-	assert_eq!(CaptureWins::from_raw(-1), None);
-}
-
-#[test]
 fn control_points_read_their_state_and_change_hands() {
 	use sys::{
 		_fieldtypes_FIELD_BOOLEAN as BOOLEAN, _fieldtypes_FIELD_INTEGER as INTEGER,

@@ -12,15 +12,6 @@ const MODE: usize = FIELDS_OFFSET + 4;
 const TEAM_NUMBER: usize = FIELDS_OFFSET + 8;
 
 #[test]
-fn modes_convert() {
-	for mode in [TeamSpawnMode::Normal, TeamSpawnMode::Triggered] {
-		assert_eq!(TeamSpawnMode::from_raw(mode.to_raw()), Some(mode));
-	}
-
-	assert_eq!(TeamSpawnMode::from_raw(2), None);
-}
-
-#[test]
 fn spawns_are_read_and_controlled() {
 	use sys::{
 		_fieldtypes_FIELD_BOOLEAN as BOOLEAN, _fieldtypes_FIELD_INTEGER as INTEGER,

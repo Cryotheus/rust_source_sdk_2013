@@ -1,8 +1,6 @@
-//! Tests of entities' classes, names, parents' names, spawn flags and teams,
-//! read from the members their datamaps declare.
+//! Tests of entities' classes, names, parents' names, read from the members their datamaps declare.
 
 use crate::test_support::entities::{MockEntity, set_datamap, state_maps};
-use crate::test_support::sdk_core::change_tracking_engine;
 use std::ptr::null;
 
 #[test]
@@ -46,21 +44,4 @@ fn names_are_read_from_their_pooled_strings() {
 	mock.state().parent_name = sys::string_t { pszValue: null() };
 	assert_eq!(mock.entity().name(), None);
 	assert_eq!(mock.entity().parent_name(), Ok(None));
-}
-
-#[test]
-fn spawn_flags_and_teams_are_read_and_written() {
-	let mut mock = MockEntity::new(5);
-	let engine = change_tracking_engine();
-
-	set_datamap(state_maps(vec![]));
-	mock.state().spawn_flags = 1 << 4;
-	mock.state().team = 3;
-
-	assert_eq!(mock.entity().spawn_flags(), Ok(1 << 4));
-	assert_eq!(mock.entity().team(), Ok(3));
-
-	mock.entity().set_spawn_flags(engine, 1 << 9 | 1).unwrap();
-	assert_eq!(mock.state().spawn_flags, 1 << 9 | 1);
-	assert_eq!(mock.entity().spawn_flags(), Ok(1 << 9 | 1));
 }

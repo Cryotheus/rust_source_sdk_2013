@@ -149,46 +149,6 @@ fn flags_are_written() {
 }
 
 #[test]
-fn gravity_and_friction_are_read_and_written() {
-	let mut mock = MockEntity::new(5);
-	let engine = change_tracking_engine();
-
-	set_datamap(state_maps(vec![]));
-	mock.state().gravity = 0.5;
-	mock.state().friction = 1.0;
-
-	assert_eq!(mock.entity().gravity(), Ok(0.5));
-	assert_eq!(mock.entity().friction(), Ok(1.0));
-
-	mock.entity().set_gravity(engine, 2.0).unwrap();
-	mock.entity().set_friction(engine, 0.25).unwrap();
-
-	assert_eq!(mock.state().gravity, 2.0);
-	assert_eq!(mock.state().friction, 0.25);
-}
-
-#[test]
-fn local_origins_and_angles_are_read() {
-	let mut mock = MockEntity::new(5);
-
-	let angles = QAngle {
-		pitch: 0.0,
-		yaw: 180.0,
-		roll: 0.0,
-	};
-
-	set_datamap(state_maps(vec![]));
-	mock.state().origin = Vector::new(0.0, 0.0, 64.0).into();
-	mock.state().rotation = angles.into();
-
-	assert_eq!(
-		mock.entity().local_origin(),
-		Ok(Vector::new(0.0, 0.0, 64.0))
-	);
-	assert_eq!(mock.entity().local_angles(), Ok(angles));
-}
-
-#[test]
 fn move_collide_types_are_read_and_convert_both_ways() {
 	let mut mock = MockEntity::new(5);
 

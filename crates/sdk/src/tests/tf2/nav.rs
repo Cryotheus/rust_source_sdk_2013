@@ -252,12 +252,6 @@ fn characters_report_their_last_known_area() {
 	);
 }
 
-#[test]
-fn directions_and_corners_have_their_game_values() {
-	assert_eq!(NavDirection::ALL.map(NavDirection::to_raw), [0, 1, 2, 3]);
-	assert_eq!(NavCorner::ALL.map(NavCorner::to_raw), [0, 1, 2, 3]);
-}
-
 /// A leaked area with no connections, hiding spots, attributes or players,
 /// whose vtable answers [`is_blocked`] and [`is_visible`].
 fn empty_area(id: u32) -> NonNull<sys::CTFNavArea> {

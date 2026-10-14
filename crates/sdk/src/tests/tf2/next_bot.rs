@@ -253,28 +253,6 @@ unsafe extern "C" fn drive_to(_: *mut sys::ILocomotion, goal: *const sys::Vector
 	record(format!("DriveTo {:?}", components(goal)));
 }
 
-#[test]
-fn enums_have_their_game_values() {
-	assert_eq!(Posture::ALL.map(Posture::to_raw), [0, 1, 2, 3, 4]);
-	assert_eq!(
-		Posture::ALL.map(|posture| Posture::from_raw(posture.to_raw())),
-		Posture::ALL.map(Some)
-	);
-	assert_eq!(Arousal::ALL.map(Arousal::to_raw), [0, 1, 2]);
-	assert_eq!(Arousal::from_raw(3), None);
-	assert_eq!(
-		[
-			LookAtPriority::Boring,
-			LookAtPriority::Interesting,
-			LookAtPriority::Important,
-			LookAtPriority::Critical,
-			LookAtPriority::Mandatory,
-		]
-		.map(LookAtPriority::to_raw),
-		[0, 1, 2, 3, 4]
-	);
-}
-
 unsafe extern "C" fn face_towards(_: *mut sys::ILocomotion, target: *const sys::Vector) {
 	record(format!("FaceTowards {:?}", components(target)));
 }

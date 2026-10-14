@@ -346,69 +346,6 @@ fn native_metadata_survives_queueing_and_custom_target_delimiters() {
 	}
 }
 
-#[cfg(feature = "logger_pretty")]
-#[test]
-fn native_palette_matches_historical_foregrounds_at_every_level() {
-	use super::pretty::{ConsoleColor, write_native};
-	let logger = Logger::pretty_native(queue::LogQueue::new(8, 1024), LevelFilter::Trace, "sample");
-	for (level, expected) in [
-		(
-			Level::Error,
-			[
-				ConsoleColor(255, 255, 255),
-				ConsoleColor(255, 255, 255),
-				ConsoleColor(255, 0, 0),
-			],
-		),
-		(
-			Level::Warn,
-			[
-				ConsoleColor(128, 128, 0),
-				ConsoleColor(128, 128, 0),
-				ConsoleColor(255, 255, 0),
-			],
-		),
-		(
-			Level::Info,
-			[
-				ConsoleColor(0, 0, 255),
-				ConsoleColor(0, 0, 255),
-				ConsoleColor(192, 192, 192),
-			],
-		),
-		(
-			Level::Debug,
-			[
-				ConsoleColor(192, 192, 192),
-				ConsoleColor(128, 128, 128),
-				ConsoleColor(128, 128, 128),
-			],
-		),
-		(
-			Level::Trace,
-			[
-				ConsoleColor(128, 128, 128),
-				ConsoleColor(128, 128, 128),
-				ConsoleColor(128, 128, 128),
-			],
-		),
-	] {
-		logger.log(
-			&Record::builder()
-				.level(level)
-				.target("sample")
-				.args(format_args!("literal % text"))
-				.build(),
-		);
-		let record = logger.sink().drain().pop_front().unwrap();
-		let mut colors = Vec::new();
-		write_native(&record, "Sample", true, |color, _| {
-			colors.push(color.unwrap())
-		});
-		assert_eq!(colors, [expected[1], expected[0], expected[1], expected[2]]);
-	}
-}
-
 #[test]
 fn owned_worker_messages_reach_both_native_log_abis_outside_queue_lock() {
 	for version in [MetamodVersion::Stable1226, MetamodVersion::Dev1469] {

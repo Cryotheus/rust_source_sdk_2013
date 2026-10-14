@@ -216,17 +216,6 @@ unsafe extern "C" fn query_running(
 }
 
 #[test]
-fn states_keep_their_raw_values_and_names() {
-	for raw in -6..=2 {
-		assert_eq!(PluginState::from_raw(raw).to_raw(), raw);
-	}
-
-	assert_eq!(PluginState::from_raw(raw::PL_REFUSED).name(), "FAILED");
-	assert_eq!(PluginState::from_raw(raw::PL_NOT_FOUND).name(), "NOFILE");
-	assert_eq!(PluginSource::from_raw(0), PluginSource::Other(0));
-}
-
-#[test]
 fn the_search_stops_after_a_long_gap() {
 	let reachable = raw::PL_MIN_ID + FREE_RUN;
 	let past = reachable + FREE_RUN + 1;

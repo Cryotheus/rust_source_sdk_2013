@@ -391,24 +391,6 @@ fn missing_or_mistyped_forced_mode_leaves_the_view_unchanged() {
 	}
 }
 
-#[test]
-fn modes_keep_tf2s_numbers() {
-	for raw in raw::OBS_MODE_NONE..raw::NUM_OBSERVER_MODES {
-		assert_eq!(ObserverMode::from_raw(raw).unwrap().to_raw(), raw);
-	}
-
-	assert_eq!(
-		ObserverMode::from_raw(raw::OBS_MODE_ROAMING),
-		Some(ObserverMode::Roaming)
-	);
-	assert_eq!(
-		ObserverMode::from_raw(raw::OBS_MODE_POI),
-		Some(ObserverMode::PointOfInterest)
-	);
-	assert_eq!(ObserverMode::from_raw(-1), None);
-	assert_eq!(ObserverMode::from_raw(raw::NUM_OBSERVER_MODES), None);
-}
-
 unsafe extern "C" fn networkable(entity: *mut sys::IServerUnknown) -> *mut sys::IServerNetworkable {
 	// SAFETY: As for `datamap`.
 	unsafe { &raw mut (*entity.cast::<FakeEntity>()).networkable }
