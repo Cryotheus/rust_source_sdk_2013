@@ -1,8 +1,8 @@
 //! The functions a plugin hooks, and what their hooks run.
 //!
-//! A site is one hooked vtable slot. It has one hook of the library's per
-//! timing, through which it runs the handlers installed on it, so that hooks
-//! come and go without the library's hooks doing so.
+//! A site is one hooked vtable slot, or one hooked function. It has one hook of
+//! the library's per timing, through which it runs the handlers installed on
+//! it, so that hooks come and go without the library's hooks doing so.
 
 use super::signature::{HOOK_MANAGERS, Signature};
 use super::{Handler, HookAction, HookCall, HookError, HookId, HookTiming, khook, sourcehook};
@@ -31,8 +31,21 @@ trait AnySite: Any {
 
 	fn remove(&self, id: HookId) -> bool;
 
-	/// The vtable and the index in it.
-	fn slot(&self) -> (NonNull<*mut c_void>, usize);
+	/// What the site hooks.
+	fn place(&self) -> Place;
+}
+
+/// What a site hooks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Place {
+	/// A slot of a vtable.
+	Slot {
+		vtable: NonNull<*mut c_void>,
+		index: usize,
+	},
+
+	/// A function, by its address, called directly.
+	Function(NonNull<c_void>),
 }
 
 /// The hooking library a registry installs hooks with.
@@ -149,24 +162,39 @@ impl Registry {
 	///
 	/// # Safety
 	///
-	/// The site's vtable must hold a function of signature `S` at its slot.
+	/// The site's vtable must hold a function of signature `S` at its slot, or
+	/// its function be one of signature `S`.
 	pub(super) unsafe fn install<S: Signature>(
 		&mut self,
 		site: &'static Site<S>,
 		timing: HookTiming,
 	) -> Result<(), HookError> {
-		match self.backend {
+		match (self.backend, site.place()) {
 			// SAFETY: As the caller promises.
-			Some(Backend::KHook) => unsafe { khook::install(site, timing) },
+			(Some(Backend::KHook), Place::Slot { vtable, index }) => unsafe {
+				khook::install_slot(site, vtable, index, timing)
+			},
 
-			Some(Backend::SourceHook { sourcehook, plugin }) => {
-				let manager = sourcehook::hook_manager::<S>(&mut self.hook_managers, site.index)?;
+			// SAFETY: As the caller promises.
+			(Some(Backend::KHook), Place::Function(function)) => unsafe {
+				khook::install_function(site, function, timing)
+			},
+
+			(Some(Backend::SourceHook { sourcehook, plugin }), Place::Slot { vtable, index }) => {
+				let manager = sourcehook::hook_manager::<S>(&mut self.hook_managers, index)?;
 
 				// SAFETY: As the caller promises.
-				unsafe { sourcehook::install(sourcehook, plugin, manager, site, timing) }
+				unsafe {
+					sourcehook::install(sourcehook, plugin, manager, site, vtable, index, timing)
+				}
 			}
 
-			None => Err(HookError::NotBound),
+			// SourceHook only hooks virtual functions.
+			(Some(Backend::SourceHook { .. }), Place::Function(_)) => {
+				Err(HookError::DetourUnsupported)
+			}
+
+			(None, _) => Err(HookError::NotBound),
 		}
 	}
 
@@ -207,10 +235,19 @@ impl Registry {
 			return Err(HookError::InvalidArgument);
 		}
 
-		let found = self
-			.sites
-			.iter()
-			.find(|site| site.slot() == (vtable, index));
+		self.site_at(Place::Slot { vtable, index })
+	}
+
+	/// The site of a function, created on first use.
+	pub(super) fn function_site<S: Signature>(
+		&mut self,
+		function: NonNull<c_void>,
+	) -> Result<&'static Site<S>, HookError> {
+		self.site_at(Place::Function(function))
+	}
+
+	fn site_at<S: Signature>(&mut self, place: Place) -> Result<&'static Site<S>, HookError> {
+		let found = self.sites.iter().find(|site| site.place() == place);
 
 		if let Some(&site) = found {
 			return site
@@ -222,8 +259,7 @@ impl Registry {
 		let site: &'static Site<S> = Box::leak(Box::new(Site {
 			api_version: self.api_version,
 			generation: self.generation.unwrap_or_default(),
-			vtable,
-			index,
+			place,
 			entries: RefCell::new(Vec::new()),
 			depth: Cell::new(0),
 			installed: [Cell::new(false), Cell::new(false)],
@@ -234,12 +270,12 @@ impl Registry {
 	}
 }
 
-/// One hooked vtable slot, of signature `S`, for one load of the plugin.
+/// One hooked vtable slot or function, of signature `S`, for one load of the
+/// plugin.
 pub(super) struct Site<S: Signature> {
 	api_version: c_int,
 	generation: u64,
-	vtable: NonNull<*mut c_void>,
-	index: usize,
+	place: Place,
 	entries: RefCell<Vec<Entry<S>>>,
 	/// How many calls are running the site's handlers.
 	depth: Cell<u32>,
@@ -296,8 +332,8 @@ impl<S: Signature> Site<S> {
 		}
 	}
 
-	pub(super) const fn index(&self) -> usize {
-		self.index
+	pub(super) const fn place(&self) -> Place {
+		self.place
 	}
 
 	pub(super) fn installed(&self, timing: HookTiming) -> bool {
@@ -322,10 +358,6 @@ impl<S: Signature> Site<S> {
 
 	pub(super) fn set_installed(&self, timing: HookTiming) {
 		self.installed[timing as usize].set(true);
-	}
-
-	pub(super) const fn vtable(&self) -> NonNull<*mut c_void> {
-		self.vtable
 	}
 }
 
@@ -360,8 +392,8 @@ impl<S: Signature> AnySite for Site<S> {
 		true
 	}
 
-	fn slot(&self) -> (NonNull<*mut c_void>, usize) {
-		(self.vtable, self.index)
+	fn place(&self) -> Place {
+		self.place
 	}
 }
 
