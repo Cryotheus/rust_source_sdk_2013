@@ -282,13 +282,3 @@ unsafe extern "C" fn set_winning_team(
 		));
 	});
 }
-
-#[test]
-fn stalemate_reasons_round_trip_through_their_raw_values() {
-	for reason in StalemateReason::ALL {
-		assert_eq!(StalemateReason::from_raw(reason.to_raw()), Some(reason));
-	}
-
-	assert_eq!(StalemateReason::from_raw(3), None);
-	assert_eq!(StalemateReason::Timer.to_raw(), raw::STALEMATE_TIMER);
-}

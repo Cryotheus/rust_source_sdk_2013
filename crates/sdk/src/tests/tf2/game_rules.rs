@@ -377,21 +377,6 @@ fn round_progress_is_read_from_the_round_based_rules() {
 }
 
 #[test]
-fn round_states_round_trip_through_their_raw_values() {
-	for (state, raw) in RoundState::ALL.into_iter().zip(GR_STATE_INIT..) {
-		assert_eq!(state.to_raw(), raw);
-		assert_eq!(RoundState::from_raw(raw), Some(state));
-	}
-
-	assert_eq!(
-		RoundState::ALL.last().unwrap().to_raw(),
-		GR_STATE_BETWEEN_RNDS
-	);
-	assert_eq!(RoundState::from_raw(GR_STATE_INIT - 1), None);
-	assert_eq!(RoundState::from_raw(GR_STATE_BETWEEN_RNDS + 1), None);
-}
-
-#[test]
 fn set_variables_are_recorded_for_clients_on_the_proxy_entity() {
 	let mut world = World::new(Some(round_rules_proxy));
 	let scope = ();

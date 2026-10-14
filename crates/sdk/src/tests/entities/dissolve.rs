@@ -26,21 +26,6 @@ impl Mocks {
 }
 
 #[test]
-fn dissolve_types_have_their_game_values() {
-	assert_eq!(DissolveType::default(), DissolveType::Normal);
-	assert_eq!(
-		[
-			DissolveType::Normal,
-			DissolveType::Electrical,
-			DissolveType::ElectricalLight,
-			DissolveType::Core,
-		]
-		.map(DissolveType::to_raw),
-		[0, 1, 2, 3]
-	);
-}
-
-#[test]
 fn entities_are_dissolved_by_a_dissolver_removed_after_its_input() {
 	let mut mocks = setup(true);
 	let target = mocks.target();

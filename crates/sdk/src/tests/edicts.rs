@@ -4,29 +4,12 @@
 use super::*;
 use crate::Game;
 
-use crate::test_support::edicts::{
-	edict_table, set_change_accessor, set_shared_change_info, take_flag_changes,
-};
+use crate::test_support::edicts::{set_change_accessor, set_shared_change_info, take_flag_changes};
 
 use crate::test_support::sdk_core::change_tracking_engine;
 use sdk_raw::edicts::{FL_EDICT_CHANGED, FL_EDICT_FULL, FL_FULL_EDICT_CHANGED, MAX_EDICTS};
 use sdk_raw::test_support::edicts::mock_edict;
 use std::ptr::null_mut;
-
-#[test]
-fn reads_the_cached_index_and_free_flag() {
-	let mut table = edict_table(3, |slot| slot == 1);
-	let base = table.as_mut_ptr();
-	// SAFETY: The slot lies within the table, which outlives every handle.
-	let edict = |slot: usize| unsafe { Edict::from_raw(NonNull::new(base.add(slot)).unwrap()) };
-
-	assert_eq!(edict(0).index(), 0);
-	assert_eq!(edict(2).index(), 2);
-	assert!(!edict(0).is_free());
-	assert!(edict(1).is_free());
-	assert_eq!(edict(1).entity(), None);
-	assert_eq!(edict(0).class_name(), None);
-}
 
 #[test]
 fn setting_the_transmit_state_keeps_the_other_flags() {

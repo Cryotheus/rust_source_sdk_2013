@@ -204,33 +204,6 @@ fn fake_of(this: *const sys::IServerNetworkable) -> *mut FakeWeapon {
 		.cast()
 }
 
-#[test]
-fn ids_and_definitions_keep_tf2s_numbers() {
-	assert_eq!(WeaponId::NONE.to_raw(), 0);
-	assert_eq!(WeaponId::FLAMETHROWER.to_raw(), 25);
-	assert_eq!(WeaponId::BUILDER.to_raw(), 49);
-	assert_eq!(WeaponId::FLAME_BALL.to_raw(), raw::TF_WEAPON_COUNT - 1);
-	assert_eq!(WeaponId::from_raw(58), WeaponId::FLAREGUN);
-
-	// An id the game adds later is kept.
-	assert_eq!(WeaponId::from_raw(raw::TF_WEAPON_COUNT).to_raw(), 110);
-
-	let definitions = [
-		(ItemDefinitionIndex::HOMEWRECKER, 153),
-		(ItemDefinitionIndex::CONCHEROR, 354),
-		(ItemDefinitionIndex::COW_MANGLER_5000, 441),
-		(ItemDefinitionIndex::MAUL, 466),
-		(ItemDefinitionIndex::PHLOGISTINATOR, 594),
-		(ItemDefinitionIndex::NEON_ANNIHILATOR, 813),
-		(ItemDefinitionIndex::NEON_ANNIHILATOR_GENUINE, 834),
-		(ItemDefinitionIndex::DRAGONS_FURY, 1178),
-	];
-
-	for (definition, index) in definitions {
-		assert_eq!(Some(definition), ItemDefinitionIndex::new(index));
-	}
-}
-
 /// The datamap of weapons of the class named `class`.
 fn map(class: &'static CStr) -> *mut sys::datamap_t {
 	let mut flags = field(

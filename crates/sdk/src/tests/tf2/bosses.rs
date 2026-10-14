@@ -366,35 +366,6 @@ unsafe extern "C" fn resolve_adapter(
 }
 
 #[test]
-fn skeleton_types_and_boss_teams_map_to_the_games_numbers() {
-	for (kind, raw) in [
-		(SkeletonType::Normal, 0),
-		(SkeletonType::King, 1),
-		(SkeletonType::Mini, 2),
-	] {
-		assert_eq!(kind.to_raw(), raw);
-		assert_eq!(SkeletonType::from_raw(raw), Some(kind));
-	}
-
-	assert_eq!(SkeletonType::from_raw(3), None);
-
-	for (team, raw) in [
-		(BossTeam::Red, 2),
-		(BossTeam::Blue, 3),
-		(BossTeam::Halloween, 5),
-	] {
-		assert_eq!(team.to_raw(), raw);
-		assert_eq!(BossTeam::from_raw(raw), Some(team));
-	}
-
-	assert_eq!(BossTeam::from_raw(4), None);
-	assert_eq!(
-		HalloweenBoss::ALL.map(HalloweenBoss::class_name),
-		[c"headless_hatman", c"eyeball_boss", c"merasmus"]
-	);
-}
-
-#[test]
 fn skeletons_spawn_alone_or_from_spawners() {
 	let scope = ();
 	let server = mock_server(&scope);

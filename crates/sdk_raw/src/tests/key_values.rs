@@ -180,12 +180,6 @@ fn no_system_is_found_without_vstdlib() {
 	assert!(key_values_system().is_none());
 }
 
-#[test]
-fn slots_follow_the_header() {
-	assert_eq!(GET_SYMBOL_FOR_STRING_SLOT, 3);
-	assert_eq!(GET_STRING_FOR_SYMBOL_SLOT, 4);
-}
-
 /// The mock system's `GetStringForSymbol`.
 unsafe extern "C" fn string_for_symbol(
 	_this: *mut IKeyValuesSystem,

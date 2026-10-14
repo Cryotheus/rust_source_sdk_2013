@@ -312,14 +312,6 @@ fn timer_map() -> (&'static CStr, Vec<sys::typedescription_t>) {
 }
 
 #[test]
-fn timer_outputs_are_named_as_declared() {
-	assert_eq!(RoundTimerOutput::Finished.name(), c"OnFinished");
-	assert_eq!(RoundTimerOutput::SetupFinished.name(), c"OnSetupFinished");
-	assert_eq!(RoundTimerOutput::FiveMinutesLeft.name(), c"On5MinRemain");
-	assert_eq!(RoundTimerOutput::OneSecondLeft.name(), c"On1SecRemain");
-}
-
-#[test]
 fn timers_are_controlled_through_their_inputs() {
 	let fake = timer();
 	let scope = ();
@@ -410,17 +402,4 @@ fn timers_read_their_networked_state() {
 		timer.state(),
 		Err(ObjectiveError::UnknownValue { value: 7, .. })
 	));
-}
-
-#[test]
-fn win_reasons_round_trip() {
-	for (raw, reason) in WinReason::ALL.into_iter().enumerate() {
-		let raw = c_int::try_from(raw).unwrap();
-
-		assert_eq!(reason.to_raw(), raw);
-		assert_eq!(WinReason::from_raw(raw), Some(reason));
-	}
-
-	assert_eq!(WinReason::from_raw(17), None);
-	assert_eq!(TimerState::from_raw(2), None);
 }

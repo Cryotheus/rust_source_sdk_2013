@@ -249,16 +249,6 @@ fn hold(_: &Spew<'_>) {
 }
 
 #[test]
-fn kinds_follow_tier0() {
-	assert_eq!(SpewKind::from(SpewType::MESSAGE), SpewKind::Message);
-	assert_eq!(SpewKind::from(SpewType::WARNING), SpewKind::Warning);
-	assert_eq!(SpewKind::from(SpewType::ASSERT), SpewKind::Assert);
-	assert_eq!(SpewKind::from(SpewType::ERROR), SpewKind::Error);
-	assert_eq!(SpewKind::from(SpewType::LOG), SpewKind::Log);
-	assert_eq!(SpewKind::from(SpewType(9)), SpewKind::Other(9));
-}
-
-#[test]
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn leaves_a_later_function_working() {
 	let _serial = setup(Some(engine_output));

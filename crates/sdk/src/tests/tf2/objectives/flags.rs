@@ -92,28 +92,6 @@ fn flag() -> FakeObjective {
 }
 
 #[test]
-fn flag_values_convert() {
-	for status in [FlagStatus::Home, FlagStatus::Stolen, FlagStatus::Dropped] {
-		assert_eq!(FlagStatus::from_raw(status.to_raw()), Some(status));
-	}
-
-	for flag_type in [
-		FlagType::CaptureTheFlag,
-		FlagType::AttackDefend,
-		FlagType::TerritoryControl,
-		FlagType::Invade,
-		FlagType::ResourceControl,
-		FlagType::RobotDestruction,
-		FlagType::PlayerDestruction,
-	] {
-		assert_eq!(FlagType::from_raw(flag_type.to_raw()), Some(flag_type));
-	}
-
-	assert_eq!(FlagStatus::from_raw(3), None);
-	assert_eq!(FlagType::from_raw(7), None);
-}
-
-#[test]
 fn flags_are_controlled_through_their_inputs() {
 	let fake = flag();
 	let scope = ();

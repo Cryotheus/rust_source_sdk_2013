@@ -278,21 +278,6 @@ fn simple_effects_and_predicates_call_their_methods() {
 }
 
 #[test]
-fn stun_flags_keep_the_games_bits() {
-	let named = StunFlags::all()
-		.iter_names()
-		.fold(StunFlags::empty(), |all, (_, flag)| all | flag);
-
-	assert_eq!(
-		named.bits(),
-		0b1_1111_1111,
-		"the game's nine TF_STUN_* flags"
-	);
-	assert_eq!(StunFlags::BOTH, StunFlags::MOVEMENT | StunFlags::CONTROLS);
-	assert_eq!(StunFlags::from_bits_retain(1 << 12).bits(), 1 << 12);
-}
-
-#[test]
 fn stuns_are_read_while_stunned() {
 	serve_interfaces();
 

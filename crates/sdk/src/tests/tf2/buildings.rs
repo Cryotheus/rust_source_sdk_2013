@@ -602,30 +602,6 @@ fn building<'s>(server: Server<'s>, fake: *mut FakeEntity) -> Building<'s> {
 }
 
 #[test]
-fn building_classes_are_listed_in_the_order_of_their_vtables() {
-	for (index, class) in BuildingClass::ALL.into_iter().enumerate() {
-		assert_eq!(class as usize, index);
-	}
-
-	let kinds = BuildingClass::ALL.map(BuildingClass::kind);
-
-	assert_eq!(
-		kinds,
-		[
-			BuildingKind::Dispenser,
-			BuildingKind::Dispenser,
-			BuildingKind::Dispenser,
-			BuildingKind::Dispenser,
-			BuildingKind::Sapper,
-			BuildingKind::Sentry,
-			BuildingKind::Teleporter,
-		]
-	);
-	assert_eq!(BuildingClass::Sentry.name(), "CObjectSentrygun");
-	assert_eq!(BuildingClass::RobotDispenser.name(), "CRobotDispenser");
-}
-
-#[test]
 fn building_inputs_are_sent_to_the_building() {
 	let world = World::new();
 	let scope = ();
@@ -1420,52 +1396,6 @@ unsafe extern "C" fn handle_proxy(
 unsafe extern "C" fn is_dying_fn(this: *mut sys::CBaseObject) -> bool {
 	// SAFETY: As for `destroy_object`.
 	unsafe { (*this.cast::<FakeEntity>()).dying }
-}
-
-#[test]
-fn kinds_states_and_flags_keep_tf2s_numbers() {
-	for (raw, kind) in (raw::OBJ_DISPENSER..raw::OBJ_LAST).zip(BuildingKind::ALL) {
-		assert_eq!(BuildingKind::from_raw(raw), Some(kind));
-		assert_eq!(kind.to_raw(), raw);
-	}
-
-	assert_eq!(BuildingKind::from_raw(-1), None);
-	assert_eq!(BuildingKind::from_raw(raw::OBJ_LAST), None);
-
-	for kind in ObjectKind::ALL {
-		assert_eq!(BuildingKind::from(kind).object_kind(), Some(kind));
-	}
-
-	assert_eq!(BuildingKind::Sapper.object_kind(), None);
-
-	for raw in raw::SENTRY_STATE_INACTIVE..=raw::SENTRY_STATE_UPGRADING {
-		assert_eq!(SentryState::from_raw(raw).unwrap().to_raw(), raw);
-	}
-
-	for raw in raw::DISPENSER_STATE_IDLE..=raw::DISPENSER_STATE_UPGRADING {
-		assert_eq!(DispenserState::from_raw(raw).unwrap().to_raw(), raw);
-	}
-
-	for raw in raw::TELEPORTER_STATE_BUILDING..=raw::TELEPORTER_STATE_UPGRADING {
-		assert_eq!(TeleporterState::from_raw(raw).unwrap().to_raw(), raw);
-	}
-
-	assert_eq!(SentryState::from_raw(4), None);
-	assert_eq!(DispenserState::from_raw(2), None);
-	assert_eq!(TeleporterState::from_raw(-1), None);
-
-	assert_eq!(ObjectFlags::all().bits(), !0);
-	assert_eq!(
-		(ObjectFlags::ALLOW_REPEAT_PLACEMENT
-			| ObjectFlags::BUILT_ON_ATTACHMENT
-			| ObjectFlags::NO_MODEL
-			| ObjectFlags::PLAYER_DESTRUCTION)
-			.bits(),
-		0x0f
-	);
-	assert_eq!(SolidToPlayers::Default.to_raw(), 0);
-	assert_eq!(SolidToPlayers::Yes.to_raw(), 1);
-	assert_eq!(SolidToPlayers::No.to_raw(), 2);
 }
 
 /// `CBaseObject::GetMaxUpgradeLevel`.

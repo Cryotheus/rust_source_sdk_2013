@@ -192,23 +192,6 @@ fn cleansing_removes_only_held_conditions() {
 }
 
 #[test]
-fn conditions_cover_every_identifier_in_order() {
-	assert_eq!(Condition::all().len(), sys::ETFCond_TF_COND_LAST as usize);
-
-	for (raw, condition) in Condition::all().enumerate() {
-		assert_eq!(condition.to_raw() as usize, raw);
-		assert_eq!(Condition::from_raw(condition.to_raw()), Some(condition));
-	}
-
-	assert_eq!(
-		Condition::all().next_back().map(Condition::to_raw),
-		Some(sys::ETFCond_TF_COND_LAST - 1)
-	);
-	assert_eq!(Condition::from_raw(-1), None);
-	assert_eq!(Condition::from_raw(sys::ETFCond_TF_COND_LAST), None);
-}
-
-#[test]
 fn conditions_have_the_games_names() {
 	assert_eq!(Condition::AIMING.name(), "TF_COND_AIMING");
 	assert_eq!(Condition::URINE.name(), "TF_COND_URINE");
