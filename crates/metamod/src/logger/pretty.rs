@@ -102,6 +102,7 @@ impl PrettyOptions {
 		}
 
 		let target = record.target();
+
 		let tag = if target == self.root_target {
 			String::new()
 		} else if let Some(local) = target.strip_prefix(&format!("{}::", self.root_target)) {
@@ -115,6 +116,7 @@ impl PrettyOptions {
 		}
 
 		let (level_style, tag_style, message_style) = styles(record.level());
+
 		format!(
 			"{tag_style}[{level_style}{}{tag_style}{tag}]{tag_style:#} {message_style}{}{message_style:#}",
 			record.level(),
@@ -197,6 +199,7 @@ pub(super) fn render_native(record: &Record<'_>, root_target: &str) -> (String, 
 // The caller has already selected a known console and enabled styling.
 fn styles(level: Level) -> (Style, Style, Style) {
 	let foreground = |color| Style::new().fg_color(Some(Ansi256Color(color).into()));
+
 	match level {
 		Level::Error => (
 			foreground(15).bg_color(Some(Ansi256Color(1).into())),

@@ -48,7 +48,7 @@ pub mod queue;
 pub mod pretty;
 
 #[cfg(test)]
-#[path = "tests/logger.rs"]
+#[path = "../tests/logger.rs"]
 mod tests;
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
@@ -129,6 +129,7 @@ impl<S: Sink> Log for Logger<S> {
 			#[cfg(feature = "logger_pretty")]
 			Rendering::Native(root_target) => pretty::render_native(record, root_target),
 		};
+
 		self.sink.write(OwnedRecord {
 			level: record.level(),
 			prefix_bytes,
@@ -162,8 +163,10 @@ impl OwnedRecord {
 
 enum Rendering {
 	Plain,
+
 	#[cfg(feature = "logger_pretty")]
 	Pretty(pretty::PrettyOptions),
+
 	#[cfg(feature = "logger_pretty")]
 	Native(&'static str),
 }
