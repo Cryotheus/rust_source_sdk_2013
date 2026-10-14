@@ -13,7 +13,7 @@
 mod tests;
 
 use crate::sig;
-use crate::util::{Image, SignaturePattern, exact_u32};
+use crate::util::{Image, SignaturePattern, detoured, exact_u32};
 use std::mem::offset_of;
 
 // The signature's two member offsets are those the layout gives.
@@ -26,14 +26,19 @@ const _: () = {
 	);
 };
 
-/// The alignment of function entries in the module.
-const FUNCTION_ALIGNMENT: usize = 16;
+/// How many bytes a detour's 5-byte jump overwrites at the start of
+/// [`FIND_TARGET`]: its first three instructions, `push rbp`, `push rsi` and
+/// `push r15`, end exactly there.
+const DETOUR_PATCH: usize = 5;
 
 /// The prologue of `FindTarget`, up to the call after it stores
 /// `m_flShieldFadeTime` and clears `m_bPlayerControlled`: it saves registers,
 /// allocates its stack frame, and tests `m_bPlayerControlled` (`r15` holds the
 /// address of the member).
 const FIND_TARGET: &[SignaturePattern] = &sig![0x40 0x55 0x56 0x41 0x57 0x48 0x8d 0xac 0x24 ? ? ? ? 0x48 0x81 0xec ? ? ? ? 0x4c 0x8d 0xb9 0xa0 0x0d 0 0 0x48 0x8b 0xf1 0x41 0x80 0x3f 0 0x74 ? 0x48 0x8b 0x05 ? ? ? ? 0x49 0x8b 0xd7 0xf3 0x0f 0x10 0x40 0x0c 0xf3 0x0f 0x58 0x05 ? ? ? ? 0xf3 0x0f 0x11 0x81 0xa8 0x0d 0 0 0xe8 ? ? ? ? 0x41 0xc6 0x07 0];
+
+/// The alignment of function entries in the module.
+const FUNCTION_ALIGNMENT: usize = 16;
 
 /// Where the displacement of `m_bPlayerControlled` starts in [`FIND_TARGET`].
 const PLAYER_CONTROLLED: usize = 23;
@@ -54,7 +59,11 @@ pub(super) unsafe fn resolve(address: usize) -> Option<usize> {
 }
 
 /// Resolves `FindTarget` in a snapshot of the module: the one function the
-/// signature matches.
+/// signature matches, or, failing that, the one it matches as a detour left it
+/// (see [`detoured`]), as KHook leaves it after an earlier load of a plugin
+/// hooked it.
 fn resolve_image(image: &Image) -> Option<usize> {
-	image.unique(FIND_TARGET, FUNCTION_ALIGNMENT)
+	image
+		.unique(FIND_TARGET, FUNCTION_ALIGNMENT)
+		.or_else(|| image.unique(&detoured(FIND_TARGET, DETOUR_PATCH), FUNCTION_ALIGNMENT))
 }

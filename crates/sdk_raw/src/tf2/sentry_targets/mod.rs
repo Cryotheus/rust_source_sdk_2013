@@ -14,7 +14,10 @@
 //! server module: on Windows through a signature, and on Linux through its
 //! mangled symbol, which needs an unstripped `server_srv.so`. A missing or
 //! ambiguous signature, a stripped symbol, or a file that differs from the
-//! loaded module fail closed.
+//! loaded module fail closed. On Windows, a `FindTarget` whose start a detour
+//! replaced with a jump is found too: KHook keeps its detour after the last
+//! hook goes, so a plugin that hooked it and was unloaded leaves one for its
+//! next load.
 //!
 //! `FindTarget` is a member function with no arguments that returns a C++
 //! `bool`, and is called as `extern "C"` with the sentry as its first argument,
@@ -72,12 +75,6 @@ pub struct SentryTargets {
 	find_target: NonNull<c_void>,
 }
 
-// SAFETY: A plain function address, which nothing here dereferences.
-unsafe impl Send for SentryTargets {}
-
-// SAFETY: As above.
-unsafe impl Sync for SentryTargets {}
-
 impl SentryTargets {
 	/// Finds `FindTarget` in the module whose `CreateInterface` export is
 	/// `factory`, as [`Self::resolve`] does, but inspects each module only once,
@@ -109,6 +106,12 @@ impl SentryTargets {
 		Self::from_address(address)
 	}
 
+	fn from_address(address: usize) -> Result<Self, SentryTargetsError> {
+		NonNull::new(ptr::with_exposed_provenance_mut(address))
+			.map(|find_target| Self { find_target })
+			.ok_or(SentryTargetsError::Unresolved)
+	}
+
 	/// Finds `FindTarget` in the module whose `CreateInterface` export is
 	/// `factory`.
 	///
@@ -128,18 +131,18 @@ impl SentryTargets {
 		Self::from_address(address)
 	}
 
-	fn from_address(address: usize) -> Result<Self, SentryTargetsError> {
-		NonNull::new(ptr::with_exposed_provenance_mut(address))
-			.map(|find_target| Self { find_target })
-			.ok_or(SentryTargetsError::Unresolved)
-	}
-
 	/// The entry of `FindTarget`, a [`FindTargetFn`], in the module it was
 	/// resolved in.
 	pub const fn find_target(self) -> NonNull<c_void> {
 		self.find_target
 	}
 }
+
+// SAFETY: A plain function address, which nothing here dereferences.
+unsafe impl Send for SentryTargets {}
+
+// SAFETY: As above.
+unsafe impl Sync for SentryTargets {}
 
 /// Why TF2's `CObjectSentrygun::FindTarget` could not be found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
