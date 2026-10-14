@@ -4,6 +4,7 @@
 use super::*;
 use crate::Module;
 use crate::datatables::PropFlags;
+use crate::interfaces::network_string_tables::DYNAMIC_MODELS;
 use crate::interfaces::{PlayerInfoManager, ValveEngine};
 
 use crate::test_support::datatables::{
@@ -12,6 +13,7 @@ use crate::test_support::datatables::{
 
 use crate::test_support::edicts::{change_accessor, shared_change_info};
 use crate::test_support::entities::MOCK_EFLAGS_OFFSET;
+use crate::test_support::interfaces::network_string_tables::{export_tables, set_table_len};
 use crate::test_support::interfaces::player_info_manager::{global_vars, serve_global_vars};
 use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
 use crate::test_support::leak;
@@ -23,6 +25,10 @@ use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, c_void};
 use std::mem::offset_of;
 use std::ptr::null_mut;
+
+/// The most strings the mock `DynamicModels` table holds, as the engine's does
+/// on the servers it was observed on.
+const DYNAMIC_MODELS_MAX: c_int = 2048;
 
 const EQUIP: usize =
 	offset_of!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_EquipWearable) / size_of::<usize>();
@@ -348,6 +354,8 @@ impl World {
 			ValveEngine::VERSION,
 			leak(sys::IVEngineServer { vtable_: engine }),
 		);
+
+		export_tables(&[(DYNAMIC_MODELS, 0, DYNAMIC_MODELS_MAX)]);
 	}
 
 	/// Creates an entity in edict slot `index`, which
@@ -796,6 +804,54 @@ fn give_validates_before_equipping_and_deletes_what_the_game_refuses() {
 		wearables.list(),
 		Err(WearableError::MarkedForDeletion)
 	));
+}
+
+#[test]
+fn items_need_room_in_the_dynamic_models_table_for_their_models() {
+	let world = World::new();
+	let scope = ();
+	let server = mock_server(&scope);
+	let wearables = PlayerWearables::new(server, entity(world.player)).unwrap();
+	let spare = Wearable::new(server, entity(world.wearable(2))).unwrap();
+	let definition = ItemDefinitionIndex::new(126).unwrap();
+	let room = DYNAMIC_MODELS_MAX - c_int::try_from(MAX_DYNAMIC_MODELS_PER_ITEM).unwrap();
+
+	// The game ends the server when a model does not fit, so nothing is
+	// created or equipped, by any way in, while one of an item's models may
+	// not.
+	set_table_len(DYNAMIC_MODELS, room + 1);
+	assert!(matches!(
+		// SAFETY: The mock game creates and iterates nothing.
+		unsafe { wearables.give_with(|_| unreachable!()) },
+		Err(WearableError::NoModelRoom { free }) if free == MAX_DYNAMIC_MODELS_PER_ITEM - 1
+	));
+	assert!(matches!(
+		// SAFETY: As above.
+		unsafe { wearables.equip(spare) },
+		Err(WearableError::NoModelRoom { .. })
+	));
+	assert!(matches!(
+		// SAFETY: As above.
+		unsafe { Wearable::generate(server, definition, Vector::new(0.0, 0.0, 0.0)) },
+		Err(WearableError::NoModelRoom { .. })
+	));
+	assert!(!wearables.list().unwrap().contains(spare));
+	// SAFETY: Fake entities are leaked, and the mock game is not running.
+	assert_eq!(unsafe { (*world.player).equip_calls }, 0);
+
+	// A full table is not a table with room.
+	set_table_len(DYNAMIC_MODELS, DYNAMIC_MODELS_MAX);
+	assert!(matches!(
+		// SAFETY: As above.
+		unsafe { wearables.equip(spare) },
+		Err(WearableError::NoModelRoom { free: 0 })
+	));
+
+	// Exactly as many entries free as an item can take is room enough.
+	set_table_len(DYNAMIC_MODELS, room);
+	// SAFETY: As above.
+	unsafe { wearables.equip(spare) }.unwrap();
+	assert!(wearables.list().unwrap().contains(spare));
 }
 
 unsafe extern "C" fn handle(entity: *const sys::IServerUnknown) -> *const sys::CBaseHandle {

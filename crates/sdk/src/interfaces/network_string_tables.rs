@@ -27,6 +27,29 @@ pub use sdk_raw::interfaces::network_string_tables::MAX_USER_DATA_LEN;
 /// connect.
 pub const DOWNLOADABLES: &CStr = c"downloadables";
 
+/// The name of the table listing the models the game registers while a level
+/// runs, which the engine refers to by negative model indices (inferred).
+///
+/// Items that content streaming loads on demand, such as most TF2 cosmetics,
+/// are not precached with the level: the game registers each model the first
+/// time an item takes it (`IVModelInfo::RegisterDynamicModel`, when it
+/// creates the item and again when a player equips it, for the player's
+/// class), by adding its path to this table. The engine, not the game, creates
+/// the table (inferred: the game's `CreateNetworkStringTables` does not), so
+/// its name comes from the engine's own message when it is full ("Table
+/// DynamicModels is full, can't add ...").
+///
+/// A path takes one entry for the rest of the level, however briefly the item
+/// lived: releasing a model does not free its entry, and the interface cannot
+/// remove strings, so the table only fills until the level ends (observed, not
+/// verified). Once it holds [`NetworkStringTable::max_len`] strings (2048 on
+/// the servers it was observed on), the engine adds no more, the game, which
+/// ignores the failure, then sets a model it has no index for, and TF2 raises
+/// a fatal `Error` ("UTIL_SetModel: not precached") that nothing can catch.
+/// Check the room left before giving a player an item, as the wearables'
+/// `give` does.
+pub const DYNAMIC_MODELS: &CStr = c"DynamicModels";
+
 /// The name of the table of the texts and addresses the game's info panel
 /// (`CTextWindow`) shows, such as the message of the day, each the user data
 /// of a string naming it.
@@ -210,6 +233,12 @@ impl<'s> NetworkStringTable<'s> {
 		usize::try_from(index)
 			.ok()
 			.filter(|_| index != c_int::from(INVALID_STRING_INDEX))
+	}
+
+	/// How many more strings the table takes before it is full: [`Self::max_len`]
+	/// less [`Self::len`], or zero if the table reports no maximum.
+	pub fn free(self) -> usize {
+		self.max_len().saturating_sub(self.len())
 	}
 
 	/// Whether the table holds no strings.

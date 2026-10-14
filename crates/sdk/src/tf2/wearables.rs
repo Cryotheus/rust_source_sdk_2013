@@ -45,6 +45,19 @@
 //!   cosmetics, outside that holiday.
 //! - Bots have no item server inventory, so they wear nothing unless given
 //!   wearables.
+//! - Items the game streams in on demand, which includes most cosmetics, add
+//!   their models to the engine's [`DYNAMIC_MODELS`] table when they are
+//!   created and equipped, and nothing takes an entry out before the level
+//!   ends. The game ignores the engine refusing a model once the table is
+//!   full, then ends the server with a fatal `Error` that no caller can
+//!   catch, so [`PlayerWearables::give`], [`PlayerWearables::equip`] and
+//!   [`Wearable::generate`] refuse with [`WearableError::NoModelRoom`] while
+//!   fewer than [`MAX_DYNAMIC_MODELS_PER_ITEM`] entries are free (a level
+//!   without the table has no models to register, so they pass). That leaves
+//!   nothing for the game's own items, such as the players' loadouts, which
+//!   fail the same way: a caller that gives many different items over a
+//!   level should stop well short of the end, and reuse the items it gave
+//!   before, whose models the table already holds (unverified).
 //! - Neither the item's classes nor its equip regions are checked, but
 //!   [`PlayerWearables::give`] refuses an item the player's class has no
 //!   model for. An item for another class that has one, or an item
@@ -90,6 +103,7 @@ mod tests;
 use crate::datatables::{NetProp, NetPropError, NetValue, PropKind};
 use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::ServerTools;
+use crate::interfaces::network_string_tables::DYNAMIC_MODELS;
 use crate::math::Vector;
 use crate::tf2::weapons::{self, ItemDefinitionIndex, ItemGenerationError};
 use crate::{Game, InterfaceError, Server};
@@ -110,6 +124,21 @@ use std::ptr::NonNull;
 const ELEMENT_NAMES: [&CStr; MAX_NETWORKED_WEARABLES] = [
 	c"000", c"001", c"002", c"003", c"004", c"005", c"006", c"007",
 ];
+
+/// The most entries one item can add to the engine's [`DYNAMIC_MODELS`] table.
+/// The game registers an item's model paths one by one, without checking
+/// whether they fit, in two places. Creating it registers the class 0
+/// alternate (`CTFWearable::InternalSetPlayerDisplayModel`), then the base
+/// model and the vision-filtered model (`CEconWearable::Spawn`). Equipping it
+/// registers the model for the wearer's class, that model's alternate, and the
+/// vision-filtered model again (`CEconEntity::UpdateModelToClass`), whose path
+/// is already in the table. That makes six registrations and at most five
+/// distinct paths, and a path already in the table takes no entry. Most items
+/// add one.
+///
+/// [`PlayerWearables::give`] and the other ways into a wearable refuse to
+/// start when fewer entries are free.
+pub const MAX_DYNAMIC_MODELS_PER_ITEM: usize = 5;
 
 /// `MAX_WEARABLES_SENT_FROM_SERVER` (TF2's `LOADOUT_MAX_WEARABLES_COUNT`): the
 /// most entries of a player's wearable list the game networks.
@@ -270,7 +299,9 @@ impl<'s> PlayerWearables<'s> {
 	/// is left alone.
 	///
 	/// Fails with [`WearableError::DifferentOwner`] if another entity owns the
-	/// wearable, [`WearableError::Full`] if the player's list is full, and
+	/// wearable, [`WearableError::Full`] if the player's list is full,
+	/// [`WearableError::NoModelRoom`] if the engine's table of dynamic models
+	/// could not take the models equipping registers, and
 	/// [`WearableError::PlayerNotPlaying`] for a dead player or one not on a
 	/// playing team. If the game refuses the wearable, it is deleted, as the
 	/// game itself does, and [`WearableError::Rejected`] is returned.
@@ -302,6 +333,8 @@ impl<'s> PlayerWearables<'s> {
 		if list.is_full() {
 			return Err(WearableError::Full);
 		}
+
+		ensure_model_room(self.server)?;
 
 		wearable.set_validated(true)?;
 
@@ -339,8 +372,11 @@ impl<'s> PlayerWearables<'s> {
 	/// [`PlayerWeapons::give_item`](crate::tf2::weapons::PlayerWeapons::give_item).
 	///
 	/// Fails before creating anything with [`WearableError::PlayerNotPlaying`]
-	/// for a dead player or one not on a playing team, and with
-	/// [`WearableError::Full`] if the player's list is full. A definition that
+	/// for a dead player or one not on a playing team, with
+	/// [`WearableError::Full`] if the player's list is full, and with
+	/// [`WearableError::NoModelRoom`] if the engine's table of dynamic models
+	/// has fewer than [`MAX_DYNAMIC_MODELS_PER_ITEM`] entries left (see the
+	/// [module documentation](crate::tf2::wearables#limits)). A definition that
 	/// native generation cannot create, such as one the running schema lacks,
 	/// fails with [`WearableError::CreationFailedNative`], and one that creates
 	/// no TF2 wearable, such as a weapon, with [`WearableError::NotWearable`].
@@ -413,6 +449,10 @@ impl<'s> PlayerWearables<'s> {
 		if self.list()?.is_full() {
 			return Err(WearableError::Full);
 		}
+
+		// Creating and equipping register the item's models, and the game ends the
+		// server if the engine has no room for one of them.
+		ensure_model_room(self.server)?;
 
 		let origin = self.player.position().ok_or(WearableError::MissingOrigin)?;
 
@@ -706,9 +746,11 @@ impl<'s> Wearable<'s> {
 	/// item itself, such as the `ItemTintColor` material proxy's paint.
 	///
 	/// Fails with [`WearableError::CreationFailedNative`] if native generation
-	/// cannot create the definition, such as one the running schema lacks, and
-	/// with [`WearableError::NotWearable`] if it creates no TF2 wearable, such
-	/// as a weapon, which is deleted.
+	/// cannot create the definition, such as one the running schema lacks, with
+	/// [`WearableError::NoModelRoom`] if the engine's table of dynamic models
+	/// could not take the models creating it registers, and with
+	/// [`WearableError::NotWearable`] if it creates no TF2 wearable, such as a
+	/// weapon, which is deleted.
 	///
 	/// # Safety
 	///
@@ -721,6 +763,9 @@ impl<'s> Wearable<'s> {
 		origin: Vector,
 	) -> Result<Self, WearableError> {
 		let tools = server.server_tools()?;
+
+		// Creating the item registers its models, as giving it does.
+		ensure_model_room(server)?;
 
 		// SAFETY: The caller vouches for the native creation path. The generator
 		// initializes the item view before `Spawn` and `Activate`, and returns a
@@ -917,6 +962,16 @@ pub enum WearableError {
 	#[error(transparent)]
 	NetProp(#[from] NetPropError),
 
+	/// The engine's [`DYNAMIC_MODELS`] table has fewer than
+	/// [`MAX_DYNAMIC_MODELS_PER_ITEM`] entries free, so the item could fill it,
+	/// which would stop the server. The entries are free again only once the
+	/// level ends.
+	#[error("the engine's table of dynamic models has room for only {free} more")]
+	NoModelRoom {
+		/// The entries the table has left.
+		free: usize,
+	},
+
 	/// The wearable is not in this player's list.
 	#[error("the wearable is not in this player's wearable list")]
 	NotEquipped,
@@ -1057,6 +1112,27 @@ fn check_live(entity: Entity<'_>) -> Result<(), WearableError> {
 	} else {
 		Ok(())
 	}
+}
+
+/// Refuses an item for which the engine's [`DYNAMIC_MODELS`] table has too
+/// little room, since the game cannot survive it filling up: it ignores the
+/// engine refusing a model's path, then ends the server with a fatal `Error`
+/// when it sets the model, inside the call that creates or equips the item.
+///
+/// A level without that table, as before one loads, has no models to
+/// register, so it passes.
+fn ensure_model_room(server: Server<'_>) -> Result<(), WearableError> {
+	let Some(table) = server.network_string_tables()?.find(DYNAMIC_MODELS) else {
+		return Ok(());
+	};
+
+	let free = table.free();
+
+	if free < MAX_DYNAMIC_MODELS_PER_ITEM {
+		return Err(WearableError::NoModelRoom { free });
+	}
+
+	Ok(())
 }
 
 /// Converts an error about how `m_hMyWearables` is networked, rather than about
