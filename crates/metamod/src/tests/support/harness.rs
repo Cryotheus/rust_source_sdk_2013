@@ -103,6 +103,27 @@ impl Harness {
 		}
 	}
 
+	/// Calls a function the engine calls directly, as it would through KHook's
+	/// detour of it, if any.
+	pub(crate) fn call_function<S: Signature>(
+		&self,
+		function: NonNull<c_void>,
+		object: *mut S::This,
+		args: S::Args,
+	) -> S::Output {
+		match self.version {
+			// SAFETY: The test promises the function is of signature `S`.
+			MetamodVersion::Stable1226 => unsafe {
+				S::invoke(S::from_address(function), object, args)
+			},
+
+			MetamodVersion::Dev1469 => {
+				self.khook
+					.call_function::<S>(function.as_ptr(), object, args)
+			}
+		}
+	}
+
 	pub(crate) fn khook_ptr(&self) -> *mut IKHook {
 		self.khook.ptr()
 	}

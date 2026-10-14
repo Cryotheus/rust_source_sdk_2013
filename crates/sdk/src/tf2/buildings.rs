@@ -100,6 +100,10 @@ pub enum BuildingError {
 	#[error("dispenser metal must be nonnegative, not {0}")]
 	InvalidMetal(c_int),
 
+	/// A sentry's range is not a positive finite number.
+	#[error("the sentry's range is {0}, not a positive finite number")]
+	InvalidRange(f32),
+
 	/// The level asked for is not one of 1 to 3, those of TF2's buildings.
 	#[error("buildings have levels 1 to 3, not {0}")]
 	InvalidLevel(u8),
@@ -1512,6 +1516,103 @@ impl<'s> Sentry<'s> {
 		let raw = self.0.int(c"m_iState")?;
 
 		SentryState::from_raw(raw).ok_or(BuildingError::UnknownState(raw))
+	}
+
+	/// Makes the sentry attack `target`, as `FoundTarget` does when the
+	/// sentry's search picks one: its `m_hEnemy` becomes `target`, networked,
+	/// and its state attacking. Nothing else of `FoundTarget` runs: it plays no
+	/// alert sound and leaves the sentry's next attack times as they are, so
+	/// the sentry fires on its next think. Does nothing to a sentry already
+	/// attacking `target`.
+	///
+	/// This is for the search's own hook, which keeps the target by returning
+	/// that the sentry has one, as the game's `Attack` otherwise clears
+	/// `m_hEnemy` and returns to searching. The game aims at what it finds
+	/// with the target's `WorldSpaceCenter`, and its bullets and rockets hit
+	/// what is solid there.
+	///
+	/// Fails with [`BuildingError::MarkedForDeletion`] if the sentry or
+	/// `target` is marked for deletion, and with [`BuildingError::Dying`] if
+	/// the sentry is being destroyed.
+	#[doc(alias("FoundTarget", "m_hEnemy"))]
+	pub fn acquire(self, target: Entity<'s>) -> Result<(), BuildingError> {
+		if self.0.entity.is_marked_for_deletion() || target.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		if self.0.is_dying() {
+			return Err(BuildingError::Dying);
+		}
+
+		let handle = self.0.net_prop(c"m_hEnemy")?.get_handle(self.0.entity)?;
+
+		if handle == target.handle() && self.state()? == SentryState::Attacking {
+			return Ok(());
+		}
+
+		let engine = self.0.server.valve_engine()?;
+
+		// SAFETY: `FoundTarget` stores any entity in `m_hEnemy`, and the state
+		// is one of the sentry's own, which the next think acts on.
+		unsafe {
+			self.0
+				.net_prop(c"m_hEnemy")?
+				.set_handle(engine, self.0.entity, target.handle())?;
+
+			self.0.net_prop(c"m_iState")?.set(
+				engine,
+				self.0.entity,
+				SentryState::Attacking.to_raw(),
+			)?;
+		}
+
+		Ok(())
+	}
+
+	/// Whether the sentry looks for targets on its own, as its `FindTarget`
+	/// does only while it is active and enabled: searching or attacking, not
+	/// carried, disabled, or aimed by its builder's Wrangler or still shielded
+	/// by it.
+	pub fn is_hunting(self) -> Result<bool, BuildingError> {
+		let active = matches!(
+			self.state()?,
+			SentryState::Searching | SentryState::Attacking
+		);
+
+		Ok(active
+			&& !self.is_wrangled()?
+			&& self.shield_level()? == 0
+			&& !self.0.is_disabled()?
+			&& !self.0.is_carried()?)
+	}
+
+	/// How far the sentry sees targets, in units (`m_flSentryRange`): 1100,
+	/// scaled by its builder's range attributes.
+	///
+	/// Fails with [`BuildingError::InvalidRange`] for a value that is not a
+	/// positive finite number.
+	#[doc(alias("m_flSentryRange", "SENTRY_MAX_RANGE"))]
+	pub fn range(self) -> Result<f32, BuildingError> {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so the
+		// entity is one, laid out as the generated class says.
+		let range = unsafe {
+			self.0
+				.entity
+				.as_ptr()
+				.cast::<u8>()
+				.add(core::mem::offset_of!(
+					sys::CObjectSentrygun,
+					m_flSentryRange
+				))
+				.cast::<f32>()
+				.read_unaligned()
+		};
+
+		if range.is_finite() && range > 0.0 {
+			Ok(range)
+		} else {
+			Err(BuildingError::InvalidRange(range))
+		}
 	}
 }
 

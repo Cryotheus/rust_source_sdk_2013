@@ -33,7 +33,7 @@ pub use bytes::{relative, u16_at, u32_at, word_at};
 pub use image::{Image, Section};
 pub use module_cache::{ModuleCache, ModuleKey};
 pub use platform::{MemoryReader, Module, is_executable, loaded_symbol, module_symbol, pin_module};
-pub use signature::{SignaturePattern, exact_u32, find_all, is_exact, pattern};
+pub use signature::{SignaturePattern, detoured, exact_u32, find_all, is_exact, pattern};
 
 /// Upper bound on an individual snapshot or on-disk image allocation.
 pub const MAX_IMAGE_BYTES: usize = 0x40000000;

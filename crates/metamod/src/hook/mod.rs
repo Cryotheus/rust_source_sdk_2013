@@ -8,6 +8,12 @@
 //! call of the function that a [`HookTarget`] applies to, and the handler's
 //! [`HookAction`] decides what the call does.
 //!
+//! A [`DetouredFunction`] names a function the game calls directly, by its
+//! address and [`Signature`], like KHook's `Function`.
+//! [`MetamodApi::add_function_hook`] runs a handler for each call of it, which
+//! only KHook can do: with SourceHook it fails with
+//! [`HookError::DetourUnsupported`].
+//!
 //! # Behavior on both libraries
 //!
 //! - Handlers run only for calls on the server's main thread, the one Metamod
@@ -88,6 +94,38 @@ pub use signature::{HookArg, HookReturn, Signature};
 enum CallBackend {
 	SourceHook(NonNull<ISourceHook>),
 	KHook,
+}
+
+/// A function the game calls directly rather than through a vtable, by its
+/// address and [`Signature`]: like KHook's `Function`.
+///
+/// Every call of it reaches the handlers, whatever object it is on, except the
+/// calls the compiler inlined into other functions. A member function takes its
+/// object as [`Signature::This`].
+#[derive(Debug, Clone, Copy)]
+pub struct DetouredFunction<S: Signature> {
+	address: NonNull<c_void>,
+	_signature: PhantomData<fn() -> S>,
+}
+
+impl<S: Signature> DetouredFunction<S> {
+	/// The function whose entry is at `address`.
+	///
+	/// # Safety
+	///
+	/// `address` must be the entry of a function of the C++ type `S` stands for,
+	/// in a module that stays loaded until Metamod unloads the plugin, and not
+	/// one the compiler merged with another.
+	pub const unsafe fn new(address: NonNull<c_void>) -> Self {
+		Self {
+			address,
+			_signature: PhantomData,
+		}
+	}
+
+	pub const fn address(self) -> NonNull<c_void> {
+		self.address
+	}
 }
 
 /// Runs for the calls of a hooked function. Implemented for functions and
@@ -269,6 +307,9 @@ pub enum HookError {
 
 	#[error("too many virtual functions are hooked")]
 	TooManyFunctions,
+
+	#[error("this hooking library hooks only virtual functions")]
+	DetourUnsupported,
 }
 
 /// Identifies an installed hook, for [`MetamodApi::remove_hook`].
@@ -391,6 +432,37 @@ impl<S: Signature> VirtualFunction<S> {
 }
 
 impl MetamodApi<'_> {
+	/// Runs `handler` for the calls of `function`, before or after each as
+	/// `timing` says.
+	///
+	/// The hook lasts until [removed](Self::remove_hook), or until Metamod
+	/// unloads the plugin. It is installed by detouring the function, which
+	/// only KHook does: SourceHook fails with [`HookError::DetourUnsupported`].
+	/// As for [`Self::add_hook`], KHook adds the hook from a worker thread when
+	/// the function is already detoured, so the hook can miss the calls made in
+	/// the meantime.
+	pub fn add_function_hook<S: Signature>(
+		self,
+		function: DetouredFunction<S>,
+		timing: HookTiming,
+		handler: &'static dyn Handler<S>,
+	) -> Result<HookId, HookError> {
+		let mut registry = Registry::bind(self)?;
+		let site = registry.function_site::<S>(function.address())?;
+
+		if !site.installed(timing) {
+			// SAFETY: As `DetouredFunction::new` promises, the function is of the
+			// site's signature.
+			unsafe { registry.install(site, timing) }?;
+			site.set_installed(timing);
+		}
+
+		let id = HookId::next();
+
+		site.push(id, timing, None, handler);
+		Ok(id)
+	}
+
 	/// Runs `handler` for the calls of `function` that `target` applies to.
 	///
 	/// The hook lasts until [removed](Self::remove_hook), or until Metamod
@@ -459,6 +531,20 @@ impl MetamodApi<'_> {
 		NonNull::new(original)
 			.map(S::from_address)
 			.ok_or(HookError::InvalidArgument)
+	}
+
+	/// Removes every hook of a [`DetouredFunction`], and the detours themselves.
+	///
+	/// Call it in the plugin's `Unload`, before it returns. Metamod removes the
+	/// plugin's hooks of vtable slots after `Unload`, and unloads the library once
+	/// it has, but it keeps no record of the detours of functions, which would stay
+	/// installed and call into the unloaded library. Does nothing under
+	/// SourceHook, which installs none. Hooks added afterwards install new
+	/// detours.
+	pub fn remove_function_hooks(self) {
+		if let Some(mut registry) = Registry::current(self) {
+			registry.remove_detours();
+		}
 	}
 
 	/// Stops the hook's handler. Returns whether the hook was installed, for

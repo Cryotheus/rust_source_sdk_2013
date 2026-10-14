@@ -447,18 +447,20 @@ pub(super) fn hook_manager<S: Signature>(
 	Ok(manager)
 }
 
-/// Adds a delegate for the site's handlers of `timing`, on the site's vtable,
-/// through the hook manager.
+/// Adds a delegate for the site's handlers of `timing`, on a vtable, through
+/// the hook manager.
 ///
 /// # Safety
 ///
-/// The site's vtable must hold a function of signature `S` at its slot, which
+/// The vtable `table` must hold a function of signature `S` at `index`, which
 /// the hook manager is assigned.
 pub(super) unsafe fn install<S: Signature>(
 	sourcehook: NonNull<ISourceHook>,
 	plugin: c_int,
 	manager: usize,
 	site: &'static Site<S>,
+	table: NonNull<*mut c_void>,
+	index: usize,
 	timing: HookTiming,
 ) -> Result<(), HookError> {
 	let delegate = Delegate::allocate(site, timing, sourcehook);
@@ -474,7 +476,7 @@ pub(super) unsafe fn install<S: Signature>(
 			sourcehook.as_ptr(),
 			plugin,
 			AddHookMode::DVP,
-			site.vtable().as_ptr().cast(),
+			table.as_ptr().cast(),
 			0,
 			PUBLIC_FUNCTIONS[manager],
 			delegate.cast(),
@@ -489,7 +491,7 @@ pub(super) unsafe fn install<S: Signature>(
 	}
 
 	// SAFETY: As the caller promises, the vtable has the slot.
-	let slot = unsafe { site.vtable().as_ptr().add(site.index()) }.cast::<c_void>();
+	let slot = unsafe { table.as_ptr().add(index) }.cast::<c_void>();
 
 	// SAFETY: SourceHook lasts as long as Metamod, and has the slot patched.
 	let original = unsafe {

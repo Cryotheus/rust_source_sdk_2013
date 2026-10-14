@@ -28,6 +28,33 @@ macro_rules! sig {
 	}};
 }
 
+/// `signature`, of a function's entry, as it reads once a detour replaced the
+/// start of the function with a relative jump (`E9 rel32`), as KHook's detours
+/// do: the jump's opcode, then the rest of the first `patched` bytes left open.
+///
+/// `patched` is the length of the whole instructions the jump overwrote, at
+/// least its 5 bytes. KHook keeps its detour of a function after the last hook
+/// on it is removed, as when the plugin that hooked it unloads, so a plugin
+/// loaded again finds the function only through this.
+///
+/// ```
+/// use source_sdk_2013_raw::util::{detoured, pattern, sig};
+///
+/// let signature = detoured(&sig![0x40 0x55 0x56 0x41 0x57 0x48], 5);
+/// assert!(pattern(&[0xe9, 1, 2, 3, 4, 0x48], &signature));
+/// ```
+pub fn detoured(signature: &[SignaturePattern], patched: usize) -> Vec<SignaturePattern> {
+	signature
+		.iter()
+		.enumerate()
+		.map(|(index, byte)| match index {
+			0 => SignaturePattern::Exact(0xe9),
+			_ if index < patched.max(5) => SignaturePattern::Any,
+			_ => *byte,
+		})
+		.collect()
+}
+
 /// The little-endian `u32` that `signature` matches exactly at `at`, or `None`
 /// if any of its bytes is a wildcard or past the end.
 ///
