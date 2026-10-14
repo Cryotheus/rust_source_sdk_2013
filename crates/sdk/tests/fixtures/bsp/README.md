@@ -1,6 +1,6 @@
 # BSP partition fixtures
 
-The default tests in `src/bsp/tests.rs` create small authored BSP byte records.
+The default tests in `src/bsp/tests/mod.rs` create small authored BSP byte records.
 Their wire offsets are independent of the decoder's constants. They exercise
 sloped splits and exact boundaries, shared references, cycles, malformed ranges
 and coefficients, and resource limits. They require no engine, NAV file, game
