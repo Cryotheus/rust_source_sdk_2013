@@ -36,6 +36,11 @@ checkouts. Their build inputs are not required by `source_sdk_2013` itself.
 
 [*SLoC*](https://ghloc.dev/Cryotheus/rust_source_sdk_2013?branch=master&filter=.rs%24%2C.hpp%24%2C.cpp%24%2C%21%5Ecrates%2Fsdk_sys_)
 
+## Code conventions
+
+- Modules that declare non-inline submodules are directory modules: `foo/mod.rs` with the submodules in `foo/`, never `foo.rs` next to a `foo/` directory. Modules without submodules stay plain `foo.rs`.
+- Tests cover logic that is not obvious from reading it: parsing and protocol edge cases, non-trivial math or geometry, state machines, cleanup and panic containment, ABI layouts and regressions for bugs that were hit. Do not add tests for no-brainers, such as a constant, a table or allow-list restating its source, a one-line predicate, or an accessor, builder or derive.
+
 # License
 
 For Valve's Source SDK 2013, see the [SOURCE 1 SDK LICENSE](https://github.com/ValveSoftware/source-sdk-2013/blob/master/LICENSE).
