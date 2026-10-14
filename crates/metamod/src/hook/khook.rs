@@ -12,7 +12,7 @@
 //! plugin installed. A plugin removing a hook itself would keep Metamod
 //! waiting for a report that never comes, so hooks are never removed here.
 
-use super::signature::{HookReturn, Signature, nothing};
+use super::signature::{HookReturn, Signature, Thunks, nothing};
 use super::site::{Site, on_main_thread};
 use super::{CallBackend, HookCall, HookError, HookTiming, Level};
 use crate::MetamodApi;
@@ -132,31 +132,29 @@ unsafe extern "C" fn copy<R: HookReturn>(destination: *mut R, value: *const R) {
 /// KHook's `deinit_op`: return values need no destruction.
 unsafe extern "C" fn destroy<R: HookReturn>(_value: *mut R) {}
 
-/// Adds a hook running the site's handlers of `timing`.
+/// Adds a hook running the site's handlers of `timing`, on a vtable slot.
 ///
 /// # Safety
 ///
-/// The site's vtable must hold a function of signature `S` at its slot.
-pub(super) unsafe fn install<S: Signature>(
+/// The vtable must hold a function of signature `S` at the slot.
+pub(super) unsafe fn install_slot<S: Signature>(
 	site: &'static Site<S>,
+	vtable: NonNull<*mut c_void>,
+	index: usize,
 	timing: HookTiming,
 ) -> Result<(), HookError> {
-	let index = c_int::try_from(site.index()).map_err(|_| HookError::InvalidArgument)?;
-	let (khook, vtable) = interface();
+	let index = c_int::try_from(index).map_err(|_| HookError::InvalidArgument)?;
+	let (khook, functions) = interface();
 	let thunks = S::THUNKS;
-
-	let (pre, post) = match timing {
-		HookTiming::Pre => (thunks.khook_pre.address().as_ptr(), ptr::null_mut()),
-		HookTiming::Post => (ptr::null_mut(), thunks.khook_post.address().as_ptr()),
-	};
+	let (pre, post) = callbacks(thunks, timing);
 
 	// SAFETY: As the caller promises, calls through the slot go to a function of
 	// the hook's signature. The site, which is never freed, is the context, and
 	// the hook only runs before Metamod unloads the library.
 	let id = unsafe {
-		(vtable.setup_virtual_hook)(
+		(functions.setup_virtual_hook)(
 			khook,
-			site.vtable().as_ptr(),
+			vtable.as_ptr(),
 			index,
 			ptr::from_ref(site).cast_mut().cast(),
 			ptr::null_mut(),
@@ -173,6 +171,55 @@ pub(super) unsafe fn install<S: Signature>(
 	match id {
 		INVALID_HOOK => Err(HookError::Refused),
 		_ => Ok(()),
+	}
+}
+
+/// Adds a hook running the site's handlers of `timing`, on a function, which
+/// KHook detours.
+///
+/// # Safety
+///
+/// `function` must be the entry of a function of signature `S`, which stays
+/// loaded until Metamod unloads the plugin.
+pub(super) unsafe fn install_function<S: Signature>(
+	site: &'static Site<S>,
+	function: NonNull<c_void>,
+	timing: HookTiming,
+) -> Result<(), HookError> {
+	let (khook, functions) = interface();
+	let thunks = S::THUNKS;
+	let (pre, post) = callbacks(thunks, timing);
+
+	// SAFETY: As the caller promises, the function is of the hook's signature.
+	// The site, which is never freed, is the context, and the hook only runs
+	// before Metamod unloads the library.
+	let id = unsafe {
+		(functions.setup_hook)(
+			khook,
+			function.as_ptr(),
+			ptr::from_ref(site).cast_mut().cast(),
+			ptr::null_mut(),
+			pre,
+			post,
+			thunks.khook_make_return.address().as_ptr(),
+			thunks.khook_call_original.address().as_ptr(),
+			stack_size::<S>(),
+			// As `KHook::Function` does, as a detour may be running.
+			true,
+		)
+	};
+
+	match id {
+		INVALID_HOOK => Err(HookError::Refused),
+		_ => Ok(()),
+	}
+}
+
+/// KHook's `pre` and `post` for a hook of `timing`, one of them null.
+fn callbacks<S: Signature>(thunks: Thunks<S>, timing: HookTiming) -> (*mut c_void, *mut c_void) {
+	match timing {
+		HookTiming::Pre => (thunks.khook_pre.address().as_ptr(), ptr::null_mut()),
+		HookTiming::Post => (ptr::null_mut(), thunks.khook_post.address().as_ptr()),
 	}
 }
 

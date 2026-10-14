@@ -48,10 +48,13 @@ struct KhLoop {
 	skipped: bool,
 }
 
-/// A vtable slot KHook hooked, with its hooks in KHook's order.
+/// A vtable slot or function KHook hooked, with its hooks in KHook's order. A
+/// function has a null vtable and a nonnegative-index of -1.
 pub(crate) struct KhSlot {
 	vtable: *mut *mut c_void,
 	index: c_int,
+	/// The detoured function, or null for a vtable slot.
+	function: *mut c_void,
 	original: *mut c_void,
 	pub(crate) hooks: Vec<KhHook>,
 }
@@ -104,8 +107,29 @@ impl KhState {
 				self.slots.push(KhSlot {
 					vtable,
 					index,
+					function: ptr::null_mut(),
 					// SAFETY: KHook is given live vtables with the slot.
 					original: unsafe { vtable.offset(index as isize).read() },
+					hooks: Vec::new(),
+				});
+
+				self.slots.last_mut().unwrap()
+			}
+		}
+	}
+
+	fn function_slot(&mut self, function: *mut c_void) -> &mut KhSlot {
+		let position = self.slots.iter().position(|slot| slot.function == function);
+
+		match position {
+			Some(position) => &mut self.slots[position],
+
+			None => {
+				self.slots.push(KhSlot {
+					vtable: ptr::null_mut(),
+					index: -1,
+					function,
+					original: function,
 					hooks: Vec::new(),
 				});
 
@@ -203,6 +227,39 @@ impl MockKHook {
 			.find(|slot| slot.vtable == vtable && slot.index == index as c_int)
 			.map(|slot| (slot.original, slot.hooks.clone()));
 
+		// SAFETY: The slot holds the original function.
+		let undetoured = unsafe { vtable.add(index).read() };
+
+		self.run::<S>(found, undetoured, this, args)
+	}
+
+	/// A call of a function KHook may have detoured, as its detour makes it.
+	pub(crate) fn call_function<S: Signature>(
+		&self,
+		function: *mut c_void,
+		this: *mut S::This,
+		args: S::Args,
+	) -> S::Output {
+		let found = self
+			.state
+			.borrow()
+			.slots
+			.iter()
+			.find(|slot| slot.function == function)
+			.map(|slot| (slot.original, slot.hooks.clone()));
+
+		self.run::<S>(found, function, this, args)
+	}
+
+	/// Runs a detour's loop for a call, or the `undetoured` function if nothing
+	/// hooks it.
+	fn run<S: Signature>(
+		&self,
+		found: Option<(*mut c_void, Vec<KhHook>)>,
+		undetoured: *mut c_void,
+		this: *mut S::This,
+		args: S::Args,
+	) -> S::Output {
 		// SAFETY: The detour calls each function with the call's arguments, as
 		// the hooked function, whose signature they share.
 		let invoke = |function: *mut c_void| unsafe {
@@ -211,9 +268,7 @@ impl MockKHook {
 
 		let (original, hooks) = match found {
 			Some((original, hooks)) if !hooks.is_empty() => (original, hooks),
-
-			// SAFETY: The slot holds the original function.
-			_ => return invoke(unsafe { vtable.add(index).read() }),
+			_ => return invoke(undetoured),
 		};
 
 		self.state.borrow_mut().loops.push(KhLoop {
@@ -438,18 +493,31 @@ unsafe extern "C" fn save_return_value(
 }
 
 unsafe extern "C" fn setup_hook(
-	_this: *mut IKHook,
-	_function: *mut c_void,
-	_context: *mut c_void,
+	this: *mut IKHook,
+	function: *mut c_void,
+	context: *mut c_void,
 	_removed: *mut c_void,
-	_pre: *mut c_void,
-	_post: *mut c_void,
-	_make_return: *mut c_void,
-	_call_original: *mut c_void,
-	_stack_size: c_uint,
+	pre: *mut c_void,
+	post: *mut c_void,
+	make_return: *mut c_void,
+	call_original: *mut c_void,
+	stack_size: c_uint,
 	_async: bool,
 ) -> KHookId {
-	crate::sys::khook::INVALID_HOOK
+	let mut state = mock_khook(this).state.borrow_mut();
+	let id = state.next_id;
+
+	state.next_id += 1;
+	state.function_slot(function).insert(KhHook {
+		context,
+		pre,
+		post,
+		make_return,
+		call_original,
+		stack_size,
+	});
+
+	id
 }
 
 /// Accepts a registration, optionally delaying callback insertion until the
