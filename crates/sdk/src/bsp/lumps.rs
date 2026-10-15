@@ -88,6 +88,11 @@ impl<'a> Directory<'a> {
 		})
 	}
 
+	/// The whole input, which game lump records address by absolute offset.
+	pub(super) fn file(&self) -> &'a [u8] {
+		self.bytes
+	}
+
 	pub(super) fn prepare(
 		&self,
 		id: usize,
@@ -106,60 +111,7 @@ impl<'a> Directory<'a> {
 		let stored = &self.bytes[entry.start..entry.end];
 		let expanded =
 			usize::try_from(entry.expanded).map_err(|_| invalid(id, Compression::ExpandedSize))?;
-		let length = if expanded == 0 {
-			stored.len()
-		} else {
-			expanded
-		};
-		budget.expanded(length)?;
-		let memory_limit = if expanded == 0 {
-			None
-		} else {
-			if stored.len() < raw::LZMA_HEADER_BYTES {
-				return Err(invalid(id, Compression::Header));
-			}
-			if stored[..4] != raw::LZMA_IDENT {
-				return Err(Error::UnsupportedCompression { lump: id });
-			}
-			if word(stored, 4) as usize != length {
-				return Err(invalid(id, Compression::SizeMismatch));
-			}
-			let encoded = word(stored, 8) as usize;
-			if encoded.checked_add(raw::LZMA_HEADER_BYTES) != Some(stored.len()) {
-				return Err(invalid(id, Compression::PayloadLength));
-			}
-			let properties = usize::from(stored[12]);
-			if properties >= 225 || stored.get(raw::LZMA_HEADER_BYTES) != Some(&0) {
-				return Err(invalid(id, Compression::Properties));
-			}
-			let lc = properties % 9;
-			let lp = (properties / 9) % 5;
-			let probability = 1536usize << (lc + lp);
-			bound(
-				probability,
-				budget.limits.probability_bytes,
-				Resource::ProbabilityBytes,
-			)?;
-			let dictionary = (word(stored, 13) as usize).max(4096);
-			bound(
-				dictionary,
-				budget.limits.dictionary_bytes,
-				Resource::DictionaryBytes,
-			)?;
-			// The codec flushes one dictionary chunk at a time. Restrict growth
-			// to declared output when smaller, and account for the one possible
-			// extra chunk before the exact output sink can reject excess data.
-			let memory = dictionary.min(length);
-			budget.codec(encoded, length, memory)?;
-			Some(memory)
-		};
-		Ok(Lump {
-			id,
-			stored,
-			length,
-			version: entry.version,
-			memory_limit,
-		})
+		Lump::framed(id, stored, expanded, entry.version, budget)
 	}
 }
 
@@ -220,6 +172,72 @@ pub(super) struct Lump<'a> {
 }
 
 impl<'a> Lump<'a> {
+	/// Checks the framing of stored bytes: raw when `expanded` is zero, and
+	/// Source LZMA declaring `expanded` bytes otherwise. `id` names the lump in
+	/// errors; game lumps use their containing lump's id.
+	pub(super) fn framed(
+		id: usize,
+		stored: &'a [u8],
+		expanded: usize,
+		version: i32,
+		budget: &mut Budget,
+	) -> Result<Self, Error> {
+		let length = if expanded == 0 {
+			stored.len()
+		} else {
+			expanded
+		};
+		budget.expanded(length)?;
+		let memory_limit = if expanded == 0 {
+			None
+		} else {
+			if stored.len() < raw::LZMA_HEADER_BYTES {
+				return Err(invalid(id, Compression::Header));
+			}
+			if stored[..4] != raw::LZMA_IDENT {
+				return Err(Error::UnsupportedCompression { lump: id });
+			}
+			if word(stored, 4) as usize != length {
+				return Err(invalid(id, Compression::SizeMismatch));
+			}
+			let encoded = word(stored, 8) as usize;
+			if encoded.checked_add(raw::LZMA_HEADER_BYTES) != Some(stored.len()) {
+				return Err(invalid(id, Compression::PayloadLength));
+			}
+			let properties = usize::from(stored[12]);
+			if properties >= 225 || stored.get(raw::LZMA_HEADER_BYTES) != Some(&0) {
+				return Err(invalid(id, Compression::Properties));
+			}
+			let lc = properties % 9;
+			let lp = (properties / 9) % 5;
+			let probability = 1536usize << (lc + lp);
+			bound(
+				probability,
+				budget.limits.probability_bytes,
+				Resource::ProbabilityBytes,
+			)?;
+			let dictionary = (word(stored, 13) as usize).max(4096);
+			bound(
+				dictionary,
+				budget.limits.dictionary_bytes,
+				Resource::DictionaryBytes,
+			)?;
+			// The codec flushes one dictionary chunk at a time. Restrict growth
+			// to declared output when smaller, and account for the one possible
+			// extra chunk before the exact output sink can reject excess data.
+			let memory = dictionary.min(length);
+			budget.codec(encoded, length, memory)?;
+			Some(memory)
+		};
+		Ok(Self {
+			id,
+			stored,
+			length,
+			version,
+			memory_limit,
+		})
+	}
+
 	pub(super) fn decode(self) -> Result<Cow<'a, [u8]>, Error> {
 		let Some(memory_limit) = self.memory_limit else {
 			return Ok(Cow::Borrowed(self.stored));
