@@ -13,6 +13,7 @@
 
 pub mod brush_space;
 pub mod brushes;
+pub mod collision;
 mod decode;
 pub mod entities;
 mod lumps;
