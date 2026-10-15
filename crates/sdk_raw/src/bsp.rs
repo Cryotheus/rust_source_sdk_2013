@@ -61,6 +61,13 @@ pub const HEADER_BYTES: usize = 8 + LUMP_COUNT * LUMP_ENTRY_BYTES + 4;
 /// The four bytes starting a little-endian Source BSP.
 pub const IDENT: [u8; 4] = *b"VBSP";
 
+/// Bytes in a `dleafambientindex_t`: u16 sample count, then u16 first sample.
+pub const LEAF_AMBIENT_INDEX_BYTES: usize = 4;
+
+/// Bytes in a `dleafambientlighting_t`: six `ColorRGBExp32` faces, then u8 x,
+/// y and z fractions of the leaf's bounds and a pad byte.
+pub const LEAF_AMBIENT_LIGHTING_BYTES: usize = 28;
+
 /// Bytes in a leaf-brush index.
 pub const LEAF_BRUSH_BYTES: usize = 2;
 
@@ -108,6 +115,18 @@ pub const LUMP_FACES: usize = 7;
 
 /// Game-specific lumps, such as static props.
 pub const LUMP_GAME_LUMP: usize = 35;
+
+/// Per-leaf ranges of LDR ambient light samples.
+pub const LUMP_LEAF_AMBIENT_INDEX: usize = 52;
+
+/// Per-leaf ranges of HDR ambient light samples.
+pub const LUMP_LEAF_AMBIENT_INDEX_HDR: usize = 51;
+
+/// LDR ambient light samples.
+pub const LUMP_LEAF_AMBIENT_LIGHTING: usize = 56;
+
+/// HDR ambient light samples.
+pub const LUMP_LEAF_AMBIENT_LIGHTING_HDR: usize = 55;
 
 /// Serialized leaf-brush references.
 pub const LUMP_LEAF_BRUSHES: usize = 17;

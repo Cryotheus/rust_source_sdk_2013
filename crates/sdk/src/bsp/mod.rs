@@ -16,6 +16,7 @@ pub mod brushes;
 pub mod collision;
 mod decode;
 pub mod entities;
+pub mod lighting;
 mod lumps;
 mod partitions;
 pub mod props;
@@ -66,6 +67,24 @@ impl Bsp {
 	/// The limited geometry this snapshot describes.
 	pub fn coverage(&self) -> Coverage {
 		Coverage::PartitionConstraints
+	}
+
+	/// The world leaf holding `point`, found down the world model's tree as
+	/// Source finds it: a point on a splitting plane goes to its front.
+	pub fn leaf_at(&self, point: [f32; 3]) -> usize {
+		// The tree was checked for cycles, so the walk ends at a leaf.
+		let mut child = self.models[0].head;
+		loop {
+			match child {
+				Child::Leaf(leaf) => return leaf,
+
+				Child::Node(node) => {
+					let node = self.nodes[node];
+					let behind = self.planes[node.plane].signed_distance(point) < 0.0;
+					child = node.children[usize::from(behind)];
+				}
+			}
+		}
 	}
 
 	/// Source leaves. Multiple unfolded partitions can refer to one leaf.
