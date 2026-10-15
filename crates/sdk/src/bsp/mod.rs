@@ -13,10 +13,12 @@
 
 pub mod brush_space;
 pub mod brushes;
+pub mod collision;
 mod decode;
 pub mod entities;
 mod lumps;
 mod partitions;
+pub mod props;
 
 #[cfg(test)]
 mod tests;

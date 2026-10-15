@@ -10,6 +10,51 @@ pub const BRUSH_BYTES: usize = 12;
 /// Bytes in a side's plane, texture, displacement and bevel fields.
 pub const BRUSH_SIDE_BYTES: usize = 8;
 
+/// `ddispinfo_t`: start position, vertex and triangle starts, power, contents, face.
+pub const DISP_INFO_BYTES: usize = 176;
+
+/// `CDispTri`: one u16 tag set per displacement triangle.
+pub const DISP_TRI_BYTES: usize = 2;
+
+/// Displacement triangle tag: buildings may be placed on it.
+pub const DISP_TRI_TAG_BUILDABLE: u16 = 1 << 2;
+
+/// Displacement triangle tag: a player may stand on it.
+pub const DISP_TRI_TAG_WALKABLE: u16 = 1 << 1;
+
+/// `CDispVert`: offset direction, offset distance and alpha.
+pub const DISP_VERT_BYTES: usize = 20;
+
+/// `dedge_t`: two u16 vertex indices.
+pub const EDGE_BYTES: usize = 4;
+
+/// `dface_t`.
+pub const FACE_BYTES: usize = 56;
+
+/// Offset of a face's i16 displacement-info index, or -1.
+pub const FACE_DISP_INFO_OFFSET: usize = 12;
+
+/// Offset of a face's i16 edge count.
+pub const FACE_EDGE_COUNT_OFFSET: usize = 8;
+
+/// Offset of a face's i32 first surfedge.
+pub const FACE_FIRST_EDGE_OFFSET: usize = 4;
+
+/// Offset of a face's u16 plane index.
+pub const FACE_PLANE_OFFSET: usize = 0;
+
+/// Offset of a face's u8 side: nonzero faces against the plane's normal.
+pub const FACE_SIDE_OFFSET: usize = 2;
+
+/// Game lump flag: this game lump is Source LZMA compressed.
+pub const GAME_LUMP_COMPRESSED: u16 = 1;
+
+/// `dgamelumpheader_t` count, then `dgamelump_t` records: id, flags, version, offset, length.
+pub const GAME_LUMP_ENTRY_BYTES: usize = 16;
+
+/// Game lump id of the static prop lump, `sprp` as a big-endian four-character code.
+pub const GAME_LUMP_STATIC_PROPS: u32 = u32::from_be_bytes(*b"sprp");
+
 /// Bytes in the identifier, version, directory and map revision.
 pub const HEADER_BYTES: usize = 8 + LUMP_COUNT * LUMP_ENTRY_BYTES + 4;
 
@@ -40,11 +85,29 @@ pub const LUMP_BRUSHES: usize = 18;
 /// Number of lump directory entries.
 pub const LUMP_COUNT: usize = 64;
 
+/// Displacement records.
+pub const LUMP_DISP_INFO: usize = 26;
+
+/// Displacement triangle tags.
+pub const LUMP_DISP_TRIS: usize = 48;
+
+/// Displacement vertex offsets.
+pub const LUMP_DISP_VERTS: usize = 33;
+
+/// Edges between two vertices.
+pub const LUMP_EDGES: usize = 12;
+
 /// Entity key/value payload.
 pub const LUMP_ENTITIES: usize = 0;
 
 /// Bytes in one lump directory entry.
 pub const LUMP_ENTRY_BYTES: usize = 16;
+
+/// Rendered faces, which displacements are built on.
+pub const LUMP_FACES: usize = 7;
+
+/// Game-specific lumps, such as static props.
+pub const LUMP_GAME_LUMP: usize = 35;
 
 /// Serialized leaf-brush references.
 pub const LUMP_LEAF_BRUSHES: usize = 17;
@@ -61,6 +124,12 @@ pub const LUMP_NODES: usize = 5;
 /// Plane records.
 pub const LUMP_PLANES: usize = 1;
 
+/// Signed edge references of faces.
+pub const LUMP_SURFEDGES: usize = 13;
+
+/// Face vertex positions.
+pub const LUMP_VERTEXES: usize = 3;
+
 /// Packed Source LZMA header: magic, output size, encoded size and properties.
 pub const LZMA_HEADER_BYTES: usize = 17;
 
@@ -76,8 +145,14 @@ pub const NODE_BYTES: usize = 32;
 /// Bytes in a plane record: three normal floats, distance and type.
 pub const PLANE_BYTES: usize = 20;
 
+/// Bytes in one signed surfedge.
+pub const SURFEDGE_BYTES: usize = 4;
+
 /// The first supported BSP version in the pinned public header.
 pub const VERSION_19: i32 = 19;
 
 /// The current BSP version in the pinned public header.
 pub const VERSION_20: i32 = 20;
+
+/// Bytes in one vertex position.
+pub const VERTEX_BYTES: usize = 12;
