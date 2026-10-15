@@ -827,6 +827,23 @@ fn restores_split_into_messages_of_255_and_skip_what_does_not_fit() {
 }
 
 #[test]
+fn retry_delays_double_up_to_their_cap() {
+	let now = Instant::now();
+	let options = CheatsOptions {
+		max_attempts: std::num::NonZero::new(10).unwrap(),
+		..CheatsOptions::DEFAULT
+	};
+	let delays: Vec<_> = (1..=9)
+		.map(|failures| options.retry_at(now, failures) - now)
+		.collect();
+
+	assert_eq!(
+		delays,
+		[1, 2, 4, 8, 16, 30, 30, 30, 30].map(Duration::from_secs)
+	);
+}
+
+#[test]
 fn server_cheats_need_no_lease() {
 	let now = Instant::now();
 	let mut cheats = cheats();
