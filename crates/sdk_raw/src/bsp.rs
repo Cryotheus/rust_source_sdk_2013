@@ -149,6 +149,10 @@ pub const LUMP_SURFEDGES: usize = 13;
 /// Face vertex positions.
 pub const LUMP_VERTEXES: usize = 3;
 
+/// The potentially visible set: which clusters of leaves each cluster may
+/// see.
+pub const LUMP_VISIBILITY: usize = 4;
+
 /// Packed Source LZMA header: magic, output size, encoded size and properties.
 pub const LZMA_HEADER_BYTES: usize = 17;
 
