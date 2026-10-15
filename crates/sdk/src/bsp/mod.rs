@@ -20,6 +20,7 @@ pub mod lighting;
 mod lumps;
 mod partitions;
 pub mod props;
+pub mod visibility;
 
 #[cfg(test)]
 mod tests;
