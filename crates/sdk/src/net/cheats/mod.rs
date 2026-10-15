@@ -270,24 +270,31 @@ pub struct CheatsOptions {
 	pub max_attempts: NonZero<u8>,
 
 	/// How long after its first failed attempt a lease is sent again. The
-	/// delay doubles after each further failure.
+	/// delay doubles after each further failure, up to
+	/// [`max_retry_delay`](Self::max_retry_delay).
 	pub retry_delay: Duration,
+
+	/// The longest delay before a lease is sent again, however many attempts
+	/// failed.
+	pub max_retry_delay: Duration,
 }
 
 impl CheatsOptions {
-	/// Three seconds to answer, three attempts, and a one second first retry
-	/// delay.
+	/// Three seconds to answer, three attempts, a one second first retry delay
+	/// that doubles up to thirty seconds.
 	pub const DEFAULT: Self = Self {
 		confirm_timeout: Duration::from_secs(3),
 		max_attempts: NonZero::new(3).unwrap(),
 		retry_delay: Duration::from_secs(1),
+		max_retry_delay: Duration::from_secs(30),
 	};
 
 	/// When a lease that failed `failures` times is sent again.
 	fn retry_at(self, now: Instant, failures: u8) -> Instant {
 		let delay = self
 			.retry_delay
-			.saturating_mul(1 << failures.saturating_sub(1).min(16));
+			.saturating_mul(1 << failures.saturating_sub(1).min(16))
+			.min(self.max_retry_delay);
 
 		now.checked_add(delay).unwrap_or(now)
 	}
