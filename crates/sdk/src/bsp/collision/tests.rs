@@ -156,3 +156,36 @@ fn real_maps_decode_into_bounded_geometry() {
 	}
 	assert!(tested > 0, "no fixture maps were named");
 }
+
+#[test]
+#[ignore = "needs SOURCE_BSP_* variables pointing at local maps"]
+fn real_maps_have_static_props() {
+	use crate::bsp::props::{PropSolid, StaticProps};
+	let mut tested = 0;
+	for variable in [
+		"SOURCE_BSP_CTF_2FORT",
+		"SOURCE_BSP_CTF_WELL",
+		"SOURCE_BSP_CTF_SAWMILL",
+		"SOURCE_BSP_CTF_TURBINE",
+	] {
+		let Some(bytes) = fixture(variable) else {
+			continue;
+		};
+		let props = StaticProps::decode(&bytes, Limits::default()).expect("decodes");
+		let solid = props
+			.props
+			.iter()
+			.filter(|prop| prop.solid == PropSolid::Physics)
+			.count();
+		println!(
+			"{variable}: v{}, {} models, {} props, {solid} with .phy collision",
+			props.version,
+			props.models.len(),
+			props.props.len()
+		);
+		assert!(!props.props.is_empty());
+		assert!(props.models.iter().all(|model| model.ends_with(".mdl")));
+		tested += 1;
+	}
+	assert!(tested > 0);
+}

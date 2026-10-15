@@ -18,6 +18,7 @@ mod decode;
 pub mod entities;
 mod lumps;
 mod partitions;
+pub mod props;
 
 #[cfg(test)]
 mod tests;
