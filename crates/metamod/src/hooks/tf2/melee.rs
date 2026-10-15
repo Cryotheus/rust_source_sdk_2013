@@ -9,9 +9,15 @@ use crate::MetamodApi;
 use crate::hook::{HookAction, HookTiming, VirtualFunction};
 use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
-use source_sdk_2013::raw::tf2::melee::{MeleeHitFn as Hit, ON_ENTITY_HIT_SLOT};
+
+use source_sdk_2013::raw::tf2::melee::{
+	MeleeHitFn as Hit, ON_ENTITY_HIT_SLOT, WEAPON_SOUND_SLOT, WeaponSoundFn, WeaponSoundKind,
+};
+
+use source_sdk_2013::raw::vcall;
 use source_sdk_2013::tf2::class_targets::TfMeleeWeapon;
-use source_sdk_2013::{Server, ServerBinding};
+use source_sdk_2013::{Server, ServerBinding, sys};
+use std::cell::Cell;
 use std::ptr::NonNull;
 
 /// The callback-scoped server, melee weapon and entity hit, after the game's
@@ -19,7 +25,34 @@ use std::ptr::NonNull;
 /// Neither entity nor any engine reference may outlive the callback.
 pub type MeleeHitFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>);
 
+/// The callback-scoped server, the melee weapon, and the kind of sound
+/// (`WeaponSound_t`, such as
+/// [`MELEE_HIT_WORLD_SOUND`](source_sdk_2013::raw::tf2::melee::MELEE_HIT_WORLD_SOUND))
+/// it is about to play, deciding what it plays. The weapon may be traced in
+/// the callback, as a swing is when the sound plays.
+pub type MeleeSoundFn = for<'s> fn(Server<'s>, Entity<'s>, WeaponSoundKind) -> MeleeSoundAction;
+
+/// What a melee weapon plays for a kind of sound.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum MeleeSoundAction {
+	/// Plays what the game chose.
+	#[default]
+	Continue,
+
+	/// Plays this kind of sound instead, from the weapon's script, to the
+	/// players the game would send the first one to. The callback is not asked
+	/// about it.
+	Replace(WeaponSoundKind),
+}
+
+thread_local! {
+	/// Whether a replacement sound is playing, which the hook lets through.
+	static REPLACING: Cell<bool> = const { Cell::new(false) };
+}
+
 const ON_ENTITY_HIT: VirtualFunction<Hit> = VirtualFunction::new(ON_ENTITY_HIT_SLOT);
+const WEAPON_SOUND: VirtualFunction<WeaponSoundFn> = VirtualFunction::new(WEAPON_SOUND_SLOT);
 
 impl MetamodApi<'_> {
 	/// Observes each `CTFWeaponBaseMelee::OnEntityHit` after the game's
@@ -59,6 +92,63 @@ impl MetamodApi<'_> {
 			},
 		)
 	}
+
+	/// Runs `callback` before each `WeaponSound` of the melee weapons of the
+	/// classes the returned hooks cover, which are none until
+	/// [`ClassHooks::cover`] covers them: as a weapon plays the sound of its
+	/// swing, a miss or a hit.
+	///
+	/// TF2 plays a swing's hit sound when the swing lands, from the kind of
+	/// entity it found: the flesh sound for a player, and the sound of hitting
+	/// the world for anything else. [`MeleeSoundAction::Replace`] plays another
+	/// kind in its place. The swinging player's client predicts its own swing's
+	/// sounds, which this does not change; the game sends the sound to the other
+	/// players.
+	///
+	/// Cover each intended melee class with [`ClassHooks::cover`] or
+	/// [`ClassHooks::cover_entity`]; covering a base does not cover derived
+	/// classes. `binding` must describe the running server. The callback must not
+	/// delete entities immediately, as [`Server::new`] requires.
+	pub fn hook_melee_sounds(
+		self,
+		binding: ServerBinding,
+		callback: MeleeSoundFn,
+	) -> ClassHooks<TfMeleeWeapon> {
+		ClassHooks::new(
+			binding,
+			callback,
+			WEAPON_SOUND,
+			&[HookTiming::Pre],
+			|server, callback, weapon, call| {
+				if call.superseded() == Some(true) || REPLACING.get() {
+					return HookAction::Ignore;
+				}
+
+				let (kind, time) = call.args();
+
+				match callback(server, weapon, kind) {
+					MeleeSoundAction::Replace(other) if other != kind => {
+						let this = weapon.as_ptr().cast::<sys::CTFWeaponBaseMelee>();
+
+						REPLACING.set(true);
+
+						// SAFETY: The hooked method is the melee weapons' own
+						// `WeaponSound`, and the weapon is live for the call.
+						// The native method only plays the sound.
+						unsafe {
+							vcall!(this as sys::CTFWeaponBaseMelee__bindgen_vtable => CTFWeaponBaseMelee_WeaponSound(other, time))
+						};
+
+						REPLACING.set(false);
+
+						HookAction::Supersede(())
+					}
+
+					_ => HookAction::Ignore,
+				}
+			},
+		)
+	}
 }
 
 #[cfg(test)]
@@ -67,6 +157,9 @@ mod tests {
 	use crate::hook::{HookCall, HookTarget};
 	use crate::test_support::harness::{Harness, on_both};
 	use crate::test_support::server::{no_interfaces, tf2_binding};
+	use source_sdk_2013::raw::tf2::melee::MELEE_HIT_SOUND;
+	use source_sdk_2013::raw::tf2::melee::MELEE_HIT_WORLD_SOUND;
+	use source_sdk_2013::raw::tf2::melee::MELEE_MISS_SOUND;
 	use source_sdk_2013::sys;
 	use source_sdk_2013::tf2::class_targets::ClassTarget;
 	use std::cell::{Cell, RefCell};
@@ -313,5 +406,74 @@ mod tests {
 				[expected]
 			);
 		});
+	}
+
+	thread_local! {
+		static SOUNDS: RefCell<Vec<Sound>> = const { RefCell::new(Vec::new()) };
+	}
+
+	#[derive(Debug, PartialEq)]
+	enum Sound {
+		Asked(WeaponSoundKind),
+		Native(WeaponSoundKind, f32),
+	}
+
+	#[test]
+	fn a_replaced_sound_plays_once_in_place_of_the_game_s_and_is_not_asked_about() {
+		on_both(|harness| {
+			let slots = Vec::leak(vec![game_hit as Hit as *mut c_void; WEAPON_SOUND_SLOT + 1]);
+
+			slots[WEAPON_SOUND_SLOT] = game_sound as WeaponSoundFn as *mut c_void;
+
+			let mut weapon = Weapon::of_class(slots.as_mut_ptr());
+			let api = harness.api();
+			let hooks = api.hook_melee_sounds(tf2_binding(no_interfaces), on_sound);
+
+			assert_eq!(hooks.cover(api, weapon.target()), Ok(true));
+
+			let mut play = |kind: WeaponSoundKind| {
+				SOUNDS.take();
+				harness.call::<WeaponSoundFn>(weapon.ptr(), WEAPON_SOUND_SLOT, (kind, 0.5));
+				SOUNDS.take()
+			};
+
+			assert_eq!(
+				play(MELEE_HIT_WORLD_SOUND),
+				[
+					Sound::Asked(MELEE_HIT_WORLD_SOUND),
+					Sound::Native(MELEE_HIT_SOUND, 0.5)
+				]
+			);
+			assert_eq!(
+				play(MELEE_MISS_SOUND),
+				[
+					Sound::Asked(MELEE_MISS_SOUND),
+					Sound::Native(MELEE_MISS_SOUND, 0.5)
+				]
+			);
+		});
+	}
+
+	/// The native method records the kind and time it plays.
+	unsafe extern "C" fn game_sound(
+		_weapon: *mut sys::CBaseEntity,
+		kind: WeaponSoundKind,
+		time: f32,
+	) {
+		SOUNDS.with_borrow_mut(|sounds| sounds.push(Sound::Native(kind, time)));
+	}
+
+	/// Plays the flesh hit for what the game would play the world's for.
+	fn on_sound(
+		_server: Server<'_>,
+		_weapon: Entity<'_>,
+		kind: WeaponSoundKind,
+	) -> MeleeSoundAction {
+		SOUNDS.with_borrow_mut(|sounds| sounds.push(Sound::Asked(kind)));
+
+		match kind {
+			MELEE_HIT_WORLD_SOUND => MeleeSoundAction::Replace(MELEE_HIT_SOUND),
+			_ => MeleeSoundAction::Continue,
+		}
 	}
 }
