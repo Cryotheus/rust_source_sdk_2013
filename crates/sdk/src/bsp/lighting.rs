@@ -23,8 +23,8 @@ pub struct AmbientLighting {
 
 impl AmbientLighting {
 	/// Decodes the HDR ambient lighting lumps, or the LDR ones where there
-	/// are none, for the leaves of `leaves`, which [`super::Bsp::leaves`] gives.
-	/// A map without either has no samples.
+	/// are none or every one is black, for the leaves of `leaves`, which
+	/// [`super::Bsp::leaves`] gives. A map without either has no samples.
 	pub fn decode(bytes: &[u8], limits: Limits, leaves: &[Leaf]) -> Result<Self, Error> {
 		let mut work = Work::new(limits.work);
 		let directory = Directory::read(bytes, limits, &mut work)?;
@@ -58,6 +58,15 @@ impl AmbientLighting {
 				leaves,
 				&mut work,
 			)?;
+			// A map compiled for LDR only keeps HDR lumps of black samples.
+			if hdr
+				&& decoded
+					.samples
+					.iter()
+					.all(|sample| sample.cube == [Vec3::ZERO; 6])
+			{
+				continue;
+			}
 			decoded.hdr = hdr;
 			return Ok(decoded);
 		}
