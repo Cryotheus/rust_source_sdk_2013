@@ -37,6 +37,36 @@ const VARS: &[Var] = &[
 	Var::new(c"m_iTauntItemDefIndex", VarKind::Int),
 ];
 
+#[test]
+fn attacks_keep_tf2s_numbers_and_names() {
+	assert_eq!(
+		TauntAttack::ALL.len(),
+		sys::taunt_attack_t_TAUNTATK_COUNT as usize
+	);
+	assert_eq!(TauntAttack::default(), TauntAttack::NONE);
+
+	for (number, attack) in (0..).zip(TauntAttack::ALL) {
+		let name = attack.name().unwrap();
+
+		assert_eq!(attack.to_raw(), number, "{name}");
+		assert_eq!(
+			NATIVE_NAMES[number as usize],
+			format!("taunt_attack_t_{name}")
+		);
+		assert_eq!(format!("{attack:?}"), name);
+	}
+
+	// Numbers TF2 does not name, such as its count of attacks, are kept as
+	// they are.
+	for number in [-1, TauntAttack::ALL.len() as c_int, 1000] {
+		let attack = TauntAttack::from_raw(number);
+
+		assert_eq!(attack.to_raw(), number);
+		assert_eq!(attack.name(), None);
+		assert_eq!(format!("{attack:?}"), format!("TauntAttack({number})"));
+	}
+}
+
 /// The game's taunt methods, for a player who is taunting while `taunting`
 /// holds, and starts taunting when told to if `starts`. Taunts move at 120
 /// units a second, and end at 9.5 seconds.

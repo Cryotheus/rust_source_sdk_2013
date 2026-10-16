@@ -1,5 +1,7 @@
 //! TF2's taunts: starting, stopping and reading a player's taunt, through
-//! the game's native script methods and the player's networked variables.
+//! the game's native script methods and the player's networked variables,
+//! and the attack it has scheduled, which the game keeps in members it does
+//! not network ([`ScheduledAttack`]).
 //!
 //! [`TfPlayer::set_forced_taunt_cam`](crate::tf2::player::TfPlayer::set_forced_taunt_cam)
 //! forces a player's view into third person, as taunts do.
@@ -17,7 +19,9 @@ use crate::tf2::player_methods;
 use crate::tf2::weapons::ItemDefinitionIndex;
 use sdk_raw::tf2::conditions as raw_conditions;
 use sdk_raw::tf2::script_binding::{boolean, float, int};
+use sdk_raw::tf2::taunts as raw_taunts;
 use std::ffi::{CStr, c_int};
+use std::fmt;
 use std::ptr::NonNull;
 
 /// The most taunt slots a loadout has, which
@@ -149,6 +153,21 @@ impl<'s> PlayerTaunts<'s> {
 		Ok(unsafe { player_methods::call_float(self.player, c"GetTauntRemoveTime", &mut []) }?)
 	}
 
+	/// The attack the player's taunt has scheduled, if any, which the game
+	/// runs as they think after moving once its time has passed: see
+	/// [`ScheduledAttack`].
+	#[doc(alias("m_iTauntAttack", "m_flTauntAttackTime"))]
+	pub fn scheduled_attack(self) -> Option<ScheduledAttack> {
+		// SAFETY: A TF2 `player` is a CTFPlayer, live on the main thread for this
+		// callback, on which alone the game writes its members.
+		let (attack, time) = unsafe { raw_taunts::scheduled_attack(self.raw_player()) };
+
+		(attack != 0 && time != 0.0).then_some(ScheduledAttack {
+			attack: TauntAttack::from_raw(attack),
+			time,
+		})
+	}
+
 	/// Sets how fast the player's taunt moves them, for a taunt that lets them
 	/// move. Fails with [`EffectError::OutOfRange`] for a negative or infinite
 	/// speed.
@@ -231,6 +250,208 @@ impl<'s> PlayerTaunts<'s> {
 		// equipped taunt item, if any.
 		unsafe { self.call(c"HandleTauntCommand", &mut [int(c_int::from(slot))]) }?;
 		self.is_taunting()
+	}
+}
+
+/// An attack a player's taunt has scheduled, as
+/// [`PlayerTaunts::scheduled_attack`] reads it.
+///
+/// `CTFPlayer::PostThink` runs the attack through `DoTauntAttack`, which no
+/// vtable holds, in the player's first think after moving once [`Self::time`]
+/// has passed, if they still taunt and live. The game looks for its victims
+/// among players, and for a few attacks among buildings, by their flags and
+/// `IsPlayer`, and so hurts no other entity. The one exception is the
+/// Soldier's Kamikaze, whose blast hurts whatever it reaches.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScheduledAttack {
+	/// The attack.
+	pub attack: TauntAttack,
+
+	/// The game time after which it lands.
+	pub time: f32,
+}
+
+impl ScheduledAttack {
+	/// Whether the player's think after moving at game time `now` runs the
+	/// attack, as long as they still taunt and live.
+	pub fn is_due(&self, now: f32) -> bool {
+		self.time < now
+	}
+}
+
+/// Defines [`TauntAttack`]'s attacks from the generated `taunt_attack_t`
+/// values, each with TF2's name for it, along with [`TauntAttack::ALL`] and
+/// [`TauntAttack::name`].
+macro_rules! attacks {
+	($(
+		$(#[doc = $doc:literal])*
+		$attack:ident = $native:ident, $name:literal;
+	)*) => {
+		#[allow(
+			clippy::unnecessary_cast,
+			reason = "`taunt_attack_t` is `c_int` on Windows but `c_uint` on Linux"
+		)]
+		impl TauntAttack {
+			$(
+				$(#[doc = $doc])*
+				#[doc(alias = $name)]
+				pub const $attack: Self = Self(sys::$native as c_int);
+			)*
+
+			/// Every attack TF2 numbers, in its order, from [`Self::NONE`], 0.
+			pub const ALL: [Self; [$($name),*].len()] = [$(Self::$attack),*];
+
+			/// TF2's name for the attack, such as `TAUNTATK_PYRO_HADOUKEN`, or
+			/// `None` for a number it does not name.
+			pub const fn name(self) -> Option<&'static str> {
+				Some(match self {
+					$(Self::$attack => $name,)*
+					_ => return None,
+				})
+			}
+		}
+
+		/// The generated values' names, by attack, which the tests compare
+		/// with the names the attacks give.
+		#[cfg(test)]
+		const NATIVE_NAMES: [&str; TauntAttack::ALL.len()] = [$(stringify!($native)),*];
+	};
+}
+
+attacks! {
+	/// No attack.
+	NONE = taunt_attack_t_TAUNTATK_NONE, "TAUNTATK_NONE";
+
+	/// The Pyro's Hadouken.
+	PYRO_HADOUKEN = taunt_attack_t_TAUNTATK_PYRO_HADOUKEN, "TAUNTATK_PYRO_HADOUKEN";
+
+	/// The Heavy eating a lunchbox item.
+	HEAVY_EAT = taunt_attack_t_TAUNTATK_HEAVY_EAT, "TAUNTATK_HEAVY_EAT";
+
+	/// The Heavy's taunt that buffs those around them.
+	HEAVY_RADIAL_BUFF = taunt_attack_t_TAUNTATK_HEAVY_RADIAL_BUFF, "TAUNTATK_HEAVY_RADIAL_BUFF";
+
+	/// The Heavy's High Noon.
+	HEAVY_HIGH_NOON = taunt_attack_t_TAUNTATK_HEAVY_HIGH_NOON, "TAUNTATK_HEAVY_HIGH_NOON";
+
+	/// The Scout drinking.
+	SCOUT_DRINK = taunt_attack_t_TAUNTATK_SCOUT_DRINK, "TAUNTATK_SCOUT_DRINK";
+
+	/// The Scout's Grand Slam, with the Sandman.
+	SCOUT_GRAND_SLAM = taunt_attack_t_TAUNTATK_SCOUT_GRAND_SLAM, "TAUNTATK_SCOUT_GRAND_SLAM";
+
+	/// The Medic's inhale.
+	MEDIC_INHALE = taunt_attack_t_TAUNTATK_MEDIC_INHALE, "TAUNTATK_MEDIC_INHALE";
+
+	/// The first slash of the Spy's Fencing.
+	SPY_FENCING_SLASH_A = taunt_attack_t_TAUNTATK_SPY_FENCING_SLASH_A, "TAUNTATK_SPY_FENCING_SLASH_A";
+
+	/// The second slash of the Spy's Fencing.
+	SPY_FENCING_SLASH_B = taunt_attack_t_TAUNTATK_SPY_FENCING_SLASH_B, "TAUNTATK_SPY_FENCING_SLASH_B";
+
+	/// The stab that ends the Spy's Fencing.
+	SPY_FENCING_STAB = taunt_attack_t_TAUNTATK_SPY_FENCING_STAB, "TAUNTATK_SPY_FENCING_STAB";
+
+	/// The winner's kill at the end of Rock, Paper, Scissors.
+	RPS_KILL = taunt_attack_t_TAUNTATK_RPS_KILL, "TAUNTATK_RPS_KILL";
+
+	/// The Sniper's Skewer, with the Huntsman: the impaling stab, which stuns.
+	SNIPER_ARROW_STAB_IMPALE = taunt_attack_t_TAUNTATK_SNIPER_ARROW_STAB_IMPALE, "TAUNTATK_SNIPER_ARROW_STAB_IMPALE";
+
+	/// The Sniper's Skewer: the stab that kills.
+	SNIPER_ARROW_STAB_KILL = taunt_attack_t_TAUNTATK_SNIPER_ARROW_STAB_KILL, "TAUNTATK_SNIPER_ARROW_STAB_KILL";
+
+	/// The Soldier's Kamikaze, with the Equalizer or the Escape Plan.
+	SOLDIER_GRENADE_KILL = taunt_attack_t_TAUNTATK_SOLDIER_GRENADE_KILL, "TAUNTATK_SOLDIER_GRENADE_KILL";
+
+	/// The Demoman's Barbarian Swing, with a sword.
+	DEMOMAN_BARBARIAN_SWING = taunt_attack_t_TAUNTATK_DEMOMAN_BARBARIAN_SWING, "TAUNTATK_DEMOMAN_BARBARIAN_SWING";
+
+	/// The Medic's Spinal Tap, with the Ubersaw: the impaling stab, which
+	/// stuns.
+	MEDIC_UBERSLICE_IMPALE = taunt_attack_t_TAUNTATK_MEDIC_UBERSLICE_IMPALE, "TAUNTATK_MEDIC_UBERSLICE_IMPALE";
+
+	/// The Medic's Spinal Tap: the stab that kills.
+	MEDIC_UBERSLICE_KILL = taunt_attack_t_TAUNTATK_MEDIC_UBERSLICE_KILL, "TAUNTATK_MEDIC_UBERSLICE_KILL";
+
+	/// A flip's landing particles.
+	FLIP_LAND_PARTICLE = taunt_attack_t_TAUNTATK_FLIP_LAND_PARTICLE, "TAUNTATK_FLIP_LAND_PARTICLE";
+
+	/// Rock, Paper, Scissors' particles.
+	RPS_PARTICLE = taunt_attack_t_TAUNTATK_RPS_PARTICLE, "TAUNTATK_RPS_PARTICLE";
+
+	/// A high five's particles.
+	HIGHFIVE_PARTICLE = taunt_attack_t_TAUNTATK_HIGHFIVE_PARTICLE, "TAUNTATK_HIGHFIVE_PARTICLE";
+
+	/// The Engineer's Dischord, with the Frontier Justice.
+	ENGINEER_GUITAR_SMASH = taunt_attack_t_TAUNTATK_ENGINEER_GUITAR_SMASH, "TAUNTATK_ENGINEER_GUITAR_SMASH";
+
+	/// The Engineer's Organ Grinder, with the Gunslinger: the impaling
+	/// stab, which stuns.
+	ENGINEER_ARM_IMPALE = taunt_attack_t_TAUNTATK_ENGINEER_ARM_IMPALE, "TAUNTATK_ENGINEER_ARM_IMPALE";
+
+	/// The Organ Grinder: the blow that kills.
+	ENGINEER_ARM_KILL = taunt_attack_t_TAUNTATK_ENGINEER_ARM_KILL, "TAUNTATK_ENGINEER_ARM_KILL";
+
+	/// The Organ Grinder: the grinding between the stab and the kill, a hit
+	/// each time it runs.
+	ENGINEER_ARM_BLEND = taunt_attack_t_TAUNTATK_ENGINEER_ARM_BLEND, "TAUNTATK_ENGINEER_ARM_BLEND";
+
+	/// The Soldier's Kamikaze in its Wormsign form.
+	SOLDIER_GRENADE_KILL_WORMSIGN = taunt_attack_t_TAUNTATK_SOLDIER_GRENADE_KILL_WORMSIGN, "TAUNTATK_SOLDIER_GRENADE_KILL_WORMSIGN";
+
+	/// Showing an item off.
+	SHOW_ITEM = taunt_attack_t_TAUNTATK_SHOW_ITEM, "TAUNTATK_SHOW_ITEM";
+
+	/// The Medic releasing doves.
+	MEDIC_RELEASE_DOVES = taunt_attack_t_TAUNTATK_MEDIC_RELEASE_DOVES, "TAUNTATK_MEDIC_RELEASE_DOVES";
+
+	/// The Pyro's Armageddon, with the Rainblower.
+	PYRO_ARMAGEDDON = taunt_attack_t_TAUNTATK_PYRO_ARMAGEDDON, "TAUNTATK_PYRO_ARMAGEDDON";
+
+	/// The Pyro's Scorch Shot taunt, which fires a flare.
+	PYRO_SCORCHSHOT = taunt_attack_t_TAUNTATK_PYRO_SCORCHSHOT, "TAUNTATK_PYRO_SCORCHSHOT";
+
+	/// The all-class guitar riff.
+	ALLCLASS_GUITAR_RIFF = taunt_attack_t_TAUNTATK_ALLCLASS_GUITAR_RIFF, "TAUNTATK_ALLCLASS_GUITAR_RIFF";
+
+	/// The Medic's heroic taunt.
+	MEDIC_HEROIC_TAUNT = taunt_attack_t_TAUNTATK_MEDIC_HEROIC_TAUNT, "TAUNTATK_MEDIC_HEROIC_TAUNT";
+
+	/// The Pyro's Gas Blast.
+	PYRO_GASBLAST = taunt_attack_t_TAUNTATK_PYRO_GASBLAST, "TAUNTATK_PYRO_GASBLAST";
+
+	/// The Engineer's trick shot.
+	ENGINEER_TRICKSHOT = taunt_attack_t_TAUNTATK_ENGINEER_TRICKSHOT, "TAUNTATK_ENGINEER_TRICKSHOT";
+}
+
+/// One of TF2's taunt attacks (`taunt_attack_t`), as a taunt schedules it
+/// ([`ScheduledAttack`]).
+///
+/// Any number is an attack, since the player keeps whatever number is set,
+/// and TF2's updates add attacks: [`Self::name`] tells TF2's own apart.
+#[doc(alias("taunt_attack_t", "m_iTauntAttack"))]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TauntAttack(c_int);
+
+impl TauntAttack {
+	/// The attack TF2 numbers `raw`, whether or not it names it.
+	pub const fn from_raw(raw: c_int) -> Self {
+		Self(raw)
+	}
+
+	/// TF2's number for the attack.
+	pub const fn to_raw(self) -> c_int {
+		self.0
+	}
+}
+
+impl fmt::Debug for TauntAttack {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self.name() {
+			Some(name) => f.write_str(name),
+			None => f.debug_tuple("TauntAttack").field(&self.0).finish(),
+		}
 	}
 }
 
