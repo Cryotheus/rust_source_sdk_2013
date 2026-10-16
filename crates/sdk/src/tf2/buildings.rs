@@ -96,6 +96,10 @@ pub enum BuildingError {
 	#[error("construction health must be finite and nonnegative")]
 	InvalidHealth,
 
+	/// A sentry cannot hold a negative amount of ammunition.
+	#[error("sentry ammunition must be nonnegative, not {0}")]
+	InvalidAmmo(c_int),
+
 	/// A dispenser cannot hold a negative amount of metal.
 	#[error("dispenser metal must be nonnegative, not {0}")]
 	InvalidMetal(c_int),
@@ -258,6 +262,17 @@ use sdk_raw::util;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+
+/// The most rockets a level 3 sentry holds (`SENTRYGUN_MAX_ROCKETS`).
+const MAX_ROCKETS: c_int = 20;
+
+/// The most shells a level 1 sentry or a mini-sentry holds
+/// (`SENTRYGUN_MAX_SHELLS_1`).
+const MAX_SHELLS: c_int = 150;
+
+/// The most shells a level 2 or 3 sentry holds (`SENTRYGUN_MAX_SHELLS_2` and
+/// `_3`).
+const MAX_SHELLS_UPGRADED: c_int = 200;
 
 /// A TF2 building, scoped to one engine callback.
 #[doc(alias("CBaseObject"))]
@@ -1460,64 +1475,6 @@ impl<'s> Sentry<'s> {
 		Ok(Self(building))
 	}
 
-	/// The kills the sentry assisted in (`m_iAssists`).
-	#[doc(alias("m_iAssists"))]
-	pub fn assists(self) -> Result<c_int, BuildingError> {
-		self.0.int(c"m_iAssists")
-	}
-
-	/// The sentry as a building.
-	pub const fn building(self) -> Building<'s> {
-		self.0
-	}
-
-	/// The entity the sentry targets (`m_hEnemy`), or `None` if none.
-	#[doc(alias("m_hEnemy", "GetEnemy"))]
-	pub fn enemy(self) -> Result<Option<Entity<'s>>, BuildingError> {
-		self.0.handle(c"m_hEnemy")
-	}
-
-	/// Whether the sentry's builder aims it with the Wrangler
-	/// (`m_bPlayerControlled`).
-	#[doc(alias("m_bPlayerControlled", "IsPlayerControlled"))]
-	pub fn is_wrangled(self) -> Result<bool, BuildingError> {
-		self.0.bool(c"m_bPlayerControlled")
-	}
-
-	/// The players the sentry killed (`m_iKills`).
-	#[doc(alias("m_iKills"))]
-	pub fn kills(self) -> Result<c_int, BuildingError> {
-		self.0.int(c"m_iKills")
-	}
-
-	/// The rockets the sentry holds (`m_iAmmoRockets`), which only level 3
-	/// sentries fire.
-	#[doc(alias("m_iAmmoRockets"))]
-	pub fn rockets(self) -> Result<c_int, BuildingError> {
-		self.0.int(c"m_iAmmoRockets")
-	}
-
-	/// The shells the sentry holds (`m_iAmmoShells`).
-	#[doc(alias("m_iAmmoShells"))]
-	pub fn shells(self) -> Result<c_int, BuildingError> {
-		self.0.int(c"m_iAmmoShells")
-	}
-
-	/// The shield the Wrangler gives the sentry while it aims it
-	/// (`m_nShieldLevel`), which reduces the damage it takes: 0 without one.
-	#[doc(alias("m_nShieldLevel", "GetShieldLevel"))]
-	pub fn shield_level(self) -> Result<c_int, BuildingError> {
-		self.0.int(c"m_nShieldLevel")
-	}
-
-	/// What the sentry is doing (`m_iState`).
-	#[doc(alias("m_iState"))]
-	pub fn state(self) -> Result<SentryState, BuildingError> {
-		let raw = self.0.int(c"m_iState")?;
-
-		SentryState::from_raw(raw).ok_or(BuildingError::UnknownState(raw))
-	}
-
 	/// Makes the sentry attack `target`, as `FoundTarget` does when the
 	/// sentry's search picks one: its `m_hEnemy` becomes `target`, networked,
 	/// and its state attacking. Nothing else of `FoundTarget` runs: it plays no
@@ -1569,6 +1526,23 @@ impl<'s> Sentry<'s> {
 		Ok(())
 	}
 
+	/// The kills the sentry assisted in (`m_iAssists`).
+	#[doc(alias("m_iAssists"))]
+	pub fn assists(self) -> Result<c_int, BuildingError> {
+		self.0.int(c"m_iAssists")
+	}
+
+	/// The sentry as a building.
+	pub const fn building(self) -> Building<'s> {
+		self.0
+	}
+
+	/// The entity the sentry targets (`m_hEnemy`), or `None` if none.
+	#[doc(alias("m_hEnemy", "GetEnemy"))]
+	pub fn enemy(self) -> Result<Option<Entity<'s>>, BuildingError> {
+		self.0.handle(c"m_hEnemy")
+	}
+
 	/// Whether the sentry looks for targets on its own, as its `FindTarget`
 	/// does only while it is active and enabled: searching or attacking, not
 	/// carried, disabled, or aimed by its builder's Wrangler or still shielded
@@ -1584,6 +1558,39 @@ impl<'s> Sentry<'s> {
 			&& self.shield_level()? == 0
 			&& !self.0.is_disabled()?
 			&& !self.0.is_carried()?)
+	}
+
+	/// Whether the sentry's builder aims it with the Wrangler
+	/// (`m_bPlayerControlled`).
+	#[doc(alias("m_bPlayerControlled", "IsPlayerControlled"))]
+	pub fn is_wrangled(self) -> Result<bool, BuildingError> {
+		self.0.bool(c"m_bPlayerControlled")
+	}
+
+	/// The players the sentry killed (`m_iKills`).
+	#[doc(alias("m_iKills"))]
+	pub fn kills(self) -> Result<c_int, BuildingError> {
+		self.0.int(c"m_iKills")
+	}
+
+	/// The most rockets the sentry holds, which only level 3 sentries have
+	/// (`SENTRYGUN_MAX_ROCKETS`, 20).
+	pub fn max_rockets(self) -> Result<c_int, BuildingError> {
+		Ok(if self.0.level()? >= 3 && !self.0.is_mini()? {
+			MAX_ROCKETS
+		} else {
+			0
+		})
+	}
+
+	/// The most shells the sentry holds, by its level (`SENTRYGUN_MAX_SHELLS_1`
+	/// to `_3`: 150, 200 and 200), and the 150 of a mini-sentry.
+	pub fn max_shells(self) -> Result<c_int, BuildingError> {
+		Ok(if self.0.level()? >= 2 && !self.0.is_mini()? {
+			MAX_SHELLS_UPGRADED
+		} else {
+			MAX_SHELLS
+		})
 	}
 
 	/// How far the sentry sees targets, in units (`m_flSentryRange`): 1100,
@@ -1613,6 +1620,69 @@ impl<'s> Sentry<'s> {
 		} else {
 			Err(BuildingError::InvalidRange(range))
 		}
+	}
+
+	/// The rockets the sentry holds (`m_iAmmoRockets`), which only level 3
+	/// sentries fire.
+	#[doc(alias("m_iAmmoRockets"))]
+	pub fn rockets(self) -> Result<c_int, BuildingError> {
+		self.0.int(c"m_iAmmoRockets")
+	}
+
+	/// Writes one of the sentry's networked ammunition counts.
+	fn set_ammo(self, name: &CStr, count: c_int) -> Result<(), BuildingError> {
+		if count < 0 {
+			return Err(BuildingError::InvalidAmmo(count));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		let engine = self.0.server.valve_engine()?;
+
+		// SAFETY: The game stores the sentry's ammunition as nonnegative
+		// `int` members, which it writes and networks the same way.
+		unsafe { self.0.net_prop(name)?.set(engine, self.0.entity, count) }?;
+
+		Ok(())
+	}
+
+	/// Sets the rockets the sentry holds (`m_iAmmoRockets`) and records the
+	/// change for clients, as its own firing and resupplying do. This is
+	/// inventory accounting: not limited to [`Self::max_rockets`], which a
+	/// caller resupplying a sentry keeps to.
+	#[doc(alias("m_iAmmoRockets"))]
+	pub fn set_rockets(self, rockets: c_int) -> Result<(), BuildingError> {
+		self.set_ammo(c"m_iAmmoRockets", rockets)
+	}
+
+	/// Sets the shells the sentry holds (`m_iAmmoShells`) and records the
+	/// change for clients, as [`Self::set_rockets`] does for rockets.
+	#[doc(alias("m_iAmmoShells"))]
+	pub fn set_shells(self, shells: c_int) -> Result<(), BuildingError> {
+		self.set_ammo(c"m_iAmmoShells", shells)
+	}
+
+	/// The shells the sentry holds (`m_iAmmoShells`).
+	#[doc(alias("m_iAmmoShells"))]
+	pub fn shells(self) -> Result<c_int, BuildingError> {
+		self.0.int(c"m_iAmmoShells")
+	}
+
+	/// The shield the Wrangler gives the sentry while it aims it
+	/// (`m_nShieldLevel`), which reduces the damage it takes: 0 without one.
+	#[doc(alias("m_nShieldLevel", "GetShieldLevel"))]
+	pub fn shield_level(self) -> Result<c_int, BuildingError> {
+		self.0.int(c"m_nShieldLevel")
+	}
+
+	/// What the sentry is doing (`m_iState`).
+	#[doc(alias("m_iState"))]
+	pub fn state(self) -> Result<SentryState, BuildingError> {
+		let raw = self.0.int(c"m_iState")?;
+
+		SentryState::from_raw(raw).ok_or(BuildingError::UnknownState(raw))
 	}
 }
 
