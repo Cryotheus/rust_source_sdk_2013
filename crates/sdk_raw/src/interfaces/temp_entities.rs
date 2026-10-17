@@ -46,6 +46,10 @@ pub const PARTICLE_DISPATCH_RESET_PARTICLES: c_int = 1 << 1;
 /// which `DispatchParticleEffect` dispatches.
 pub const PARTICLE_EFFECT: &CStr = c"ParticleEffect";
 
+/// The name of the effect that stops every particle effect on an entity,
+/// `ParticleEffectStop`, which `StopParticleEffects` dispatches.
+pub const PARTICLE_EFFECT_STOP: &CStr = c"ParticleEffectStop";
+
 /// A particle effect created at its entity's origin, which stays where it
 /// started (`ParticleAttachment_t`).
 pub const PATTACH_ABSORIGIN: c_int = 0;
