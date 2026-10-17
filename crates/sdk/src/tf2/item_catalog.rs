@@ -544,7 +544,11 @@ impl<'s> ItemSchema<'s> {
 	}
 
 	/// The stock items `class` starts with: its base items, with their
-	/// positions, ordered as [`Self::class_loadout`] does.
+	/// positions, ordered as [`Self::class_loadout`] does. The schema
+	/// also marks items of the game's modes as base items (the Passtime gun, the
+	/// grappling hook, the spellbook and the MvM canteen, in the utility and action
+	/// positions) and gives some classes a second pistol; filter by position to
+	/// leave them out.
 	///
 	/// Fails like [`Self::class_loadout`], and as [`ItemDefinition::is_base_item`]
 	/// does, which includes scanning the schema first, as
