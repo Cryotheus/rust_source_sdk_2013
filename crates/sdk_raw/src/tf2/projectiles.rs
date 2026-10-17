@@ -5,6 +5,27 @@
 
 use std::ffi::c_int;
 
+// The MSVC binding describes the pipebomb's fields; the Itanium ABI lays out
+// a class's own fields in the same order.
+#[cfg(target_os = "windows")]
+const _: () = {
+	use std::mem::offset_of;
+	use sys::CTFGrenadePipebombProjectile as Pipebomb;
+
+	assert!(
+		offset_of!(Pipebomb, m_flCreationTime) - offset_of!(Pipebomb, m_iType)
+			== CREATION_TIME_AFTER_TYPE
+	);
+	let _: fn(&Pipebomb) -> f32 = |pipebomb| pipebomb.m_flCreationTime;
+};
+
+/// The bytes from a pipebomb's networked mode (`m_iType`) to the time it was
+/// created (`m_flCreationTime`), a `float` that
+/// `CTFGrenadePipebombProjectile` declares right after the mode and does not
+/// network. TF2 measures from it how long the jars, balls and cleavers that
+/// derive from pipebombs flew.
+pub const CREATION_TIME_AFTER_TYPE: usize = 4;
+
 /// `TF_GL_MODE_CANNONBALL`: a Loose Cannon's cannonball.
 pub const TF_GL_MODE_CANNONBALL: c_int = 3;
 
