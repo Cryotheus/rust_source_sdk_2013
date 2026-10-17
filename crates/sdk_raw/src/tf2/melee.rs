@@ -4,6 +4,8 @@
 
 use crate::vtable_slot;
 
+pub use super::weapons::WeaponSoundKind;
+
 /// The signature of `CTFWeaponBaseMelee::OnEntityHit`, with an entity as
 /// receiver because TF2 melee weapons derive through their primary bases.
 /// The damage info is native callback-scoped storage; hooks must not retain it.
@@ -22,11 +24,6 @@ pub type MeleeHitFn = unsafe extern "C" fn(
 #[doc(alias("WeaponSound"))]
 pub type WeaponSoundFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, kind: WeaponSoundKind, time: f32);
-
-/// The kind of sound a weapon plays (`WeaponSound_t`), which the weapon's
-/// script gives a sound for. The type is the platform bindings' own: C's
-/// `int` on Windows, and `unsigned int` on Linux.
-pub type WeaponSoundKind = sys::WeaponSound_t;
 
 // Windows 303 matches the `WeaponSound` call in Bravo's `server.dll` (a virtual
 // call at offset 2424, in the melee hit routine that plays the hit sounds).
