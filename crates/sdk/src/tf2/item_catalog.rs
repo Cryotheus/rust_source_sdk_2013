@@ -11,9 +11,8 @@
 //! instead, once, the first time one is read: in every definition the
 //! attribute list's header must be consistent, with its elements where its
 //! memory is, and its attribute indices nonzero; the flags must each be
-//! exactly 0 or 1; the shipped definitions the schema is known to enable
-//! must read enabled; and the schema as a whole must have attributes and
-//! enabled definitions at all, as a layout reading none says nothing.
+//! exactly 0 or 1; and the schema as a whole must have attributes, and both
+//! enabled and disabled definitions, as a layout reading none says nothing.
 //!
 //! A schema that fails the scan fails every later read of these fields with
 //! [`ItemSchemaError::UnsupportedLayout`], until the plugin is reloaded, and
@@ -30,10 +29,6 @@ use crate::tf2::item_schema::{ItemDefinition, ItemSchema, ItemSchemaError, Loado
 use std::ffi::{CStr, c_int};
 use std::fmt;
 use std::sync::OnceLock;
-
-/// The definitions the shipped schema enables: the Rocket Launcher, the
-/// Football Helmet and the Pet Balloonicorn.
-const ENABLED: [u16; 3] = [18, 49, 738];
 
 /// The most edits (insertions, deletions and substitutions of a byte) between
 /// a name and a query for [`ItemSchema::similar_definition_names`] to suggest
@@ -124,8 +119,8 @@ pub enum FaultReason {
 	#[error("a flag reads {0:#x}, neither 0 nor 1")]
 	Flag(u8),
 
-	#[error("a definition the shipped schema enables reads disabled")]
-	NotEnabled,
+	#[error("every definition reads enabled")]
+	NoneDisabled,
 
 	#[error("the schema has no enabled definitions")]
 	NoneEnabled,
@@ -365,7 +360,49 @@ impl<'s> ItemSchema<'s> {
 			Err(fault) => writeln!(report, "catalog scan refused: {fault}"),
 		};
 
+		let _ = writeln!(
+			report,
+			"flag offsets: enabled {}, hidden {}, base {}, tool {}, bundle {}; attribute list {}",
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bEnabled),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bHidden),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bBaseItem),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bIsTool),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bIsPackBundle),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_vecStaticAttributes),
+		);
+
 		let _ = writeln!(report, "remembered: {:?}", CATALOG.get());
+
+		// The whole of a few definitions, to place fields by.
+		for index in [0, 18, 49, 56, 738] {
+			let Some(definition) = definitions
+				.iter()
+				.find(|definition| definition.index() == index)
+			else {
+				continue;
+			};
+
+			let _ = write!(report, "definition {index} words:");
+
+			// SAFETY: A definition is a `CTFItemDefinition`, which the schema keeps
+			// through the callback, and its size is the bindings'.
+			let words = unsafe {
+				std::slice::from_raw_parts(
+					definition.raw.as_ptr().cast::<u32>(),
+					size_of::<sys::CEconItemDefinition>() / 4,
+				)
+			};
+
+			for (at, word) in words.iter().enumerate() {
+				if at % 8 == 0 {
+					let _ = write!(report, "\n  +{:#05x}:", at * 4);
+				}
+
+				let _ = write!(report, " {word:08x}");
+			}
+
+			report.push('\n');
+		}
 
 		if let Some(first) = definitions.first() {
 			let entry = RawCatalogEntry::read(*first);
@@ -528,45 +565,34 @@ impl<'s> ItemSchema<'s> {
 	}
 }
 
-/// The Levenshtein distance between `a` and `b`.
-fn edit_distance(a: &[u8], b: &[u8]) -> usize {
-	let mut row: Vec<usize> = (0..=b.len()).collect();
-
-	for (i, &x) in a.iter().enumerate() {
-		let mut diagonal = row[0];
-
-		row[0] = i + 1;
-
-		for (j, &y) in b.iter().enumerate() {
-			let above = row[j + 1];
-
-			row[j + 1] = (diagonal + usize::from(x != y))
-				.min(above + 1)
-				.min(row[j] + 1);
-			diagonal = above;
-		}
-	}
-
-	row[b.len()]
-}
-
 /// How closely a name matches a query: lower is closer, or `None` if it is
 /// not close enough to suggest.
 fn name_rank(name: &[u8], query: &[u8]) -> Option<(u8, usize)> {
-	let name = name.to_ascii_lowercase();
-	let query = query.to_ascii_lowercase();
+	let name = normalize(name);
+	let query = normalize(query);
 
-	if name == query {
+	if query.is_empty() {
+		None
+	} else if name == query {
 		Some((0, 0))
 	} else if name.starts_with(&query) {
 		Some((1, name.len() - query.len()))
-	} else if !query.is_empty() && name.windows(query.len()).any(|window| window == query) {
+	} else if name.windows(query.len()).any(|window| window == query) {
 		Some((2, name.len() - query.len()))
 	} else {
-		let distance = edit_distance(&name, &query);
+		let distance = substring_distance(&name, &query);
 
 		(distance <= MAX_NAME_DISTANCE).then_some((3, distance))
 	}
+}
+
+/// `text` as lowercase ASCII letters and digits only, so that `Rocket
+/// Launcher`, `rocket_launcher` and `ROCKETLAUNCHER` compare equal.
+fn normalize(text: &[u8]) -> Vec<u8> {
+	text.iter()
+		.filter(|byte| byte.is_ascii_alphanumeric())
+		.map(u8::to_ascii_lowercase)
+		.collect()
 }
 
 /// The `limit` names closest to `query`, closest first, by [`name_rank`].
@@ -590,7 +616,6 @@ pub(crate) fn scan<'a, 's: 'a>(
 	definitions: impl IntoIterator<Item = &'a ItemDefinition<'s>>,
 ) -> Result<CatalogStats, CatalogFault> {
 	let mut stats = CatalogStats::default();
-	let mut known_enabled = [false; ENABLED.len()];
 
 	for definition in definitions {
 		let index = definition.index();
@@ -598,14 +623,6 @@ pub(crate) fn scan<'a, 's: 'a>(
 		let entry = RawCatalogEntry::read(*definition);
 
 		entry.check().map_err(fault)?;
-
-		if let Some(at) = ENABLED.iter().position(|&known| known == index) {
-			known_enabled[at] = entry.flag(Flags::Enabled);
-
-			if !known_enabled[at] {
-				return Err(fault(FaultReason::NotEnabled));
-			}
-		}
 
 		if entry.attributes.size > 0 {
 			let elements = definition.static_attribute_elements(entry.attributes.size);
@@ -627,6 +644,10 @@ pub(crate) fn scan<'a, 's: 'a>(
 
 	let whole = |reason| CatalogFault { index: 0, reason };
 
+	if stats.enabled == stats.definitions {
+		return Err(whole(FaultReason::NoneDisabled));
+	}
+
 	if stats.enabled == 0 {
 		return Err(whole(FaultReason::NoneEnabled));
 	}
@@ -636,4 +657,30 @@ pub(crate) fn scan<'a, 's: 'a>(
 	}
 
 	Ok(stats)
+}
+
+/// The fewest edits turning `query` into some part of `text`.
+fn substring_distance(text: &[u8], query: &[u8]) -> usize {
+	// Edit distance with a free start in the text, and a free end.
+	let mut row: Vec<usize> = (0..=query.len()).collect();
+	let mut best = row[query.len()];
+
+	for &x in text {
+		let mut diagonal = row[0];
+
+		row[0] = 0;
+
+		for (j, &y) in query.iter().enumerate() {
+			let above = row[j + 1];
+
+			row[j + 1] = (diagonal + usize::from(x != y))
+				.min(above + 1)
+				.min(row[j] + 1);
+			diagonal = above;
+		}
+
+		best = best.min(row[query.len()]);
+	}
+
+	best
 }

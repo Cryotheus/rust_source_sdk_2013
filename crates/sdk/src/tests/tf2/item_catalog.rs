@@ -95,28 +95,30 @@ fn a_flag_that_is_not_a_boolean_refuses_the_schema() {
 fn a_schema_that_reads_nothing_is_refused() {
 	let mut off = Fixture::new(1, false, &[10]);
 	let mut bare = Fixture::new(2, true, &[]);
+	let mut closed = Fixture::new(3, false, &[]);
 
 	assert_eq!(
 		scan(&[off.definition()]).unwrap_err().reason,
 		FaultReason::NoneEnabled
 	);
 	assert_eq!(
-		scan(&[bare.definition()]).unwrap_err().reason,
+		scan(&[bare.definition(), closed.definition()])
+			.unwrap_err()
+			.reason,
 		FaultReason::NoAttributes
 	);
 }
 
 #[test]
-fn a_shipped_enabled_definition_that_reads_disabled_refuses_the_schema() {
-	let mut helmet = Fixture::new(49, false, &[10]);
-	let definitions = [helmet.definition()];
+fn a_schema_with_every_definition_enabled_is_refused() {
+	let mut one = Fixture::new(1, true, &[10]);
+	let mut two = Fixture::new(2, true, &[]);
 
 	assert_eq!(
-		scan(&definitions),
-		Err(CatalogFault {
-			index: 49,
-			reason: FaultReason::NotEnabled
-		})
+		scan(&[one.definition(), two.definition()])
+			.unwrap_err()
+			.reason,
+		FaultReason::NoneDisabled
 	);
 }
 
@@ -135,41 +137,15 @@ fn an_attribute_without_an_index_refuses_the_schema() {
 }
 
 #[test]
-fn edit_distance_counts_insertions_deletions_and_substitutions() {
-	assert_eq!(edit_distance(b"kitten", b"sitting"), 3);
-	assert_eq!(edit_distance(b"", b"abc"), 3);
-	assert_eq!(edit_distance(b"same", b"same"), 0);
-}
+fn names_match_through_spaces_underscores_and_typos() {
+	let names = vec![(18, c"TF_WEAPON_ROCKETLAUNCHER"), (9, c"Pet Balloonicorn")];
+	let rank = |query: &CStr| rank_names(names.clone(), query.to_bytes(), 5);
 
-#[test]
-fn similar_names_rank_exact_prefix_contained_then_near() {
-	let names = vec![
-		(5, c"Scattergun"),
-		(9, c"The Force-A-Nature"),
-		(3, c"Rocket Launcher"),
-		(4, c"Rocket Jumper"),
-		(7, c"Rocketlauncher"),
-		(1, c"Bat"),
-	];
-
-	let ranked = |query: &CStr, limit| {
-		rank_names(names.clone(), query.to_bytes(), limit)
-			.into_iter()
-			.map(|(index, _)| index)
-			.collect::<Vec<_>>()
-	};
-
-	// Prefix matches, by shorter remainder.
-	assert_eq!(ranked(c"rocket", 10), [4, 7, 3]);
-	assert_eq!(ranked(c"force", 10), [9]);
-
-	// A typo is within a few edits of the name; a stranger is not.
-	assert_eq!(ranked(c"scatergun", 10), [5]);
-	assert_eq!(ranked(c"zzzzzzzz", 10), Vec::<u16>::new());
-
-	// Exact beats prefix whatever the index, and the limit cuts the tail.
-	assert_eq!(ranked(c"BAT", 1), [1]);
-	assert_eq!(ranked(c"rocket", 2), [4, 7]);
+	assert_eq!(rank(c"rocket launcher")[0].0, 18);
+	assert_eq!(rank(c"rocket launchr")[0].0, 18);
+	assert_eq!(rank(c"pet baloonicorn")[0].0, 9);
+	assert!(rank(c"completely different").is_empty());
+	assert!(rank(c"").is_empty());
 }
 
 #[test]
