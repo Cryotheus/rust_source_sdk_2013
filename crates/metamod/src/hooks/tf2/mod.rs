@@ -3,6 +3,7 @@
 pub mod airblast;
 pub mod autobalance;
 pub mod blocked;
+pub mod body_target;
 pub mod bot;
 pub mod building;
 pub mod chat;
