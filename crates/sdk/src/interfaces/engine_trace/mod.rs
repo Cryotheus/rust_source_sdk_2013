@@ -12,7 +12,7 @@ mod tests;
 use crate::entities::Entity;
 use crate::math::Vector;
 use sdk_raw::vcall;
-use std::ffi::{CStr, c_int, c_uint, c_ushort};
+use std::ffi::{CStr, c_int, c_short, c_uint, c_ushort};
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 use std::slice;
@@ -196,6 +196,15 @@ pub struct Trace<'s> {
 	/// The `SURF_*` flags of the brush surface the ray hit (`surface.flags`),
 	/// such as `SURF_SKY`.
 	pub surface_flags: c_ushort,
+
+	/// The index of the properties of the surface the ray hit
+	/// (`surface.surfaceProps`), such as what a footstep on it sounds like,
+	/// which [`PhysicsSurfaceProps::surface`] gives: a brush's material's, or
+	/// a model's own.
+	///
+	/// [`PhysicsSurfaceProps::surface`]: crate::interfaces::PhysicsSurfaceProps::surface
+	#[doc(alias("surfaceProps"))]
+	pub surface_props: c_short,
 
 	/// The `DISPSURF_FLAG_*` flags of the displacement the ray hit
 	/// (`dispFlags`), which the engine leaves 0 for anything else.
@@ -501,6 +510,7 @@ impl<'s> EngineTrace<'s> {
 			surface_name: NonNull::new(trace.surface.name.cast_mut())
 				.map(|name| unsafe { CStr::from_ptr(name.as_ptr()) }),
 			surface_flags: trace.surface.flags,
+			surface_props: trace.surface.surfaceProps,
 			displacement_flags: trace._base.dispFlags,
 			hitbox: trace.hitbox,
 			hitgroup: trace.hitgroup,
