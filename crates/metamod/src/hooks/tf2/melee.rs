@@ -44,6 +44,9 @@ pub enum MeleeSoundAction {
 	/// players the game would send the first one to. The callback is not asked
 	/// about it.
 	Replace(WeaponSoundKind),
+
+	/// Plays no sound at all, to the players the game would send it to.
+	Silence,
 }
 
 thread_local! {
@@ -101,7 +104,8 @@ impl MetamodApi<'_> {
 	/// TF2 plays a swing's hit sound when the swing lands, from the kind of
 	/// entity it found: the flesh sound for a player, and the sound of hitting
 	/// the world for anything else. [`MeleeSoundAction::Replace`] plays another
-	/// kind in its place. The swinging player's client predicts its own swing's
+	/// kind in its place, and [`MeleeSoundAction::Silence`] plays none, as the
+	/// swing sound, played as the swing starts, may need to. The swinging player's client predicts its own swing's
 	/// sounds, which this does not change; the game sends the sound to the other
 	/// players.
 	///
@@ -144,6 +148,7 @@ impl MetamodApi<'_> {
 						HookAction::Supersede(())
 					}
 
+					MeleeSoundAction::Silence => HookAction::Supersede(()),
 					_ => HookAction::Ignore,
 				}
 			},
@@ -157,6 +162,7 @@ mod tests {
 	use crate::hook::{HookCall, HookTarget};
 	use crate::test_support::harness::{Harness, on_both};
 	use crate::test_support::server::{no_interfaces, tf2_binding};
+	use source_sdk_2013::raw::tf2::melee::BURST_SOUND;
 	use source_sdk_2013::raw::tf2::melee::MELEE_HIT_SOUND;
 	use source_sdk_2013::raw::tf2::melee::MELEE_HIT_WORLD_SOUND;
 	use source_sdk_2013::raw::tf2::melee::MELEE_MISS_SOUND;
@@ -451,6 +457,9 @@ mod tests {
 					Sound::Native(MELEE_MISS_SOUND, 0.5)
 				]
 			);
+
+			// A silenced sound is asked about and never played.
+			assert_eq!(play(BURST_SOUND), [Sound::Asked(BURST_SOUND)]);
 		});
 	}
 
@@ -473,6 +482,7 @@ mod tests {
 
 		match kind {
 			MELEE_HIT_WORLD_SOUND => MeleeSoundAction::Replace(MELEE_HIT_SOUND),
+			BURST_SOUND => MeleeSoundAction::Silence,
 			_ => MeleeSoundAction::Continue,
 		}
 	}

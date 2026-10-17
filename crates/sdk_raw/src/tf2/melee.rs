@@ -68,6 +68,11 @@ pub const MELEE_HIT_WORLD_SOUND: WeaponSoundKind = sys::WeaponSound_t_MELEE_HIT_
 #[doc(alias("MELEE_MISS"))]
 pub const MELEE_MISS_SOUND: WeaponSoundKind = sys::WeaponSound_t_MELEE_MISS;
 
+/// The kind of sound (`WeaponSound_t`) a melee weapon plays as it swings with
+/// a critical hit, in place of the miss sound.
+#[doc(alias("BURST"))]
+pub const BURST_SOUND: WeaponSoundKind = sys::WeaponSound_t_BURST;
+
 /// The generated slot of `CTFWeaponBaseMelee::OnEntityHit` in a melee
 /// weapon's primary vtable, shared by its derived weapon classes.
 #[doc(alias("OnEntityHit"))]
