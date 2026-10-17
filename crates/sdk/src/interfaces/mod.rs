@@ -85,7 +85,7 @@ pub mod valve_engine;
 pub mod voice_server;
 
 pub use base_file_system::BaseFileSystem;
-pub use bot_manager::BotManager;
+pub use bot_manager::{BotCommand, BotController, BotManager};
 pub use cvar::Cvar;
 pub use engine_replay::EngineReplay;
 pub use engine_sound::EngineSound;
