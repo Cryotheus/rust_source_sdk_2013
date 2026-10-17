@@ -13,6 +13,11 @@
 use std::ffi::c_int;
 use std::mem::offset_of;
 
+/// The kind of sound a weapon plays (`WeaponSound_t`), which the weapon's
+/// script gives a sound for. The type is the platform bindings' own: C's
+/// `int` on Windows, and `unsigned int` on Linux.
+pub type WeaponSoundKind = sys::WeaponSound_t;
+
 const _: () = {
 	assert!(offset_of!(sys::CTFWeaponBase, _base) == 0 && offset_of!(sys::CEconEntity, _base) == 0);
 
@@ -22,6 +27,12 @@ const _: () = {
 			&& offset_of!(sys::CBaseAnimating, _base) == 0
 	);
 };
+
+/// The kind of sound (`WeaponSound_t`) a weapon plays to its owner as its
+/// shot deals a headshot, which TF2 plays from `CTFPlayer::TraceAttack`: the
+/// sound its script gives `burst`.
+#[doc(alias("BURST"))]
+pub const BURST_SOUND: WeaponSoundKind = sys::WeaponSound_t_BURST;
 
 /// The item definition index that names no item,
 /// `(item_definition_index_t)-1`.

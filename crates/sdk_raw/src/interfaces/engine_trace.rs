@@ -1,9 +1,10 @@
 //! Hand-written ABI of `IEngineTrace` that the generated bindings do not
 //! describe: the version string it is requested by, from
-//! `public/engine/IEngineTrace.h`, and the contents and masks of traces,
-//! from `public/bspflags.h`.
+//! `public/engine/IEngineTrace.h`, the contents and masks of traces, from
+//! `public/bspflags.h`, and the hit groups of models' hitboxes that traces
+//! report, from `game/shared/shareddefs.h`.
 
-use std::ffi::{CStr, c_uint};
+use std::ffi::{CStr, c_int, c_uint};
 
 /// `ALL_VISIBLE_CONTENTS`: every content that can be seen, up to
 /// [`LAST_VISIBLE_CONTENTS`].
@@ -122,6 +123,36 @@ pub const CONTENTS_WATER: c_uint = 0x20;
 /// `CONTENTS_WINDOW`: translucent brushes that are not water, such as
 /// glass.
 pub const CONTENTS_WINDOW: c_uint = 0x2;
+
+/// `HITGROUP_CHEST`: the hit group of a model's chest hitboxes.
+pub const HITGROUP_CHEST: c_int = 2;
+
+/// `HITGROUP_GEAR`: the hit group of the hitboxes of what a model carries,
+/// which the game's NPCs take next to no damage on.
+pub const HITGROUP_GEAR: c_int = 10;
+
+/// `HITGROUP_GENERIC`: the hit group of a hitbox that names no body part,
+/// and of whatever a trace hits but by a hitbox.
+pub const HITGROUP_GENERIC: c_int = 0;
+
+/// `HITGROUP_HEAD`: the hit group of a model's head hitboxes, those TF2's
+/// headshots strike.
+pub const HITGROUP_HEAD: c_int = 1;
+
+/// `HITGROUP_LEFTARM`: the hit group of a model's left arm hitboxes.
+pub const HITGROUP_LEFTARM: c_int = 4;
+
+/// `HITGROUP_LEFTLEG`: the hit group of a model's left leg hitboxes.
+pub const HITGROUP_LEFTLEG: c_int = 6;
+
+/// `HITGROUP_RIGHTARM`: the hit group of a model's right arm hitboxes.
+pub const HITGROUP_RIGHTARM: c_int = 5;
+
+/// `HITGROUP_RIGHTLEG`: the hit group of a model's right leg hitboxes.
+pub const HITGROUP_RIGHTLEG: c_int = 7;
+
+/// `HITGROUP_STOMACH`: the hit group of a model's stomach hitboxes.
+pub const HITGROUP_STOMACH: c_int = 3;
 
 /// `LAST_VISIBLE_CONTENTS`: the last of the contents that can be seen.
 pub const LAST_VISIBLE_CONTENTS: c_uint = 0x80;

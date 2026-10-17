@@ -25,6 +25,8 @@ pub use sdk_raw::interfaces::engine_trace::{
 	CONTENTS_MONSTERCLIP, CONTENTS_MOVEABLE, CONTENTS_OPAQUE, CONTENTS_ORIGIN, CONTENTS_PLAYERCLIP,
 	CONTENTS_SLIME, CONTENTS_SOLID, CONTENTS_TEAM1, CONTENTS_TEAM2, CONTENTS_TESTFOGVOLUME,
 	CONTENTS_TRANSLUCENT, CONTENTS_UNUSED, CONTENTS_UNUSED6, CONTENTS_WATER, CONTENTS_WINDOW,
+	HITGROUP_CHEST, HITGROUP_GEAR, HITGROUP_GENERIC, HITGROUP_HEAD, HITGROUP_LEFTARM,
+	HITGROUP_LEFTLEG, HITGROUP_RIGHTARM, HITGROUP_RIGHTLEG, HITGROUP_STOMACH,
 	LAST_VISIBLE_CONTENTS, MASK_ALL, MASK_BLOCKLOS, MASK_BLOCKLOS_AND_NPCS, MASK_CURRENT,
 	MASK_DEADSOLID, MASK_NPCSOLID, MASK_NPCSOLID_BRUSHONLY, MASK_NPCWORLDSTATIC, MASK_OPAQUE,
 	MASK_OPAQUE_AND_NPCS, MASK_PLAYERSOLID, MASK_PLAYERSOLID_BRUSHONLY, MASK_SHOT, MASK_SHOT_HULL,
@@ -204,6 +206,12 @@ pub struct Trace<'s> {
 	/// [`Self::entity`] is the world's, 1 more than the index of the static
 	/// prop the ray hit, and 0 for the world's brushes.
 	pub hitbox: c_int,
+
+	/// The hit group of the hitbox the ray hit, such as [`HITGROUP_HEAD`], as
+	/// the model's hitbox set gives it, or [`HITGROUP_GENERIC`] for what it hit
+	/// otherwise. The engine tests hitboxes only when the mask has
+	/// [`CONTENTS_HITBOX`], as [`MASK_SHOT`] does, and the ray is a line.
+	pub hitgroup: c_int,
 
 	/// What the ray hit, or `None` if it hit nothing: an entity, or the
 	/// world's own, at index 0, for the world's brushes and static props.
@@ -495,6 +503,7 @@ impl<'s> EngineTrace<'s> {
 			surface_flags: trace.surface.flags,
 			displacement_flags: trace._base.dispFlags,
 			hitbox: trace.hitbox,
+			hitgroup: trace.hitgroup,
 			// SAFETY: The engine points a trace that hit something at the live
 			// entity it hit, which stays allocated during `'s`, as entities are
 			// freed at the end of a frame.
