@@ -23,9 +23,10 @@ use sdk_raw::tf2::item_generation::ItemGeneration;
 use sdk_raw::tf2::weapons::INVALID_ITEM_DEF_INDEX;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int};
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
 pub use sdk_raw::tf2::item_generation::ItemGenerationError;
+pub use sdk_raw::tf2::weapons::{BURST_SOUND, WeaponSoundKind};
 
 /// A native weapon slot: a [`WeaponSlot`], or a raw slot number for the less
 /// common slots it does not name.
@@ -820,6 +821,38 @@ impl<'s> Weapon<'s> {
 		ItemAttributes::new(self.server, self.entity)
 	}
 
+	/// Whether the weapon's current attack may be a critical hit on `target`,
+	/// a headshot or not, by the weapon's own rules (`CanFireCriticalShot`), as
+	/// TF2 asks of a player's headshot. The Sniper Rifle's headshots crit only
+	/// once its owner has been zoomed in for a moment, unless an attribute
+	/// lets it crit unzoomed, and the Ambassador's only within 1200 units;
+	/// every weapon's attacks may crit while its owner is crit boosted. TF2's
+	/// bots in Mann vs. Machine never crit, but for those made to always.
+	///
+	/// The method also keeps its answer on the weapon for the current attack,
+	/// as the game's own calls do, such as the Sniper Rifle's
+	/// `m_bCurrentShotIsHeadshot`.
+	#[doc(alias("CanFireCriticalShot"))]
+	pub fn can_fire_critical_shot(
+		self,
+		headshot: bool,
+		target: Option<Entity<'_>>,
+	) -> Result<bool, WeaponError> {
+		check_live(self.entity)?;
+
+		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
+		let target = target.map_or(ptr::null_mut(), Entity::as_ptr);
+
+		// SAFETY: As for `slot_raw`. The target is a live entity during the
+		// callback, or null, which every override accepts. The generated
+		// CanFireCriticalShot entry reads the weapon, its owner, their attributes
+		// and conditions and the target's position, and writes the weapon's
+		// critical-hit state for its current attack.
+		Ok(unsafe {
+			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_CanFireCriticalShot(headshot, target))
+		})
+	}
+
 	/// The rounds in the weapon's clip (`m_iClip1`), or -1 for a weapon without
 	/// one, such as a melee weapon or a minigun. Energy weapons count their
 	/// shots in energy instead, and leave it unused.
@@ -958,6 +991,28 @@ impl<'s> Weapon<'s> {
 		let handle = EntityHandle::from_raw(raw);
 
 		Ok(handle.is_valid().then_some(handle))
+	}
+
+	/// Plays the sound the weapon's script gives `kind` (`WeaponSound`), such as
+	/// [`BURST_SOUND`], the headshot's, from its owner: to the players near enough
+	/// to hear it, or to the owner alone where the sound's script says so. During
+	/// the owner's attack, the game's prediction rules may leave out the owner's
+	/// own client, as they do for the game's own calls. A weapon without an owner,
+	/// or whose script has no sound for `kind`, plays nothing.
+	#[doc(alias("WeaponSound"))]
+	pub fn play_sound(self, kind: WeaponSoundKind) -> Result<(), WeaponError> {
+		check_live(self.entity)?;
+
+		let weapon = self.entity.as_ptr().cast::<sys::CTFWeaponBase>();
+
+		// SAFETY: As for `slot_raw`. The generated WeaponSound entry reads the
+		// weapon, its owner and its script, and emits the sound; a start time of
+		// 0 is now.
+		unsafe {
+			vcall!(weapon as sys::CTFWeaponBase__bindgen_vtable => CTFWeaponBase_WeaponSound(kind, 0.0))
+		};
+
+		Ok(())
 	}
 
 	/// Sets the rounds in the weapon's clip (`m_iClip1`), and records the change
