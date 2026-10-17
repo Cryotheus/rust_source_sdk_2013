@@ -249,3 +249,91 @@ pub unsafe fn sorted_definitions(
 
 	(definitions.len() == count).then_some(definitions)
 }
+
+/// What the checks of [`sorted_definitions`] read, as text, for finding out
+/// which of them fails: the map's header, each check on it, the first nodes,
+/// and what the walk makes of the map.
+///
+/// # Safety
+///
+/// As for [`sorted_definitions`].
+pub unsafe fn sorted_definitions_report(
+	schema: NonNull<sys::CEconItemSchema>,
+	default: NonNull<sys::CEconItemDefinition>,
+) -> String {
+	use std::fmt::Write;
+
+	let schema_ptr = schema.as_ptr();
+
+	// SAFETY: As for `sorted_definitions`.
+	let (tree, schema_default) = unsafe {
+		(
+			(&raw const (*schema_ptr).m_mapItemsSorted)
+				.cast::<Tree>()
+				.read(),
+			(&raw const (*schema_ptr).m_pDefaultItemDefinition).read(),
+		)
+	};
+
+	let mut report = String::new();
+
+	let _ = writeln!(
+		report,
+		"map at offset {}, default definition at offset {}: schema holds default {:p}, lookup gave {:p}",
+		std::mem::offset_of!(sys::CEconItemSchema, m_mapItemsSorted),
+		std::mem::offset_of!(sys::CEconItemSchema, m_pDefaultItemDefinition),
+		schema_default,
+		default.as_ptr(),
+	);
+
+	let _ = writeln!(
+		report,
+		"tree: less {:p}, memory {:p}, elements {:p}, allocation_count {}, grow_size {}, root {}, count {}, first_free {}, last_alloc {}",
+		tree.less,
+		tree.memory,
+		tree.elements,
+		tree.allocation_count,
+		tree.grow_size,
+		tree.root,
+		tree.count,
+		tree.first_free,
+		tree.last_alloc,
+	);
+
+	let _ = writeln!(
+		report,
+		"checks: default {}, memory set {}, aligned {}, elements == memory {}, allocation_count in range {}, last_alloc in range {}, count in range {}, root in range {}",
+		schema_default == default.as_ptr(),
+		!tree.memory.is_null(),
+		tree.memory.is_aligned(),
+		tree.elements == tree.memory,
+		(0..=MAX_NODES).contains(&tree.allocation_count),
+		(INVALID..tree.allocation_count).contains(&tree.last_alloc),
+		(1..=tree.last_alloc + 1).contains(&tree.count),
+		(0..=tree.last_alloc).contains(&tree.root),
+	);
+
+	if !tree.memory.is_null() && tree.memory.is_aligned() && tree.last_alloc >= 0 {
+		for index in 0..=tree.last_alloc.min(4) {
+			// SAFETY: The node lies within the allocation the header claims; a
+			// diagnostic read of plain data.
+			let node = unsafe { tree.memory.add(index as usize).read() };
+
+			let _ = writeln!(
+				report,
+				"node {index}: left {}, right {}, parent {}, tag {}, key {}, definition {:p}",
+				node.left, node.right, node.parent, node.tag, node.key, node.definition,
+			);
+		}
+	}
+
+	// SAFETY: As for this function.
+	let walked = unsafe { sorted_definitions(schema, default) };
+
+	let _ = match &walked {
+		Some(definitions) => writeln!(report, "walk: {} definitions", definitions.len()),
+		None => writeln!(report, "walk: refused"),
+	};
+
+	report
+}

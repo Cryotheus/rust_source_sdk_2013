@@ -971,6 +971,32 @@ impl<'s> ItemSchema<'s> {
 			report.push('\n');
 		}
 
+		// SAFETY: As for `definitions`.
+		let (map, default) = unsafe {
+			(
+				schema.generation.schema()?,
+				schema.generation.default_definition()?,
+			)
+		};
+
+		// SAFETY: As for `definitions`.
+		report.push_str(&unsafe { item_schema::sorted_definitions_report(map, default) });
+
+		// SAFETY: As for `definitions`.
+		if let Some(sorted) = unsafe { item_schema::sorted_definitions(map, default) } {
+			let samples = [sorted.first(), sorted.get(sorted.len() / 2), sorted.last()];
+
+			for &(index, raw) in samples.into_iter().flatten() {
+				let found = schema.find(index)?.map(|definition| definition.raw);
+
+				let _ = writeln!(
+					report,
+					"sample {index}: the walk has {raw:p}, the game's lookup {:?}",
+					found
+				);
+			}
+		}
+
 		Ok(report)
 	}
 
