@@ -29,8 +29,9 @@ const _: () = {
 };
 
 /// The kind of sound (`WeaponSound_t`) a weapon plays to its owner as its
-/// shot deals a headshot, which TF2 plays from `CTFPlayer::TraceAttack`: the
-/// sound its script gives `burst`.
+/// shot deals a headshot, which TF2 plays from `CTFPlayer::TraceAttack`, and a
+/// melee weapon as it swings with a critical hit, in place of the miss sound:
+/// the sound its script gives `burst`.
 #[doc(alias("BURST"))]
 pub const BURST_SOUND: WeaponSoundKind = sys::WeaponSound_t_BURST;
 
