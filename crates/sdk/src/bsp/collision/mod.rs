@@ -351,10 +351,9 @@ fn displacements(
 		let plane = planes
 			.get(usize::from(unsigned_short(record, raw::FACE_PLANE_OFFSET)))
 			.ok_or_else(|| reference(raw::LUMP_FACES, face))?;
-		let mut up = DVec3::from_array(plane.normal.map(f64::from));
-		if record[raw::FACE_SIDE_OFFSET] != 0 {
-			up = -up;
-		}
+		// A displacement faces along its face's plane whatever side the face
+		// is on: a ceiling's face can have side 1 and a plane facing down.
+		let up = DVec3::from_array(plane.normal.map(f64::from));
 		// Every triangle winds as the grid does over the face, as the engine's
 		// do: a triangle that the offsets turn away from the face, as on a
 		// floor raised into a cliff, still faces where its grid does.
