@@ -6,10 +6,11 @@
 //! [`sorted_definitions`] checks the map before reading any of its nodes, and
 //! each node as it walks the tree, so that a schema laid out otherwise than
 //! the bindings say is refused instead of read out of bounds: the schema's
-//! default definition must sit where `GetItemDefinition` finds it, after the
-//! map; the tree's copy of its node pointer must match the pointer itself;
-//! its counts must agree; and every node must be in use, hold a definition
-//! with its own index, and come in order.
+//! default definition, which `GetItemDefinition` finds, must be held by a slot
+//! after the map (the bindings name `m_pDefaultItemDefinition`, but the game's
+//! build can put fields between); the tree's copy of its node pointer must
+//! match the pointer itself; its counts must agree; and every node must be in
+//! use, hold a definition with its own index, and come in order.
 
 #[cfg(test)]
 #[path = "../tests/tf2/item_schema.rs"]
@@ -159,6 +160,41 @@ impl Walk {
 	}
 }
 
+/// Where, after the sorted map and within the bindings' size of the schema,
+/// the schema holds the pointer to its default definition, as an offset from
+/// the schema, or `None` if it holds it nowhere there. The bindings place the
+/// pointer at `m_pDefaultItemDefinition`, but the game's own build may put
+/// fields between the map and it, so any pointer-sized slot after the map
+/// counts.
+///
+/// # Safety
+///
+/// `schema` points to the game's live item schema, as for
+/// [`sorted_definitions`].
+unsafe fn default_offset(
+	schema: *const sys::CEconItemSchema,
+	default: NonNull<sys::CEconItemDefinition>,
+) -> Option<usize> {
+	let after_map =
+		std::mem::offset_of!(sys::CEconItemSchema, m_mapItemsSorted) + size_of::<Tree>();
+
+	(after_map..=size_of::<sys::CEconItemSchema>().saturating_sub(size_of::<usize>()))
+		.step_by(size_of::<usize>())
+		.find(|&offset| {
+			// SAFETY: The slot lies within the bindings' size of the schema, past
+			// its map, and holds plain data; the game's schema is at least as large.
+			let slot = unsafe {
+				schema
+					.cast::<u8>()
+					.add(offset)
+					.cast::<usize>()
+					.read_unaligned()
+			};
+
+			slot == default.as_ptr().addr()
+		})
+}
+
 /// The definitions of the item schema's sorted map, by index, in order of
 /// their index, or `None` if the map is not laid out as the
 /// [module documentation](self) says it must be.
@@ -184,18 +220,16 @@ pub unsafe fn sorted_definitions(
 
 	// SAFETY: The schema is live. Both fields lie within it at the bindings'
 	// offsets, and are plain data: the map's bytes and a pointer.
-	let (tree, schema_default) = unsafe {
-		(
-			(&raw const (*schema).m_mapItemsSorted)
-				.cast::<Tree>()
-				.read(),
-			(&raw const (*schema).m_pDefaultItemDefinition).read(),
-		)
+	let tree = unsafe {
+		(&raw const (*schema).m_mapItemsSorted)
+			.cast::<Tree>()
+			.read()
 	};
 
-	// The default definition comes after the map, so finding it places the
-	// fields before it, the map among them.
-	if schema_default != default.as_ptr() {
+	// The default definition comes after the map, so finding it there places
+	// the fields before it, the map among them.
+	// SAFETY: As above; the search stays within the schema.
+	if unsafe { default_offset(schema, default) }.is_none() {
 		return None;
 	}
 
@@ -302,8 +336,9 @@ pub unsafe fn sorted_definitions_report(
 
 	let _ = writeln!(
 		report,
-		"checks: default {}, memory set {}, aligned {}, elements == memory {}, allocation_count in range {}, last_alloc in range {}, count in range {}, root in range {}",
-		schema_default == default.as_ptr(),
+		"checks: default found at offset {:?}, memory set {}, aligned {}, elements == memory {}, allocation_count in range {}, last_alloc in range {}, count in range {}, root in range {}",
+		// SAFETY: As for this function.
+		unsafe { default_offset(schema_ptr, default) },
 		!tree.memory.is_null(),
 		tree.memory.is_aligned(),
 		tree.elements == tree.memory,
