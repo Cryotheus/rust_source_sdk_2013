@@ -229,6 +229,7 @@ fn hulls_start_at_their_center_and_end_at_their_position() {
 	assert_eq!(trace.surface_flags, 0x4);
 	assert_eq!(trace.displacement_flags, 0b111);
 	assert_eq!(trace.hitbox, 4);
+	assert_eq!(trace.hitgroup, HITGROUP_HEAD);
 	assert_eq!(trace.entity.map(Entity::as_ptr), Some(entity.as_ptr()));
 
 	TRACED.with_borrow(|traced| {
@@ -443,8 +444,8 @@ fn team_filters_pass_through_the_teams_entities() {
 /// the ray hit, on a surface facing back along the X axis, or reaches the
 /// ray's end. As the engine does, it moves the end by the ray's start offset,
 /// back to where a box's position is. A hit is on [`SURFACE`] of a
-/// displacement, with hitbox 4, and the ray leaves what it starts in a
-/// quarter of the way along.
+/// displacement, with hitbox 4 in the head's hit group, and the ray leaves
+/// what it starts in a quarter of the way along.
 unsafe extern "C" fn trace_ray(
 	_this: *mut sys::IEngineTrace,
 	ray: *const sys::Ray_t,
@@ -499,6 +500,7 @@ unsafe extern "C" fn trace_ray(
 		trace.surface.name = SURFACE.as_ptr();
 		trace.surface.flags = 0x4;
 		trace.hitbox = 4;
+		trace.hitgroup = HITGROUP_HEAD;
 	}
 
 	trace.m_pEnt = hit.map_or(ptr::null_mut(), <*mut _>::cast);
