@@ -234,6 +234,58 @@ fn effects_clients_cannot_receive_never_reach_the_game() {
 }
 
 #[test]
+fn particle_effects_at_a_point_reach_the_game_on_no_entity() {
+	let mut mock = MockTempEntities::new();
+	let temp_entities = mock.temp_entities();
+
+	temp_entities
+		.dispatch_particle_effect_at(&recipients(&[4], false), 42, Vector::new(10.0, -20.0, 30.0))
+		.unwrap();
+
+	assert_eq!(
+		temp_entities.dispatch_particle_effect_at(
+			&recipients(&[4], false),
+			8192,
+			Vector::new(0.0, 0.0, 0.0)
+		),
+		Err(ParticleEffectError::SystemOutOfRange(8192))
+	);
+
+	// One that passes reaches no one without recipients.
+	temp_entities
+		.dispatch_particle_effect_at(&recipients(&[], false), 42, Vector::new(0.0, 0.0, 0.0))
+		.unwrap();
+
+	DISPATCHED.with_borrow(|dispatched| {
+		assert_eq!(
+			*dispatched,
+			[Dispatched {
+				recipients: vec![4],
+				reliable: false,
+				delay: 0.0,
+				position: Vector::new(10.0, -20.0, 30.0),
+				name: c"ParticleEffect".to_owned(),
+				origin: Vector::new(10.0, -20.0, 30.0),
+				start: Vector::new(0.0, 0.0, 0.0),
+				flags: 0,
+				entity_index: 0,
+				scale: 1.0,
+				attachment_index: 0,
+				damage_type: 0,
+				hit_box: 42,
+				control_point_1_attachment: 0,
+				unfiltered: true,
+			}]
+		);
+	});
+
+	assert_eq!(
+		mock.system._base.m_nStatusPushed, 0,
+		"the prediction filtering is restored"
+	);
+}
+
+#[test]
 fn particle_effects_reach_the_game_as_dispatch_particle_effect_sends_them() {
 	let mut mock = MockTempEntities::new();
 	let temp_entities = mock.temp_entities();
