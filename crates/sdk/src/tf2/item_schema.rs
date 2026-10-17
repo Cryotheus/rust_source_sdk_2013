@@ -62,6 +62,10 @@ use std::ops::RangeInclusive;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
+/// The most bytes of a definition [`ItemSchema::definition_words`] reads: the
+/// distance between the game's definitions.
+const WORDS_LIMIT: usize = 1024;
+
 /// The definitions whose index, and a vision filter flag, the shipped schema
 /// fixes, to check the layout with, with the flag. A definition without a flag
 /// must have none.
@@ -995,6 +999,92 @@ impl<'s> ItemSchema<'s> {
 					found
 				);
 			}
+		}
+
+		Ok(report)
+	}
+
+	/// The first `bytes` of each of the definitions as 32-bit words in hex, eight to a
+	/// line with their offsets, with the offsets the bindings read each flag
+	/// and the static attributes' header at, for finding those offsets offline
+	/// when the layout checks or the catalog scan refuse the game's build. A
+	/// definition the schema does not have is named as missing. `bytes` is
+	/// rounded down to a multiple of 4 and limited to 1024, the distance between
+	/// the game's definitions.
+	///
+	/// It does not check the layout and changes nothing.
+	///
+	/// Fails like [`Self::new`] before its checks.
+	pub fn definition_words(
+		server: Server<'s>,
+		indices: &[u16],
+		bytes: usize,
+	) -> Result<String, ItemSchemaError> {
+		use std::fmt::Write;
+
+		if server.game() != Game::TeamFortress2 {
+			return Err(ItemSchemaError::NotTf2);
+		}
+
+		// SAFETY: As for `new`.
+		let generation = unsafe { ItemGeneration::cached(server.game_server_factory().as_raw()) }?;
+
+		let schema = Self {
+			generation,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		};
+
+		let words = bytes.min(WORDS_LIMIT) / size_of::<u32>();
+		let mut report = String::new();
+
+		let _ = writeln!(
+			report,
+			"offsets the bindings read at: index {}, enabled {}, static attributes {}, tool {}, hidden {}, base item {}, pack bundle {}, vision filter {}",
+			std::mem::offset_of!(sys::CEconItemDefinition, m_nDefIndex),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bEnabled),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_vecStaticAttributes),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bIsTool),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bHidden),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bBaseItem),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_bIsPackBundle),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_nVisionFilterFlags),
+		);
+
+		for &index in indices {
+			let Some(definition) = schema.find(index)? else {
+				let _ = writeln!(report, "definition {index}: the schema has none");
+				continue;
+			};
+
+			let _ = write!(
+				report,
+				"definition {index} at {:p}, read index {}:",
+				definition.raw,
+				definition.index(),
+			);
+
+			for at in 0..words {
+				if at % 8 == 0 {
+					let _ = write!(report, "\n  +{:#05x}:", at * size_of::<u32>());
+				}
+
+				// SAFETY: The game's definitions are 1024 bytes apart, so a
+				// definition's first `WORDS_LIMIT` bytes are in the game's own
+				// allocation of it, which the schema keeps through the callback.
+				let word = unsafe {
+					definition
+						.raw
+						.as_ptr()
+						.cast::<u32>()
+						.add(at)
+						.read_unaligned()
+				};
+
+				let _ = write!(report, " {word:08x}");
+			}
+
+			report.push('\n');
 		}
 
 		Ok(report)
