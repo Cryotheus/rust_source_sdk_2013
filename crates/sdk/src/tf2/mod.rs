@@ -34,6 +34,7 @@ pub mod game_rules;
 pub mod gc;
 pub mod god;
 pub mod host_timescale;
+pub mod item_catalog;
 pub mod item_schema;
 pub mod meters;
 pub mod mvm;
