@@ -8,8 +8,9 @@ use crate::NotThreadSafe;
 
 use crate::interfaces::{
 	BaseFileSystem, BotManager, Cvar, EngineReplay, EngineSound, EngineTrace, GameEventManager,
-	ModelInfo, NetworkStringTables, PlayerInfoManager, PluginHelpers, ServerGameClients,
-	ServerGameDll, ServerGameEnts, ServerGameTags, ServerTools, ValveEngine, VoiceServer,
+	ModelInfo, NetworkStringTables, PhysicsSurfaceProps, PlayerInfoManager, PluginHelpers,
+	ServerGameClients, ServerGameDll, ServerGameEnts, ServerGameTags, ServerTools, ValveEngine,
+	VoiceServer,
 };
 
 use sdk_raw::entities::TeleportSlot;
@@ -417,6 +418,12 @@ impl<'s> Server<'s> {
 
 	/// `INetworkStringTableContainer`, the server's network string tables.
 	pub fn network_string_tables(&self) -> Result<NetworkStringTables<'s>, InterfaceError> {
+		self.interface()
+	}
+
+	/// `IPhysicsSurfaceProps`, the physics library's table of surface
+	/// properties.
+	pub fn physics_surface_props(&self) -> Result<PhysicsSurfaceProps<'s>, InterfaceError> {
 		self.interface()
 	}
 
