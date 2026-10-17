@@ -2,7 +2,8 @@
 //! once, which no entity on the server keeps, such as particle effects.
 //!
 //! [`TempEntities::dispatch_particle_effect`] plays a particle system on an
-//! entity, as the game's `DispatchParticleEffect` does, and
+//! entity, as the game's `DispatchParticleEffect` does,
+//! [`TempEntities::dispatch_particle_effect_at`] plays one at a point, and
 //! [`TempEntities::stop_particle_effects`] stops them, as its
 //! `StopParticleEffects` does.
 
@@ -14,6 +15,7 @@ mod tests;
 
 use crate::NotThreadSafe;
 use crate::entities::Entity;
+use crate::math::Vector;
 use crate::user_messages::Recipients;
 
 use sdk_raw::interfaces::temp_entities::{
@@ -231,11 +233,7 @@ impl<'s> TempEntities<'s> {
 			reset,
 		} = *effect;
 
-		let hit_box = c_int::try_from(system)
-			.ok()
-			.filter(|&system| system < MAX_PARTICLE_SYSTEMS)
-			.ok_or(ParticleEffectError::SystemOutOfRange(system))?;
-
+		let hit_box = system_index(system)?;
 		let edict = entity.edict().ok_or(ParticleEffectError::NotNetworked)?;
 		let (attach_type, point) = attachment.to_raw();
 
@@ -261,6 +259,43 @@ impl<'s> TempEntities<'s> {
 		if reset {
 			data.flags |= PARTICLE_DISPATCH_RESET_PARTICLES;
 		}
+
+		self.dispatch_effect(recipients, PARTICLE_EFFECT, &data);
+		Ok(())
+	}
+
+	/// Plays the particle system with index `system` at `origin` for
+	/// `recipients`, on no entity, as the game's `DispatchParticleEffect` does
+	/// with a point, through the `ParticleEffect` effect.
+	///
+	/// Each client plays it where it is, unrotated, whatever becomes of the
+	/// entities there. An effect played on an entity is lost with it, as when
+	/// the game removes the entity in the same frame, or when the entity is
+	/// dormant for the client; one played at a point is not. The game sends
+	/// such effects to the clients that can hear `origin` (`CPASFilter`).
+	///
+	/// As with [`Self::dispatch_particle_effect`], prediction filtering is
+	/// turned off for the dispatch, the particle system must be one the level
+	/// precached, and an index out of the range clients receive fails. Once
+	/// the effect passes, an empty `recipients` returns `Ok` without
+	/// dispatching it.
+	#[doc(alias("DispatchParticleEffect", "DispatchEffect"))]
+	pub fn dispatch_particle_effect_at(
+		self,
+		recipients: &Recipients,
+		system: usize,
+		origin: Vector,
+	) -> Result<(), ParticleEffectError> {
+		let hit_box = system_index(system)?;
+
+		if recipients.is_empty() {
+			return Ok(());
+		}
+
+		let mut data = EffectData::new();
+
+		data.origin = origin.into();
+		data.hit_box = hit_box;
 
 		self.dispatch_effect(recipients, PARTICLE_EFFECT, &data);
 		Ok(())
@@ -295,4 +330,14 @@ impl<'s> TempEntities<'s> {
 		self.dispatch_effect(recipients, PARTICLE_EFFECT_STOP, &data);
 		Ok(())
 	}
+}
+
+/// The index clients receive for the particle system with index `system`, in
+/// the effect's hitbox (`m_nHitBox`), which fails beyond the
+/// [`MAX_PARTICLE_SYSTEMS`] they receive.
+fn system_index(system: usize) -> Result<c_int, ParticleEffectError> {
+	c_int::try_from(system)
+		.ok()
+		.filter(|&system| system < MAX_PARTICLE_SYSTEMS)
+		.ok_or(ParticleEffectError::SystemOutOfRange(system))
 }
