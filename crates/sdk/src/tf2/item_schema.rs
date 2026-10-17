@@ -289,14 +289,14 @@ struct Details {
 #[doc(alias("CEconItemDefinition"))]
 #[derive(Debug, Clone, Copy)]
 pub struct ItemDefinition<'s> {
-	raw: NonNull<sys::CEconItemDefinition>,
+	pub(in crate::tf2) raw: NonNull<sys::CEconItemDefinition>,
 	_scope: PhantomData<&'s ()>,
 	_not_thread_safe: NotThreadSafe,
 }
 
 impl<'s> ItemDefinition<'s> {
 	/// Wraps one of the schema's definitions.
-	fn new(raw: NonNull<sys::CEconItemDefinition>) -> Self {
+	pub(in crate::tf2) fn new(raw: NonNull<sys::CEconItemDefinition>) -> Self {
 		Self {
 			raw,
 			_scope: PhantomData,
