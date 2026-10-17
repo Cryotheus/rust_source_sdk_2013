@@ -26,9 +26,11 @@ pub unsafe trait HookArg: Copy + 'static {}
 /// # Safety
 ///
 /// C must return a value of the type the way C++ returns the function's: as a
-/// scalar or pointer of the same size and kind, in a register. No class type
-/// qualifies, as MSVC returns every one through memory from a member function.
-/// All-zero bytes must be a valid value.
+/// scalar or pointer of the same size and kind, in a register, or, under the
+/// Itanium ABI alone, as a `#[repr(C)]` type with the layout of a trivially
+/// copyable C++ class, which both return as C returns the struct. No class
+/// type qualifies under MSVC, which returns every one through memory from a
+/// member function. All-zero bytes must be a valid value.
 pub unsafe trait HookReturn: Copy + 'static {}
 
 macro_rules! scalars {
@@ -132,6 +134,12 @@ unsafe impl<T: 'static> HookReturn for Option<NonNull<T>> {}
 // passes the struct.
 #[cfg(feature = "sdk")]
 unsafe impl HookArg for source_sdk_2013::sys::Vector {}
+
+// SAFETY: As above. Under the Itanium ABI, C++ returns the trivially copyable
+// `Vector` as C returns the struct, in registers, and all-zero bytes are the
+// zero vector.
+#[cfg(all(feature = "sdk", not(target_os = "windows")))]
+unsafe impl HookReturn for source_sdk_2013::sys::Vector {}
 
 macro_rules! signatures {
 	($(($($arg:ident: $Arg:ident),*))*) => {$(

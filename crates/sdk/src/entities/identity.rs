@@ -68,6 +68,21 @@ impl<'s> Entity<'s> {
 		SPAWN_FLAGS.write(engine, self, flags)
 	}
 
+	/// Sets the number of the entity's team (`m_iTeamNum`), as
+	/// `CBaseEntity::ChangeTeam` does, and nothing else: the classes that keep
+	/// up with their team, such as players and buildings, do so in their own
+	/// `ChangeTeam`.
+	///
+	/// # Safety
+	///
+	/// The entity must not be one that a team lists, as the game's teams list
+	/// their players and TF2's their buildings: each removes itself from the
+	/// team its number names, and would stay listed in the other.
+	#[doc(alias("ChangeTeam", "m_iTeamNum"))]
+	pub unsafe fn set_team(self, engine: ValveEngine<'_>, team: c_int) -> Result<(), FieldError> {
+		TEAM.write(engine, self, team)
+	}
+
 	/// The entity's spawn flags (`m_spawnflags`), the `spawnflags` key value,
 	/// whose meaning each class gives.
 	#[doc(alias("GetSpawnFlags", "HasSpawnFlags", "m_spawnflags"))]
