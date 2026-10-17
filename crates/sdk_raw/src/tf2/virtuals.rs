@@ -47,11 +47,18 @@ pub type GiveNamedItemFn = unsafe extern "C" fn(
 #[doc(alias("GetMaxHealth"))]
 pub type MaxHealthFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> c_int;
 
+/// The signature of `CTFPointManager::ShouldCollide`,
+/// `bool (CBaseEntity *entity) const`, at [`POINT_SHOULD_COLLIDE_SLOT`].
+#[doc(alias("ShouldCollide"))]
+pub type PointShouldCollideFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, entity: *mut sys::CBaseEntity) -> bool;
+
 /// The signature of an entity's virtual methods that take nothing and return
 /// a `bool`, `bool ()`: those of [`RELOAD_SLOT`],
 /// [`CALC_IS_ATTACK_CRITICAL_HELPER_SLOT`],
-/// [`CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT`] and
-/// [`CAN_BE_AUTOBALANCED_SLOT`].
+/// [`CALC_IS_ATTACK_CRITICAL_HELPER_NO_CRITS_SLOT`],
+/// [`CAN_BE_AUTOBALANCED_SLOT`], and the `const` ones of
+/// [`IS_COMBAT_ITEM_SLOT`] and [`IS_PROJECTILE_COLLISION_TARGET_SLOT`].
 pub type PredicateFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity) -> bool;
 
 /// The signature of `CBasePlayer::PlayerRunCommand`,
@@ -299,6 +306,37 @@ const _: () = {
 	assert!(SECONDARY_ATTACK_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_SecondaryAttack));
 };
 
+// `game/server/baseentity.h` declares `IsProjectileCollisionTarget` right
+// after `IsCombatItem`, which the generated binding places at 88 on Windows
+// and 89 on Linux. `CTFPointManager` derives from `CBaseEntity` alone, and
+// the generated binding places its `ShouldCollide` at 203 on Windows and 204
+// on Linux, its fifth method of the server's after `CBaseEntity`'s: no
+// SourceMod gamedata lists these. `CTFFlameManager` overrides it there.
+const _: () = {
+	use sys::{
+		CBaseEntity__bindgen_vtable as Entity, CTFFlameManager__bindgen_vtable as Flames,
+		CTFPointManager__bindgen_vtable as Points,
+	};
+
+	assert!(IS_COMBAT_ITEM_SLOT == 87 + CppDestructors::VTABLE_SLOTS);
+	assert!(IS_PROJECTILE_COLLISION_TARGET_SLOT == IS_COMBAT_ITEM_SLOT + 1);
+	assert!(POINT_SHOULD_COLLIDE_SLOT == 202 + CppDestructors::VTABLE_SLOTS);
+	assert!(POINT_SHOULD_COLLIDE_SLOT == vtable_slot!(Flames, CTFFlameManager_ShouldCollide1));
+	assert!(POINT_SHOULD_COLLIDE_SLOT == size_of::<Entity>() / crate::abi::VTABLE_SLOT_SIZE + 4);
+
+	let _: fn(&Entity) -> unsafe extern "C" fn(*const sys::CBaseEntity) -> bool =
+		|vtable| vtable.CBaseEntity_IsCombatItem;
+
+	let _: fn(&Entity) -> unsafe extern "C" fn(*const sys::CBaseEntity) -> bool =
+		|vtable| vtable.CBaseEntity_IsProjectileCollisionTarget;
+
+	let _: fn(
+		&Points,
+	)
+		-> unsafe extern "C" fn(*const sys::CTFPointManager, *mut sys::CBaseEntity) -> bool =
+		|vtable| vtable.CTFPointManager_ShouldCollide1;
+};
+
 // Players, buildings and weapons override these in `CBaseEntity`'s slots.
 const _: () = {
 	use sys::{
@@ -377,6 +415,26 @@ pub const GET_SMACK_TIME_SLOT: usize = vtable_slot!(
 pub const GIVE_NAMED_ITEM_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_GiveNamedItem1);
 
+/// The slot of `CBaseEntity::IsCombatItem` in an entity's primary vtable,
+/// from the generated binding: the method by which TF2 tells a combat item,
+/// such as Mann vs. Machine's shields, which enemies' arrows, rockets and
+/// bullets strike, and allies' pass through. An arrow strikes one as it
+/// strikes a player, at the hitbox it hits, and breaks.
+#[doc(alias("IsCombatItem"))]
+pub const IS_COMBAT_ITEM_SLOT: usize =
+	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_IsCombatItem);
+
+/// The slot of `CBaseEntity::IsProjectileCollisionTarget` in an entity's
+/// primary vtable, from the generated binding: the method by which the
+/// Righteous Bison's, the Pomson's and the Dragon's Fury's projectiles tell
+/// an entity they hit, besides players, buildings, characters and combat
+/// items.
+#[doc(alias("IsProjectileCollisionTarget"))]
+pub const IS_PROJECTILE_COLLISION_TARGET_SLOT: usize = vtable_slot!(
+	sys::CBaseEntity__bindgen_vtable,
+	CBaseEntity_IsProjectileCollisionTarget
+);
+
 /// The slot of `CBaseCombatWeapon::ItemPostFrame` in a weapon's primary
 /// vtable, from the generated binding: the method in which a player's active
 /// weapon runs its attacks and reloads, after the movement of each of the
@@ -404,6 +462,18 @@ pub const PHYSICS_SIMULATE_SLOT: usize = vtable_slot!(
 #[doc(alias("PlayerRunCommand"))]
 pub const PLAYER_RUN_COMMAND_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_PlayerRunCommand);
+
+/// The slot of `CTFPointManager::ShouldCollide` in a TF2 point manager's
+/// primary vtable, from the generated binding: the method that decides
+/// which entities its points touch, as the engine tells it of those it
+/// overlaps. The flame thrower's flames, a `CTFFlameManager`, touch living
+/// players and NPCs, enemy buildings, and a few classes of props: breakables,
+/// pumpkin bombs and the like.
+#[doc(alias("ShouldCollide"))]
+pub const POINT_SHOULD_COLLIDE_SLOT: usize = vtable_slot!(
+	sys::CTFPointManager__bindgen_vtable,
+	CTFPointManager_ShouldCollide1
+);
 
 /// The slot of `CTFPlayer::PostThink` in a TF2 player's primary vtable, from
 /// the generated binding: the method that runs after the movement of each of
