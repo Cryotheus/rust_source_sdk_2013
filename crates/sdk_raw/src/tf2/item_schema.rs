@@ -229,9 +229,7 @@ pub unsafe fn sorted_definitions(
 	// The default definition comes after the map, so finding it there places
 	// the fields before it, the map among them.
 	// SAFETY: As above; the search stays within the schema.
-	if unsafe { default_offset(schema, default) }.is_none() {
-		return None;
-	}
+	unsafe { default_offset(schema, default) }?;
 
 	// The header must be consistent before any node is read.
 	let consistent = !tree.memory.is_null()
