@@ -22,6 +22,7 @@ pub mod give_item;
 pub mod gunfire;
 pub mod input;
 pub mod max_health;
+pub mod medigun;
 pub mod melee;
 pub mod observer;
 pub mod physics_collision;
