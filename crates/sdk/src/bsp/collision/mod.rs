@@ -346,12 +346,22 @@ fn displacements(
 		if record[raw::FACE_SIDE_OFFSET] != 0 {
 			up = -up;
 		}
+		// Every triangle winds as the grid does over the face, as the engine's
+		// do: a triangle that the offsets turn away from the face, as on a
+		// floor raised into a cliff, still faces where its grid does.
+		let flip = (corners[1] - corners[0])
+			.cross(corners[3] - corners[0])
+			.dot(up)
+			< 0.0;
 		let mut triangles = Vec::with_capacity(tri_count);
 		for row in 0..cells {
 			for column in 0..cells {
 				let at = (row * size + column) as u32;
 				let size = size as u32;
-				let pair = if (row * cells + column) % 2 == 1 {
+				// The diagonals alternate by the corner vertex's index, as the
+				// engine's `CCoreDispInfo::CreateTris` does: with an odd number
+				// of vertices a row, a checkerboard.
+				let pair = if at % 2 == 1 {
 					[[at, at + size, at + 1], [at + 1, at + size, at + size + 1]]
 				} else {
 					[[at, at + size, at + size + 1], [at, at + size + 1, at + 1]]
@@ -360,8 +370,7 @@ fn displacements(
 					let tags = tags_at.map_or(0, |first| {
 						unsigned_short(&tris, (first + triangles.len()) * raw::DISP_TRI_BYTES)
 					});
-					let [a, b, c] = indices.map(|vertex| vertices[vertex as usize].as_dvec3());
-					if (b - a).cross(c - a).dot(up) < 0.0 {
+					if flip {
 						indices.swap(1, 2);
 					}
 					triangles.push(DisplacementTriangle { indices, tags });
