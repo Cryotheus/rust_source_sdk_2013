@@ -109,6 +109,9 @@ pub struct Displacement {
 	pub face: u32,
 	/// Serialized contents bits.
 	pub contents: u32,
+	/// Flags such as [`raw::DISP_FLAG_NO_HULL_COLLISION`], or 0 in a map
+	/// compiled before displacements had them.
+	pub flags: u32,
 	/// Rows and columns of vertices are `2^power + 1`.
 	pub power: u32,
 	/// Row-major vertex grid, starting at the corner nearest its start position.
@@ -268,6 +271,12 @@ fn displacements(
 		let first_vert = integer(info, 12);
 		let first_tri = integer(info, 16);
 		let power = integer(info, 20);
+		let min_tess = integer(info, 24) as u32;
+		let flags = if min_tess & raw::DISP_INFO_FLAG_MAGIC != 0 {
+			min_tess & !raw::DISP_INFO_FLAG_MAGIC
+		} else {
+			0
+		};
 		let contents = integer(info, 32) as u32;
 		let face = usize::from(unsigned_short(info, 36));
 		if !(2..=4).contains(&power) {
@@ -380,6 +389,7 @@ fn displacements(
 		Ok(Displacement {
 			face: face as u32,
 			contents,
+			flags,
 			power: power as u32,
 			vertices,
 			triangles,
