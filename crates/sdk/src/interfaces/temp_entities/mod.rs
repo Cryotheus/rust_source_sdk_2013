@@ -2,7 +2,9 @@
 //! once, which no entity on the server keeps, such as particle effects.
 //!
 //! [`TempEntities::dispatch_particle_effect`] plays a particle system on an
-//! entity, as the game's `DispatchParticleEffect` does.
+//! entity, as the game's `DispatchParticleEffect` does, and
+//! [`TempEntities::stop_particle_effects`] stops them, as its
+//! `StopParticleEffects` does.
 
 pub mod sparks;
 
@@ -16,12 +18,12 @@ use crate::user_messages::Recipients;
 
 use sdk_raw::interfaces::temp_entities::{
 	EffectData, MAX_PARTICLE_SYSTEMS, PARTICLE_DISPATCH_FROM_ENTITY,
-	PARTICLE_DISPATCH_RESET_PARTICLES, PARTICLE_EFFECT, PATTACH_ABSORIGIN,
+	PARTICLE_DISPATCH_RESET_PARTICLES, PARTICLE_EFFECT, PARTICLE_EFFECT_STOP, PATTACH_ABSORIGIN,
 	PATTACH_ABSORIGIN_FOLLOW, PATTACH_POINT, PATTACH_POINT_FOLLOW, PATTACH_ROOTBONE_FOLLOW,
 };
 
 use sdk_raw::vcall;
-use std::ffi::c_int;
+use std::ffi::{CStr, c_int};
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 use std::ptr::NonNull;
@@ -156,6 +158,39 @@ impl<'s> TempEntities<'s> {
 		self.raw.as_ptr()
 	}
 
+	/// Dispatches the client effect `name` with `data` to `recipients`, from
+	/// `data`'s origin, with the game's prediction filtering turned off.
+	fn dispatch_effect(self, recipients: &Recipients, name: &CStr, data: &EffectData) {
+		let filter = recipients.filter();
+		let this = self.as_ptr();
+
+		// SAFETY: The temporary entity system is the game's live static, its
+		// primary vtable laid out as the generated one, and its prediction
+		// state is that of its base, `IPredictionSystem`, which only the main
+		// thread touches. Pushing that state makes `SuppressTE` skip its cast
+		// of the filter to the game's `CRecipientFilter`, which the Rust filter
+		// is not, as `CDisablePredictionFiltering` does, and the pop restores
+		// it. `Server::new` binds any code the call reaches, such as other
+		// plugins' temporary entity hooks, to free entities only through
+		// deferred deletion. The game reads the filter, origin, name, and data
+		// during the call, and all of them outlive it.
+		unsafe {
+			let pushed = &raw mut (*this)._base.m_nStatusPushed;
+
+			pushed.write(pushed.read() + 1);
+
+			vcall!(this as sys::ITempEntsSystem__bindgen_vtable => ITempEntsSystem_DispatchEffect(
+				filter.as_raw(),
+				0.0,
+				&raw const data.origin,
+				name.as_ptr(),
+				data.as_raw(),
+			));
+
+			pushed.write(pushed.read() - 1);
+		}
+	}
+
 	/// Plays a particle system on an entity for `recipients`, as the game's
 	/// `DispatchParticleEffect` does, through the `ParticleEffect` effect.
 	///
@@ -227,35 +262,37 @@ impl<'s> TempEntities<'s> {
 			data.flags |= PARTICLE_DISPATCH_RESET_PARTICLES;
 		}
 
-		let filter = recipients.filter();
-		let this = self.as_ptr();
+		self.dispatch_effect(recipients, PARTICLE_EFFECT, &data);
+		Ok(())
+	}
 
-		// SAFETY: The temporary entity system is the game's live static, its
-		// primary vtable laid out as the generated one, and its prediction
-		// state is that of its base, `IPredictionSystem`, which only the main
-		// thread touches. Pushing that state makes `SuppressTE` skip its cast
-		// of the filter to the game's `CRecipientFilter`, which the Rust filter
-		// is not, as `CDisablePredictionFiltering` does, and the pop restores
-		// it. `Server::new` binds any code the call reaches, such as other
-		// plugins' temporary entity hooks, to free entities only through
-		// deferred deletion. The game reads the filter, origin, name, and data
-		// during the call, and all of them outlive it.
-		unsafe {
-			let pushed = &raw mut (*this)._base.m_nStatusPushed;
+	/// Stops every particle effect on an entity for `recipients`, as the
+	/// game's `StopParticleEffects` does, through the `ParticleEffectStop`
+	/// effect: each client stops its copy's effects emitting, and lets the
+	/// particles already out fade.
+	///
+	/// A client stops them even while the entity is dormant for it, such as
+	/// outside its PVS. The game sends it reliably to every client
+	/// (`CReliableBroadcastRecipientFilter`); pass
+	/// [`Recipients::reliable`] recipients for the same. Fails if the entity
+	/// has no edict. An empty `recipients` returns `Ok` without dispatching
+	/// it.
+	#[doc(alias("StopParticleEffects"))]
+	pub fn stop_particle_effects(
+		self,
+		recipients: &Recipients,
+		entity: Entity<'_>,
+	) -> Result<(), ParticleEffectError> {
+		let edict = entity.edict().ok_or(ParticleEffectError::NotNetworked)?;
 
-			pushed.write(pushed.read() + 1);
-
-			vcall!(this as sys::ITempEntsSystem__bindgen_vtable => ITempEntsSystem_DispatchEffect(
-				filter.as_raw(),
-				0.0,
-				&raw const data.origin,
-				PARTICLE_EFFECT.as_ptr(),
-				data.as_raw(),
-			));
-
-			pushed.write(pushed.read() - 1);
+		if recipients.is_empty() {
+			return Ok(());
 		}
 
+		let mut data = EffectData::new();
+
+		data.entity_index = edict.index();
+		self.dispatch_effect(recipients, PARTICLE_EFFECT_STOP, &data);
 		Ok(())
 	}
 }
