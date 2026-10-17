@@ -145,6 +145,39 @@ fn definitions_are_walked_in_order_of_their_index() {
 }
 
 #[test]
+fn the_default_definition_may_sit_anywhere_after_the_map() {
+	let mut schema = Schema::new();
+	let expected = schema.expected();
+	let moved = std::mem::offset_of!(sys::CEconItemSchema, m_pDefaultItemDefinition) + 3 * 8;
+
+	// The field the bindings name holds another pointer, as when the game's
+	// build puts fields between the map and the default.
+	schema.stored_default = schema.definitions[0].as_mut_ptr();
+	schema.store();
+
+	// SAFETY: The slot lies within the allocated schema, past its map.
+	unsafe {
+		schema
+			.schema
+			.as_mut_ptr()
+			.cast::<u8>()
+			.add(moved)
+			.cast::<*mut sys::CEconItemDefinition>()
+			.write(schema.default.as_mut_ptr());
+	}
+
+	// SAFETY: The schema, its nodes and its definitions live in `schema`.
+	let walked = unsafe {
+		sorted_definitions(
+			NonNull::new(schema.schema.as_mut_ptr()).unwrap(),
+			NonNull::new(schema.default.as_mut_ptr()).unwrap(),
+		)
+	};
+
+	assert_eq!(walked, Some(expected));
+}
+
+#[test]
 fn maps_laid_out_otherwise_are_refused() {
 	type Change = fn(&mut Schema);
 
