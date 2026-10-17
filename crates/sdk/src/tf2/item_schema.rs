@@ -906,6 +906,74 @@ impl<'s> ItemSchema<'s> {
 		Ok(Some(true))
 	}
 
+	/// What the layout checks read, as text, for finding out why [`Self::new`]
+	/// fails with [`ItemSchemaError::UnsupportedLayout`]: whether each check
+	/// passed when it ran, the offsets the bindings read at, and for each checked
+	/// definition its index, vision filter and its first 256 bytes as 32-bit
+	/// words. It reads the definitions again, which [`Self::new`] does not, and
+	/// changes nothing.
+	///
+	/// Fails like [`Self::new`] before its checks.
+	pub fn layout_report(server: Server<'s>) -> Result<String, ItemSchemaError> {
+		use std::fmt::Write;
+
+		if server.game() != Game::TeamFortress2 {
+			return Err(ItemSchemaError::NotTf2);
+		}
+
+		// SAFETY: As for `new`.
+		let generation = unsafe { ItemGeneration::cached(server.game_server_factory().as_raw()) }?;
+
+		let schema = Self {
+			generation,
+			_scope: PhantomData,
+			_not_thread_safe: PhantomData,
+		};
+
+		let mut report = String::new();
+
+		let _ = writeln!(
+			report,
+			"remembered: layout {:?}, strings {:?}, details {:?}; read at offsets index {}, vision filter {}",
+			LAYOUT.get(),
+			STRINGS.get(),
+			DETAILS.get(),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_nDefIndex),
+			std::mem::offset_of!(sys::CEconItemDefinition, m_nVisionFilterFlags),
+		);
+
+		for (index, flag) in CHECKED {
+			let Some(definition) = schema.find(index)? else {
+				let _ = writeln!(report, "definition {index}: the schema has none");
+				continue;
+			};
+
+			let _ = write!(
+				report,
+				"definition {index} (wanted {flag:?}): read index {}, vision filter {:#x}; words:",
+				definition.index(),
+				definition.vision_filter().bits(),
+			);
+
+			// SAFETY: A definition is far larger than the 256 bytes read, and the
+			// schema keeps it through the callback.
+			let words: [u32; 64] =
+				unsafe { definition.raw.as_ptr().cast::<[u32; 64]>().read_unaligned() };
+
+			for (at, word) in words.iter().enumerate() {
+				if at % 8 == 0 {
+					let _ = write!(report, "\n  +{:#04x}:", at * 4);
+				}
+
+				let _ = write!(report, " {word:08x}");
+			}
+
+			report.push('\n');
+		}
+
+		Ok(report)
+	}
+
 	/// Whether the [checked definitions](CHECKED) read as the shipped schema
 	/// has them.
 	fn check_layout(self) -> Result<bool, ItemSchemaError> {
