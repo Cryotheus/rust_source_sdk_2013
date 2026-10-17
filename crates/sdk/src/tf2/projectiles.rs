@@ -37,6 +37,10 @@ use std::ffi::{CStr, c_int};
 /// matches.
 const CLASSES: &CStr = c"tf_projectile_*";
 
+/// The class of pipebombs in their datamaps, and in the datamaps of the jars,
+/// balls and spells that derive from them.
+const PIPEBOMB: &CStr = c"CTFGrenadePipebombProjectile";
+
 /// What an arrow is (`m_iProjectileType`), which arrows of the same class
 /// tell apart, as TF2 numbers them (`ProjectileType_t`).
 #[doc(alias("m_iProjectileType", "ProjectileType_t"))]
@@ -253,6 +257,32 @@ impl<'s> Projectile<'s> {
 		Ok(ArrowKind::from_raw(self.get(c"m_iProjectileType")?))
 	}
 
+	/// When a pipebomb was created (`m_flCreationTime`), in server time
+	/// (`gpGlobals->curtime`): TF2 measures from it how long a ball or a
+	/// cleaver flew, and how long a stickybomb has lain. Only pipebombs, and the
+	/// jars, balls and spells that derive from them, have it: fails with
+	/// [`ProjectileError::NotPipebomb`] for the others.
+	#[doc(alias("m_flCreationTime"))]
+	pub fn created_at(self) -> Result<f32, ProjectileError> {
+		if !self.entity.has_data_map_class(PIPEBOMB) {
+			return Err(ProjectileError::NotPipebomb);
+		}
+
+		let kind = self.net_prop(c"m_iType")?;
+		kind.get::<c_int>(self.entity)?;
+
+		// SAFETY: The projectile is a live pipebomb during `'s`, whose class
+		// declares the `float` right after its mode, which it networks.
+		Ok(unsafe {
+			self.entity
+				.as_ptr()
+				.cast::<u8>()
+				.add(kind.offset() + raw::CREATION_TIME_AFTER_TYPE)
+				.cast::<f32>()
+				.read_unaligned()
+		})
+	}
+
 	/// The damage the projectile does where it hits (`GetDamage`), before
 	/// falloff, critical hits and the target's resistances.
 	///
@@ -415,6 +445,19 @@ impl<'s> Projectile<'s> {
 		Ok(())
 	}
 
+	/// Marks a pipebomb as having touched the world, or not (`m_bTouched`), as
+	/// the game marks a grenade that bounced, or a ball that hit a player.
+	/// Fails as [`Self::has_touched`] does.
+	#[doc(alias("m_bTouched"))]
+	pub fn set_touched(self, touched: bool) -> Result<(), ProjectileError> {
+		let prop = self.net_prop(c"m_bTouched")?;
+		let engine = self.server.valve_engine()?;
+
+		// SAFETY: The game sets the variable to either value itself.
+		unsafe { prop.set(engine, self.entity, touched) }?;
+		Ok(())
+	}
+
 	/// The player who threw a grenade (`m_hThrower`), or who last deflected
 	/// it, or `None` if they no longer exist. Only grenades network it: fails
 	/// with [`ProjectileError::NetProp`] for the others, whose
@@ -444,6 +487,10 @@ pub enum ProjectileError {
 	/// The entity is not a TF2 flame manager.
 	#[error("the entity is not a TF2 flame manager")]
 	NotFlameManager,
+
+	/// The projectile is not a pipebomb, nor derives from one.
+	#[error("the projectile is not a pipebomb")]
+	NotPipebomb,
 
 	/// The entity is not a TF2 projectile.
 	#[error("the entity is not a TF2 projectile")]
