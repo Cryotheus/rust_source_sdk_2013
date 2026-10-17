@@ -20,6 +20,34 @@ use crate::entities::health::TF2_GET_MAX_HEALTH_SLOT;
 use crate::vtable_slot;
 use std::ffi::{c_char, c_int};
 
+/// The signature of `CBaseEntity::BodyTarget`,
+/// `Vector (const Vector &posSrc, bool bNoisy)`, at [`BODY_TARGET_SLOT`].
+///
+/// Under the Itanium ABI, the method returns the trivially copyable `Vector`
+/// in registers, as C returns the struct.
+#[cfg(not(target_os = "windows"))]
+#[doc(alias("BodyTarget"))]
+pub type BodyTargetFn = unsafe extern "C" fn(
+	this: *mut sys::CBaseEntity,
+	from: *const sys::Vector,
+	noisy: bool,
+) -> sys::Vector;
+
+/// The signature of `CBaseEntity::BodyTarget`,
+/// `Vector (const Vector &posSrc, bool bNoisy)`, at [`BODY_TARGET_SLOT`].
+///
+/// Under the MSVC ABI, the method takes a hidden pointer after `this`, to the
+/// uninitialized storage it constructs the `Vector` it returns in, and returns
+/// that pointer.
+#[cfg(target_os = "windows")]
+#[doc(alias("BodyTarget"))]
+pub type BodyTargetFn = unsafe extern "C" fn(
+	this: *mut sys::CBaseEntity,
+	result: *mut sys::Vector,
+	from: *const sys::Vector,
+	noisy: bool,
+) -> *mut sys::Vector;
+
 /// The signature of an entity's virtual methods that take and return nothing,
 /// `void ()`: those of [`PRE_THINK_SLOT`], [`POST_THINK_SLOT`],
 /// [`PHYSICS_SIMULATE_SLOT`] and [`UPDATE_ON_REMOVE_SLOT`].
@@ -306,6 +334,24 @@ const _: () = {
 	assert!(SECONDARY_ATTACK_SLOT == vtable_slot!(Melee, CTFWeaponBaseMelee_SecondaryAttack));
 };
 
+// The generated binding places `BodyTarget` at 141 on Windows and 142 on
+// Linux, with the signature of `BodyTargetFn` on each: no SourceMod gamedata
+// lists it. Players, buildings and dynamic props keep it in `CBaseEntity`'s
+// slot.
+const _: () = {
+	use sys::{
+		CBaseEntity__bindgen_vtable as Entity, CBaseObject__bindgen_vtable as Object,
+		CDynamicProp__bindgen_vtable as Prop, CTFPlayer__bindgen_vtable as Player,
+	};
+
+	assert!(BODY_TARGET_SLOT == 140 + CppDestructors::VTABLE_SLOTS);
+	assert!(BODY_TARGET_SLOT == vtable_slot!(Player, CTFPlayer_BodyTarget));
+	assert!(BODY_TARGET_SLOT == vtable_slot!(Object, CBaseObject_BodyTarget));
+	assert!(BODY_TARGET_SLOT == vtable_slot!(Prop, CDynamicProp_BodyTarget));
+
+	let _: fn(&Entity) -> BodyTargetFn = |vtable| vtable.CBaseEntity_BodyTarget;
+};
+
 // `game/server/baseentity.h` declares `IsProjectileCollisionTarget` right
 // after `IsCombatItem`, which the generated binding places at 88 on Windows
 // and 89 on Linux. `CTFPointManager` derives from `CBaseEntity` alone, and
@@ -357,6 +403,16 @@ const _: () = {
 // `game/server/baseentity.h` declares no virtual method between
 // `PhysicsSimulate` and `UpdateOnRemove`.
 const _: () = assert!(UPDATE_ON_REMOVE_SLOT == PHYSICS_SIMULATE_SLOT + 1);
+
+/// The slot of `CBaseEntity::BodyTarget` in an entity's primary vtable, from
+/// the generated binding: the method that tells where to aim at the entity
+/// from a point. TF2's explosions trace from where they burst to the point it
+/// returns, and hurt the entity unless something else stops the trace. A
+/// player's is their eyes, when not noisy, and most other entities' their
+/// centre.
+#[doc(alias("BodyTarget"))]
+pub const BODY_TARGET_SLOT: usize =
+	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_BodyTarget);
 
 /// The slot of `CTFWeaponBase::CalcIsAttackCriticalHelperNoCrits` in a TF2
 /// weapon's primary vtable, from the generated binding: the method that
