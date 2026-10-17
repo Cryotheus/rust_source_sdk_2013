@@ -11,6 +11,7 @@
 
 pub mod airblast;
 pub mod ammo;
+pub mod animation_layers;
 pub mod attributes;
 pub mod blocked;
 pub mod bosses;
