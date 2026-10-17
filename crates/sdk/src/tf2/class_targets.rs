@@ -99,6 +99,12 @@ pub enum TfMeleeWeapon {}
 #[derive(Debug)]
 pub enum TfPlayer {}
 
+/// `CTFPointManager`: TF2's managers of the points that fly from a weapon and
+/// touch what they meet, such as a flame thrower's flames, `CTFFlameManager`.
+#[doc(alias("CTFPointManager", "CTFFlameManager"))]
+#[derive(Debug)]
+pub enum TfPointManager {}
+
 /// `CTFWeaponBase`: TF2's weapons, from the Scattergun to the Engineer's
 /// toolbox and the Spy's sapper.
 #[doc(alias("CTFWeaponBase"))]
@@ -125,6 +131,7 @@ kinds! {
 	CombatWeapon: c"CBaseCombatWeapon", sys::CBaseCombatWeapon__bindgen_vtable, [BaseEntity];
 	TfMeleeWeapon: c"CTFWeaponBaseMelee", sys::CTFWeaponBaseMelee__bindgen_vtable, [BaseEntity, CombatWeapon, TfWeapon];
 	TfPlayer: c"CTFPlayer", sys::CTFPlayer__bindgen_vtable, [BaseEntity, CombatCharacter];
+	TfPointManager: c"CTFPointManager", sys::CTFPointManager__bindgen_vtable, [BaseEntity];
 	TfWeapon: c"CTFWeaponBase", sys::CTFWeaponBase__bindgen_vtable, [BaseEntity, CombatWeapon];
 }
 
