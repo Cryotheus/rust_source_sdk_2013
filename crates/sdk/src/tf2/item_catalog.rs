@@ -265,8 +265,10 @@ impl<'s> ItemDefinition<'s> {
 		Ok(self.catalog_entry()?.flag(Flags::BaseItem))
 	}
 
-	/// Whether the schema enables the definition (`m_bEnabled`). The game gives
-	/// out only enabled definitions' items.
+	/// Whether the definition's `enabled` key is set (`m_bEnabled`). It does not
+	/// say whether the game gives the definition's items out or lets players
+	/// equip them: in the current schema most cosmetics, and some stock items such
+	/// as the Engineer's build PDA, read false.
 	///
 	/// Fails as [`Self::static_attributes`] does.
 	#[doc(alias("m_bEnabled", "IsEnabled"))]
@@ -541,7 +543,7 @@ impl<'s> ItemSchema<'s> {
 		))
 	}
 
-	/// The stock items `class` starts with: its enabled base items, with their
+	/// The stock items `class` starts with: its base items, with their
 	/// positions, ordered as [`Self::class_loadout`] does.
 	///
 	/// Fails like [`Self::class_loadout`], and as [`ItemDefinition::is_base_item`]
@@ -556,7 +558,7 @@ impl<'s> ItemSchema<'s> {
 		let mut stock = Vec::new();
 
 		for (position, definition) in self.class_loadout(class)? {
-			if definition.is_base_item()? && definition.is_enabled()? {
+			if definition.is_base_item()? {
 				stock.push((position, definition));
 			}
 		}
