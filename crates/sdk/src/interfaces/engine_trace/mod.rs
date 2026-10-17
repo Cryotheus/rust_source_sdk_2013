@@ -304,6 +304,11 @@ pub enum TraceFilter<'a, 'e> {
 	/// The world, static props and these entities alone.
 	Only(&'a [Entity<'e>]),
 
+	/// These entities alone, passing through the world and static props, for
+	/// when the world is traced apart.
+	#[doc(alias("TRACE_ENTITIES_ONLY"))]
+	OnlyEntities(&'a [Entity<'e>]),
+
 	/// The world, static props and every entity but those on this team, by
 	/// their `m_iTeamNum`, such as TF2's `TF_TEAM_RED`. Unlike TF2's own
 	/// `CTraceFilterIgnoreTeammates`, which passes through the team's players
@@ -326,7 +331,7 @@ impl TraceFilter<'_, '_> {
 			Self::Everything | Self::EntitiesOnly => true,
 			Self::WorldOnly | Self::WorldAndProps => false,
 			Self::Skip(entities) => !listed(entities),
-			Self::Only(entities) => listed(entities),
+			Self::Only(entities) | Self::OnlyEntities(entities) => listed(entities),
 			Self::SkipTeam(team) => entity.team().ok() != Some(team),
 		}
 	}
@@ -335,7 +340,7 @@ impl TraceFilter<'_, '_> {
 	fn trace_type(&self) -> sys::TraceType_t {
 		match self {
 			Self::WorldOnly => sys::TraceType_t_TRACE_WORLD_ONLY,
-			Self::EntitiesOnly => sys::TraceType_t_TRACE_ENTITIES_ONLY,
+			Self::EntitiesOnly | Self::OnlyEntities(_) => sys::TraceType_t_TRACE_ENTITIES_ONLY,
 			_ => sys::TraceType_t_TRACE_EVERYTHING,
 		}
 	}

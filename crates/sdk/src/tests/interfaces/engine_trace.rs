@@ -196,6 +196,10 @@ fn filters_choose_the_entities_a_ray_stops_at() {
 		(None, everything)
 	);
 	assert_eq!(
+		stopped_at(engine, TraceFilter::OnlyEntities(&[third])),
+		(Some(third.as_ptr()), sys::TraceType_t_TRACE_ENTITIES_ONLY)
+	);
+	assert_eq!(
 		stopped_at(engine, TraceFilter::WorldAndProps),
 		(None, everything)
 	);
