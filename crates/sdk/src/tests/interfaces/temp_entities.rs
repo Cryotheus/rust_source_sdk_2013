@@ -298,3 +298,46 @@ fn particle_effects_reach_the_game_as_dispatch_particle_effect_sends_them() {
 		"the prediction filtering is restored"
 	);
 }
+
+#[test]
+fn stopping_reaches_the_game_as_stop_particle_effects_sends_it() {
+	let mut mock = MockTempEntities::new();
+	let temp_entities = mock.temp_entities();
+	let mut body = MockEntity::new(7);
+
+	set_networking(null_mut(), null_mut());
+
+	assert_eq!(
+		temp_entities.stop_particle_effects(&recipients(&[2], true), body.entity()),
+		Err(ParticleEffectError::NotNetworked)
+	);
+
+	set_networking(null_mut(), edict(7));
+
+	temp_entities
+		.stop_particle_effects(&recipients(&[2, 4], true), body.entity())
+		.unwrap();
+
+	DISPATCHED.with_borrow(|dispatched| {
+		assert_eq!(
+			*dispatched,
+			[Dispatched {
+				recipients: vec![2, 4],
+				reliable: true,
+				delay: 0.0,
+				position: Vector::new(0.0, 0.0, 0.0),
+				name: c"ParticleEffectStop".to_owned(),
+				origin: Vector::new(0.0, 0.0, 0.0),
+				start: Vector::new(0.0, 0.0, 0.0),
+				flags: 0,
+				entity_index: 7,
+				scale: 1.0,
+				attachment_index: 0,
+				damage_type: 0,
+				hit_box: 0,
+				control_point_1_attachment: 0,
+				unfiltered: true,
+			}]
+		);
+	});
+}
