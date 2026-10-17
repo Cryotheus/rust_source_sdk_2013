@@ -10,6 +10,7 @@ pub mod engine_trace;
 pub mod game_event;
 pub mod model_info;
 pub mod network_string_tables;
+pub mod physics_surface_props;
 pub mod player_info_manager;
 pub mod plugin_helpers;
 pub mod server_game_clients;
