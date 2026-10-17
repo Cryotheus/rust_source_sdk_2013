@@ -109,6 +109,9 @@ pub struct Displacement {
 	pub face: u32,
 	/// Serialized contents bits.
 	pub contents: u32,
+	/// Flags such as [`raw::DISP_FLAG_NO_HULL_COLLISION`], or 0 in a map
+	/// compiled before displacements had them.
+	pub flags: u32,
 	/// Rows and columns of vertices are `2^power + 1`.
 	pub power: u32,
 	/// Row-major vertex grid, starting at the corner nearest its start position.
@@ -268,6 +271,12 @@ fn displacements(
 		let first_vert = integer(info, 12);
 		let first_tri = integer(info, 16);
 		let power = integer(info, 20);
+		let min_tess = integer(info, 24) as u32;
+		let flags = if min_tess & raw::DISP_INFO_FLAG_MAGIC != 0 {
+			min_tess & !raw::DISP_INFO_FLAG_MAGIC
+		} else {
+			0
+		};
 		let contents = integer(info, 32) as u32;
 		let face = usize::from(unsigned_short(info, 36));
 		if !(2..=4).contains(&power) {
@@ -342,16 +351,25 @@ fn displacements(
 		let plane = planes
 			.get(usize::from(unsigned_short(record, raw::FACE_PLANE_OFFSET)))
 			.ok_or_else(|| reference(raw::LUMP_FACES, face))?;
-		let mut up = DVec3::from_array(plane.normal.map(f64::from));
-		if record[raw::FACE_SIDE_OFFSET] != 0 {
-			up = -up;
-		}
+		// A displacement faces along its face's plane whatever side the face
+		// is on: a ceiling's face can have side 1 and a plane facing down.
+		let up = DVec3::from_array(plane.normal.map(f64::from));
+		// Every triangle winds as the grid does over the face, as the engine's
+		// do: a triangle that the offsets turn away from the face, as on a
+		// floor raised into a cliff, still faces where its grid does.
+		let flip = (corners[1] - corners[0])
+			.cross(corners[3] - corners[0])
+			.dot(up)
+			< 0.0;
 		let mut triangles = Vec::with_capacity(tri_count);
 		for row in 0..cells {
 			for column in 0..cells {
 				let at = (row * size + column) as u32;
 				let size = size as u32;
-				let pair = if (row * cells + column) % 2 == 1 {
+				// The diagonals alternate by the corner vertex's index, as the
+				// engine's `CCoreDispInfo::CreateTris` does: with an odd number
+				// of vertices a row, a checkerboard.
+				let pair = if at % 2 == 1 {
 					[[at, at + size, at + 1], [at + 1, at + size, at + size + 1]]
 				} else {
 					[[at, at + size, at + size + 1], [at, at + size + 1, at + 1]]
@@ -360,8 +378,7 @@ fn displacements(
 					let tags = tags_at.map_or(0, |first| {
 						unsigned_short(&tris, (first + triangles.len()) * raw::DISP_TRI_BYTES)
 					});
-					let [a, b, c] = indices.map(|vertex| vertices[vertex as usize].as_dvec3());
-					if (b - a).cross(c - a).dot(up) < 0.0 {
+					if flip {
 						indices.swap(1, 2);
 					}
 					triangles.push(DisplacementTriangle { indices, tags });
@@ -371,6 +388,7 @@ fn displacements(
 		Ok(Displacement {
 			face: face as u32,
 			contents,
+			flags,
 			power: power as u32,
 			vertices,
 			triangles,
