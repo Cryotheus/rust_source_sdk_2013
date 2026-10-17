@@ -10,8 +10,21 @@ pub const BRUSH_BYTES: usize = 12;
 /// Bytes in a side's plane, texture, displacement and bevel fields.
 pub const BRUSH_SIDE_BYTES: usize = 8;
 
+/// Displacement flag: box traces, and so players, pass through it.
+pub const DISP_FLAG_NO_HULL_COLLISION: u32 = 1 << 2;
+
+/// Displacement flag: physics objects pass through it.
+pub const DISP_FLAG_NO_PHYSICS_COLLISION: u32 = 1 << 1;
+
+/// Displacement flag: line traces pass through it.
+pub const DISP_FLAG_NO_RAY_COLLISION: u32 = 1 << 3;
+
 /// `ddispinfo_t`: start position, vertex and triangle starts, power, contents, face.
 pub const DISP_INFO_BYTES: usize = 176;
+
+/// Set in a `ddispinfo_t`'s `minTess` when its other bits are the
+/// displacement's flags, such as [`DISP_FLAG_NO_HULL_COLLISION`].
+pub const DISP_INFO_FLAG_MAGIC: u32 = 0x8000_0000;
 
 /// `CDispTri`: one u16 tag set per displacement triangle.
 pub const DISP_TRI_BYTES: usize = 2;
