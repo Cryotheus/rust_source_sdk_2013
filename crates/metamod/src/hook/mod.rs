@@ -42,7 +42,7 @@
 //!   library's hook functions, and enter the loop as they always do when it
 //!   patched it with theirs.
 
-/// An array of `function::<0>` up to `function::<63>`, one per SourceHook hook
+/// An array of `function::<0>` up to `function::<127>`, one per SourceHook hook
 /// manager.
 macro_rules! hook_managers {
 	($($function:tt)*) => {
@@ -63,6 +63,22 @@ macro_rules! hook_managers {
 			$($function)*::<52>, $($function)*::<53>, $($function)*::<54>, $($function)*::<55>,
 			$($function)*::<56>, $($function)*::<57>, $($function)*::<58>, $($function)*::<59>,
 			$($function)*::<60>, $($function)*::<61>, $($function)*::<62>, $($function)*::<63>,
+			$($function)*::<64>, $($function)*::<65>, $($function)*::<66>, $($function)*::<67>,
+			$($function)*::<68>, $($function)*::<69>, $($function)*::<70>, $($function)*::<71>,
+			$($function)*::<72>, $($function)*::<73>, $($function)*::<74>, $($function)*::<75>,
+			$($function)*::<76>, $($function)*::<77>, $($function)*::<78>, $($function)*::<79>,
+			$($function)*::<80>, $($function)*::<81>, $($function)*::<82>, $($function)*::<83>,
+			$($function)*::<84>, $($function)*::<85>, $($function)*::<86>, $($function)*::<87>,
+			$($function)*::<88>, $($function)*::<89>, $($function)*::<90>, $($function)*::<91>,
+			$($function)*::<92>, $($function)*::<93>, $($function)*::<94>, $($function)*::<95>,
+			$($function)*::<96>, $($function)*::<97>, $($function)*::<98>, $($function)*::<99>,
+			$($function)*::<100>, $($function)*::<101>, $($function)*::<102>, $($function)*::<103>,
+			$($function)*::<104>, $($function)*::<105>, $($function)*::<106>, $($function)*::<107>,
+			$($function)*::<108>, $($function)*::<109>, $($function)*::<110>, $($function)*::<111>,
+			$($function)*::<112>, $($function)*::<113>, $($function)*::<114>, $($function)*::<115>,
+			$($function)*::<116>, $($function)*::<117>, $($function)*::<118>, $($function)*::<119>,
+			$($function)*::<120>, $($function)*::<121>, $($function)*::<122>, $($function)*::<123>,
+			$($function)*::<124>, $($function)*::<125>, $($function)*::<126>, $($function)*::<127>,
 		]
 	};
 }

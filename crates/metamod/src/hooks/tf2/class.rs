@@ -18,7 +18,7 @@
 //!
 //! # Costs
 //!
-//! Under SourceHook, a plugin has [64 hook managers](crate::hook), one for each
+//! Under SourceHook, a plugin has [128 hook managers](crate::hook), one for each
 //! method it hooks by signature and slot, which all the classes it covers
 //! share: each module documents how many of them its hooks take. Each handle
 //! leaks a small allocation, its hooks' handler, which Metamod keeps until it
