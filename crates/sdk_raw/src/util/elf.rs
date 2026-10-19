@@ -114,6 +114,35 @@ impl<'a> Elf<'a> {
 		Some(named)
 	}
 
+	/// The image-relative target of one `R_X86_64_RELATIVE` relocation at
+	/// `address`. Other relocation kinds, duplicates and malformed tables are
+	/// refused.
+	#[cfg(target_os = "linux")]
+	fn relative_relocation(&self, address: usize) -> Option<usize> {
+		let mut found = None;
+		for header in &self.headers {
+			if u32_at(header, 4)? != 4 {
+				continue;
+			}
+			if word_at(header, 56)? != 24 {
+				return None;
+			}
+			let relocations = self.section(header)?;
+			if relocations.len() % 24 != 0 {
+				return None;
+			}
+			for relocation in relocations.as_chunks::<24>().0 {
+				if word_at(relocation, 0)? == address {
+					if word_at(relocation, 8)? != 8 || found.is_some() {
+						return None;
+					}
+					found = Some(word_at(relocation, 16)?);
+				}
+			}
+		}
+		found
+	}
+
 	fn section(&self, header: &[u8]) -> Option<&'a [u8]> {
 		let offset = word_at(header, 24)?;
 		let len = word_at(header, 32)?;
@@ -235,6 +264,19 @@ impl LoadedElf {
 	/// The loaded module this file was checked against.
 	pub fn module(&self) -> &Module {
 		&self.module
+	}
+
+	/// Resolves a function pointer's original `R_X86_64_RELATIVE` relocation
+	/// from the file, even when a hook replaced the live pointer. Both the
+	/// pointer's storage and the executable target must lie in this image.
+	/// Returns an address for identification, not for calling or reading.
+	pub fn original_function(&self, address: usize) -> Option<usize> {
+		self.contains(address, size_of::<usize>(), false, false)
+			.then_some(())?;
+		let offset = address.checked_sub(self.module.base())?;
+		let target = Elf::new(&self.bytes)?.relative_relocation(offset)?;
+		let target = self.module.base().checked_add(target)?;
+		self.contains(target, 1, true, false).then_some(target)
 	}
 
 	/// Copies current memory only inside this image's readable load ranges.

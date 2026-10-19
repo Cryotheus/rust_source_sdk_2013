@@ -3,6 +3,11 @@
 
 use super::*;
 
+/// A live vtable slot that a hook may replace.
+#[unsafe(no_mangle)]
+static mut SOURCE_SDK_RAW_ELF_TEST_SLOT: extern "C" fn(u64) -> u64 =
+	source_sdk_raw_loaded_elf_test_anchor;
+
 /// A variable of the test executable, in `.bss`, which the test finds by its
 /// symbol.
 #[unsafe(no_mangle)]
@@ -86,6 +91,34 @@ fn loaded_variables_require_a_writable_load_range() {
 			.resolve_data(b"source_sdk_raw_loaded_elf_test_anchor")
 			.is_none()
 	);
+}
+
+#[test]
+fn original_function_survives_a_replaced_vtable_slot() {
+	let anchor = source_sdk_raw_loaded_elf_test_anchor as *const () as usize;
+	// SAFETY: The test executable remains loaded throughout this test.
+	let loaded = unsafe { LoadedElf::at(anchor) }.expect("the test executable has no ELF image");
+	let slot = &raw mut SOURCE_SDK_RAW_ELF_TEST_SLOT;
+	assert_eq!(loaded.original_function(slot.addr()), Some(anchor));
+	// SAFETY: Only this test reads or changes this dedicated slot. Replacing
+	// it models a hook without writing the executable's read-only vtables.
+	unsafe {
+		slot.write(replacement);
+	}
+	assert_ne!(
+		loaded.read(slot.addr(), size_of::<usize>()).as_deref(),
+		Some(anchor.to_ne_bytes().as_slice())
+	);
+	assert_eq!(loaded.original_function(slot.addr()), Some(anchor));
+	assert!(loaded.original_function(usize::MAX).is_none());
+	// SAFETY: As for the replacement above.
+	unsafe {
+		slot.write(source_sdk_raw_loaded_elf_test_anchor);
+	}
+
+	extern "C" fn replacement(value: u64) -> u64 {
+		value.wrapping_add(9)
+	}
 }
 
 /// A function of the test executable, which the test finds by its symbol.

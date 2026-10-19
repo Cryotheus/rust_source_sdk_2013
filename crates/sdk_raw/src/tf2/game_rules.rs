@@ -560,7 +560,8 @@ pub unsafe fn can_have_ammo(
 /// [`CLEAN_UP_MAP_SLOT`] entry is executable, from the run-time type
 /// information of the module whose `CreateInterface` export is `factory`,
 /// such as the game server module. On Linux, the entry must also be the
-/// function the module's symbols name `CTFGameRules::CleanUpMap`. Returns
+/// function the module's symbols name `CTFGameRules::CleanUpMap`, according
+/// to the file's relocation before any hook replaced the live slot. Returns
 /// `Ok(None)` if there is no such table, or more than one.
 ///
 /// The address is metadata from a snapshot of the module: it does not keep
@@ -586,14 +587,14 @@ pub unsafe fn find_game_rules_vtable(
 	{
 		let entry = CLEAN_UP_MAP_SLOT
 			.checked_mul(size_of::<usize>())
-			.and_then(|offset| vtable.checked_add(offset))
-			.and_then(|address| image.read(address, size_of::<usize>()))
-			.and_then(|bytes| util::word_at(bytes, 0));
+			.and_then(|offset| vtable.checked_add(offset));
 
 		// SAFETY: As for the image above.
 		let elf = unsafe { LoadedElf::at(factory as usize) }?;
 
-		if entry.is_none() || entry != elf.function_address(CLEAN_UP_MAP_SYMBOL) {
+		let original = entry.and_then(|address| elf.original_function(address));
+
+		if original.is_none() || original != elf.function_address(CLEAN_UP_MAP_SYMBOL) {
 			return Ok(None);
 		}
 	}
