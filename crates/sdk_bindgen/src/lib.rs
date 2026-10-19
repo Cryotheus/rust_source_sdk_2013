@@ -1002,8 +1002,8 @@ fn binding_builder(
 		.parse_callbacks(Box::new(provenance))
 		.opaque_type("std::.*")
 		.opaque_type("KeyValues")
-		// These bridge declarations stand in for troublesome SDK definitions and
-		// intentionally expose identity only, never a fabricated object layout.
+		// Parse the real declarations so surrounding by-value layouts stay true;
+		// bit-buffer storage and operations belong to the handwritten Rust ABI.
 		.opaque_type("^bf_(read|write)$")
 		// Interfaces are invoked through vtables. Free SDK symbols would require
 		// import/static libraries that plugins do not link.
