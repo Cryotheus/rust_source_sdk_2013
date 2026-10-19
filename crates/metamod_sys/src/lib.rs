@@ -16,4 +16,5 @@ pub mod api;
 pub mod khook;
 pub mod plugin;
 pub mod plugin_manager;
+mod shell;
 pub mod sourcehook;
