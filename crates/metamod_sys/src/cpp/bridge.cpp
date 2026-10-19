@@ -15,12 +15,8 @@
 	static_assert(offsetof(MetamodVersionInfo, pl_min) == 16);
 	static_assert(offsetof(MetamodVersionInfo, source_engine) == 24);
 
-	#define RUST_SHELL_CREATE cpp_metamod_plugin_stable
 	#define RUST_SHELL_INSTANCE cpp_metamod_plugin_stable_instance
-	#define RUST_SHELL_IS_LOADED cpp_metamod_plugin_stable_is_loaded
-	#define RUST_SHELL_STATUS cpp_metamod_plugin_stable_status
 	#define RUST_SHELL_LISTEN_LEVELS cpp_metamod_listen_levels_stable
-	#define RUST_SHELL_LEVEL_GENERATION cpp_metamod_level_generation_stable
 #else
 	#if METAMOD_PLAPI_VERSION != 18
 		#error "The dev Metamod shell requires the plugin API 18 headers of 2.0, as in builds 1469 through 1472"
@@ -29,12 +25,8 @@
 	static_assert(offsetof(MetamodVersionInfo, pl_min) == 8);
 	static_assert(offsetof(MetamodVersionInfo, source_engine) == 16);
 
-	#define RUST_SHELL_CREATE cpp_metamod_plugin_dev
 	#define RUST_SHELL_INSTANCE cpp_metamod_plugin_dev_instance
-	#define RUST_SHELL_IS_LOADED cpp_metamod_plugin_dev_is_loaded
-	#define RUST_SHELL_STATUS cpp_metamod_plugin_dev_status
 	#define RUST_SHELL_LISTEN_LEVELS cpp_metamod_listen_levels_dev
-	#define RUST_SHELL_LEVEL_GENERATION cpp_metamod_level_generation_dev
 #endif
 
 // Just for now.
@@ -212,261 +204,65 @@ ASSERT_SMM_METHOD(FormatArgs, std::size_t, char *, std::size_t, const char *, va
 
 #undef ASSERT_METHOD
 
-extern "C" {
-	struct RustPluginCallbacks {
-		bool (*load)(void *, void *, char *, std::size_t, bool);
-		void (*all_plugins_loaded)(void *);
-		bool (*query_running)(void *, char *, std::size_t);
-		bool (*unload)(void *, char *, std::size_t);
-		bool (*pause)(void *, char *, std::size_t);
-		bool (*unpause)(void *, char *, std::size_t);
-	};
-
-	struct RustPluginMetadata {
-		const char *author;
-		const char *name;
-		const char *description;
-		const char *url;
-		const char *license;
-		const char *version;
-		const char *date;
-		const char *log_tag;
-	};
-
-	// What Rust's hooks check before calling back: Metamod 2.0 neither pauses
-	// a plugin's hooks nor removes them before they can run after `Unload`.
-	struct RustPluginStatus {
-		// Counts `Load` calls, telling apart what an earlier load of a library
-		// that stayed mapped left behind.
-		std::uint64_t generation;
-		SourceMM::PluginId id;
-		bool loaded;
-		bool paused;
-	};
-}
-
-static_assert(sizeof(RustPluginCallbacks) == 6 * sizeof(void *));
-static_assert(sizeof(RustPluginMetadata) == 8 * sizeof(void *));
-static_assert(sizeof(RustPluginStatus) == 16);
-static_assert(offsetof(RustPluginStatus, id) == 8);
-static_assert(offsetof(RustPluginStatus, loaded) == 12);
-static_assert(offsetof(RustPluginStatus, paused) == 13);
-
-extern "C" {
-	// Metamod's level notifications. `map` is the name of the level loading.
-	typedef void (*RustLevelInitFn)(void *context, const char *map);
-	typedef void (*RustLevelShutdownFn)(void *context);
-
-	enum RustHookStatus : int {
-		RUST_HOOK_INSTALLED = 0,
-		RUST_HOOK_NOT_BOUND = 1,
-		RUST_HOOK_ALREADY_INSTALLED = 2,
-		RUST_HOOK_INVALID_ARGUMENT = 3,
-	};
-}
+// Private dispatch addresses bind state to this shared library without ELF
+// symbol interposition; C++ retains compiler-defined virtual objects only.
+struct RustShellDispatch {
+ bool (*load)(int, void *, int, void *, char *, std::size_t, bool);
+ void (*all_loaded)(int, void *);
+ bool (*query)(int, void *, char *, std::size_t);
+ bool (*unload)(int, void *, char *, std::size_t);
+ bool (*pause)(int, void *, char *, std::size_t, bool);
+ const char *(*metadata)(int, int);
+ void (*level)(int, const char *, bool);
+};
+static_assert(sizeof(RustShellDispatch) == 7 * sizeof(void *));
+static_assert(offsetof(RustShellDispatch, level) == 6 * sizeof(void *));
 
 namespace {
-	struct LevelRoute {
-		RustLevelInitFn init = nullptr;
-		RustLevelShutdownFn shutdown = nullptr;
-		void *context = nullptr;
-		bool paused = false;
-		std::uint64_t generation = 0;
-		bool exhausted = false;
-
-		void advance() noexcept {
-			if (generation == UINT64_MAX)
-				exhausted = true;
-			else
-				++generation;
-		}
-	};
-
-	LevelRoute level_route;
-
-	// Registered once per load, and removed by Metamod when it unloads the
-	// plugin. It outlives every load, as a static of the library.
+	const RustShellDispatch *dispatch;
+	// Compiler-owned vtables/destructors preserve both Itanium and MSVC ABI.
 	class RustLevelListener final : public SourceMM::IMetamodListener {
 	public:
 		void OnLevelInit(char const *map, char const *, char const *, char const *, bool, bool) override {
-			level_route.advance();
-			const LevelRoute &route = level_route;
-
-			if (route.init != nullptr && !route.paused)
-				route.init(route.context, map);
+			dispatch->level(METAMOD_PLAPI_VERSION, map, true);
 		}
-
 		void OnLevelShutdown() override {
-			level_route.advance();
-			const LevelRoute &route = level_route;
-
-			if (route.shutdown != nullptr && !route.paused)
-				route.shutdown(route.context);
+			dispatch->level(METAMOD_PLAPI_VERSION, nullptr, false);
 		}
 	};
-
-	RustLevelListener level_listener;
-	bool level_listener_added = false;
 
 	class RustMetamodPlugin final : public SourceMM::ISmmPlugin {
 	public:
-		void configure(const RustPluginCallbacks *callbacks, RustPluginMetadata metadata) {
-			callbacks_ = callbacks;
-			metadata_ = metadata;
-		}
-
-		// Whether Metamod has loaded this plugin object and not yet unloaded it.
-		// Metamod tracks what a plugin registers by the object it loaded, from
-		// before `Load` until after `Unload` or a refused `Load`.
-		bool loaded() const { return loaded_; }
-
-		// Metamod's API for this load, while loaded.
-		SourceMM::ISmmAPI *api() const { return api_; }
-
-		RustPluginStatus status() const { return {generation_, id_, loaded_, paused_}; }
-
 		int GetApiVersion() override { return METAMOD_PLAPI_VERSION; }
-
-		bool Load(SourceMM::PluginId id, SourceMM::ISmmAPI *api, char *error, std::size_t max_length, bool late) override {
-			// Drop what an earlier load of a library that stayed mapped left, such
-			// as after a forced unload that followed a refused one.
-			unload();
-			++generation_;
-			loaded_ = true;
-			id_ = id;
-			api_ = api;
-
-			bool loaded = callbacks_->load(this, api, error, max_length, late);
-
-			// Metamod calls no `Unload` after a refused `Load`.
-			if (!loaded)
-				unload();
-
-			return loaded;
+		bool Load(SourceMM::PluginId id, SourceMM::ISmmAPI *api, char *error, std::size_t length, bool late) override {
+			return dispatch->load(METAMOD_PLAPI_VERSION, this, id, api, error, length, late);
 		}
-
-		void AllPluginsLoaded() override { callbacks_->all_plugins_loaded(this); }
-		bool QueryRunning(char *error, std::size_t max_length) override { return callbacks_->query_running(this, error, max_length); }
-
-		bool Unload(char *error, std::size_t max_length) override {
-			// Rust saw its `Load` refused and has nothing to tear down. Metamod 2.0
-			// keeps a refused plugin listed, and removes it only through here.
-			if (!loaded_)
-				return true;
-
-			bool unloaded = callbacks_->unload(this, error, max_length);
-
-			// Metamod keeps a plugin that refuses, unless it unloads it by force,
-			// which it does without calling back. Commands are unlinked before
-			// the hooks are removed then, so they no longer find any.
-			if (unloaded)
-				unload();
-
-			return unloaded;
-		}
-
-		bool Pause(char *error, std::size_t max_length) override {
-			bool paused = callbacks_->pause(this, error, max_length);
-
-			if (paused)
-				set_paused(true);
-
-			return paused;
-		}
-
-		bool Unpause(char *error, std::size_t max_length) override {
-			bool unpaused = callbacks_->unpause(this, error, max_length);
-
-			if (unpaused)
-				set_paused(false);
-
-			return unpaused;
-		}
-
-		const char *GetAuthor() override { return metadata_.author; }
-		const char *GetName() override { return metadata_.name; }
-		const char *GetDescription() override { return metadata_.description; }
-		const char *GetURL() override { return metadata_.url; }
-		const char *GetLicense() override { return metadata_.license; }
-		const char *GetVersion() override { return metadata_.version; }
-		const char *GetDate() override { return metadata_.date; }
-		const char *GetLogTag() override { return metadata_.log_tag; }
-
-	private:
-		void set_paused(bool paused) {
-			paused_ = paused;
-			level_route.paused = paused;
-		}
-
-		void unload() {
-			loaded_ = false;
-			paused_ = false;
-			id_ = 0;
-			api_ = nullptr;
-			// Metamod removes the level listener itself after `Unload`.
-			level_listener_added = false;
-			level_route = {};
-		}
-
-		const RustPluginCallbacks *callbacks_ = nullptr;
-		SourceMM::ISmmAPI *api_ = nullptr;
-		RustPluginMetadata metadata_ = {};
-		std::uint64_t generation_ = 0;
-		SourceMM::PluginId id_ = 0;
-		bool loaded_ = false;
-		bool paused_ = false;
+		void AllPluginsLoaded() override { dispatch->all_loaded(METAMOD_PLAPI_VERSION, this); }
+		bool QueryRunning(char *error, std::size_t length) override { return dispatch->query(METAMOD_PLAPI_VERSION, this, error, length); }
+		bool Unload(char *error, std::size_t length) override { return dispatch->unload(METAMOD_PLAPI_VERSION, this, error, length); }
+		bool Pause(char *error, std::size_t length) override { return dispatch->pause(METAMOD_PLAPI_VERSION, this, error, length, true); }
+		bool Unpause(char *error, std::size_t length) override { return dispatch->pause(METAMOD_PLAPI_VERSION, this, error, length, false); }
+		const char *GetAuthor() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 0); }
+		const char *GetName() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 1); }
+		const char *GetDescription() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 2); }
+		const char *GetURL() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 3); }
+		const char *GetLicense() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 4); }
+		const char *GetVersion() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 5); }
+		const char *GetDate() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 6); }
+		const char *GetLogTag() override { return dispatch->metadata(METAMOD_PLAPI_VERSION, 7); }
 	};
 
 	RustMetamodPlugin plugin;
+	RustLevelListener level_listener;
 }
 
-extern "C" void *RUST_SHELL_INSTANCE() {
+extern "C" void *RUST_SHELL_INSTANCE(const RustShellDispatch *table) {
+	dispatch = table;
 	return &plugin;
 }
 
-extern "C" bool RUST_SHELL_IS_LOADED() {
-	return plugin.loaded();
-}
-
-extern "C" RustPluginStatus RUST_SHELL_STATUS() {
-	return plugin.status();
-}
-
-extern "C" void *RUST_SHELL_CREATE(const RustPluginCallbacks *callbacks, RustPluginMetadata metadata) {
-	if (!callbacks)
-		return nullptr;
-
-	plugin.configure(callbacks, metadata);
-
-	return &plugin;
-}
-
-// Passes Metamod's level notifications to the callbacks until the plugin
-// unloads. Call it between the shell's `Load` and `Unload`, on the main thread.
-extern "C" int RUST_SHELL_LISTEN_LEVELS(RustLevelInitFn init, RustLevelShutdownFn shutdown, void *context) noexcept {
-	SourceMM::ISmmAPI *api = plugin.api();
-
-	if (api == nullptr)
-		return RUST_HOOK_NOT_BOUND;
-
-	if (level_listener_added)
-		return RUST_HOOK_ALREADY_INSTALLED;
-
-	if (init == nullptr && shutdown == nullptr)
-		return RUST_HOOK_INVALID_ARGUMENT;
-
-	level_route = {init, shutdown, context, false};
-	api->AddListener(&plugin, &level_listener);
-	level_listener_added = true;
-
-	return RUST_HOOK_INSTALLED;
-}
-
-// Main-thread-only owned counter: notifications advance it even while paused.
-// Unavailable before registration, after unload, or after exhausting the counter.
-extern "C" bool RUST_SHELL_LEVEL_GENERATION(std::uint64_t *generation) noexcept {
-	if (generation == nullptr || !plugin.loaded() || !level_listener_added || level_route.exhausted)
-		return false;
-	*generation = level_route.generation;
-	return true;
+// Rust validates registration and records its route before this native call;
+// no Rust state guard is held if AddListener synchronously calls the listener.
+extern "C" void RUST_SHELL_LISTEN_LEVELS(void *api) noexcept {
+	static_cast<SourceMM::ISmmAPI *>(api)->AddListener(&plugin, &level_listener);
 }

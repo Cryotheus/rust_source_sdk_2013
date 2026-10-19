@@ -1,6 +1,6 @@
 # Metamod:Source (Raw Rust Bindings)
 
-Hand-written ABI declarations and C++ plugin shells for the supported 64-bit
+Hand-written ABI declarations and compiler-owned virtual objects for the supported 64-bit
 Metamod:Source builds. Use nightly Rust and a C++17 compiler for
 `x86_64-pc-windows-msvc` or `x86_64-unknown-linux-gnu`.
 
@@ -42,10 +42,15 @@ This project is licensed under either of
 * MIT license ([LICENSE-MIT](https://github.com/Cryotheus/rust_source_sdk_2013/blob/master/LICENSE-MIT) or
   https://opensource.org/licenses/MIT)
 
-The native level-generation fixture includes the production shell and listener,
-and exercises paused same-map and different-map boundaries, callback suppression,
-ordinary pause, unload/load reset, closed registration and counter exhaustion on
-both supported headers. With `METAMOD_SOURCE_STABLE` and `METAMOD_SOURCE_DEV` set,
-run `bash crates/metamod_sys/tests/run_level_generation.sh` from the workspace root.
-It supplies the owned result of registration; actual Metamod listener registration
-and server delivery still need an integration check.
+Lifecycle, callback routing, pause and notification generations are implemented
+in Rust. C++ retains the `ISmmPlugin`/`IMetamodListener` virtual objects and the
+native `AddListener` call so their vtables and destructors follow the configured
+compiler ABI. The bridge also checks native header signatures and layouts.
+
+With both source checkouts configured, run
+`cargo +nightly test -p metamod_source_sys --lib`. The Rust fixtures call through
+both compiler-built plugin/listener vtables and the native registration thunk,
+covering pause suppression, notification generations, unload/reload, callback
+refusal and counter exhaustion. Windows cross-compilation checks its ABI and
+linkage but does not execute its fixtures. Actual Metamod server delivery still
+requires an integration check.

@@ -1,4 +1,5 @@
-//! C ABI shared with the small C++ `ISmmPlugin` shell.
+//! Raw plugin callbacks and status for the Rust-owned Metamod shell state.
+//! Compiler-built C++ objects supply only the native virtual dispatch boundary.
 
 use std::ffi::{c_char, c_int, c_void};
 use std::mem::{offset_of, size_of};
@@ -97,129 +98,99 @@ impl PluginStatus {
 }
 
 unsafe extern "C" {
-	fn cpp_metamod_level_generation_dev(generation: *mut u64) -> bool;
-	fn cpp_metamod_level_generation_stable(generation: *mut u64) -> bool;
-
-	fn cpp_metamod_listen_levels_dev(
-		init: Option<LevelInitCallback>,
-		shutdown: Option<LevelShutdownCallback>,
-		context: *mut c_void,
-	) -> c_int;
-
-	fn cpp_metamod_listen_levels_stable(
-		init: Option<LevelInitCallback>,
-		shutdown: Option<LevelShutdownCallback>,
-		context: *mut c_void,
-	) -> c_int;
-
-	fn cpp_metamod_plugin_dev(
-		callbacks: *const PluginCallbacks,
-		metadata: PluginMetadata,
-	) -> *mut c_void;
-
-	fn cpp_metamod_plugin_dev_instance() -> *mut c_void;
-	fn cpp_metamod_plugin_dev_is_loaded() -> bool;
-	fn cpp_metamod_plugin_dev_status() -> PluginStatus;
-
-	fn cpp_metamod_plugin_stable(
-		callbacks: *const PluginCallbacks,
-		metadata: PluginMetadata,
-	) -> *mut c_void;
-
-	fn cpp_metamod_plugin_stable_instance() -> *mut c_void;
-	fn cpp_metamod_plugin_stable_is_loaded() -> bool;
-	fn cpp_metamod_plugin_stable_status() -> PluginStatus;
+	fn cpp_metamod_listen_levels_dev(api: *mut c_void);
+	fn cpp_metamod_listen_levels_stable(api: *mut c_void);
+	fn cpp_metamod_plugin_dev_instance(dispatch: *const crate::shell::Dispatch) -> *mut c_void;
+	fn cpp_metamod_plugin_stable_instance(dispatch: *const crate::shell::Dispatch) -> *mut c_void;
 }
 
-/// The listener's notification generation, including notifications while paused.
+/// The listener notification generation, including notifications while paused.
 /// Starts at zero on registration and advances for each init or shutdown;
-/// unavailable before registration, after unload, for unsupported APIs or
-/// counter exhaustion. It contains no map pointers and resets on a new load.
+/// unavailable before registration, after unload, for unsupported APIs or counter
+/// exhaustion. It contains no map pointers and resets on a new load.
 ///
 /// # Safety
 ///
-/// Call only on the server's main thread during a live shell callback. The
-/// listener and getter use ordinary non-atomic state on that thread.
+/// Call only on the server main thread during a live shell callback.
 pub unsafe fn cpp_metamod_level_generation(api_version: c_int) -> Option<u64> {
-	let mut generation = 0;
-	let found = match api_version {
-		16 => unsafe { cpp_metamod_level_generation_stable(&mut generation) },
-		18 => unsafe { cpp_metamod_level_generation_dev(&mut generation) },
-		_ => return None,
-	};
-	found.then_some(generation)
+	crate::shell::level_generation(api_version)
 }
 
-/// Registers a Metamod listener passing level notifications to the callbacks
-/// until Metamod unloads the plugin.
-///
-/// The shell stops calling them when the plugin unloads or is paused, and
-/// Metamod removes the listener after unloading the plugin.
+/// Registers a Metamod listener until Metamod unloads the plugin.
+/// The Rust route is reserved before the native registration call and no state
+/// guard survives that call. Notifications are suppressed while paused.
 ///
 /// # Safety
 ///
-/// Call it on the server's main thread while Metamod runs one of the shell's
-/// callbacks, from `Load` on. The callbacks must stay callable with `context`
-/// for as long as the library is loaded. They are called on the main thread.
+/// Call on the server main thread from a live shell callback, from Load on.
+/// Callbacks and context must remain valid until the plugin unloads.
 pub unsafe fn cpp_metamod_listen_levels(
 	api_version: c_int,
 	init: Option<LevelInitCallback>,
 	shutdown: Option<LevelShutdownCallback>,
 	context: *mut c_void,
 ) -> HookStatus {
-	HookStatus(match api_version {
-		16 => unsafe { cpp_metamod_listen_levels_stable(init, shutdown, context) },
-		18 => unsafe { cpp_metamod_listen_levels_dev(init, shutdown, context) },
-		_ => return HookStatus::UNSUPPORTED,
-	})
+	let api = match crate::shell::listen(api_version, init, shutdown, context) {
+		Ok(api) => api,
+		Err(status) => return status,
+	};
+	// SAFETY: The Rust-owned shell supplied this load's API and reserved its
+	// listener once; the caller guarantees the main thread and callback lifetime.
+	unsafe {
+		match api_version {
+			16 => cpp_metamod_listen_levels_stable(api),
+			18 => cpp_metamod_listen_levels_dev(api),
+			_ => return HookStatus::UNSUPPORTED,
+		}
+	}
+	HookStatus::INSTALLED
 }
 
-/// Selects the C++ `ISmmPlugin` shell built against this API version's headers.
+/// Configures Rust-owned state and selects the compiler-owned ISmmPlugin object
+/// built against this plugin API version.
 ///
 /// # Safety
 ///
-/// `callbacks` and all metadata strings must remain valid until after Metamod
-/// unloads the plugin. The shell must not be configured concurrently with its
-/// callbacks.
+/// Call on the server main thread. Callbacks and metadata strings must remain
+/// valid until after Metamod unloads the plugin; do not reconfigure concurrently
+/// with callbacks.
 pub unsafe fn cpp_metamod_plugin(
 	api_version: c_int,
 	callbacks: *const PluginCallbacks,
 	metadata: PluginMetadata,
 ) -> *mut c_void {
-	match api_version {
-		16 => unsafe { cpp_metamod_plugin_stable(callbacks, metadata) },
-		18 => unsafe { cpp_metamod_plugin_dev(callbacks, metadata) },
-		_ => std::ptr::null_mut(),
+	if !crate::shell::configure(api_version, callbacks, metadata) {
+		return std::ptr::null_mut();
 	}
+	cpp_metamod_plugin_for_version(api_version)
 }
 
 /// Returns the shell for a plugin API version without changing its state.
 pub fn cpp_metamod_plugin_for_version(api_version: c_int) -> *mut c_void {
+	static STABLE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+	static DEV: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+	// Initialize each compiler object exactly once; the private dispatch table has
+	// library lifetime and no native caller can observe an uninitialized shell.
 	match api_version {
-		16 => unsafe { cpp_metamod_plugin_stable_instance() },
-		18 => unsafe { cpp_metamod_plugin_dev_instance() },
+		16 => *STABLE.get_or_init(|| unsafe {
+			cpp_metamod_plugin_stable_instance(&crate::shell::DISPATCH) as usize
+		}) as *mut c_void,
+
+		18 => *DEV.get_or_init(|| unsafe {
+			cpp_metamod_plugin_dev_instance(&crate::shell::DISPATCH) as usize
+		}) as *mut c_void,
+
 		_ => std::ptr::null_mut(),
 	}
 }
 
-/// Whether Metamod has loaded the shell for a plugin API version and not yet
-/// unloaded it.
-///
-/// Metamod tracks what a plugin registers by the object it loaded, from before
-/// `Load` until after `Unload`, or after a refused `Load`.
+/// Whether Metamod has loaded this API version shell and not yet unloaded it.
+/// The synchronized Rust state also permits observation outside native callbacks.
 pub fn cpp_metamod_plugin_is_loaded(api_version: c_int) -> bool {
-	match api_version {
-		16 => unsafe { cpp_metamod_plugin_stable_is_loaded() },
-		18 => unsafe { cpp_metamod_plugin_dev_is_loaded() },
-		_ => false,
-	}
+	crate::shell::status(api_version).loaded
 }
 
-/// The state of the shell for a plugin API version.
+/// A synchronized snapshot of the Rust-owned state of this plugin API shell.
 pub fn cpp_metamod_plugin_status(api_version: c_int) -> PluginStatus {
-	match api_version {
-		16 => unsafe { cpp_metamod_plugin_stable_status() },
-		18 => unsafe { cpp_metamod_plugin_dev_status() },
-		_ => PluginStatus::UNLOADED,
-	}
+	crate::shell::status(api_version)
 }
