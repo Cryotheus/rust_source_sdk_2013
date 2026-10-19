@@ -1,9 +1,13 @@
 //! Hand-written ABI of the engine's bit buffers, `bf_write` and `bf_read`,
 //! from `public/tier1/bitbuf.h`.
 //!
-//! The generated bindings of both classes are opaque, since the header does
-//! not parse. The engine reads and writes their fields inline, so these
-//! mirrors match its own copies.
+//! The checked-in generated declarations retain legacy one-byte opaque pointer
+//! tags and their one-byte assertions; these describe identity carriers, not
+//! Valve storage. They must never be allocated or dereferenced as bit buffers.
+//! The next full binding regeneration parses the real 32-byte declarations.
+//! The parser adapter reads the real header while leaving bit operations here
+//! in Rust. The engine reads and writes these fields inline, so these storage
+//! mirrors match its supported 64-bit copies.
 //!
 //! The buffers pack bits least significant first into little-endian 32-bit
 //! words, which is the same as packing each byte least significant bit first.

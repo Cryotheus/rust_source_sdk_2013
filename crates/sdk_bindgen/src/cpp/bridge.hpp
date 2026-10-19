@@ -31,12 +31,15 @@
 #undef POSIX
 #endif
 
-//bitbuf confuses clang
-//so stop it from loading, and make stubs to replace the problematic types
-#define BITBUF_H
-
-class bf_write {};
-class bf_read {};
+// Parse the actual bit-buffer layout. Its WriteUBitLong definition adds a
+// RESTRICT qualifier absent from the declaration, which clang rejects. This
+// parser-only qualifier workaround changes neither layout nor calling ABI.
+// Bindgen keeps both classes opaque; runtime storage/bit operations are Rust.
+#pragma push_macro("RESTRICT")
+#undef RESTRICT
+#define RESTRICT
+#include "public/tier1/bitbuf.h"
+#pragma pop_macro("RESTRICT")
 
 //finally include what we wanted in the first place
 #include "public/igameevents.h"
