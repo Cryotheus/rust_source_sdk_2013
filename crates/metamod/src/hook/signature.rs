@@ -10,7 +10,7 @@ use std::ptr::NonNull;
 /// How many virtual functions, told apart by signature and vtable slot, a
 /// plugin can hook under SourceHook, which needs a hook manager of the
 /// plugin's own for each.
-pub(super) const HOOK_MANAGERS: usize = 64;
+pub(super) const HOOK_MANAGERS: usize = 128;
 
 /// A parameter type of a hooked function, after `this`.
 ///

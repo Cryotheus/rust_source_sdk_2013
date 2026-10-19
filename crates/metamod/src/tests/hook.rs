@@ -646,6 +646,58 @@ fn sourcehook_hook_managers_describe_their_functions() {
 }
 
 #[test]
+fn sourcehook_keeps_late_player_hooks_after_many_functions() {
+	fn handler(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		expect(
+			call.return_value() == Some(5 + call.args().0),
+			"the original returned another slot's value",
+		);
+		HookAction::Override(1000 + call.args().0)
+	}
+
+	let harness = Harness::new(MetamodVersion::Stable1226);
+	let api = harness.api();
+	let count = 96;
+	let table = Vec::leak(vec![add as Add as *mut c_void; count]).as_mut_ptr();
+	let mut object = Object::new(table, 5);
+	let target = HookTarget::class_of(object.ptr());
+	let mut hooks = Vec::new();
+
+	for index in 0..count {
+		// SAFETY: Every slot of this class holds Add.
+		let hook = unsafe {
+			api.add_hook(
+				VirtualFunction::<Add>::new(index),
+				target,
+				HookTiming::Post,
+				&handler,
+			)
+		}
+		.expect("a late hook could not be registered");
+
+		hooks.push(hook);
+	}
+
+	for index in 0..count {
+		assert_eq!(
+			harness.call::<Add>(&raw mut *object, index, (index as i32,)),
+			1000 + index as i32
+		);
+	}
+
+	for hook in hooks {
+		assert!(api.remove_hook(hook));
+	}
+
+	for index in 0..count {
+		assert_eq!(
+			harness.call::<Add>(&raw mut *object, index, (index as i32,)),
+			5 + index as i32
+		);
+	}
+}
+
+#[test]
 fn sourcehook_loops_stay_on_the_main_thread() {
 	fn supersede(_call: &HookCall<'_, Add>) -> HookAction<i32> {
 		HookAction::Supersede(0)
