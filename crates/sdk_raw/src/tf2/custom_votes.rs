@@ -82,10 +82,12 @@ const _: fn(&IssueVtable) -> ProcessResultsFn = |vtable| vtable.CBaseIssue_Proce
 /// The offset of a vote controller's `m_iActiveIssueIndex`, its first
 /// variable after its `CBaseEntity`, which TF2 networks.
 ///
-/// `CVoteController`'s own variables are laid out alike under both ABIs, while
-/// the `CBaseEntity` before them is not, and the Itanium binding of the
-/// controller is opaque, so the offsets are counted back from its end.
-pub const ACTIVE_ISSUE_INDEX_OFFSET: usize = size_of::<sys::CVoteController>() - 240;
+/// The Itanium ABI reuses the base's tail padding. Its active issue is
+/// 236 bytes before the controller's end; MSVC places it 240 bytes before.
+/// The later vote index and issue vector have the same distance from the
+/// end on both ABIs.
+pub const ACTIVE_ISSUE_INDEX_OFFSET: usize =
+	size_of::<sys::CVoteController>() - if cfg!(target_os = "linux") { 236 } else { 240 };
 
 /// What a [`TaggedVtable`] holds after its methods when its issues only call
 /// the game's functions, and do nothing.
