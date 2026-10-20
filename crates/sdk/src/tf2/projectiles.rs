@@ -257,6 +257,31 @@ impl<'s> Projectile<'s> {
 		Ok(ArrowKind::from_raw(self.get(c"m_iProjectileType")?))
 	}
 
+	/// Runs a jar's actual native explosion at its present position. Intended
+	/// for a checked collision with an NPC the stock player-only touch omits.
+	/// Returns false for other projectile families; native removal is deferred.
+	pub fn burst_jar(self) -> bool {
+		if !matches!(
+			self.kind(),
+			Some(ProjectileKind::Jar | ProjectileKind::JarMilk)
+		) {
+			return false;
+		}
+		// SAFETY: Every accepted class derives from the generated pipebomb
+		// class and overrides its primary Explode slot. A fraction of one
+		// means no wall-plane relocation, so no trace pointers are consumed.
+		unsafe {
+			let mut trace: sys::trace_t = std::mem::zeroed();
+			trace._base.fraction = 1.0;
+			let projectile = self
+				.entity
+				.as_ptr()
+				.cast::<sys::CTFGrenadePipebombProjectile>();
+			vcall!(projectile as sys::CTFGrenadePipebombProjectile__bindgen_vtable => CTFGrenadePipebombProjectile_Explode(&mut trace, 0));
+		}
+		true
+	}
+
 	/// When a pipebomb was created (`m_flCreationTime`), in server time
 	/// (`gpGlobals->curtime`): TF2 measures from it how long a ball or a
 	/// cleaver flew, and how long a stickybomb has lain. Only pipebombs, and the

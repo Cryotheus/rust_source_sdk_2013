@@ -294,6 +294,8 @@ headers/game/shared/tf/tf_weapon_grenade_pipebomb/layout_assertions.rs
 headers/game/shared/tf/tf_weapon_grenade_pipebomb/mod.rs
 headers/game/shared/tf/tf_weapon_knife/layout_assertions.rs
 headers/game/shared/tf/tf_weapon_knife/mod.rs
+headers/game/shared/tf/tf_weapon_pistol/layout_assertions.rs
+headers/game/shared/tf/tf_weapon_pistol/mod.rs
 headers/game/shared/tf/tf_weapon_medigun/layout_assertions.rs
 headers/game/shared/tf/tf_weapon_medigun/mod.rs
 headers/game/shared/tf/tf_weapon_minigun/layout_assertions.rs

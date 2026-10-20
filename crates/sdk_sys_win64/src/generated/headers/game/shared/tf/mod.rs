@@ -24,6 +24,7 @@ pub mod tf_shareddefs;
 pub mod tf_weapon_flamethrower;
 pub mod tf_weapon_grenade_pipebomb;
 pub mod tf_weapon_knife;
+pub mod tf_weapon_pistol;
 pub mod tf_weapon_medigun;
 pub mod tf_weapon_minigun;
 pub mod tf_weapon_parse;

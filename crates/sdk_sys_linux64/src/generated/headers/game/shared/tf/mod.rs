@@ -33,3 +33,4 @@ pub mod tf_weaponbase_grenadeproj;
 pub mod tf_weaponbase_gun;
 pub mod tf_weaponbase_melee;
 pub mod tf_weaponbase_rocket;
+pub mod tf_weapon_pistol;

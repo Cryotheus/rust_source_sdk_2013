@@ -99,6 +99,7 @@
 #include "game/shared/tf/tf_weapon_minigun.h"
 #include "game/shared/tf/tf_weapon_sniperrifle.h"
 #include "game/shared/tf/tf_weapon_knife.h"
+#include "game/shared/tf/tf_weapon_pistol.h"
 #include "game/shared/tf/tf_weaponbase_rocket.h"
 #include "game/shared/tf/tf_weapon_grenade_pipebomb.h"
 #include "game/server/tf/tf_projectile_arrow.h"

@@ -49,6 +49,7 @@ pub mod pickups;
 pub mod player;
 mod player_methods;
 pub mod projectiles;
+pub mod mechanical_orb;
 pub mod ragdolls;
 pub mod respawn;
 pub mod round_end;

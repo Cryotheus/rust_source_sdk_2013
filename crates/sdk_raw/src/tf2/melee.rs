@@ -16,6 +16,9 @@ pub type MeleeHitFn = unsafe extern "C" fn(
 	info: *mut sys::CTakeDamageInfo,
 );
 
+/// The landing of a melee swing, including swings that miss.
+pub type MeleeSwingFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
+
 /// The signature of `CBaseCombatWeapon::WeaponSound`, with an entity as
 /// receiver because TF2 melee weapons derive through their primary bases:
 /// plays the sound the weapon's script gives for the kind of sound, to the
@@ -53,6 +56,10 @@ const _: fn(
 ) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee, WeaponSoundKind, f32) =
 	|vtable| vtable.CTFWeaponBaseMelee_WeaponSound;
 
+const _: fn(
+	&sys::CTFWeaponBaseMelee__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CTFWeaponBaseMelee) = |vtable| vtable.CTFWeaponBaseMelee_Smack;
+
 /// The kind of sound a melee weapon plays as its swing hits a player (the
 /// flesh hit).
 #[doc(alias("MELEE_HIT"))]
@@ -74,6 +81,12 @@ pub const MELEE_MISS_SOUND: WeaponSoundKind = sys::WeaponSound_t_MELEE_MISS;
 pub const ON_ENTITY_HIT_SLOT: usize = vtable_slot!(
 	sys::CTFWeaponBaseMelee__bindgen_vtable,
 	CTFWeaponBaseMelee_OnEntityHit
+);
+
+/// Generated primary-vtable slot, shared by derived melee weapons.
+pub const SMACK_SLOT: usize = vtable_slot!(
+	sys::CTFWeaponBaseMelee__bindgen_vtable,
+	CTFWeaponBaseMelee_Smack
 );
 
 /// The generated slot of `WeaponSound` in a melee weapon's primary vtable,
