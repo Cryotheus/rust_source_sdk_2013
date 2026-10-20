@@ -54,8 +54,37 @@ thread_local! {
 	static REPLACING: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Observes a native melee swing before and after its landing, including misses.
+pub type MeleeSwingFn = for<'s> fn(Server<'s>, HookTiming, Entity<'s>);
+
 const ON_ENTITY_HIT: VirtualFunction<Hit> = VirtualFunction::new(ON_ENTITY_HIT_SLOT);
 const WEAPON_SOUND: VirtualFunction<WeaponSoundFn> = VirtualFunction::new(WEAPON_SOUND_SLOT);
+
+impl MetamodApi<'_> {
+	/// Observes `Smack` before and after it runs. Unlike `OnEntityHit`, a miss
+	/// still reaches POST. Activation, pause or reentry may omit PRE, so a
+	/// callback must pair its own observations rather than assume a matching PRE.
+	/// Cover every intended derived class. The callback follows `Server::new`'s
+	/// no-immediate-deletion contract; it cannot replace the native swing.
+	pub fn hook_melee_swings(
+		self,
+		binding: ServerBinding,
+		callback: MeleeSwingFn,
+	) -> ClassHooks<TfMeleeWeapon> {
+		ClassHooks::new(
+			binding,
+			callback,
+			VirtualFunction::<source_sdk_2013::raw::tf2::melee::MeleeSwingFn>::new(
+				source_sdk_2013::raw::tf2::melee::SMACK_SLOT,
+			),
+			&[HookTiming::Pre, HookTiming::Post],
+			|server, callback, weapon, call| {
+				callback(server, call.timing(), weapon);
+				HookAction::Ignore
+			},
+		)
+	}
+}
 
 impl MetamodApi<'_> {
 	/// Observes each `CTFWeaponBaseMelee::OnEntityHit` after the game's

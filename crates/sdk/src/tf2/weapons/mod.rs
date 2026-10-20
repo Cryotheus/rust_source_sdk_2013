@@ -8,6 +8,7 @@
 //! changes a weapon's attributes afterwards, through [`ItemAttributes`].
 
 pub mod identity;
+pub mod shortstop;
 
 #[cfg(test)]
 #[path = "../../tests/tf2/weapons.rs"]
@@ -792,6 +793,25 @@ pub struct Weapon<'s> {
 	owner_offset: usize,
 }
 
+impl Weapon<'_> {
+	/// The rifle's native charged damage, read through its checked network property. Rejects other classes without reading a guessed private layout.
+	#[doc(alias("m_flChargedDamage"))]
+	pub fn sniper_charged_damage(self) -> Result<f32, WeaponStateError> {
+		if !self.entity.has_data_map_class(c"CTFSniperRifle") {
+			return Err(WeaponStateError::NotRifle);
+		}
+		self.server
+			.server_game_dll()
+			.map_err(|_| WeaponStateError::Interface)?
+			.entity_net_prop(self.entity, c"m_flChargedDamage")
+			.map_err(|_| WeaponStateError::Property)?
+			.get::<f32>(self.entity)
+			.map_err(|_| WeaponStateError::Property)
+	}
+}
+
+impl Weapon<'_> {}
+
 impl<'s> Weapon<'s> {
 	/// Wraps a TF2 weapon entity. Returns [`WeaponError::NotWeapon`] unless the
 	/// server runs TF2 and `entity`'s datamaps include `CTFWeaponBase`, and
@@ -1230,6 +1250,23 @@ impl IntoWeaponSlot for WeaponSlot {
 	fn into_weapon_slot(self) -> c_int {
 		self.to_raw()
 	}
+}
+
+/// A compact failure reading native weapon state on a combat hot path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum WeaponStateError {
+	/// The checked native class is not a supported sniper rifle.
+	#[error("the weapon is not a supported native sniper rifle")]
+	NotRifle,
+	/// The required callback-scoped engine interface is unavailable.
+	#[error("native weapon state interfaces are unavailable")]
+	Interface,
+	/// A reflected state property or owner handle could not be read.
+	#[error("a checked native weapon/player state property could not be read")]
+	Property,
+	/// The resolved combat owner is not a real TF2 player.
+	#[error("the weapon owner is not a TF2 player")]
+	NotPlayer,
 }
 
 /// Sets `attributes` on a newly equipped weapon, then reapplies its

@@ -164,6 +164,7 @@ mod __bindgen_prelude {
 	pub use super::headers::game::shared::tf::tf_weapon_flamethrower::*;
 	pub use super::headers::game::shared::tf::tf_weapon_grenade_pipebomb::*;
 	pub use super::headers::game::shared::tf::tf_weapon_knife::*;
+	pub use super::headers::game::shared::tf::tf_weapon_pistol::*;
 	pub use super::headers::game::shared::tf::tf_weapon_medigun::*;
 	pub use super::headers::game::shared::tf::tf_weapon_minigun::*;
 	pub use super::headers::game::shared::tf::tf_weapon_parse::*;

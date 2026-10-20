@@ -20,6 +20,7 @@ pub mod duel;
 pub mod flame;
 pub mod give_item;
 pub mod gunfire;
+pub mod grenade;
 pub mod input;
 pub mod max_health;
 pub mod medigun;

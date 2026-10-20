@@ -41,6 +41,8 @@ pub enum ProtobufError {
 	},
 	#[error("the SDK's bundled protobuf compiler is unavailable for this host OS")]
 	UnsupportedHost,
+	#[error("protobuf compiler {compiler:?} must report exactly libprotoc 2.6.1")]
+	Version { compiler: PathBuf },
 	#[error("SDK protobuf compiler {compiler:?} failed ({status}): {diagnostic}")]
 	Compiler {
 		compiler: PathBuf,
@@ -79,6 +81,19 @@ impl Drop for Staging {
 }
 
 fn compiler_path(sdk_src: &Path) -> Result<PathBuf, ProtobufError> {
+	if let Some(path) = std::env::var_os("SOURCE_SDK_PROTOC") {
+		let compiler = PathBuf::from(path);
+		let output = Command::new(&compiler)
+			.arg("--version")
+			.output()
+			.map_err(|error| io_error(&compiler, error))?;
+		if !output.status.success()
+			|| output.stdout != b"libprotoc 2.6.1\n" && output.stdout != b"libprotoc 2.6.1\r\n"
+		{
+			return Err(ProtobufError::Version { compiler });
+		}
+		return Ok(compiler);
+	}
 	let relative = if cfg!(target_os = "windows") {
 		"thirdparty/protobuf-2.6.1/bin/win64/2015/staticcrt/release/protoc.exe"
 	} else if cfg!(target_os = "linux") {

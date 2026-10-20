@@ -90,6 +90,7 @@ const ROOT_TYPES: &[&str] = &[
 	"CTFMinigun",
 	"CTFSniperRifle",
 	"CTFKnife",
+	"CTFPistol_ScoutPrimary",
 	"CTFBaseRocket",
 	"CTFGrenadePipebombProjectile",
 	"CTFProjectile_Arrow",

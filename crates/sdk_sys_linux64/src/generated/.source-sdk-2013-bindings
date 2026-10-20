@@ -300,6 +300,8 @@ headers/game/shared/tf/tf_weapon_minigun/layout_assertions.rs
 headers/game/shared/tf/tf_weapon_minigun/mod.rs
 headers/game/shared/tf/tf_weapon_parse/layout_assertions.rs
 headers/game/shared/tf/tf_weapon_parse/mod.rs
+headers/game/shared/tf/tf_weapon_pistol/layout_assertions.rs
+headers/game/shared/tf/tf_weapon_pistol/mod.rs
 headers/game/shared/tf/tf_weapon_sniperrifle/layout_assertions.rs
 headers/game/shared/tf/tf_weapon_sniperrifle/mod.rs
 headers/game/shared/tf/tf_weaponbase/layout_assertions.rs

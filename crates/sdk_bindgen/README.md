@@ -27,8 +27,10 @@ Standalone API calls without `OUT_DIR` use temporary headers that are removed
 after generation.
 The original `.proto` files and compiler are tracked as build inputs, and
 unchanged generated headers retain their timestamps. The matching bundled
-compiler is required; newer system `protoc` versions do not match the SDK's
-protobuf runtime.
+compiler is used by default. If its host architecture cannot execute, set
+`SOURCE_SDK_PROTOC` to a compatible host executable that reports exactly
+`libprotoc 2.6.1`; other versions are rejected because they do not match the
+SDK's protobuf runtime.
 
 # License
 
