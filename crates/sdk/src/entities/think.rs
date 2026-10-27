@@ -80,6 +80,42 @@ impl<'s> Entity<'s> {
 		Ok(is_scheduled)
 	}
 
+	/// Postpones the entity's scheduled think context named `context` by
+	/// `ticks`, and returns the tick it then runs at, or `None` if the entity
+	/// has no such context, or it is not scheduled. A negative `ticks` brings it
+	/// forward, though never to a tick of 0 or less, which would unschedule it.
+	///
+	/// The context keeps its function. Names are compared in their first 32
+	/// bytes, as the game compares them.
+	#[doc(alias("SetNextThink"))]
+	pub fn delay_think_context(
+		self,
+		context: &CStr,
+		ticks: c_int,
+	) -> Result<Option<c_int>, ThinkError> {
+		let offset = self.think_functions_offset()?;
+
+		// SAFETY: As for `cancel_think_context`.
+		let Some(index) = (unsafe { raw::think_context_index(self.as_ptr(), offset, context) })
+		else {
+			return Ok(None);
+		};
+
+		// SAFETY: As above.
+		let Some(tick) = (unsafe { raw::think_context_tick(self.as_ptr(), offset, index) })
+			.filter(|&tick| tick > 0)
+		else {
+			return Ok(None);
+		};
+
+		let delayed = tick.saturating_add(ticks).max(1);
+
+		// SAFETY: As above. The game writes the tick on the main thread too.
+		unsafe { raw::set_think_context_tick(self.as_ptr(), offset, index, delayed) };
+
+		Ok(Some(delayed))
+	}
+
 	/// The tick at which the entity's think context named `context` next
 	/// runs, or `None` if the entity has no such context, or it is not
 	/// scheduled, at a tick of 0 or less.
