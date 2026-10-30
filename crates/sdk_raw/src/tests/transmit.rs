@@ -12,10 +12,10 @@ fn clearing_edict_bits_preserves_neighbors_and_bounds() {
 		assert!(!unsafe { has_edict_bit(bits, index) });
 		assert!(!unsafe { clear_edict_bit(bits, index) });
 	}
-	assert_eq!(words[0], u32::MAX & !1 & !(1 << 31));
-	assert_eq!(words[1], u32::MAX & !1);
+	assert_eq!(words[0], !1 & !(1 << 31));
+	assert_eq!(words[1], !1);
 	assert_eq!(words[2], u32::MAX);
-	assert_eq!(words[words.len() - 1], u32::MAX & !(1 << 31));
+	assert_eq!(words[words.len() - 1], !(1 << 31));
 	let before = words;
 	// SAFETY: The same local set, with checked invalid indices, and null.
 	assert!(!unsafe { clear_edict_bit(bits, -1) });

@@ -75,7 +75,12 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 	let data = planes_lump.decode()?;
 	let mut planes = Vec::new();
 	reserve(&mut planes, plane_count, Resource::Records)?;
-	for (record, value) in data.chunks_exact(raw::PLANE_BYTES).enumerate() {
+	for (record, value) in data
+		.as_chunks::<{ raw::PLANE_BYTES }>()
+		.0
+		.iter()
+		.enumerate()
+	{
 		work.spend(1)?;
 		let normal = vector(value, 0);
 		let distance = float(value, 12);
@@ -90,7 +95,7 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 	let data = nodes_lump.decode()?;
 	let mut nodes = Vec::new();
 	reserve(&mut nodes, node_count, Resource::Records)?;
-	for (record, value) in data.chunks_exact(raw::NODE_BYTES).enumerate() {
+	for (record, value) in data.as_chunks::<{ raw::NODE_BYTES }>().0.iter().enumerate() {
 		work.spend(1)?;
 		let lump = raw::LUMP_NODES;
 		nodes.push(Node {
@@ -125,7 +130,12 @@ pub(super) fn decode(bytes: &[u8], limits: Limits) -> Result<Bsp, Error> {
 	let data = models_lump.decode()?;
 	let mut models = Vec::new();
 	reserve(&mut models, model_count, Resource::Records)?;
-	for (record, value) in data.chunks_exact(raw::MODEL_BYTES).enumerate() {
+	for (record, value) in data
+		.as_chunks::<{ raw::MODEL_BYTES }>()
+		.0
+		.iter()
+		.enumerate()
+	{
 		work.spend(1)?;
 		let lump = raw::LUMP_MODELS;
 		let origin = vector(value, 24);

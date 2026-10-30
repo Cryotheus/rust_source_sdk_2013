@@ -144,12 +144,15 @@ fn parse(
 	work: &mut Work,
 ) -> Result<AmbientLighting, Error> {
 	let [index_lump, lighting_lump] = lumps;
-	if index.len() % raw::LEAF_AMBIENT_INDEX_BYTES != 0
+	if !index.len().is_multiple_of(raw::LEAF_AMBIENT_INDEX_BYTES)
 		|| index.len() / raw::LEAF_AMBIENT_INDEX_BYTES != leaves.len()
 	{
 		return Err(Invalid::RecordSize { lump: index_lump }.into());
 	}
-	if lighting.len() % raw::LEAF_AMBIENT_LIGHTING_BYTES != 0 {
+	if !lighting
+		.len()
+		.is_multiple_of(raw::LEAF_AMBIENT_LIGHTING_BYTES)
+	{
 		return Err(Invalid::RecordSize {
 			lump: lighting_lump,
 		}
@@ -168,7 +171,9 @@ fn parse(
 		.try_reserve(leaves.len())
 		.map_err(|_| Invalid::RecordSize { lump: index_lump })?;
 	for (record, (entry, leaf)) in index
-		.chunks_exact(raw::LEAF_AMBIENT_INDEX_BYTES)
+		.as_chunks::<{ raw::LEAF_AMBIENT_INDEX_BYTES }>()
+		.0
+		.iter()
 		.zip(leaves)
 		.enumerate()
 	{

@@ -48,7 +48,11 @@ fn boundary_only_face_edge_point_and_inconsistent_regions_have_no_incidence() {
 #[test]
 fn closed_solid_volume_and_sheet_have_no_positive_region_volume() {
 	let sheet = vec![[1.0, 0.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0]];
-	let (atlas, region) = scene(2.0, &[sheet.clone()], &[sheet]);
+	let (atlas, region) = scene(
+		2.0,
+		std::slice::from_ref(&sheet),
+		std::slice::from_ref(&sheet),
+	);
 	assert_eq!(atlas.components().len(), 2);
 	assert_eq!(atlas.locate([0.0; 3]).unwrap(), PointRelation::Solid);
 	assert!(
@@ -59,7 +63,11 @@ fn closed_solid_volume_and_sheet_have_no_positive_region_volume() {
 			.is_empty()
 	);
 	let solid = cube([-1.0; 3], [1.0; 3]);
-	let (atlas, region) = scene(2.0, &[solid.clone()], &[solid]);
+	let (atlas, region) = scene(
+		2.0,
+		std::slice::from_ref(&solid),
+		std::slice::from_ref(&solid),
+	);
 	assert!(
 		atlas
 			.region_incidence(&region, [0.0; 3], query_limits())
@@ -478,7 +486,9 @@ fn three_rooms(regions: &[Vec<[f32; 4]>]) -> (BrushSpace, ModelRegion) {
 fn translation_matches_independent_fraction_oracle_bit_fixtures() {
 	// Expected encodings were independently derived using Python Fraction and
 	// monotone search across finite binary32 encodings, never rounded host f32.
-	let fixtures: &[(&str, [u32; 3], u32, [u32; 3], Option<u32>)] = &[
+	type TranslationFixture = (&'static str, [u32; 3], u32, [u32; 3], Option<u32>);
+
+	let fixtures: &[TranslationFixture] = &[
 		(
 			"zero_origin_preserves_max",
 			[0x3f800000, 0x00000001, 0x7f7fffff],
@@ -698,8 +708,10 @@ fn translation_precharge_is_separate_from_determinant_fallbacks() {
 		distance: f32::MAX,
 	};
 	let origin = [f32::MAX, f32::MAX, 0.0];
-	let mut limits = Limits::default();
-	limits.work = TRANSLATION_WORK - 1;
+	let mut limits = Limits {
+		work: TRANSLATION_WORK - 1,
+		..Limits::default()
+	};
 	let mut budget = Budget::new(limits);
 	assert!(matches!(
 		translated_distance(plane, origin, &mut budget),

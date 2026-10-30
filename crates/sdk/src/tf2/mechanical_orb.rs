@@ -72,7 +72,9 @@ fn resolve(
 	let unique = |text: &str| {
 		let signature: Vec<_> = text
 			.as_bytes()
-			.chunks_exact(2)
+			.as_chunks::<2>()
+			.0
+			.iter()
 			.map(|pair| {
 				// EXPECT: The independently verified native literals are ASCII hex.
 				SignaturePattern::Exact(

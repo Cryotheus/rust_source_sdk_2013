@@ -181,7 +181,7 @@ impl CppAbi {
 	}
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub(crate) enum CppVtableError {
 	#[error("could not load libclang: {0}")]
 	LoadLibclang(String),
@@ -2190,9 +2190,13 @@ fn ensure_libclang_is_loaded() -> Result<(), CppVtableError> {
 		return Ok(());
 	}
 
-	static LIBCLANG: OnceLock<Result<Arc<SharedLibrary>, String>> = OnceLock::new();
+	static LIBCLANG: OnceLock<Result<Arc<SharedLibrary>, CppVtableError>> = OnceLock::new();
 
-	let library = LIBCLANG.get_or_init(|| load_manually().map(Arc::new));
+	let library = LIBCLANG.get_or_init(|| {
+		load_manually()
+			.map(Arc::new)
+			.map_err(CppVtableError::LoadLibclang)
+	});
 
 	match library {
 		Ok(library) => {
@@ -2200,7 +2204,7 @@ fn ensure_libclang_is_loaded() -> Result<(), CppVtableError> {
 			Ok(())
 		}
 
-		Err(error) => Err(CppVtableError::LoadLibclang(error.clone())),
+		Err(error) => Err(error.clone()),
 	}
 }
 

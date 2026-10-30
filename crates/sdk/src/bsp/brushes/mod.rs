@@ -105,7 +105,12 @@ impl BrushGeometry {
 		let mut decoded_sides = Vec::new();
 		reserve(&mut decoded_sides, side_count, Resource::Records)?;
 		let side_bytes = sides.decode()?;
-		for (index, record) in side_bytes.chunks_exact(raw::BRUSH_SIDE_BYTES).enumerate() {
+		for (index, record) in side_bytes
+			.as_chunks::<{ raw::BRUSH_SIDE_BYTES }>()
+			.0
+			.iter()
+			.enumerate()
+		{
 			work.spend(1)?;
 			let plane = usize::from(short(record, 0));
 			if plane >= bsp.planes().len() {
@@ -127,7 +132,12 @@ impl BrushGeometry {
 		let mut decoded_brushes = Vec::new();
 		reserve(&mut decoded_brushes, brush_count, Resource::Records)?;
 		let brush_bytes = brushes.decode()?;
-		for (index, record) in brush_bytes.chunks_exact(raw::BRUSH_BYTES).enumerate() {
+		for (index, record) in brush_bytes
+			.as_chunks::<{ raw::BRUSH_BYTES }>()
+			.0
+			.iter()
+			.enumerate()
+		{
 			work.spend(1)?;
 			let first = index_value(record, 0, raw::LUMP_BRUSHES, index)?;
 			let length = index_value(record, 4, raw::LUMP_BRUSHES, index)?;
@@ -146,7 +156,9 @@ impl BrushGeometry {
 		reserve(&mut decoded_references, reference_count, Resource::Records)?;
 		let reference_bytes = references.decode()?;
 		for (index, record) in reference_bytes
-			.chunks_exact(raw::LEAF_BRUSH_BYTES)
+			.as_chunks::<{ raw::LEAF_BRUSH_BYTES }>()
+			.0
+			.iter()
 			.enumerate()
 		{
 			work.spend(1)?;
@@ -438,7 +450,7 @@ fn checked_range(
 }
 
 fn count(length: usize, width: usize, lump: usize) -> Result<usize, Error> {
-	if length % width != 0 {
+	if !length.is_multiple_of(width) {
 		return Err(Invalid::RecordSize { lump }.into());
 	}
 	Ok(length / width)

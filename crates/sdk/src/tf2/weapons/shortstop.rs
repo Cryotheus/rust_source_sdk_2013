@@ -66,7 +66,9 @@ impl ShortstopLayout {
 	fn witness(image: &Image, prefix: &str, native_offset: usize) -> Result<Self, ShortstopError> {
 		let signature: Vec<_> = prefix
 			.as_bytes()
-			.chunks_exact(2)
+			.as_chunks::<2>()
+			.0
+			.iter()
 			.map(|pair| {
 				// EXPECT: Both native witness literals contain ASCII hexadecimal pairs.
 				SignaturePattern::Exact(

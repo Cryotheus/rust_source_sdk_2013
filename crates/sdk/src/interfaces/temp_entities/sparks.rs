@@ -67,7 +67,9 @@ mod tests {
 		ptr::{NonNull, null_mut},
 	};
 
-	thread_local! { static RECEIVED: RefCell<Vec<(Vector, Vector, i32, i32, i32, i32)>> = const { RefCell::new(Vec::new()) }; }
+	type SparkCall = (Vector, Vector, i32, i32, i32, i32);
+
+	thread_local! { static RECEIVED: RefCell<Vec<SparkCall>> = const { RefCell::new(Vec::new()) }; }
 
 	unsafe extern "C" fn capture(
 		this: *mut sys::ITempEntsSystem,

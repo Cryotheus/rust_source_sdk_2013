@@ -95,14 +95,15 @@ fn casts_to_the_engines_classes_fail() {
 		.is_null()
 	);
 
-	// Every cast fails, since the class claims no bases, but the type
-	// information describes the whole variable from either table.
+	// ConVar is not a public base of this synthetic class. A nonnegative
+	// hint would claim such a base and let libstdc++ skip that check when
+	// the destination matches the complete object's type information.
 	assert!(
 		cast(
 			base,
 			(&raw const convar).cast(),
 			(&raw const type_information::TYPE_INFO).cast(),
-			0
+			-2
 		)
 		.is_null()
 	);

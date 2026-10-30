@@ -191,4 +191,5 @@ fn withholding_edicts_keeps_the_world_and_the_clients_player_in_both_sets() {
 	info.m_pTransmitAlways = null_mut();
 	sent[0] |= 1 << 8;
 	assert!(check.withhold(8));
+	assert_eq!(sent[0], 1 | (1 << 1));
 }

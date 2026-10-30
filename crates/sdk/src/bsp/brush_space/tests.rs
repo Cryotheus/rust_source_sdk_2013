@@ -573,8 +573,10 @@ fn cube(kernel: &mut Kernel, min: [f32; 3], max: [f32; 3]) -> Cell {
 
 #[test]
 fn domain_and_exact_predicates_obey_independent_cumulative_budgets() {
-	let mut limits = Limits::default();
-	limits.work = 0;
+	let limits = Limits {
+		work: 0,
+		..Limits::default()
+	};
 	assert!(matches!(
 		Kernel::new(limits).domain(AnalysisDomain::new([-1.0; 3], [1.0; 3]).unwrap()),
 		Err(Error::Budget {
@@ -582,8 +584,10 @@ fn domain_and_exact_predicates_obey_independent_cumulative_budgets() {
 			..
 		})
 	));
-	let mut limits = Limits::default();
-	limits.cells = 0;
+	let limits = Limits {
+		cells: 0,
+		..Limits::default()
+	};
 	assert!(matches!(
 		Kernel::new(limits).domain(AnalysisDomain::new([-1.0; 3], [1.0; 3]).unwrap()),
 		Err(Error::Budget {
@@ -591,8 +595,10 @@ fn domain_and_exact_predicates_obey_independent_cumulative_budgets() {
 			..
 		})
 	));
-	let mut limits = Limits::default();
-	limits.vertices = 7;
+	let limits = Limits {
+		vertices: 7,
+		..Limits::default()
+	};
 	assert!(matches!(
 		Kernel::new(limits).domain(AnalysisDomain::new([-1.0; 3], [1.0; 3]).unwrap()),
 		Err(Error::Budget {
@@ -600,8 +606,10 @@ fn domain_and_exact_predicates_obey_independent_cumulative_budgets() {
 			..
 		})
 	));
-	let mut limits = Limits::default();
-	limits.constraints = 5;
+	let limits = Limits {
+		constraints: 5,
+		..Limits::default()
+	};
 	assert!(matches!(
 		Kernel::new(limits).domain(AnalysisDomain::new([-1.0; 3], [1.0; 3]).unwrap()),
 		Err(Error::Budget {
@@ -609,8 +617,10 @@ fn domain_and_exact_predicates_obey_independent_cumulative_budgets() {
 			..
 		})
 	));
-	let mut limits = Limits::default();
-	limits.predicates = 0;
+	let limits = Limits {
+		predicates: 0,
+		..Limits::default()
+	};
 	assert!(matches!(
 		Kernel::new(limits).domain(AnalysisDomain::new([-1.0; 3], [1.0; 3]).unwrap()),
 		Err(Error::Budget {
@@ -618,8 +628,10 @@ fn domain_and_exact_predicates_obey_independent_cumulative_budgets() {
 			..
 		})
 	));
-	let mut limits = Limits::default();
-	limits.exact_predicates = 0;
+	let limits = Limits {
+		exact_predicates: 0,
+		..Limits::default()
+	};
 	let mut budget = Budget::new(limits);
 	let rows = [
 		[8388608.0, 8388607.0, 8388607.0],

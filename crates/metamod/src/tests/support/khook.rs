@@ -330,6 +330,7 @@ impl MockKHook {
 
 impl MockKHook {
 	/// Models successful worker insertion without any wall-clock timing.
+	#[cfg(feature = "tf2")]
 	pub(crate) fn activate_pending_hooks(&self) {
 		let mut state = self.state.borrow_mut();
 		let pending = std::mem::take(&mut state.pending_virtual_hooks);

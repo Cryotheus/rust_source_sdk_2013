@@ -168,7 +168,7 @@ fn incomplete_headers_and_wrong_identifiers_fail_before_record_reads() {
 #[test]
 fn incomplete_records_and_missing_world_are_rejected() {
 	let mut data = three_regions();
-	put_i32(&mut data.bytes, 12 + 1 * 16, 39);
+	put_i32(&mut data.bytes, 12 + 16, 39);
 	assert_eq!(
 		Bsp::decode(&data.bytes, Limits::default()).unwrap_err(),
 		Error::Invalid(Invalid::RecordSize { lump: 1 })
