@@ -157,6 +157,44 @@ fn class_hooks_see_the_damage_taken_after_the_game() {
 	});
 }
 
+#[test]
+fn different_callbacks_share_a_class_stage() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut player = Mock::of_new_class();
+		let binding = tf2_binding(no_interfaces);
+
+		// An observer installed first must not keep a later blocker out, as one
+		// did with the teams' damage, which then went through.
+		api.hook_player_class_damage(player.target(), DamageStage::Incoming, binding, observe)
+			.unwrap();
+		api.hook_player_class_damage(player.target(), DamageStage::Incoming, binding, block)
+			.unwrap();
+
+		OBSERVED.with(|observed| observed.set(0));
+		let (result, calls, _) = take_damage(harness, &mut player, DamageStage::Incoming);
+		assert_eq!(
+			(result, calls),
+			(0, 0),
+			"the blocker must keep the game's method from running"
+		);
+		assert_eq!(OBSERVED.with(Cell::get), 1);
+
+		// Each callback still hooks a class's stage once.
+		for callback in [observe as DamageFn, block as DamageFn] {
+			assert!(matches!(
+				api.hook_player_class_damage(
+					player.target(),
+					DamageStage::Incoming,
+					binding,
+					callback
+				),
+				Err(DamageHookError::Hook(HookError::AlreadyInstalled))
+			));
+		}
+	});
+}
+
 /// Notes the damage taken.
 fn on_taken(_: Server<'_>, stage: DamageStage, event: &DamageEvent<'_>, dealt: c_int) {
 	TAKEN.with_borrow_mut(|taken| taken.push((stage, event.info.amount(), dealt)));
@@ -176,4 +214,15 @@ fn take_damage(
 		harness.call::<TakeDamage>(victim.ptr(), stage.function().index(), (info.as_ptr(),));
 
 	(result, CALLS.with(Cell::get), TAKEN.take())
+}
+
+thread_local! {
+	/// How many times [`observe`] ran since it was last reset.
+	static OBSERVED: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Notes the damage, and lets it through.
+fn observe(_: Server<'_>, _: DamageStage, _: &mut DamageEvent<'_>) -> DamageAction {
+	OBSERVED.with(|observed| observed.set(observed.get() + 1));
+	DamageAction::Continue
 }

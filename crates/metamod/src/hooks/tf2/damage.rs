@@ -225,8 +225,8 @@ impl MetamodApi<'_> {
 	/// same running server. It is the same hook as `hook_entity_damage`'s on
 	/// an entity of the class, and on a player's class as
 	/// [`Self::hook_player_class_damage`]'s incoming stage: repeating a class
-	/// returns `HookError::AlreadyInstalled`; removing its ID allows
-	/// replacement.
+	/// with the same callback returns `HookError::AlreadyInstalled`; other
+	/// callbacks can hook it too (see [`Self::hook_player_damage`]).
 	pub fn hook_entity_class_damage<C: DerivesFrom<BaseEntity>>(
 		self,
 		target: ClassTarget<'_, C>,
@@ -289,8 +289,9 @@ impl MetamodApi<'_> {
 	/// distinct class to watch, or before any entity of a class exists with
 	/// [`Self::hook_entity_class_damage`], which this is the same hook as. A
 	/// player's class is the same hook as [`Self::hook_player_damage`]'s
-	/// incoming stage: repeating a class returns
-	/// `HookError::AlreadyInstalled`; removing its ID allows replacement.
+	/// incoming stage: repeating a class with the same callback returns
+	/// `HookError::AlreadyInstalled`; other callbacks can hook it too (see
+	/// [`Self::hook_player_damage`]).
 	///
 	/// Installation is as for [`Self::hook_player_damage`], and so is what
 	/// [`DamageAction::Apply`] does.
@@ -318,8 +319,9 @@ impl MetamodApi<'_> {
 	///
 	/// `target` must come from this server, and `binding` must describe the
 	/// same running server. It is the same hook as `hook_player_damage`'s on
-	/// a player of the class: repeating a class/stage returns
-	/// `HookError::AlreadyInstalled`; removing its ID allows replacement.
+	/// a player of the class: repeating a class and stage with the same
+	/// callback returns `HookError::AlreadyInstalled`; other callbacks can hook
+	/// it too (see [`Self::hook_player_damage`]).
 	pub fn hook_player_class_damage(
 		self,
 		target: ClassTarget<'_, TfPlayer>,
@@ -366,8 +368,15 @@ impl MetamodApi<'_> {
 	/// same running server. Returns a removable hook ID. Install on each
 	/// distinct class encountered, including bots, or as the plugin loads with
 	/// [`Self::hook_player_class_damage`], which this is the same hook as.
-	/// Repeating a class/stage returns `HookError::AlreadyInstalled`; removing
-	/// its ID allows replacement.
+	/// Repeating a class and stage with the same callback returns
+	/// `HookError::AlreadyInstalled`; removing its ID allows replacement.
+	///
+	/// Other callbacks can hook the same class and stage, each with its own
+	/// hook, up to 32 classes and callbacks at once, past which installation
+	/// returns `HookError::TooManyFunctions`. They run in the order they were
+	/// installed, until one blocks the damage or applies an edited copy: the
+	/// later ones are skipped for that call, as the game's method already
+	/// ran or never will.
 	///
 	/// With Metamod 2.0, KHook can queue native activation on its worker when
 	/// the vtable slot already has a detour, including just after a reload.
@@ -418,7 +427,10 @@ impl MetamodApi<'_> {
 		let address = vtable.addr().get();
 		if ROUTES.iter().any(|route| {
 			route.state.get().is_some_and(|state| {
-				state.vtable == address && state.stage == stage && self.has_hook(state.hook)
+				state.vtable == address
+					&& state.stage == stage
+					&& ptr::fn_addr_eq(state.callback, callback)
+					&& self.has_hook(state.hook)
 			})
 		}) {
 			return Err(HookError::AlreadyInstalled.into());
