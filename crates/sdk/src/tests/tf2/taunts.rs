@@ -34,7 +34,7 @@ const VARS: &[Var] = &[
 	Var::new(c"m_flCurrentTauntMoveSpeed", VarKind::Float),
 	Var::new(c"m_iTauntConcept", VarKind::Int),
 	Var::new(c"m_iTauntIndex", VarKind::Int),
-	Var::new(c"m_iTauntItemDefIndex", VarKind::Int),
+	Var::new(c"m_iTauntItemDefIndex", VarKind::Short),
 ];
 
 #[test]

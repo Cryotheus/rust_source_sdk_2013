@@ -192,9 +192,10 @@ impl<'s> PlayerTaunts<'s> {
 			return Ok(None);
 		}
 
+		// TF2 keeps the item's definition index in 16 bits, -1 for none.
 		let item = self
 			.net_prop(c"m_iTauntItemDefIndex")?
-			.get::<c_int>(self.player)?;
+			.get::<i16>(self.player)?;
 
 		Ok(Some(TauntState {
 			can_move: self
@@ -203,7 +204,7 @@ impl<'s> PlayerTaunts<'s> {
 			concept: self
 				.net_prop(c"m_iTauntConcept")?
 				.get::<c_int>(self.player)?,
-			item: u16::try_from(item).ok().and_then(ItemDefinitionIndex::new),
+			item: ItemDefinitionIndex::new(item.cast_unsigned()),
 			kind: self.net_prop(c"m_iTauntIndex")?.get::<c_int>(self.player)?,
 			move_speed: self
 				.net_prop(c"m_flCurrentTauntMoveSpeed")?

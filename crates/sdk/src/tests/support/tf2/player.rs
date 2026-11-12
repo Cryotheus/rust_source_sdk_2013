@@ -9,7 +9,7 @@ use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::ValveEngine;
 
 use crate::test_support::datatables::{
-	direct_table, int8_proxy, int32_proxy, prop, table, table_prop,
+	direct_table, int8_proxy, int16_proxy, int32_proxy, prop, table, table_prop,
 };
 
 use crate::test_support::edicts::{change_accessor, shared_change_info};
@@ -205,6 +205,14 @@ impl FakePlayer {
 					handle.m_nBits = NUM_NETWORKED_EHANDLE_BITS as c_int;
 					handle
 				}
+
+				VarKind::Short => prop(
+					var.name,
+					sys::SendPropType_DPT_Int,
+					offset_int,
+					PropFlags::default(),
+					Some(int16_proxy),
+				),
 
 				VarKind::Int | VarKind::UInt => prop(
 					var.name,
@@ -463,6 +471,9 @@ pub enum VarKind {
 
 	/// A signed 32-bit integer.
 	Int,
+
+	/// A signed 16-bit integer, as `SendProxy_Int16ToInt32` sends one.
+	Short,
 
 	/// A 32-bit integer networked as unsigned.
 	UInt,
