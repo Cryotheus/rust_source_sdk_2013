@@ -362,6 +362,28 @@ impl MetamodApi<'_> {
 		unsafe { self.install_damage_taken(target.as_ptr(), binding, stage, callback) }
 	}
 
+	/// Whether the stage's method in the vtable of `target`'s class of TF2
+	/// players is hooked right now: whether its slot holds something other than
+	/// the function it held before any hook, as any plugin's hook on it puts
+	/// there. For diagnostics, such as telling a hook that was accepted but never
+	/// went live (KHook adds some from a worker thread) from one that runs.
+	pub fn player_class_damage_patched(
+		self,
+		target: ClassTarget<'_, TfPlayer>,
+		stage: DamageStage,
+	) -> Result<bool, DamageHookError> {
+		let vtable = target.as_ptr();
+		// SAFETY: The target is the primary vtable of a TF2 player class, which
+		// holds the stage's method at its slot, in TF2's game module, which stays
+		// loaded until Metamod unloads this plugin.
+		let original =
+			unsafe { self.original_function(stage.function(), HookTarget::vtable(vtable)) }?;
+		// SAFETY: As above, the slot is within the live vtable.
+		let current = unsafe { vtable.as_ptr().add(stage.function().index()).read() };
+
+		Ok(current != original as *mut c_void)
+	}
+
 	/// Hooks incoming or already-scaled damage on this TF2 player's class.
 	///
 	/// `player` must come from this server, and `binding` must describe the
