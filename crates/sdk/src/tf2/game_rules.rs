@@ -495,6 +495,29 @@ impl<'s> GameRules<'s> {
 		// promises.
 		Ok(unsafe { prop.set_at(object, value) }?)
 	}
+
+	/// Writes an element of a networked array of the game rules, such as
+	/// `m_bPlayerReady`, by the array's name and the element's index, as stored,
+	/// without recording the change for clients, as [`Self::write`] writes a
+	/// variable.
+	///
+	/// Fails, without writing, as [`Self::read`] does, or if the variable is not
+	/// an array, or `index` is out of its range.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::write`].
+	pub unsafe fn write_element<T: NetVar>(
+		self,
+		name: &CStr,
+		index: usize,
+		value: T,
+	) -> Result<(), GameRulesError> {
+		let (prop, object) = self.variable(name)?;
+
+		// SAFETY: As for `write`.
+		Ok(unsafe { prop.element(index)?.set_at(object, value) }?)
+	}
 }
 
 /// Why TF2's game rules could not be found, read or written.
