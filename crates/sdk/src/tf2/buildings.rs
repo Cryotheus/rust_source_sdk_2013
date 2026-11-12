@@ -136,6 +136,10 @@ pub enum BuildingError {
 	#[error("the entity is not a TF2 player")]
 	NotTfPlayer,
 
+	/// The entity is not a TF2 weapon.
+	#[error("the entity is not a TF2 weapon")]
+	NotTfWeapon,
+
 	/// The building could not be created.
 	#[error(transparent)]
 	Spawn(#[from] SpawnError),
@@ -750,6 +754,61 @@ impl<'s> Building<'s> {
 	#[doc(alias("m_bWasMapPlaced"))]
 	pub fn was_map_placed(self) -> Result<bool, BuildingError> {
 		self.bool(c"m_bWasMapPlaced")
+	}
+
+	/// Works the building as a hit of `player`'s wrench `weapon` at `position`
+	/// does (`CBaseObject::InputWrenchHit`), and returns whether the hit did
+	/// anything. TF2 damages a sapper on the building; speeds up a building
+	/// going up, as a constructor for a second; and otherwise repairs it, adds
+	/// upgrade metal once it is fully repaired, and refills a sentry's shells
+	/// and rockets, all paid with the player's metal. It shows the hit's
+	/// particles at `position`, and fires `player_upgradedobject` as the
+	/// building starts its next level. Sounds are left to the caller, as
+	/// `CTFWrench` plays them itself.
+	///
+	/// TF2 checks neither the teams nor that `weapon` is a wrench: it reads
+	/// the repair and construction values of the weapon's attributes, and of
+	/// its owner's primary weapon, through the attribute hooks every TF2
+	/// weapon has. Only players whose class builds the building's kind add
+	/// upgrade metal (`CBaseObject::CanBeUpgraded`).
+	///
+	/// Fails unless `player` is a TF2 player and `weapon` a TF2 weapon, and as
+	/// [`Self::destroy`] does for a building that is a blueprint or being
+	/// removed.
+	#[doc(alias("InputWrenchHit", "OnWrenchHit"))]
+	pub fn wrench_hit(
+		self,
+		player: Entity<'s>,
+		weapon: Entity<'s>,
+		position: Vector,
+	) -> Result<bool, BuildingError> {
+		self.check_removable()?;
+
+		if !player.has_data_map_class(c"CTFPlayer") || player.is_marked_for_deletion() {
+			return Err(BuildingError::NotTfPlayer);
+		}
+
+		if !weapon.has_data_map_class(c"CTFWeaponBase") || weapon.is_marked_for_deletion() {
+			return Err(BuildingError::NotTfWeapon);
+		}
+
+		let building = self.entity.as_ptr();
+		let position = sys::Vector::from(position);
+
+		// SAFETY: `new` found `CBaseObject` in the building's datamaps, whose
+		// entity base is at offset zero, as for `construct`; the player and the
+		// weapon are live entities of the classes TF2 reads them as, which
+		// `sdk_raw::tf2::buildings` and `sdk_raw::tf2::weapons` assert start at
+		// their entities. The generated signature passes the trivially copyable
+		// `Vector` as each ABI's C++ does. TF2 removes nothing at once: a sapper
+		// it destroys goes through the engine's deferred deletion.
+		Ok(unsafe {
+			vcall!(building as sys::CBaseObject__bindgen_vtable => CBaseObject_InputWrenchHit(
+				player.as_ptr().cast(),
+				weapon.as_ptr().cast(),
+				position,
+			))
+		})
 	}
 }
 

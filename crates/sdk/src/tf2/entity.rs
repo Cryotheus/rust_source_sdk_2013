@@ -293,6 +293,27 @@ impl<'s> TfEntity<'s> {
 		Ok(position.into())
 	}
 
+	/// Whether the entity lets a trace of the collision group `group`, for the
+	/// contents `contents`, hit it, as it decides itself
+	/// (`CBaseEntity::ShouldCollide`), through its native virtual.
+	///
+	/// The game's own trace filters (`CTraceFilterSimple`) ask this of every
+	/// entity a trace meets, besides the game rules' decision between
+	/// collision groups. Raw engine traces do not, so a caller tracing as the
+	/// game does asks it here. Respawn room visualizers and force fields, for
+	/// example, block only player movement with their team's contents.
+	#[doc(alias("ShouldCollide"))]
+	pub fn should_collide(self, group: c_int, contents: c_int) -> Result<bool, TfEntityError> {
+		self.check_live()?;
+		let entity = self.entity.as_ptr().cast_const();
+		// SAFETY: A live TF2 entity has the primary CBaseEntity vtable, whose
+		// ShouldCollide slot sdk_raw::tf2::virtuals checks against players' and
+		// buildings' layouts. The const method reads the entity and frees nothing.
+		Ok(unsafe {
+			sdk_raw::vcall!(entity as sys::CBaseEntity__bindgen_vtable => CBaseEntity_ShouldCollide(group, contents))
+		})
+	}
+
 	/// The script instance of `entity`, made if it has none.
 	fn instance(self, entity: Entity<'s>) -> Result<sys::HSCRIPT, TfEntityError> {
 		Ok(ScriptInstance::of(self.server, entity)?.as_raw())
