@@ -169,6 +169,11 @@ pub struct AirblastHooks {
 }
 
 impl AirblastHooks {
+	/// The hooks installed, one per weapon class the airblast is hooked on.
+	pub fn ids(&self) -> &[HookId] {
+		&self.hooks
+	}
+
 	pub fn remove(self, api: MetamodApi<'_>) {
 		for hook in self.hooks {
 			api.remove_hook(hook);
