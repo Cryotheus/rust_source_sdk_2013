@@ -7,8 +7,9 @@
 //! spew function shows each line in the server's window, in rcon's reply while
 //! rcon runs a command, in `con_logfile`, and in the server's log. [`watch`]
 //! puts a function of the plugin's in front of it, which sees every line and
-//! then passes it on unchanged unless [`SpewWatch::filter_warnings`] refuses that
-//! particular warning. All other kinds always pass through unchanged.
+//! then passes it on, unchanged unless [`SpewWatch::filter_warnings`] refuses
+//! that particular warning or [`SpewWatch::rewrite_text`] rewrites it. Only
+//! warnings can be refused; the rewrite applies to every kind.
 //!
 //! # What a watch sees
 //!
@@ -47,7 +48,7 @@ use crate::server::Server;
 use sdk_raw::tier0::{SpewApi, SpewColor, SpewOutputFn, SpewRetval, SpewType, spew_api};
 use sdk_raw::util::stub::JumpStub;
 use std::cell::Cell;
-use std::ffi::{CStr, c_char, c_void};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::io;
 use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -76,6 +77,9 @@ static CALLBACK: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
 /// default.
 static PREVIOUS: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
 
+/// An optional rewrite, as a pointer, or null to pass output on as printed.
+static REWRITE: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
+
 /// How many calls are inside [`output`], on any thread.
 static RUNNING: AtomicUsize = AtomicUsize::new(0);
 
@@ -92,6 +96,16 @@ thread_local! {
 	static IN_CALLBACK: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Rewrites a piece of console output before it is passed to the previous
+/// spew function. Returning `Some` passes that text instead; `None` passes the
+/// output unchanged. Runs after the observer, which saw the output as printed,
+/// and only for output the warning filter keeps. A panic passes the output on
+/// unchanged, as does output from inside a callback.
+///
+/// Runs on whichever thread printed the output; do not access engine objects
+/// or retain the callback-scoped text. Keep it quick and do not print.
+pub type RewriteFn = fn(spew: &Spew<'_>) -> Option<CString>;
+
 /// Runs for each line of console output while a watch exists, on whichever
 /// thread printed it. It must be quick, and should not print: output printed
 /// from inside it passes straight on, unseen by it.
@@ -104,6 +118,18 @@ pub type SpewFn = fn(spew: &Spew<'_>);
 /// Runs on whichever thread printed the warning; do not access engine objects
 /// or retain the callback-scoped text. Keep it quick and do not print.
 pub type WarningFilterFn = fn(spew: &Spew<'_>) -> bool;
+
+/// What [`output`] passes to the function the watch replaced.
+enum Pass {
+	/// Nothing: the warning filter refused the line.
+	Omitted,
+
+	/// The line as tier0 printed it.
+	Unchanged,
+
+	/// The rewrite's text in place of the line.
+	Rewritten(CString),
+}
 
 /// Counts a call out of [`output`] when it returns.
 struct Running;
@@ -297,8 +323,26 @@ impl SpewWatch {
 		};
 
 		WARNING_FILTER.store(ptr::null_mut(), Ordering::SeqCst);
+		REWRITE.store(ptr::null_mut(), Ordering::SeqCst);
 		CALLBACK.store(ptr::null_mut(), Ordering::SeqCst);
 		stopped
+	}
+
+	/// Sets a rewrite of every kind of output, or clears it with `None`. Watches
+	/// and spew functions chained after this watch, the server's window, rcon's
+	/// replies and the logs all receive the rewritten text; the watch's observer,
+	/// and anything chained in front of it, sees the text as printed.
+	///
+	/// A stopped watch cannot change the current watch's rewrite. Stopping clears
+	/// the rewrite and waits for its calls, as for the observer; keep the library
+	/// loaded while `stop` returns [`Stopped::Busy`].
+	pub fn rewrite_text(&mut self, rewrite: Option<RewriteFn>) {
+		if self.ended.is_none() {
+			REWRITE.store(
+				rewrite.map_or(ptr::null_mut(), |rewrite| rewrite as *mut ()),
+				Ordering::SeqCst,
+			);
+		}
 	}
 
 	/// Stops calling the watch's callback, and takes its function out of
@@ -371,22 +415,23 @@ fn function_address(function: SpewOutputFn) -> NonNull<c_void> {
 	NonNull::new(function as *mut c_void).expect("functions have addresses")
 }
 
-/// Passes a line to the observer and its warning filter, unless this thread is
-/// already running either. Returns whether to pass it to the previous function.
+/// Passes a line to the observer, its warning filter and its rewrite, unless
+/// this thread is already running one of them. Returns what to pass to the
+/// previous function.
 ///
 /// # Safety
 ///
 /// `message` must be null or point to a string that lasts for the call.
-unsafe fn notify(kind: SpewType, message: *const c_char) -> bool {
+unsafe fn notify(kind: SpewType, message: *const c_char) -> Pass {
 	let callback = CALLBACK.load(Ordering::SeqCst);
 
 	if callback.is_null() || message.is_null() {
-		return true;
+		return Pass::Unchanged;
 	}
 
 	// A thread being torn down counts as inside, and is skipped.
 	if IN_CALLBACK.try_with(|inside| inside.replace(true)) != Ok(false) {
-		return true;
+		return Pass::Unchanged;
 	}
 
 	// SAFETY: `watch` stored a `SpewFn`.
@@ -423,7 +468,7 @@ unsafe fn notify(kind: SpewType, message: *const c_char) -> bool {
 		color,
 	};
 
-	let forward = catch_unwind(AssertUnwindSafe(|| {
+	let keep = catch_unwind(AssertUnwindSafe(|| {
 		callback(&spew);
 
 		if kind != SpewType::WARNING {
@@ -444,8 +489,27 @@ unsafe fn notify(kind: SpewType, message: *const c_char) -> bool {
 	}))
 	.unwrap_or(true);
 
+	let pass = if keep {
+		let rewrite = REWRITE.load(Ordering::SeqCst);
+
+		if rewrite.is_null() {
+			Pass::Unchanged
+		} else {
+			// SAFETY: `rewrite_text` stores a RewriteFn, whose calls the watch's
+			// stop counts and waits for before the library may unload.
+			let rewrite = unsafe { std::mem::transmute::<*mut (), RewriteFn>(rewrite) };
+
+			match catch_unwind(AssertUnwindSafe(|| rewrite(&spew))) {
+				Ok(Some(text)) => Pass::Rewritten(text),
+				Ok(None) | Err(_) => Pass::Unchanged,
+			}
+		}
+	} else {
+		Pass::Omitted
+	};
+
 	IN_CALLBACK.try_with(|inside| inside.set(false)).ok();
-	forward
+	pass
 }
 
 /// The watch's spew function, which the stub jumps to while the watch runs.
@@ -455,9 +519,11 @@ unsafe extern "C" fn output(kind: SpewType, message: *const c_char) -> SpewRetva
 	let _running = Running;
 
 	// SAFETY: tier0 passes the line it is spewing, which lasts for the call.
-	if !unsafe { notify(kind, message) } {
-		return SpewRetval::CONTINUE;
-	}
+	let rewritten = match unsafe { notify(kind, message) } {
+		Pass::Omitted => return SpewRetval::CONTINUE,
+		Pass::Unchanged => None,
+		Pass::Rewritten(text) => Some(text),
+	};
 
 	let Some(api) = current_api() else {
 		return SpewRetval::CONTINUE;
@@ -472,9 +538,12 @@ unsafe extern "C" fn output(kind: SpewType, message: *const c_char) -> SpewRetva
 		unsafe { std::mem::transmute::<*mut c_void, SpewOutputFn>(previous) }
 	};
 
+	let message = rewritten.as_deref().map_or(message, CStr::as_ptr);
+
 	// SAFETY: The function the watch replaced, called as tier0 called this
-	// one. Its answer, such as breaking into the debugger for an assertion, is
-	// passed back unchanged.
+	// one, with the line or its rewrite, which lasts for the call. Its answer,
+	// such as breaking into the debugger for an assertion, is passed back
+	// unchanged.
 	unsafe { previous(kind, message) }
 }
 
@@ -532,6 +601,7 @@ unsafe fn watch_with(api: SpewApi, callback: SpewFn) -> Result<SpewWatch, WatchE
 
 	API.store(Box::into_raw(Box::new(api)), Ordering::SeqCst);
 	WARNING_FILTER.store(ptr::null_mut(), Ordering::SeqCst);
+	REWRITE.store(ptr::null_mut(), Ordering::SeqCst);
 	CALLBACK.store(callback as *mut (), Ordering::SeqCst);
 
 	// SAFETY: As above. The stub jumps to `output`, a spew function, until the

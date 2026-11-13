@@ -392,6 +392,56 @@ fn record_and_print(spew_seen: &Spew<'_>) {
 
 #[test]
 #[cfg_attr(miri, ignore = "Miri cannot run machine code")]
+fn rewrites_pass_on_in_place_of_the_output() {
+	let _serial = setup(Some(engine_output));
+	let mut watch = start(record);
+	watch.filter_warnings(Some(|spew| spew.text() != c"obsolete\n"));
+	watch.rewrite_text(Some(|spew| {
+		let text = spew.text().to_str().ok()?;
+
+		match text {
+			"panic\n" => panic!("rewrite panic"),
+			_ if text.contains("old") => Some(CString::new(text.replace("old", "new")).unwrap()),
+			_ => None,
+		}
+	}));
+
+	assert_eq!(spew(SpewType::MESSAGE, c"old text\n"), SpewRetval::CONTINUE);
+	assert_eq!(
+		spew(SpewType::ASSERT, c"old assert\n"),
+		SpewRetval::DEBUGGER
+	);
+	assert_eq!(spew(SpewType::WARNING, c"obsolete\n"), SpewRetval::CONTINUE);
+	assert_eq!(spew(SpewType::MESSAGE, c"kept\n"), SpewRetval::CONTINUE);
+	assert_eq!(spew(SpewType::MESSAGE, c"panic\n"), SpewRetval::CONTINUE);
+	assert_eq!(SEEN.lock().unwrap()[0].1, "old text\n");
+	assert_eq!(
+		printed(),
+		[
+			"engine: new text\n",
+			"engine: new assert\n",
+			"engine: kept\n",
+			"engine: panic\n"
+		]
+	);
+
+	watch.rewrite_text(None);
+	spew(SpewType::MESSAGE, c"old again\n");
+	watch.rewrite_text(Some(|_| Some(c"stopped".to_owned())));
+	assert_eq!(watch.stop(), Stopped::Restored);
+
+	let mut next = start(record);
+	watch.rewrite_text(Some(|_| Some(c"stopped".to_owned())));
+	spew(SpewType::MESSAGE, c"new watch\n");
+	assert_eq!(
+		printed()[4..],
+		["engine: old again\n", "engine: new watch\n"]
+	);
+	assert_eq!(next.stop(), Stopped::Restored);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri cannot run machine code")]
 fn sees_output_and_passes_it_on() {
 	let _serial = setup(Some(engine_output));
 	let mut watch = start(record);
