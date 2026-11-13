@@ -320,6 +320,13 @@ impl<'s> Entity<'s> {
 		self.data_element(name, 0)
 	}
 
+	/// The offset of the member `name` that a datamap of the entity's class or
+	/// its bases declares, whatever its type, or `None` if none declares it.
+	#[cfg(feature = "tf2")]
+	pub(crate) fn data_member_offset(self, name: &CStr) -> Option<usize> {
+		find_field(self.data_maps(), name, 0).map(|(_, offset)| offset)
+	}
+
 	/// Writes element `element` of the array member `name` that a datamap of
 	/// the entity's class or its bases declares, as [`Self::set_data_field`]
 	/// writes a member.

@@ -12,6 +12,10 @@
 //! plays its layers on and removes those that finished, so call it as the
 //! entity animates, unless the game does, as for its players and NextBots.
 //!
+//! [`AnimationLayers::hold_gesture`] holds a gesture still at a chosen point,
+//! as a pose: it finds the layer through the entity's datamap
+//! (`m_AnimOverlay`) and stops it advancing and being removed.
+//!
 //! Clients show the layers of an entity the server animates, but not those of
 //! TF2's players, whose clients animate them on their own.
 //!
@@ -26,6 +30,33 @@ use sdk_raw::tf2::animation_layers as raw;
 use std::ffi::{CStr, c_int};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+
+const _: () = assert!(size_of::<Layer>() == 0x50);
+const _: () = assert!(std::mem::offset_of!(Layer, activity) == 0x34);
+
+/// The offset of the layer count in the layers' `CUtlVector`, after its
+/// `CUtlMemory` (a pointer and two `int`s).
+const COUNT_OFFSET: usize = 16;
+
+/// `ANIM_LAYER_ACTIVE`: the layer plays.
+const LAYER_ACTIVE: c_int = 0x1;
+
+/// `ANIM_LAYER_AUTOKILL`: the layer is removed once it has played.
+const LAYER_AUTOKILL: c_int = 0x2;
+
+/// `ANIM_LAYER_DYING`: the layer fades out to be removed.
+const LAYER_DYING: c_int = 0x20;
+
+/// `ANIM_LAYER_KILLME`: the layer is being removed.
+const LAYER_KILLME: c_int = 0x4;
+
+/// The most layers an entity is trusted to have.
+const MAX_LAYERS: usize = 15;
+
+/// The datamap member holding an entity's layers, a
+/// `CUtlVector<CAnimationLayer>`: its elements' pointer, then its allocation
+/// count and grow size, then its count at [`COUNT_OFFSET`].
+const OVERLAY_MEMBER: &CStr = c"m_AnimOverlay";
 
 /// The send table every entity with animation layers derives from.
 const OVERLAY_TABLE: &CStr = c"DT_BaseAnimatingOverlay";
@@ -46,6 +77,10 @@ pub enum AnimationLayerError {
 	/// [`sdk_raw::tf2::animation_layers`] describes.
 	#[error("the game's CBaseAnimatingOverlay::RestartGesture could not be found")]
 	Unresolved,
+
+	/// The model has no gesture for the activity, so no layer plays it.
+	#[error("the model has no gesture for the activity")]
+	NoGesture,
 
 	/// The server does not run TF2.
 	#[error("animation layers require a TF2 server")]
@@ -89,6 +124,124 @@ impl<'s> AnimationLayers<'s> {
 			raw,
 			callback: PhantomData,
 		})
+	}
+
+	/// The active layer of `entity`, not being removed, that plays a gesture
+	/// of `activity`, as `RestartGesture` looks for one.
+	fn gesture_layer(
+		self,
+		entity: Entity<'s>,
+		activity: c_int,
+	) -> Result<Option<NonNull<Layer>>, AnimationLayerError> {
+		if entity.is_marked_for_deletion() {
+			return Err(AnimationLayerError::MarkedForDeletion);
+		}
+
+		if !entity
+			.server_class()
+			.and_then(|class| class.table())
+			.is_some_and(|table| table.derives_from_named(OVERLAY_TABLE))
+		{
+			return Err(AnimationLayerError::NoLayers);
+		}
+
+		let offset = entity
+			.data_member_offset(OVERLAY_MEMBER)
+			.ok_or(AnimationLayerError::NoLayers)?;
+
+		// SAFETY: The entity is a live `CBaseAnimatingOverlay`, as its networked
+		// class says, whose datamap places its layers' `CUtlVector` at `offset`:
+		// the elements' pointer first, the count at `COUNT_OFFSET`. They are read
+		// on the main thread, where the game changes them.
+		let (layers, count) = unsafe {
+			let vector = entity.as_ptr().byte_add(offset);
+			(
+				vector.cast::<*mut Layer>().read(),
+				vector.byte_add(COUNT_OFFSET).cast::<c_int>().read(),
+			)
+		};
+
+		let count = usize::try_from(count).unwrap_or(0).min(MAX_LAYERS);
+		let Some(layers) = NonNull::new(layers) else {
+			return Ok(None);
+		};
+
+		Ok((0..count)
+			.map(|index| {
+				// SAFETY: The vector holds `count` layers from `layers`.
+				unsafe { layers.add(index) }
+			})
+			.find(|layer| {
+				// SAFETY: As above, the layer is live.
+				let layer = unsafe { layer.as_ref() };
+
+				layer.flags & LAYER_ACTIVE != 0
+					&& layer.flags & (LAYER_KILLME | LAYER_DYING) == 0
+					&& layer.activity == activity
+			}))
+	}
+
+	/// Holds the gesture of `activity` on `entity` still at `cycle`, from 0 to
+	/// 1, at full weight: adds it as [`Self::restart_gesture`] does if no
+	/// layer plays it, then stops its layer advancing, fading, and being
+	/// removed once played, and sets its cycle. Call it as the entity
+	/// animates: the game may remove the layer, as TF2's buildings remove
+	/// every gesture as they start upgrading (`RemoveAllGestures`), and a
+	/// layer being removed is left to fade while a new one is added. The
+	/// playback rate is not networked, so clients are told of a change only.
+	///
+	/// Fails as [`Self::restart_gesture`] does, and with
+	/// [`AnimationLayerError::NoGesture`] if the model has no gesture for the
+	/// activity.
+	pub fn hold_gesture(
+		self,
+		server: Server<'s>,
+		entity: Entity<'s>,
+		activity: c_int,
+		cycle: f32,
+	) -> Result<(), AnimationLayerError> {
+		let cycle = cycle.clamp(0.0, 1.0);
+		let layer = match self.gesture_layer(entity, activity)? {
+			Some(layer) => layer,
+
+			None => {
+				self.restart_gesture(entity, activity, true, false)?;
+				self.gesture_layer(entity, activity)?
+					.ok_or(AnimationLayerError::NoGesture)?
+			}
+		};
+
+		// SAFETY: `gesture_layer` found the layer among the live entity's
+		// layers, laid out as `Layer`, on the main thread, and nothing else
+		// holds a reference to it during this call. Fields are written through
+		// the pointer, as the game writes them.
+		let changed = unsafe {
+			let layer = layer.as_ptr();
+			let changed = (*layer).cycle != cycle
+				|| (*layer).prev_cycle != cycle
+				|| (*layer).weight != 1.0
+				|| (*layer).playback_rate != 0.0
+				|| (*layer).flags & LAYER_AUTOKILL != 0;
+
+			(*layer).flags &= !LAYER_AUTOKILL;
+			(*layer).sequence_finished = false;
+			(*layer).cycle = cycle;
+			(*layer).prev_cycle = cycle;
+			(*layer).weight = 1.0;
+			(*layer).playback_rate = 0.0;
+			(*layer).blend_in = 0.0;
+			(*layer).blend_out = 0.0;
+			changed
+		};
+
+		if changed
+			&& let Some(edict) = entity.edict()
+			&& let Ok(engine) = server.valve_engine()
+		{
+			edict.full_state_changed(engine);
+		}
+
+		Ok(())
 	}
 
 	/// Plays the gesture of `activity`, such as the one
@@ -137,4 +290,32 @@ impl<'s> AnimationLayers<'s> {
 		};
 		Ok(())
 	}
+}
+
+/// A layer, as the server's `CAnimationLayer` lays it out on both supported
+/// targets (`game/server/BaseAnimatingOverlay.h`): 0x50 bytes, with the
+/// activity at 0x34, as [`sdk_raw::tf2::animation_layers`]' Windows
+/// signature walks them.
+#[repr(C)]
+struct Layer {
+	flags: c_int,
+	sequence_finished: bool,
+	looping: bool,
+	sequence: c_int,
+	cycle: f32,
+	prev_cycle: f32,
+	weight: f32,
+	playback_rate: f32,
+	blend_in: f32,
+	blend_out: f32,
+	kill_rate: f32,
+	kill_delay: f32,
+	layer_anim_time: f32,
+	layer_fade_out_time: f32,
+	activity: c_int,
+	priority: c_int,
+	order: c_int,
+	last_event_check: f32,
+	last_access: f32,
+	owner: *mut std::ffi::c_void,
 }
