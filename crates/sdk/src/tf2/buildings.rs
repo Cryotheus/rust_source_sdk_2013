@@ -47,6 +47,7 @@ use sdk_raw::tf2::buildings as raw;
 use sdk_raw::tf2::script_binding::{BOOL, boolean};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_int};
+use std::num::NonZeroU16;
 
 /// The classes of buildings, as patterns
 /// [`ServerTools::find_by_class_name`](crate::interfaces::ServerTools::find_by_class_name)
@@ -103,6 +104,10 @@ pub enum BuildingError {
 	/// A dispenser cannot hold a negative amount of metal.
 	#[error("dispenser metal must be nonnegative, not {0}")]
 	InvalidMetal(c_int),
+
+	/// A server time must be finite.
+	#[error("a server time must be finite, not {0}")]
+	InvalidTime(f32),
 
 	/// A sentry's range is not a positive finite number.
 	#[error("the sentry's range is {0}, not a positive finite number")]
@@ -1591,6 +1596,22 @@ impl<'s> Sentry<'s> {
 		self.0.int(c"m_iAssists")
 	}
 
+	/// How fast the sentry turns (`m_iBaseTurnRate`), in the game's own unit:
+	/// 6 for every sentry, which the game scales for mini-sentries and while
+	/// its builder aims it with the Wrangler (`GetBaseTurnRate`).
+	#[doc(alias("m_iBaseTurnRate", "GetBaseTurnRate"))]
+	pub fn base_turn_rate(self) -> c_int {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so
+		// the entity is one, laid out as the generated class says.
+		unsafe {
+			self.field::<c_int>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_iBaseTurnRate
+			))
+			.read_unaligned()
+		}
+	}
+
 	/// The sentry as a building.
 	pub const fn building(self) -> Building<'s> {
 		self.0
@@ -1600,6 +1621,17 @@ impl<'s> Sentry<'s> {
 	#[doc(alias("m_hEnemy", "GetEnemy"))]
 	pub fn enemy(self) -> Result<Option<Entity<'s>>, BuildingError> {
 		self.0.handle(c"m_hEnemy")
+	}
+
+	/// A pointer to the sentry's member at `offset`, of type `T`.
+	///
+	/// # Safety
+	///
+	/// `offset` is that of a `T` member of the generated `CObjectSentrygun`.
+	unsafe fn field<T>(self, offset: usize) -> *mut T {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so
+		// the entity is one, and the caller vouches for the member.
+		unsafe { self.0.entity.as_ptr().cast::<u8>().add(offset).cast::<T>() }
 	}
 
 	/// Whether the sentry looks for targets on its own, as its `FindTarget`
@@ -1650,6 +1682,21 @@ impl<'s> Sentry<'s> {
 		} else {
 			MAX_SHELLS
 		})
+	}
+
+	/// When the sentry may next fire rockets, in server time
+	/// (`m_flNextRocketAttack`). Firing a salvo sets it 3 seconds ahead, or
+	/// 2.25 seconds while its builder aims it with the Wrangler.
+	#[doc(alias("m_flNextRocketAttack"))]
+	pub fn next_rocket_attack(self) -> f32 {
+		// SAFETY: The member is an `f32` of the generated class.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_flNextRocketAttack
+			))
+			.read_unaligned()
+		}
 	}
 
 	/// How far the sentry sees targets, in units (`m_flSentryRange`): 1100,
@@ -1703,6 +1750,53 @@ impl<'s> Sentry<'s> {
 		// SAFETY: The game stores the sentry's ammunition as nonnegative
 		// `int` members, which it writes and networks the same way.
 		unsafe { self.0.net_prop(name)?.set(engine, self.0.entity, count) }?;
+
+		Ok(())
+	}
+
+	/// Sets how fast the sentry turns (see [`Self::base_turn_rate`]). The game
+	/// never changes it, so a caller that raises it puts it back.
+	#[doc(alias("m_iBaseTurnRate"))]
+	pub fn set_base_turn_rate(self, rate: NonZeroU16) -> Result<(), BuildingError> {
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: The member is a `c_int` of the generated class, which only the
+		// sentry's own turning reads; it is not networked.
+		unsafe {
+			self.field::<c_int>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_iBaseTurnRate
+			))
+			.write_unaligned(c_int::from(rate.get()));
+		}
+
+		Ok(())
+	}
+
+	/// Sets when the sentry may next fire rockets (see
+	/// [`Self::next_rocket_attack`]). Fails with [`BuildingError::InvalidTime`]
+	/// for a time that is not finite.
+	#[doc(alias("m_flNextRocketAttack"))]
+	pub fn set_next_rocket_attack(self, time: f32) -> Result<(), BuildingError> {
+		if !time.is_finite() {
+			return Err(BuildingError::InvalidTime(time));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: The member is an `f32` of the generated class, which only the
+		// sentry's own attacks read; it is not networked.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_flNextRocketAttack
+			))
+			.write_unaligned(time);
+		}
 
 		Ok(())
 	}
