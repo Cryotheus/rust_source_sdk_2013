@@ -142,9 +142,8 @@ pub enum BuildingError {
 	#[error("the building is not carried")]
 	NotCarried,
 
-	/// Only a dispenser or a teleporter is packed away and redeployed: TF2
-	/// redeploys a sentry only for the player carrying it.
-	#[error("a {0:?} cannot be packed away, only a dispenser or teleporter")]
+	/// Only a dispenser, sentry or teleporter is packed away and redeployed.
+	#[error("a {0:?} cannot be packed away, only a dispenser, sentry or teleporter")]
 	NotPackable(BuildingKind),
 
 	/// The building is not of the kind the view requires.
@@ -367,10 +366,10 @@ impl<'s> Building<'s> {
 	}
 
 	/// Fails with [`BuildingError::NotPackable`] unless the building is a
-	/// dispenser or teleporter, which [`Self::pack_away`] packs away.
+	/// dispenser, sentry or teleporter, which [`Self::pack_away`] packs away.
 	fn check_packable(self) -> Result<(), BuildingError> {
 		match self.kind()? {
-			BuildingKind::Dispenser | BuildingKind::Teleporter => Ok(()),
+			BuildingKind::Dispenser | BuildingKind::Sentry | BuildingKind::Teleporter => Ok(()),
 			kind => Err(BuildingError::NotPackable(kind)),
 		}
 	}
@@ -687,9 +686,9 @@ impl<'s> Building<'s> {
 	/// `player_carryobject` for the server's listeners and recalculates their
 	/// speed.
 	///
-	/// Only dispensers and teleporters are packed away, since TF2 redeploys a
-	/// sentry only for the player carrying it (`CObjectSentrygun` makes one
-	/// that player's disposable sentry as it is placed). The rest of TF2's
+	/// Dispensers, sentries and teleporters are packed away; a sentry keeps its
+	/// shells and rockets for [`Self::redeploy`] (`m_iOldAmmoShells`), and
+	/// loses the Wrangler's shield. The rest of TF2's
 	/// refusals are the caller's (`CTFPlayer::CanPickupBuilding`): it lets no
 	/// one pick up a building that is being built or upgraded, sapped,
 	/// disabled by the Cow Mangler, or below the highest level it reached, nor
@@ -699,7 +698,7 @@ impl<'s> Building<'s> {
 	/// their limit and their metal, so pack away only buildings whose builder
 	/// does not build their kind.
 	///
-	/// Fails with [`BuildingError::NotPackable`] for a sentry or sapper, with
+	/// Fails with [`BuildingError::NotPackable`] for a sapper, with
 	/// [`BuildingError::NotTfPlayer`] unless `carrier` is a TF2 player, with
 	/// [`BuildingError::Carried`] for a building carried already, with
 	/// [`BuildingError::CarrierBusy`] if `carrier` carries one, and as
@@ -740,7 +739,8 @@ impl<'s> Building<'s> {
 		// zero, as a player's entity base is at the start of `CTFPlayer`. Both are
 		// live during `'s`, on the main thread, and neither is being removed.
 		// `MakeCarriedObject` removes the building's screens, and a dispenser's
-		// touch trigger, through the engine's deferred deletion, and sets the
+		// touch trigger, through the engine's deferred deletion (a sentry's also
+		// keeps its ammunition and drops its shield), and sets the
 		// carrier's carrying, which `DropCarriedObject` clears, as it detaches the
 		// building from them.
 		unsafe {
@@ -763,7 +763,8 @@ impl<'s> Building<'s> {
 	/// away with, at the speed TF2 redeploys buildings at
 	/// (`GetObjectBuildSpeedMultiplier` of its builder), without costing metal.
 	/// It recreates its screens as it starts, and a dispenser its touch trigger
-	/// as it finishes.
+	/// as it finishes. A sentry gets back the shells and rockets it was packed
+	/// away with.
 	///
 	/// As an engineer's builder weapon does (`CTFWeaponBuilder::StartPlacement`),
 	/// it first spawns the building again while it is still marked carried
@@ -772,16 +773,22 @@ impl<'s> Building<'s> {
 	/// built, puts its placement model on until it starts building, lets it
 	/// take damage unless it is invulnerable, and clears its sapper flag.
 	///
-	/// No builder is passed to either method, so the building keeps its builder
-	/// and team, no one says a line about it, and neither `player_builtobject`
+	/// A dispenser or teleporter is given no builder, so it keeps its builder
+	/// and team. A sentry's `StartPlacement` asks its builder whether it should
+	/// be a mini or disposable sentry, so its builder, which it must have, is
+	/// given to that, as TF2 gives the engineer carrying it: it keeps them as
+	/// its builder, and joins their team. The game makes it disposable only in
+	/// Mann vs. Machine, for an engineer who builds disposable sentries and has
+	/// another. No one says a line about it, and neither `player_builtobject`
 	/// nor the `BuiltObject` user message is sent; `player_dropobject` fires
 	/// with no user. The caller shows the building again, if it hid it, and
 	/// moves it first.
 	///
-	/// Fails with [`BuildingError::NotPackable`] for a sentry or sapper,
-	/// [`BuildingError::NotCarried`] for a building not packed away, and as
-	/// [`Self::destroy`] does for a building that is a blueprint or being
-	/// removed.
+	/// Fails with [`BuildingError::NotPackable`] for a sapper,
+	/// [`BuildingError::NotCarried`] for a building not packed away,
+	/// [`BuildingError::NotTfPlayer`] for a sentry whose builder is not a TF2
+	/// player, or has none, and as [`Self::destroy`] does for a building that
+	/// is a blueprint or being removed.
 	#[doc(alias(
 		"StartPlacement",
 		"StartBuilding",
@@ -795,6 +802,23 @@ impl<'s> Building<'s> {
 		if !self.is_carried()? {
 			return Err(BuildingError::NotCarried);
 		}
+
+		// Only a sentry's placement reads a player, which it does not check for.
+		let placer = match self.kind()? {
+			BuildingKind::Sentry => {
+				let builder = self
+					.builder()?
+					.filter(|builder| {
+						builder.has_data_map_class(c"CTFPlayer")
+							&& !builder.is_marked_for_deletion()
+					})
+					.ok_or(BuildingError::NotTfPlayer)?;
+
+				builder.as_ptr().cast()
+			}
+
+			_ => std::ptr::null_mut(),
+		};
 
 		let engine = self.server.valve_engine()?;
 		let carried = self.net_prop(c"m_bCarried")?;
@@ -817,15 +841,17 @@ impl<'s> Building<'s> {
 			deploying.set(engine, self.entity, true)?;
 		}
 
-		// SAFETY: As for `pack_away`. `check_packable` let through only a
-		// dispenser or teleporter, whose `StartPlacement` and `StartBuilding`, and
-		// `CBaseObject`'s, check for a player before every use of one (a
-		// sentry's do not). With no player, `StartPlacement` only sets the
-		// building's own state, and `StartBuilding` takes no metal from anyone,
-		// which is the only way it can fail and remove the building; it creates
-		// the building's screens.
+		// SAFETY: As for `pack_away`. A dispenser's and a teleporter's
+		// `StartPlacement` and `StartBuilding`, and `CBaseObject`'s, check for a
+		// player before every use of one, so they are given none. A sentry's
+		// `StartPlacement` reads the player it is given without checking, and its
+		// `StartBuilding` its builder, so it is given its builder, a live TF2
+		// player on the main thread, whom `CBaseObject::StartPlacement` only makes
+		// its builder again and whose team it joins. With no player given,
+		// `StartBuilding` takes no metal from anyone, which is the only way it can
+		// fail and remove the building; it creates the building's screens.
 		let started = unsafe {
-			vcall!(building as sys::CBaseObject__bindgen_vtable => CBaseObject_StartPlacement(std::ptr::null_mut()));
+			vcall!(building as sys::CBaseObject__bindgen_vtable => CBaseObject_StartPlacement(placer));
 			vcall!(building as sys::CBaseObject__bindgen_vtable => CBaseObject_StartBuilding(std::ptr::null_mut()))
 		};
 
@@ -1987,6 +2013,25 @@ impl<'s> Sentry<'s> {
 		}
 	}
 
+	/// The most rockets the sentry takes on (`m_iMaxAmmoRockets`), which its
+	/// spawn sets to 20 (`SENTRYGUN_MAX_ROCKETS`), scaled by its builder's `mvm_sentry_ammo`
+	/// attributes, at every level. Only a level 3 sentry holds rockets: TF2
+	/// fills them as it upgrades to level 3, whatever this says, and a wrench's
+	/// resupply spends metal on them up to this.
+	#[doc(alias("m_iMaxAmmoRockets"))]
+	pub fn rocket_capacity(self) -> c_int {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so the
+		// entity is one, laid out as the generated class says; the member's network
+		// variable holds a `c_int` first.
+		unsafe {
+			self.field::<c_int>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_iMaxAmmoRockets
+			))
+			.read_unaligned()
+		}
+	}
+
 	/// The rockets the sentry holds (`m_iAmmoRockets`), which only level 3
 	/// sentries fire.
 	#[doc(alias("m_iAmmoRockets"))]
@@ -2055,6 +2100,36 @@ impl<'s> Sentry<'s> {
 				m_flNextRocketAttack
 			))
 			.write_unaligned(time);
+		}
+
+		Ok(())
+	}
+
+	/// Sets the most rockets the sentry takes on (see [`Self::rocket_capacity`]),
+	/// which its spawn sets again, as an engineer's sentry is redeployed, so a
+	/// caller that changes it sets it again after. With 0, a wrench spends no
+	/// metal on rockets; the rockets it holds stay, for [`Self::set_rockets`].
+	///
+	/// Fails with [`BuildingError::InvalidAmmo`] for a negative capacity.
+	#[doc(alias("m_iMaxAmmoRockets"))]
+	pub fn set_rocket_capacity(self, capacity: c_int) -> Result<(), BuildingError> {
+		if capacity < 0 {
+			return Err(BuildingError::InvalidAmmo(capacity));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: As for `rocket_capacity`. The member is a network variable of the
+		// class that no send table lists, so nothing networks it; only the
+		// sentry's own spawn, upgrades and resupply read it.
+		unsafe {
+			self.field::<c_int>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_iMaxAmmoRockets
+			))
+			.write_unaligned(capacity);
 		}
 
 		Ok(())
