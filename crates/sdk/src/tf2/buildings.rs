@@ -1822,6 +1822,33 @@ impl<'s> Sentry<'s> {
 		Ok(())
 	}
 
+	/// Counts a kill for the sentry (`m_iKills`), as the game's own
+	/// `IncrementKills` does for the players it kills, and records the change for
+	/// clients: its builder's building status panel shows the count. For the
+	/// kills of what the game does not count, such as entities a plugin moves.
+	///
+	/// Fails with [`BuildingError::MarkedForDeletion`] if the sentry is marked
+	/// for deletion.
+	#[doc(alias("m_iKills", "IncrementKills"))]
+	pub fn add_kill(self) -> Result<(), BuildingError> {
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		let kills = self.kills()?.saturating_add(1);
+		let engine = self.0.server.valve_engine()?;
+
+		// SAFETY: The game counts the sentry's kills in an `int` member, which it
+		// raises and networks the same way.
+		unsafe {
+			self.0
+				.net_prop(c"m_iKills")?
+				.set(engine, self.0.entity, kills)
+		}?;
+
+		Ok(())
+	}
+
 	/// The kills the sentry assisted in (`m_iAssists`).
 	#[doc(alias("m_iAssists"))]
 	pub fn assists(self) -> Result<c_int, BuildingError> {
