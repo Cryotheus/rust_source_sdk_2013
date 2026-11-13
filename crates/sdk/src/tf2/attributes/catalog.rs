@@ -62,7 +62,7 @@ pub const AIRBLAST_VULNERABILITY_MULTIPLIER: AttributeDef<Multiplier> = Attribut
 
 /// Every definition of the catalog, in the order above, for attributes chosen
 /// while the plugin runs. [`find`] looks one up by name.
-pub const ALL: [AnyAttributeDef; 42] = [
+pub const ALL: [AnyAttributeDef; 44] = [
 	AnyAttributeDef::Flag(AIRBLAST_DISABLED),
 	AnyAttributeDef::Multiplier(AIRBLAST_VULNERABILITY_MULTIPLIER),
 	AnyAttributeDef::Multiplier(BLAST_RADIUS_DECREASED),
@@ -80,6 +80,8 @@ pub const ALL: [AnyAttributeDef; 42] = [
 	AnyAttributeDef::Multiplier(DAMAGE_TAKEN_INCREASED),
 	AnyAttributeDef::Multiplier(DEPLOY_TIME_DECREASED),
 	AnyAttributeDef::Multiplier(DEPLOY_TIME_INCREASED),
+	AnyAttributeDef::Multiplier(ENGY_SENTRY_DAMAGE_BONUS),
+	AnyAttributeDef::Multiplier(ENGY_SENTRY_FIRE_RATE_INCREASED),
 	AnyAttributeDef::Multiplier(FASTER_RELOAD_RATE),
 	AnyAttributeDef::Multiplier(FIRE_RATE_BONUS),
 	AnyAttributeDef::Multiplier(FIRE_RATE_PENALTY),
@@ -286,6 +288,33 @@ pub const DEPLOY_TIME_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
 	DescriptionFormat::Percentage,
 	1.0,
 	10.0,
+);
+
+/// `engy sentry damage bonus` (287, `mult_engy_sentry_damage`): scales the
+/// damage of the bullets and rockets of the bearer's sentries, from 1 to 10.
+/// The game reads it on the sentry's builder, from all of their items.
+#[doc(alias("engy sentry damage bonus"))]
+pub const ENGY_SENTRY_DAMAGE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
+	287,
+	c"engy sentry damage bonus",
+	c"mult_engy_sentry_damage",
+	DescriptionFormat::Percentage,
+	1.0,
+	10.0,
+);
+
+/// `engy sentry fire rate increased` (343, `mult_sentry_firerate`): scales
+/// the delay between the bullets of the bearer's sentries, from 0.1 to 1. The
+/// game reads it on the sentry's builder, from all of their items, each time
+/// the sentry fires.
+#[doc(alias("engy sentry fire rate increased"))]
+pub const ENGY_SENTRY_FIRE_RATE_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
+	343,
+	c"engy sentry fire rate increased",
+	c"mult_sentry_firerate",
+	DescriptionFormat::InvertedPercentage,
+	0.1,
+	1.0,
 );
 
 /// `faster reload rate` (318, `fast_reload`): scales the reload time, from
