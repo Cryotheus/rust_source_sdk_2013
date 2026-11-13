@@ -392,10 +392,10 @@ impl Display for MetamodReleaseChannel {
 /// they keep the layouts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetamodVersion {
-	/// 1.12, the stable channel, from build 1226.
+	/// 1.12, the stable channel, from build 1226. Build 1229 has the same layouts.
 	Stable1226,
 
-	/// 2.0, the dev channel, from build 1469. Build 1472 has the same layouts.
+	/// 2.0, the dev channel, from build 1469. Builds 1472 and 1490 have the same layouts.
 	Dev1469,
 }
 

@@ -1,6 +1,6 @@
 //! Hooks on C++ virtual functions, through the hooking library of whichever
-//! Metamod:Source runs the plugin: SourceHook in 1.12 build 1226, and KHook in
-//! 2.0 builds 1469 through 1472.
+//! Metamod:Source runs the plugin: SourceHook in 1.12 builds 1226 through 1229, and
+//! KHook in 2.0 builds 1469 through 1490.
 //!
 //! A [`VirtualFunction`] names a function by its vtable slot and
 //! [`Signature`], like SourceHook's `SH_DECL_MANUALHOOK` and KHook's

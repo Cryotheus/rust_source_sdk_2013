@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
 	let stable_src = PathBuf::from(
 		require_var_os(
 			ENV_MMS_STABLE,
-			"set it to the Metamod:Source 1.12 build 1226 source directory",
+			"set it to the Metamod:Source 1.12 build 1229 source directory",
 		)?
 		.emit(),
 	);
@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<()> {
 	let dev_src = PathBuf::from(
 		require_var_os(
 			ENV_MMS_DEV,
-			"set it to the Metamod:Source 2.0 git1472 source directory with recursive submodules",
+			"set it to the Metamod:Source 2.0 git1490 source directory with recursive submodules",
 		)?
 		.emit(),
 	);

@@ -4,16 +4,17 @@ Hand-written ABI declarations and compiler-owned virtual objects for the support
 Metamod:Source builds. Use nightly Rust and a C++17 compiler for
 `x86_64-pc-windows-msvc` or `x86_64-unknown-linux-gnu`.
 
-The bridge layouts support stable 1.12 build 1226 and dev 2.0 builds 1469/1472.
-The native shells have been built with the 1.12 build 1226 and 2.0 git1472 source
-checkouts; use matching sources, not an arbitrary latest checkout. Initialize
-the dev checkout's recursive submodules, including `third_party/khook`.
+The bridge layouts support stable 1.12 builds 1226/1229 and dev 2.0 builds
+1469/1472/1490. The native shells have been built with the 1.12 build 1229 and
+2.0 git1490 source checkouts; use matching sources, not an arbitrary latest
+checkout. Initialize the dev checkout's recursive submodules, including
+`third_party/khook`.
 
 Both checkouts are required, even when the plugin uses only one channel:
 
 ```text
-METAMOD_SOURCE_STABLE=path/to/metamod-source-1.12-build-1226
-METAMOD_SOURCE_DEV=path/to/metamod-source-2.0-git1472
+METAMOD_SOURCE_STABLE=path/to/metamod-source-1.12-build-1229
+METAMOD_SOURCE_DEV=path/to/metamod-source-2.0-git1490
 ```
 
 Export these variables before invoking Cargo. A repository checkout can also

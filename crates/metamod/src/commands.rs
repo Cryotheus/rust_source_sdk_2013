@@ -38,8 +38,8 @@ pub struct MetamodRegistrar<'callback> {
 }
 
 // SAFETY: Both calls pass the command unchanged to the engine's `ICvar`, in
-// 1.12 build 1226 and 2.0 builds 1469 through 1472 alike, and Metamod keeps it
-// only to unlink it again.
+// 1.12 builds 1226 through 1229 and 2.0 builds 1469 through 1490 alike, and
+// Metamod keeps it only to unlink it again.
 unsafe impl CommandRegistrar for MetamodRegistrar<'_> {
 	unsafe fn link(&self, command: NonNull<ConCommandBase>) {
 		// SAFETY: `command_registrar` checked that Metamod loaded the plugin

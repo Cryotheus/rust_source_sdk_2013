@@ -1,4 +1,4 @@
-//! Hooks through KHook, in Metamod 2.0 builds 1469 through 1472.
+//! Hooks through KHook, in Metamod 2.0 builds 1469 through 1490.
 //!
 //! KHook calls a hook's functions as the hooked function, with its arguments,
 //! and finds the hook's site through the context it was installed with.
