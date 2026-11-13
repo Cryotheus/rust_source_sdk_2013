@@ -39,6 +39,7 @@ pub mod item_generation;
 pub mod item_schema;
 pub mod medigun_targets;
 pub mod melee;
+pub mod minigun;
 pub mod nav;
 pub mod next_bot;
 pub mod objectives;

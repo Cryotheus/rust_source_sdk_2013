@@ -8,6 +8,7 @@
 //! changes a weapon's attributes afterwards, through [`ItemAttributes`].
 
 pub mod identity;
+pub mod minigun;
 pub mod shortstop;
 
 #[cfg(test)]
