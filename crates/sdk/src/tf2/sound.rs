@@ -42,8 +42,8 @@ mod tests;
 use crate::entities::Entity;
 use crate::interfaces::engine_sound::SoundFlags;
 use crate::interfaces::game_event::CreateEventError;
-use crate::net::messages::GameEvent;
-use crate::net::{EncodeError, NetChannel, NetMessage, Reliability};
+use crate::net::EncodeError;
+use crate::net::events::{self, SendEventError};
 use crate::tf2::game_events::GameEventId;
 use crate::tf2::script_binding::{self as binding, BindingError};
 use crate::user_messages::Recipients;
@@ -249,45 +249,25 @@ pub fn broadcast(
 		Some(player) => player.edict().ok_or(BroadcastError::NotNetworked)?.index(),
 		None => NO_PLAYER,
 	};
-	let engine = server.valve_engine()?;
-	let channels: Vec<NetChannel<'_>> = recipients
-		.players()
-		.iter()
-		.filter_map(|&index| engine.edict_of_index(index))
-		.filter(|edict| edict.entity().is_some())
-		.filter_map(|edict| engine.net_channel(edict))
-		.collect();
+	let channels = events::channels(server, recipients)?;
 
+	// The manager creates no event no client listens for yet.
 	if channels.is_empty() {
 		return Ok(0);
 	}
 
-	let events = server.game_events()?;
-	let mut event = events.create_event(BROADCAST_EVENT)?;
+	let mut event = server.game_events()?.create_event(BROADCAST_EVENT)?;
 
 	event.set_int(c"team", ANY_TEAM);
 	event.set_string(c"sound", sound);
 	event.set_int(c"additional_flags", flags.bits());
 	event.set_int(c"player", player);
 
-	// The engine, which the SDK does not include, sends a fired event to each
-	// client in the stream `IGameEvent::IsReliable` names.
-	let reliability = match event.as_event().is_reliable() {
-		true => Reliability::Reliable,
-		false => Reliability::Unreliable,
-	};
-	let data = events
-		.serialize_event(event.as_event())
-		.ok_or(BroadcastError::NotSerialized)?;
-
-	drop(event);
-
-	let message = GameEvent { data: &data }.encode()?;
-
-	Ok(channels
-		.into_iter()
-		.filter(|channel| channel.send_encoded(&message, reliability).is_ok())
-		.count())
+	events::send_to(server, channels, event.as_event()).map_err(|error| match error {
+		SendEventError::Encode(error) => BroadcastError::Encode(error),
+		SendEventError::Interface(error) => BroadcastError::Interface(error),
+		SendEventError::NotSerialized => BroadcastError::NotSerialized,
+	})
 }
 
 /// Plays a sound script entry, such as `TFPlayer.Decapitated`, from `entity`,
