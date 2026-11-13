@@ -137,6 +137,11 @@ pub enum BuildingError {
 	#[error("the building is not carried")]
 	NotCarried,
 
+	/// Only a dispenser or a teleporter is packed away and redeployed: TF2
+	/// redeploys a sentry only for the player carrying it.
+	#[error("a {0:?} cannot be packed away, only a dispenser or teleporter")]
+	NotPackable(BuildingKind),
+
 	/// The building is not of the kind the view requires.
 	#[error("the building is not a {0:?}")]
 	NotKind(BuildingKind),
@@ -356,6 +361,15 @@ impl<'s> Building<'s> {
 		self.handle(c"m_hBuiltOnEntity")
 	}
 
+	/// Fails with [`BuildingError::NotPackable`] unless the building is a
+	/// dispenser or teleporter, which [`Self::pack_away`] packs away.
+	fn check_packable(self) -> Result<(), BuildingError> {
+		match self.kind()? {
+			BuildingKind::Dispenser | BuildingKind::Teleporter => Ok(()),
+			kind => Err(BuildingError::NotPackable(kind)),
+		}
+	}
+
 	/// Fails unless the building may be detonated or removed: one that is
 	/// neither marked for deletion, dying, nor a blueprint.
 	fn check_removable(self) -> Result<(), BuildingError> {
@@ -411,7 +425,8 @@ impl<'s> Building<'s> {
 	/// (`CBaseObject::DestroyObject`): without exploding or gibs, an
 	/// `object_detonated` or `object_destroyed` event, or its `OnDestroyed`
 	/// output. An engineer carrying it puts it away, and switches to their
-	/// last weapon.
+	/// last weapon. One [packed away](Self::pack_away) is removed without its
+	/// builder letting go of it.
 	///
 	/// Fails with [`BuildingError::MarkedForDeletion`],
 	/// [`BuildingError::Dying`] or [`BuildingError::Blueprint`] for a
@@ -419,6 +434,7 @@ impl<'s> Building<'s> {
 	#[doc(alias("DestroyObject"))]
 	pub fn destroy(self) -> Result<(), BuildingError> {
 		self.check_removable()?;
+		self.unmark_packed()?;
 
 		let building = self.entity.as_ptr();
 
@@ -437,12 +453,15 @@ impl<'s> Building<'s> {
 	/// Destroys the building as its builder's PDA does
 	/// (`CBaseObject::DetonateObject`): it explodes into gibs, which drop
 	/// metal, fires its `OnDestroyed` output and an `object_detonated` event,
-	/// and is removed. An engineer carrying it loses it.
+	/// and is removed. An engineer carrying it loses it. One
+	/// [packed away](Self::pack_away) is removed without its builder letting
+	/// go of it.
 	///
 	/// Fails as [`Self::destroy`] does.
 	#[doc(alias("DetonateObject"))]
 	pub fn detonate(self) -> Result<(), BuildingError> {
 		self.check_removable()?;
+		self.unmark_packed()?;
 
 		let building = self.entity.as_ptr();
 
@@ -525,7 +544,8 @@ impl<'s> Building<'s> {
 		self.get(name)
 	}
 
-	/// Whether an engineer carries the building (`m_bCarried`).
+	/// Whether an engineer carries the building (`m_bCarried`), or it is
+	/// [packed away](Self::pack_away).
 	#[doc(alias("m_bCarried", "IsCarried"))]
 	pub fn is_carried(self) -> Result<bool, BuildingError> {
 		self.bool(c"m_bCarried")
@@ -649,9 +669,12 @@ impl<'s> Building<'s> {
 	/// loses its screens, and a dispenser its touch trigger, the players it
 	/// heals and its idle sound. It stays marked carried (`m_bCarried`) until
 	/// it is redeployed, which keeps TF2 from operating it: a dispenser neither
-	/// refills, dispenses nor heals. Destroying it meanwhile has its builder let
-	/// go of it again (`CBaseObject::DestroyObject`), which switches a builder
-	/// with a builder weapon, such as a spy's sapper, to their last weapon.
+	/// refills, dispenses nor heals. [`Self::destroy`] and [`Self::detonate`]
+	/// remove it meanwhile as any other. A removal TF2 makes itself, as when its
+	/// builder changes class or team, has its builder let go of it again
+	/// (`CBaseObject::DestroyObject`): that clears the building an engineer
+	/// builder carries, and switches a builder with a builder weapon, such as a
+	/// spy's sapper, to their last weapon.
 	///
 	/// TF2 mounts the building on `carrier` and lets go of it where `carrier`
 	/// stands, so it is left there, solid, unparented and drawn: the caller
@@ -659,9 +682,22 @@ impl<'s> Building<'s> {
 	/// `player_carryobject` for the server's listeners and recalculates their
 	/// speed.
 	///
-	/// Fails with [`BuildingError::NotTfPlayer`] unless `carrier` is a TF2
-	/// player, with [`BuildingError::Carried`] for a building carried already,
-	/// with [`BuildingError::CarrierBusy`] if `carrier` carries one, and as
+	/// Only dispensers and teleporters are packed away, since TF2 redeploys a
+	/// sentry only for the player carrying it (`CObjectSentrygun` makes one
+	/// that player's disposable sentry as it is placed). The rest of TF2's
+	/// refusals are the caller's (`CTFPlayer::CanPickupBuilding`): it lets no
+	/// one pick up a building that is being built or upgraded, sapped,
+	/// disabled by the Cow Mangler, or below the highest level it reached, nor
+	/// one parented to another entity, such as a cart's dispenser. While an
+	/// engineer's building is packed away, TF2 takes it for one they carry
+	/// (`CTFPlayer::CanBuild`), and lets them build another of its kind past
+	/// their limit and their metal, so pack away only buildings whose builder
+	/// does not build their kind.
+	///
+	/// Fails with [`BuildingError::NotPackable`] for a sentry or sapper, with
+	/// [`BuildingError::NotTfPlayer`] unless `carrier` is a TF2 player, with
+	/// [`BuildingError::Carried`] for a building carried already, with
+	/// [`BuildingError::CarrierBusy`] if `carrier` carries one, and as
 	/// [`Self::destroy`] does for a building that is a blueprint or being
 	/// removed.
 	#[doc(alias(
@@ -672,6 +708,7 @@ impl<'s> Building<'s> {
 	))]
 	pub fn pack_away(self, carrier: Entity<'s>) -> Result<(), BuildingError> {
 		self.check_removable()?;
+		self.check_packable()?;
 
 		if !carrier.has_data_map_class(c"CTFPlayer") || carrier.is_marked_for_deletion() {
 			return Err(BuildingError::NotTfPlayer);
@@ -719,18 +756,26 @@ impl<'s> Building<'s> {
 	/// (`CBaseObject::StartPlacement`, then `StartBuilding` with
 	/// `m_bCarryDeploy` set): it builds again from the health it was packed
 	/// away with, at the speed TF2 redeploys buildings at
-	/// (`GetObjectBuildSpeedMultiplier` of its builder), back up to the level
-	/// it had, without costing metal. It recreates its screens as it starts,
-	/// and a dispenser its touch trigger as it finishes.
+	/// (`GetObjectBuildSpeedMultiplier` of its builder), without costing metal.
+	/// It recreates its screens as it starts, and a dispenser its touch trigger
+	/// as it finishes.
+	///
+	/// As an engineer's builder weapon does (`CTFWeaponBuilder::StartPlacement`),
+	/// it first spawns the building again while it is still marked carried
+	/// (`Spawn`, without what it does only once): that sets it back to level 1,
+	/// from which TF2 upgrades it back up to the highest level it reached once
+	/// built, puts its placement model on until it starts building, lets it
+	/// take damage unless it is invulnerable, and clears its sapper flag.
 	///
 	/// No builder is passed to either method, so the building keeps its builder
 	/// and team, no one says a line about it, and neither `player_builtobject`
 	/// nor the `BuiltObject` user message is sent; `player_dropobject` fires
-	/// with no user. The caller shows the building again, and lets it take
-	/// damage, if it hid it, and moves it first.
+	/// with no user. The caller shows the building again, if it hid it, and
+	/// moves it first.
 	///
-	/// Fails with [`BuildingError::NotCarried`] for a building not packed away,
-	/// and as [`Self::destroy`] does for a building that is a blueprint or being
+	/// Fails with [`BuildingError::NotPackable`] for a sentry or sapper,
+	/// [`BuildingError::NotCarried`] for a building not packed away, and as
+	/// [`Self::destroy`] does for a building that is a blueprint or being
 	/// removed.
 	#[doc(alias(
 		"StartPlacement",
@@ -740,6 +785,7 @@ impl<'s> Building<'s> {
 	))]
 	pub fn redeploy(self) -> Result<(), BuildingError> {
 		self.check_removable()?;
+		self.check_packable()?;
 
 		if !self.is_carried()? {
 			return Err(BuildingError::NotCarried);
@@ -748,6 +794,14 @@ impl<'s> Building<'s> {
 		let engine = self.server.valve_engine()?;
 		let carried = self.net_prop(c"m_bCarried")?;
 		let deploying = self.net_prop(c"m_bCarryDeploy")?;
+		let building = self.entity.as_ptr();
+
+		// SAFETY: As for `pack_away`. While the building is marked carried,
+		// `Spawn` skips its first spawn, which would create its physics and
+		// thinks again, and only resets the building's own state and model.
+		unsafe {
+			vcall!(building as sys::CBaseObject__bindgen_vtable => CBaseObject_Spawn());
+		}
 
 		// SAFETY: Both are the building's networked bools, which the checked
 		// properties validate and mark changed. `StartBuilding` takes a building
@@ -758,10 +812,11 @@ impl<'s> Building<'s> {
 			deploying.set(engine, self.entity, true)?;
 		}
 
-		let building = self.entity.as_ptr();
-
-		// SAFETY: As for `pack_away`. With no player, `StartPlacement` only sets
-		// the building's own state, and `StartBuilding` takes no metal from anyone,
+		// SAFETY: As for `pack_away`. `check_packable` let through only a
+		// dispenser or teleporter, whose `StartPlacement` and `StartBuilding`, and
+		// `CBaseObject`'s, check for a player before every use of one (a
+		// sentry's do not). With no player, `StartPlacement` only sets the
+		// building's own state, and `StartBuilding` takes no metal from anyone,
 		// which is the only way it can fail and remove the building; it creates
 		// the building's screens.
 		let started = unsafe {
@@ -883,6 +938,35 @@ impl<'s> Building<'s> {
 	#[doc(alias("m_iTeamNum", "GetTeamNumber"))]
 	pub fn team(self) -> Result<c_int, BuildingError> {
 		self.int(c"m_iTeamNum")
+	}
+
+	/// Clears `m_bCarried` of a building [`Self::pack_away`] packed away, which
+	/// no player carries, so that removing it leaves its builder alone:
+	/// `CBaseObject::DestroyObject` has the builder of a building marked carried
+	/// let go of it, which clears what an engineer builder really carries, and
+	/// switches a builder with a builder weapon to their last weapon.
+	fn unmark_packed(self) -> Result<(), BuildingError> {
+		if !self.is_carried()? {
+			return Ok(());
+		}
+
+		if let Some(builder) = self.builder()?
+			&& builder.has_data_map_class(c"CTFPlayer")
+			&& PlayerBuildings::new(self.server, builder)?
+				.carried()?
+				.is_some_and(|carried| carried.entity.handle() == self.entity.handle())
+		{
+			return Ok(());
+		}
+
+		let carried = self.net_prop(c"m_bCarried")?;
+
+		// SAFETY: `m_bCarried` is the building's networked bool, which the
+		// checked property validates and marks changed. No player carries the
+		// building, which `DropCarriedObject` detached as it was packed away.
+		unsafe { carried.set(self.server.valve_engine()?, self.entity, false) }?;
+
+		Ok(())
 	}
 
 	/// The metal put into the building's next level (`m_iUpgradeMetal`).
