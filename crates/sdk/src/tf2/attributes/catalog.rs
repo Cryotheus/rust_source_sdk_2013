@@ -5,7 +5,8 @@
 //! Each definition was checked against `scripts/items/items_game.txt`: TF2's
 //! legacy default type (no `attribute_type`), stored as a float (no
 //! `stored_as_integer`), not hidden, and read by a gameplay hook on the
-//! server. Attributes whose values index game tables (particles, killstreak
+//! server; the three `halloween` spell attributes are the exception, hidden
+//! from item descriptions but read by gameplay hooks too. Attributes whose values index game tables (particles, killstreak
 //! effects, item definitions, lookup tables, condition bit masks) are left
 //! out, as are string and other blob types.
 //!
@@ -62,7 +63,7 @@ pub const AIRBLAST_VULNERABILITY_MULTIPLIER: AttributeDef<Multiplier> = Attribut
 
 /// Every definition of the catalog, in the order above, for attributes chosen
 /// while the plugin runs. [`find`] looks one up by name.
-pub const ALL: [AnyAttributeDef; 44] = [
+pub const ALL: [AnyAttributeDef; 50] = [
 	AnyAttributeDef::Flag(AIRBLAST_DISABLED),
 	AnyAttributeDef::Multiplier(AIRBLAST_VULNERABILITY_MULTIPLIER),
 	AnyAttributeDef::Multiplier(BLAST_RADIUS_DECREASED),
@@ -85,9 +86,13 @@ pub const ALL: [AnyAttributeDef; 44] = [
 	AnyAttributeDef::Multiplier(FASTER_RELOAD_RATE),
 	AnyAttributeDef::Multiplier(FIRE_RATE_BONUS),
 	AnyAttributeDef::Multiplier(FIRE_RATE_PENALTY),
+	AnyAttributeDef::Multiplier(HALLOWEEN_FIRE_RATE_BONUS),
+	AnyAttributeDef::Multiplier(HALLOWEEN_INCREASED_JUMP_HEIGHT),
+	AnyAttributeDef::Multiplier(HALLOWEEN_RELOAD_TIME_DECREASED),
 	AnyAttributeDef::Amount(HEAL_ON_HIT_RAPID_FIRE),
 	AnyAttributeDef::Amount(HEAL_ON_HIT_SLOW_FIRE),
 	AnyAttributeDef::Amount(HEAL_ON_KILL),
+	AnyAttributeDef::Multiplier(HEALTH_FROM_PACKS_INCREASED),
 	AnyAttributeDef::Amount(HEALTH_REGEN),
 	AnyAttributeDef::Amount(MAX_HEALTH_ADDITIVE_BONUS),
 	AnyAttributeDef::Amount(MAX_HEALTH_ADDITIVE_PENALTY),
@@ -106,6 +111,8 @@ pub const ALL: [AnyAttributeDef; 44] = [
 	AnyAttributeDef::Multiplier(RELOAD_TIME_INCREASED),
 	AnyAttributeDef::Flag(SET_DAMAGE_TYPE_IGNITE),
 	AnyAttributeDef::Multiplier(SPREAD_PENALTY),
+	AnyAttributeDef::Multiplier(UBERCHARGE_OVERHEAL_RATE_PENALTY),
+	AnyAttributeDef::Multiplier(UBERCHARGE_RATE_BONUS),
 	AnyAttributeDef::Multiplier(WEAPON_SPREAD_BONUS),
 ];
 
@@ -351,6 +358,44 @@ pub const FIRE_RATE_PENALTY: AttributeDef<Multiplier> = AttributeDef::new(
 	DescriptionFormat::InvertedPercentage,
 	1.0,
 	10.0,
+);
+
+/// `halloween fire rate bonus` (549, `hwn_mult_postfiredelay`): scales the
+/// delay between shots, from 0.1 to 1. The schema hides it from item
+/// descriptions, as it does the other Halloween spell attributes.
+#[doc(alias("halloween fire rate bonus"))]
+pub const HALLOWEEN_FIRE_RATE_BONUS: AttributeDef<Multiplier> = AttributeDef::new(
+	549,
+	c"halloween fire rate bonus",
+	c"hwn_mult_postfiredelay",
+	DescriptionFormat::InvertedPercentage,
+	0.1,
+	1.0,
+);
+
+/// `halloween increased jump height` (550, `mod_jump_height`): scales the
+/// owner's jump height, from 1 to 3. The schema hides it from item
+/// descriptions.
+#[doc(alias("halloween increased jump height"))]
+pub const HALLOWEEN_INCREASED_JUMP_HEIGHT: AttributeDef<Multiplier> = AttributeDef::new(
+	550,
+	c"halloween increased jump height",
+	c"mod_jump_height",
+	DescriptionFormat::Percentage,
+	1.0,
+	3.0,
+);
+
+/// `halloween reload time decreased` (548, `hwn_mult_reload_time`): scales the
+/// reload time, from 0.1 to 1. The schema hides it from item descriptions.
+#[doc(alias("halloween reload time decreased"))]
+pub const HALLOWEEN_RELOAD_TIME_DECREASED: AttributeDef<Multiplier> = AttributeDef::new(
+	548,
+	c"halloween reload time decreased",
+	c"hwn_mult_reload_time",
+	DescriptionFormat::InvertedPercentage,
+	0.1,
+	1.0,
 );
 
 /// `heal on hit for rapidfire` (16, `add_onhit_addhealth`): health the owner

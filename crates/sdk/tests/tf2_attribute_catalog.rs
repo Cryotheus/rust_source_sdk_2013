@@ -4,9 +4,7 @@
 
 use source_sdk_2013::tf2::attributes::catalog::*;
 
-use source_sdk_2013::tf2::attributes::{
-	AttributeDef, AttributeIndex, AttributeValue, DescriptionFormat,
-};
+use source_sdk_2013::tf2::attributes::{AttributeIndex, DescriptionFormat};
 
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -20,17 +18,6 @@ struct Def {
 	format: DescriptionFormat,
 }
 
-impl Def {
-	fn of<V: AttributeValue>(def: &AttributeDef<V>) -> Self {
-		Self {
-			name: def.name(),
-			index: def.index(),
-			class: def.class(),
-			format: def.format(),
-		}
-	}
-}
-
 #[derive(Debug, PartialEq)]
 enum Token {
 	Open,
@@ -39,50 +26,15 @@ enum Token {
 }
 
 /// Every definition of the catalog.
-fn all() -> [Def; 41] {
-	[
-		Def::of(&AIRBLAST_DISABLED),
-		Def::of(&BLAST_RADIUS_DECREASED),
-		Def::of(&BLAST_RADIUS_INCREASED),
-		Def::of(&BULLETS_PER_SHOT_BONUS),
-		Def::of(&CLIP_SIZE_BONUS),
-		Def::of(&CLIP_SIZE_PENALTY),
-		Def::of(&CRITBOOST_ON_KILL),
-		Def::of(&CRIT_KILL_WILL_GIB),
-		Def::of(&DAMAGE_BONUS),
-		Def::of(&DAMAGE_PENALTY),
-		Def::of(&DAMAGE_PENALTY_VS_PLAYERS),
-		Def::of(&DAMAGE_TAKEN_FROM_BLAST_REDUCED),
-		Def::of(&DAMAGE_TAKEN_INCREASED),
-		Def::of(&DEPLOY_TIME_DECREASED),
-		Def::of(&DEPLOY_TIME_INCREASED),
-		Def::of(&FASTER_RELOAD_RATE),
-		Def::of(&FIRE_RATE_BONUS),
-		Def::of(&FIRE_RATE_PENALTY),
-		Def::of(&HEALTH_FROM_PACKS_INCREASED),
-		Def::of(&HEALTH_REGEN),
-		Def::of(&HEAL_ON_HIT_RAPID_FIRE),
-		Def::of(&HEAL_ON_HIT_SLOW_FIRE),
-		Def::of(&HEAL_ON_KILL),
-		Def::of(&MAXAMMO_PRIMARY_INCREASED),
-		Def::of(&MAXAMMO_PRIMARY_REDUCED),
-		Def::of(&MAXAMMO_SECONDARY_INCREASED),
-		Def::of(&MAXAMMO_SECONDARY_REDUCED),
-		Def::of(&MAX_HEALTH_ADDITIVE_BONUS),
-		Def::of(&MAX_HEALTH_ADDITIVE_PENALTY),
-		Def::of(&MINICRITS_BECOME_CRITS),
-		Def::of(&MINICRIT_VS_BURNING_PLAYER),
-		Def::of(&MOVE_SPEED_BONUS),
-		Def::of(&MOVE_SPEED_PENALTY),
-		Def::of(&PROJECTILE_SPEED_DECREASED),
-		Def::of(&PROJECTILE_SPEED_INCREASED),
-		Def::of(&PROVIDE_ON_ACTIVE),
-		Def::of(&RELOAD_TIME_DECREASED),
-		Def::of(&RELOAD_TIME_INCREASED),
-		Def::of(&SET_DAMAGE_TYPE_IGNITE),
-		Def::of(&SPREAD_PENALTY),
-		Def::of(&WEAPON_SPREAD_BONUS),
-	]
+fn all() -> Vec<Def> {
+	ALL.iter()
+		.map(|def| Def {
+			name: def.name(),
+			index: def.index(),
+			class: def.class(),
+			format: def.format(),
+		})
+		.collect()
 }
 
 /// Checks every definition against an `items_game.txt` named by the
@@ -120,8 +72,9 @@ fn definitions_match_the_shipped_item_schema() {
 			matches!(key("stored_as_integer"), None | Some("0")),
 			"storage of {name}"
 		);
+		// The Halloween spell attributes are hidden from item descriptions.
 		assert!(
-			matches!(key("hidden"), None | Some("0")),
+			matches!(key("hidden"), None | Some("0")) || name.starts_with("halloween "),
 			"visibility of {name}"
 		);
 	}
