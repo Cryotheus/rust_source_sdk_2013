@@ -130,8 +130,9 @@ pub enum BuildingError {
 	#[error("sentry shield levels are 0 to 2, not {0}")]
 	InvalidShield(c_int),
 
-	/// A building's next level cannot take a negative amount of metal.
-	#[error("upgrade metal must be nonnegative, not {0}")]
+	/// A building's next level takes 0 to 511 metal, the most clients
+	/// receive.
+	#[error("upgrade metal must be 0 to 511, not {0}")]
 	InvalidUpgradeMetal(c_int),
 
 	/// The building, or player, is already marked for deletion.
@@ -297,6 +298,10 @@ use sdk_raw::util;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+
+/// The most metal clients read of a building's next level
+/// (`m_iUpgradeMetalRequired`), which TF2 sends in 10 signed bits.
+const MAX_NETWORKED_UPGRADE_METAL: c_int = (1 << 9) - 1;
 
 /// The most rockets a level 3 sentry holds (`SENTRYGUN_MAX_ROCKETS`).
 const MAX_ROCKETS: c_int = 20;
@@ -941,15 +946,19 @@ impl<'s> Building<'s> {
 
 	/// Sets the metal the building's next level takes
 	/// (`m_iUpgradeMetalRequired`), and records the change for clients, whose
-	/// building panels show the metal put in against it. The game sets it once,
-	/// as the building spawns, from its object's `UpgradeCost`, 200 for each
-	/// level of TF2's buildings; a wrench hit puts in no more than this, and the
-	/// building upgrades once the metal put in reaches it.
+	/// building panels show the metal put in against it. The game sets it as the
+	/// building spawns, from its object's `UpgradeCost`, 200 for each level of
+	/// TF2's buildings, and again each time an engineer's building is redeployed,
+	/// so a caller that changes it sets it again after. A wrench hit puts in no
+	/// more than this, and the building upgrades on the hit that brings the metal
+	/// put in up to it.
 	///
-	/// Fails with [`BuildingError::InvalidUpgradeMetal`] for a negative amount.
+	/// Clients receive it in 10 signed bits, so they read no more than 511 of it.
+	/// Fails with [`BuildingError::InvalidUpgradeMetal`] for an amount outside 0
+	/// to 511.
 	#[doc(alias("m_iUpgradeMetalRequired"))]
 	pub fn set_upgrade_metal_required(self, metal: c_int) -> Result<(), BuildingError> {
-		if metal < 0 {
+		if !(0..=MAX_NETWORKED_UPGRADE_METAL).contains(&metal) {
 			return Err(BuildingError::InvalidUpgradeMetal(metal));
 		}
 
@@ -1988,13 +1997,14 @@ impl<'s> Sentry<'s> {
 		self.0.int(c"m_iKills")
 	}
 
-	/// The model attachment the sentry last fired from
+	/// The model attachment the sentry last chose to fire from
 	/// (`m_iLastMuzzleAttachmentFired`), numbered from 1 as
 	/// [`lookup_attachment`](crate::tf2::animating::lookup_attachment) numbers
-	/// them, or 0 before its first shot. Each shot picks its muzzle as it fires
-	/// (`GetFireAttachment`): a level 1 sentry always fires from its `muzzle`,
-	/// and a level 2 or 3 sentry alternates between its `muzzle_l` and
-	/// `muzzle_r`.
+	/// them, or 0 before it first chose one. The sentry chooses it with
+	/// `GetFireAttachment`: a level 1 sentry always from its `muzzle`, and a
+	/// level 2 or 3 sentry alternately from its `muzzle_l` and `muzzle_r`. The
+	/// game also chooses one for a shot that a wall then stops, and for the
+	/// Wrangler's auto-aim check, so a change does not prove a shot.
 	#[doc(alias("m_iLastMuzzleAttachmentFired", "GetFireAttachment"))]
 	pub fn last_fire_attachment(self) -> c_int {
 		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, and the

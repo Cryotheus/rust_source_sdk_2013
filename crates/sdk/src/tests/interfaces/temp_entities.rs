@@ -28,6 +28,7 @@ struct Dispatched {
 	name: CString,
 	origin: Vector,
 	start: Vector,
+	angles: [f32; 3],
 	flags: c_int,
 	entity_index: c_int,
 	scale: f32,
@@ -116,6 +117,7 @@ unsafe extern "C" fn dispatch_effect(
 			name: CStr::from_ptr(name).to_owned(),
 			origin: data.origin.into(),
 			start: data.start.into(),
+			angles: [data.angles.x, data.angles.y, data.angles.z],
 			flags: data.flags,
 			entity_index: data.entity_index,
 			scale: data.scale,
@@ -267,6 +269,7 @@ fn particle_effects_at_a_point_reach_the_game_on_no_entity() {
 				name: c"ParticleEffect".to_owned(),
 				origin: Vector::new(10.0, -20.0, 30.0),
 				start: Vector::new(0.0, 0.0, 0.0),
+				angles: [0.0; 3],
 				flags: 0,
 				entity_index: 0,
 				scale: 1.0,
@@ -283,6 +286,64 @@ fn particle_effects_at_a_point_reach_the_game_on_no_entity() {
 		mock.system._base.m_nStatusPushed, 0,
 		"the prediction filtering is restored"
 	);
+}
+
+#[test]
+fn particle_effects_between_two_points_face_along_them() {
+	let mut mock = MockTempEntities::new();
+	let temp_entities = mock.temp_entities();
+	let segments = [
+		(Vector::new(1.0, 2.0, 3.0), Vector::new(11.0, 2.0, 13.0)),
+		(Vector::new(0.0, 0.0, 0.0), Vector::new(0.0, -5.0, 0.0)),
+		(Vector::new(1.0, 1.0, 1.0), Vector::new(1.0, 1.0, 1.0)),
+	];
+
+	for (from, to) in segments {
+		temp_entities
+			.dispatch_particle_effect_between(&recipients(&[4], false), 42, from, to)
+			.unwrap();
+	}
+
+	DISPATCHED.with_borrow(|dispatched| {
+		assert_eq!(
+			dispatched[0],
+			Dispatched {
+				recipients: vec![4],
+				reliable: false,
+				delay: 0.0,
+				position: Vector::new(1.0, 2.0, 3.0),
+				name: c"ParticleEffect".to_owned(),
+				origin: Vector::new(1.0, 2.0, 3.0),
+				start: Vector::new(11.0, 2.0, 13.0),
+				angles: dispatched[0].angles,
+				flags: 0,
+				entity_index: 0,
+				scale: 1.0,
+				attachment_index: 0,
+				damage_type: 0,
+				hit_box: 42,
+				control_point_1_attachment: 0,
+				unfiltered: true,
+			}
+		);
+
+		// As `VectorAngles` turns them: rising along x is pitched up (negative),
+		// along -y is yawed a quarter turn clockwise, and a zero-length segment
+		// is left unrotated.
+		let expected = [[-45.0, 0.0, 0.0], [0.0, -90.0, 0.0], [0.0, 0.0, 0.0]];
+
+		for (effect, expected) in dispatched.iter().zip(expected) {
+			assert!(
+				effect
+					.angles
+					.iter()
+					.zip(expected)
+					.all(|(angle, expected)| (angle - expected).abs() < 1e-4),
+				"{:?} faces {expected:?}",
+				effect.angles
+			);
+		}
+	});
 }
 
 #[test]
@@ -318,6 +379,7 @@ fn particle_effects_reach_the_game_as_dispatch_particle_effect_sends_them() {
 		name: c"ParticleEffect".to_owned(),
 		origin: Vector::new(1.0, 2.0, 3.0),
 		start: Vector::new(0.0, 0.0, 0.0),
+		angles: [0.0; 3],
 		flags: 1,
 		entity_index: 9,
 		scale: 1.0,
@@ -381,6 +443,7 @@ fn stopping_reaches_the_game_as_stop_particle_effects_sends_it() {
 				name: c"ParticleEffectStop".to_owned(),
 				origin: Vector::new(0.0, 0.0, 0.0),
 				start: Vector::new(0.0, 0.0, 0.0),
+				angles: [0.0; 3],
 				flags: 0,
 				entity_index: 7,
 				scale: 1.0,
