@@ -1,5 +1,5 @@
 //! TF2 airblast hooks, which run before a weapon's airblast acts on a player
-//! or deflects an entity it reached, and may spare it.
+//! or deflects an entity it reached, and may spare it, or after it fired.
 //!
 //! The airblast of the Pyro's flame throwers and of the Dragon's Fury goes
 //! through the players and entities in front of the weapon's owner (see
@@ -16,9 +16,14 @@
 //! The airblast counts what it spared as not deflected, which only changes its
 //! sound and whether its owner speaks.
 //!
+//! [`MetamodApi::hook_airblast_fires`] runs a callback after each airblast a
+//! weapon fired, through `CTFWeaponBase::DeflectProjectiles`, once it acted
+//! on everything it reached, so that a plugin can act on entities the
+//! airblast never reaches, such as its own bodies.
+//!
 //! # When to install
 //!
-//! Both find the weapons' classes in the game server module through
+//! Each finds the weapons' classes in the game server module through
 //! [`airblast_vtables`], without any weapon, and hook their function in the
 //! vtable of each. Install once, such as while loading: the hooks last until
 //! removed or the plugin unloads, and installing either again returns
@@ -62,6 +67,11 @@ use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
 
+/// A callback-scoped server, and an airblast a weapon just fired, which may
+/// act on what the airblast leaves alone. A panic is contained by the hook
+/// dispatcher.
+pub type AirblastFireFn = for<'s> fn(Server<'s>, AirblastFire<'s>);
+
 /// A callback-scoped server, and a player a weapon's airblast reached, which
 /// decides whether the weapon acts on them. A panic is contained by the hook
 /// dispatcher, and lets the weapon act.
@@ -86,6 +96,13 @@ const DEFLECT_PROJECTILES: VirtualFunction<DeflectProjectiles> =
 /// The routes of the weapons' deflections of entities, in the order of
 /// [`AirblastWeapon::ALL`].
 static DEFLECTION_ROUTES: [AirblastRoute<DeflectionFn>; 2] = [
+	AirblastRoute::new(AirblastWeapon::FlameThrower),
+	AirblastRoute::new(AirblastWeapon::DragonsFury),
+];
+
+/// The routes of the weapons' airblasts, in the order of
+/// [`AirblastWeapon::ALL`].
+static FIRE_ROUTES: [AirblastRoute<AirblastFireFn>; 2] = [
 	AirblastRoute::new(AirblastWeapon::FlameThrower),
 	AirblastRoute::new(AirblastWeapon::DragonsFury),
 ];
@@ -131,6 +148,26 @@ pub struct AirblastDeflection<'s> {
 
 	/// The weapon's owner, whose airblast it is.
 	pub owner: Entity<'s>,
+}
+
+/// An airblast a weapon just fired, after it acted on every player and
+/// entity it reached.
+///
+/// The airblast only reaches players, projectiles, physics props and the
+/// other entities the game lets airblasts deflect, and only those in a box in
+/// front of the weapon's owner: `CTFWeaponBase::DeflectProjectiles` gathers
+/// the entities in a box of the weapon's deflection size (128 by 128 by 64
+/// units from its centre, scaled by the `deflection_size_multiplier`
+/// attribute) centred that far in front of the owner's eyes, along where they
+/// aim, and skips each the owner cannot see. A callback that moves other
+/// entities, such as a plugin's own bodies, may do the same.
+#[derive(Debug, Clone, Copy)]
+pub struct AirblastFire<'s> {
+	/// The weapon whose airblast it is, whose owner fired it.
+	pub weapon: Entity<'s>,
+
+	/// Which of the weapons with airblast [`Self::weapon`] is.
+	pub kind: AirblastWeapon,
 }
 
 /// Why the airblast hooks could not be installed.
@@ -179,6 +216,7 @@ impl AirblastHooks {
 			api.remove_hook(hook);
 			clear_route(&ROUTES, hook);
 			clear_route(&DEFLECTION_ROUTES, hook);
+			clear_route(&FIRE_ROUTES, hook);
 		}
 	}
 }
@@ -300,6 +338,36 @@ impl Handler<DeflectPlayer> for AirblastRoute<AirblastFn> {
 	}
 }
 
+impl Handler<DeflectProjectiles> for AirblastRoute<AirblastFireFn> {
+	fn call(&self, call: &HookCall<'_, DeflectProjectiles>) -> HookAction<bool> {
+		// The weapon fired no airblast: its owner has no player, or has their
+		// eyes under water.
+		if call.timing() != HookTiming::Post || call.return_value() != Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let (Some(route), Some(weapon)) = (self.state.get(), NonNull::new(call.this())) else {
+			return HookAction::Ignore;
+		};
+		let scope = ();
+		// SAFETY: The hook dispatcher runs on the main thread during one live
+		// engine invocation. Binding was supplied during plugin integration.
+		let server = unsafe { route.binding.server(&scope) };
+		// SAFETY: The class hook supplies the live weapon whose method ran.
+		let weapon = unsafe { Entity::from_live(server, weapon) };
+
+		(route.callback)(
+			server,
+			AirblastFire {
+				weapon,
+				kind: self.weapon,
+			},
+		);
+
+		HookAction::Ignore
+	}
+}
+
 // SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
 // calls handlers only on that thread. Cell borrows are never held over calls.
 unsafe impl<C> Sync for AirblastRoute<C> {}
@@ -382,6 +450,31 @@ impl MetamodApi<'_> {
 		match laid_out {
 			true => Ok(()),
 			false => Err(AirblastHookError::UnexpectedLayout),
+		}
+	}
+
+	/// Runs `callback` after each airblast the weapons with airblast fire, once
+	/// it acted on every player and entity it reached, to act on what it leaves
+	/// alone; see [`AirblastFire`].
+	///
+	/// Installs as [`Self::hook_airblasts`] does, independently of it and of
+	/// [`Self::hook_deflections`], and its callback runs under the same
+	/// conditions, but after `DeflectProjectiles`, once lag compensation put the
+	/// other players back, and only for an airblast the weapon fired: not when
+	/// its owner's eyes are under water.
+	///
+	/// # Safety
+	///
+	/// As for [`Self::hook_airblasts`].
+	pub unsafe fn hook_airblast_fires(
+		self,
+		server: Server<'_>,
+		binding: ServerBinding,
+		callback: AirblastFireFn,
+	) -> Result<AirblastHooks, AirblastHookError> {
+		// SAFETY: As the caller promises.
+		unsafe {
+			self.hook_airblast_routes(DEFLECT_PROJECTILES, &FIRE_ROUTES, server, binding, callback)
 		}
 	}
 
@@ -542,6 +635,12 @@ impl MetamodApi<'_> {
 		}
 
 		let entities = function.index() == DEFLECT_ENTITY_SLOT;
+		// The airblast is seen once it fired, and the pushes and deflections
+		// before they act.
+		let timing = match function.index() {
+			DEFLECT_PROJECTILES_SLOT => HookTiming::Post,
+			_ => HookTiming::Pre,
+		};
 
 		// SAFETY: As the caller promises.
 		unsafe { self.check_airblast_layout(weapons, reference, entities) }?;
@@ -556,7 +655,7 @@ impl MetamodApi<'_> {
 
 			// SAFETY: As the caller promises, the vtable is live, has the function
 			// at the slot, and stays loaded.
-			match unsafe { self.add_hook(function, target, HookTiming::Pre, route) } {
+			match unsafe { self.add_hook(function, target, timing, route) } {
 				Ok(hook) => {
 					route.state.set(Some(RoutedAirblast {
 						binding,
