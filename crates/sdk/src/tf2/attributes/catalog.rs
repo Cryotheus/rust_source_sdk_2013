@@ -63,7 +63,7 @@ pub const AIRBLAST_VULNERABILITY_MULTIPLIER: AttributeDef<Multiplier> = Attribut
 
 /// Every definition of the catalog, in the order above, for attributes chosen
 /// while the plugin runs. [`find`] looks one up by name.
-pub const ALL: [AnyAttributeDef; 50] = [
+pub const ALL: [AnyAttributeDef; 51] = [
 	AnyAttributeDef::Flag(AIRBLAST_DISABLED),
 	AnyAttributeDef::Multiplier(AIRBLAST_VULNERABILITY_MULTIPLIER),
 	AnyAttributeDef::Multiplier(BLAST_RADIUS_DECREASED),
@@ -83,6 +83,7 @@ pub const ALL: [AnyAttributeDef; 50] = [
 	AnyAttributeDef::Multiplier(DEPLOY_TIME_INCREASED),
 	AnyAttributeDef::Multiplier(ENGY_SENTRY_DAMAGE_BONUS),
 	AnyAttributeDef::Multiplier(ENGY_SENTRY_FIRE_RATE_INCREASED),
+	AnyAttributeDef::Multiplier(ENGY_SENTRY_RADIUS_INCREASED),
 	AnyAttributeDef::Multiplier(FASTER_RELOAD_RATE),
 	AnyAttributeDef::Multiplier(FIRE_RATE_BONUS),
 	AnyAttributeDef::Multiplier(FIRE_RATE_PENALTY),
@@ -322,6 +323,19 @@ pub const ENGY_SENTRY_FIRE_RATE_INCREASED: AttributeDef<Multiplier> = AttributeD
 	DescriptionFormat::InvertedPercentage,
 	0.1,
 	1.0,
+);
+
+/// `engy sentry radius increased` (344, `mult_sentry_range`): scales the range
+/// at which the bearer's sentries find targets, from 1 to 3. The game reads it
+/// on the sentry's builder, from all of their items.
+#[doc(alias("engy sentry radius increased"))]
+pub const ENGY_SENTRY_RADIUS_INCREASED: AttributeDef<Multiplier> = AttributeDef::new(
+	344,
+	c"engy sentry radius increased",
+	c"mult_sentry_range",
+	DescriptionFormat::Percentage,
+	1.0,
+	3.0,
 );
 
 /// `faster reload rate` (318, `fast_reload`): scales the reload time, from
