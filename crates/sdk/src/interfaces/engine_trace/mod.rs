@@ -13,6 +13,7 @@ use crate::entities::Entity;
 use crate::math::Vector;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int, c_short, c_uint, c_ushort};
+use std::fmt::{self, Debug, Formatter};
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 use std::slice;
@@ -57,6 +58,38 @@ static FILTER_VTABLE: sys::ITraceFilter__bindgen_vtable = sys::ITraceFilter__bin
 	ITraceFilter_ShouldHitEntity: should_hit_entity,
 	ITraceFilter_GetTraceType: trace_type,
 };
+
+/// A test of the entities a ray traced with [`TraceFilter::Matching`] may stop
+/// at, which the engine runs only on those the ray reaches.
+#[derive(Clone, Copy)]
+pub struct EntityTest<'a, 'e>(&'a dyn Fn(Entity<'e>) -> bool);
+
+impl<'a, 'e> EntityTest<'a, 'e> {
+	/// A filter's test: whether a ray may stop at the entity it is given.
+	pub const fn new(test: &'a dyn Fn(Entity<'e>) -> bool) -> Self {
+		Self(test)
+	}
+
+	/// Whether a ray may stop at `entity`. A panic in the test stops the ray,
+	/// as a filter that stops at every entity would, rather than unwind into
+	/// the engine.
+	fn passes(self, entity: Entity<'e>) -> bool {
+		std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (self.0)(entity))).unwrap_or(true)
+	}
+}
+
+impl Debug for EntityTest<'_, '_> {
+	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+		formatter.write_str("EntityTest(..)")
+	}
+}
+
+impl PartialEq for EntityTest<'_, '_> {
+	/// Whether both are the same test, by its address.
+	fn eq(&self, other: &Self) -> bool {
+		ptr::addr_eq(self.0, other.0)
+	}
+}
 
 /// The filter the engine calls: the interface, followed by the
 /// [`TraceFilter`] its methods ask.
@@ -316,11 +349,17 @@ pub enum TraceFilter<'a, 'e> {
 	/// such as its buildings, projectiles and team-coloured brushes.
 	#[doc(alias("CTraceFilterIgnoreTeammates"))]
 	SkipTeam(c_int),
+
+	/// The world, static props and the entities a test passes, which the
+	/// engine asks about only as the ray reaches them: for a choice too costly
+	/// to make of every entity before the trace, such as by its model or
+	/// collision rules.
+	Matching(EntityTest<'a, 'e>),
 }
 
-impl TraceFilter<'_, '_> {
+impl<'e> TraceFilter<'_, 'e> {
 	/// Whether a ray may stop at `entity`.
-	fn hits(&self, entity: Entity<'_>) -> bool {
+	fn hits(&self, entity: Entity<'e>) -> bool {
 		let listed = |entities: &[Entity<'_>]| {
 			entities
 				.iter()
@@ -333,6 +372,7 @@ impl TraceFilter<'_, '_> {
 			Self::Skip(entities) => !listed(entities),
 			Self::Only(entities) | Self::OnlyEntities(entities) => listed(entities),
 			Self::SkipTeam(team) => entity.team().ok() != Some(team),
+			Self::Matching(test) => test.passes(entity),
 		}
 	}
 

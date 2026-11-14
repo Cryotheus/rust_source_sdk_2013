@@ -210,109 +210,73 @@ pub unsafe fn call_on(
 		return Err(BindingError::SignatureMismatch);
 	}
 
-	let mut descriptor = descriptor;
+	// SAFETY: As the caller promises, the descriptor is null or a native one of
+	// the loaded game DLL, as are its bases.
+	let binding = unsafe { found_binding(descriptor, class, name) }?.as_ptr();
 
-	for _ in 0..MAX_CLASS_DEPTH {
-		if descriptor.is_null() {
-			break;
-		}
+	// SAFETY: The binding is one of the descriptor's, which the game DLL owns.
+	// Copy all metadata before invoking game code.
+	let (parameter_count, parameters, returns, flags, adapter, function) = unsafe {
+		(
+			(*binding).m_desc.m_Parameters.m_Size,
+			(*binding).m_desc.m_Parameters.m_Memory.m_pMemory,
+			(*binding).m_desc.m_ReturnType,
+			(*binding).m_flags,
+			(*binding).m_pfnBinding,
+			(*binding).m_pFunction,
+		)
+	};
 
-		// SAFETY: The descriptor and its names belong to the loaded game DLL.
-		if unsafe { borrow_cstr((*descriptor).m_pszClassname) } == Some(class) {
-			// SAFETY: Native descriptors contain a valid vector. Copy its header
-			// without borrowing storage that the engine may mutate.
-			let (bindings, count) = unsafe {
-				(
-					(*descriptor).m_FunctionBindings.m_Memory.m_pMemory,
-					(*descriptor).m_FunctionBindings.m_Size,
-				)
-			};
-
-			if !(0..=MAX_FUNCTION_BINDINGS).contains(&count) || (count != 0 && bindings.is_null()) {
-				return Err(BindingError::SignatureMismatch);
-			}
-
-			for index in 0..count as usize {
-				// SAFETY: The vector owns `count` initialized bindings.
-				let binding = unsafe { bindings.add(index) };
-
-				// SAFETY: As above; the name belongs to the loaded game DLL.
-				if unsafe { borrow_cstr((*binding).m_desc.m_pszScriptName) } != Some(name) {
-					continue;
-				}
-
-				// SAFETY: As above. Copy all metadata before invoking game code.
-				let (parameter_count, parameters, returns, flags, adapter, function) = unsafe {
-					(
-						(*binding).m_desc.m_Parameters.m_Size,
-						(*binding).m_desc.m_Parameters.m_Memory.m_pMemory,
-						(*binding).m_desc.m_ReturnType,
-						(*binding).m_flags,
-						(*binding).m_pfnBinding,
-						(*binding).m_pFunction,
-					)
-				};
-
-				if parameter_count < 0
-					|| parameter_count as usize != arguments.len()
-					|| returns != result_type
-					|| flags != SF_MEMBER_FUNC
-					|| (!arguments.is_empty() && parameters.is_null())
-				{
-					return Err(BindingError::SignatureMismatch);
-				}
-
-				for (index, argument) in arguments.iter().enumerate() {
-					// SAFETY: The native descriptor has `parameter_count` entries.
-					if unsafe { parameters.add(index).read() } != i32::from(argument.m_type) {
-						return Err(BindingError::SignatureMismatch);
-					}
-				}
-
-				let adapter = adapter.ok_or(BindingError::Unavailable)?;
-
-				// Without SV_FREE, the `Free` that precedes each assignment to the
-				// result frees nothing.
-				let mut result = variant(VOID);
-
-				// The void specialization explicitly requires a null return pointer.
-				let result_ptr = if result_type == VOID {
-					std::ptr::null_mut()
-				} else {
-					&raw mut result
-				};
-
-				// SAFETY: The validated adapter handles the native member pointer
-				// representation. The caller vouches for argument values/effects.
-				// `parameter_count` was checked to equal `arguments.len()`.
-				if !unsafe {
-					adapter(
-						function,
-						object.as_ptr(),
-						arguments.as_mut_ptr(),
-						parameter_count,
-						result_ptr,
-					)
-				} {
-					return Err(BindingError::Rejected);
-				}
-
-				// Any flag, including SV_FREE, marks data only the game may free.
-				if i32::from(result.m_type) != result_type || result.m_flags != 0 {
-					return Err(BindingError::SignatureMismatch);
-				}
-
-				return Ok(result);
-			}
-
-			return Err(BindingError::Unavailable);
-		}
-
-		// SAFETY: Descriptor inheritance links are owned by the game DLL.
-		descriptor = unsafe { (*descriptor).m_pBaseDesc };
+	if parameter_count < 0
+		|| parameter_count as usize != arguments.len()
+		|| returns != result_type
+		|| flags != SF_MEMBER_FUNC
+		|| (!arguments.is_empty() && parameters.is_null())
+	{
+		return Err(BindingError::SignatureMismatch);
 	}
 
-	Err(BindingError::Unavailable)
+	for (index, argument) in arguments.iter().enumerate() {
+		// SAFETY: The native descriptor has `parameter_count` entries.
+		if unsafe { parameters.add(index).read() } != i32::from(argument.m_type) {
+			return Err(BindingError::SignatureMismatch);
+		}
+	}
+
+	let adapter = adapter.ok_or(BindingError::Unavailable)?;
+
+	// Without SV_FREE, the `Free` that precedes each assignment to the
+	// result frees nothing.
+	let mut result = variant(VOID);
+
+	// The void specialization explicitly requires a null return pointer.
+	let result_ptr = if result_type == VOID {
+		std::ptr::null_mut()
+	} else {
+		&raw mut result
+	};
+
+	// SAFETY: The validated adapter handles the native member pointer
+	// representation. The caller vouches for argument values/effects.
+	// `parameter_count` was checked to equal `arguments.len()`.
+	if !unsafe {
+		adapter(
+			function,
+			object.as_ptr(),
+			arguments.as_mut_ptr(),
+			parameter_count,
+			result_ptr,
+		)
+	} {
+		return Err(BindingError::Rejected);
+	}
+
+	// Any flag, including SV_FREE, marks data only the game may free.
+	if i32::from(result.m_type) != result_type || result.m_flags != 0 {
+		return Err(BindingError::SignatureMismatch);
+	}
+
+	Ok(result)
 }
 
 /// Calls a native member that returns a C string, and copies the string.
@@ -410,11 +374,82 @@ pub unsafe fn ensure_script_instance(
 	NonNull::new(unsafe { script_instance(entity, offset) }).ok_or(BindingError::Unavailable)
 }
 
+/// Searches `descriptor` and its bases for the class named `class`, and its
+/// bindings for the one named `name`.
+///
+/// # Safety
+///
+/// `descriptor` is null or a native script class descriptor of the loaded
+/// game DLL, as are its bases.
+unsafe fn find_binding(
+	descriptor: *mut sys::ScriptClassDesc_t,
+	class: &CStr,
+	name: &CStr,
+) -> Result<NonNull<sys::ScriptFunctionBinding_t>, BindingError> {
+	let mut descriptor = descriptor;
+
+	for _ in 0..MAX_CLASS_DEPTH {
+		if descriptor.is_null() {
+			break;
+		}
+
+		// SAFETY: The descriptor and its names belong to the loaded game DLL.
+		if unsafe { borrow_cstr((*descriptor).m_pszClassname) } == Some(class) {
+			// SAFETY: Native descriptors contain a valid vector. Copy its header
+			// without borrowing storage that the engine may mutate.
+			let (bindings, count) = unsafe {
+				(
+					(*descriptor).m_FunctionBindings.m_Memory.m_pMemory,
+					(*descriptor).m_FunctionBindings.m_Size,
+				)
+			};
+
+			if !(0..=MAX_FUNCTION_BINDINGS).contains(&count) || (count != 0 && bindings.is_null()) {
+				return Err(BindingError::SignatureMismatch);
+			}
+
+			for index in 0..count as usize {
+				// SAFETY: The vector owns `count` initialized bindings.
+				let binding = unsafe { bindings.add(index) };
+
+				// SAFETY: As above; the name belongs to the loaded game DLL.
+				if unsafe { borrow_cstr((*binding).m_desc.m_pszScriptName) } == Some(name) {
+					return NonNull::new(binding).ok_or(BindingError::SignatureMismatch);
+				}
+			}
+
+			return Err(BindingError::Unavailable);
+		}
+
+		// SAFETY: Descriptor inheritance links are owned by the game DLL.
+		descriptor = unsafe { (*descriptor).m_pBaseDesc };
+	}
+
+	Err(BindingError::Unavailable)
+}
+
 /// An `f32` argument.
 pub fn float(value: f32) -> sys::ScriptVariant_t {
 	let mut result = variant(FLOAT);
 	result.__bindgen_anon_1.m_float = value;
 	result
+}
+
+/// The binding named `name` of the class named `class`, `descriptor` or one of
+/// its bases, as [`find_binding`] found it before, or finds it.
+///
+/// # Safety
+///
+/// As for [`find_binding`].
+unsafe fn found_binding(
+	descriptor: *mut sys::ScriptClassDesc_t,
+	class: &CStr,
+	name: &CStr,
+) -> Result<NonNull<sys::ScriptFunctionBinding_t>, BindingError> {
+	// SAFETY: As the caller promises.
+	bindings::found(descriptor as usize, class, name, || unsafe {
+		find_binding(descriptor, class, name)
+	})
 }
 
 /// A script object handle argument, which may be null.
@@ -497,4 +532,85 @@ pub fn vector(value: &sys::Vector) -> sys::ScriptVariant_t {
 	let mut result = variant(VECTOR);
 	result.__bindgen_anon_1.m_pVector = value;
 	result
+}
+
+/// Lookups for builds with tests, which look up anew every time: tests build
+/// descriptors that they free, and that later ones may replace at the same
+/// addresses.
+#[cfg(any(test, feature = "_test-support"))]
+mod bindings {
+	use super::BindingError;
+	use std::ffi::CStr;
+	use std::ptr::NonNull;
+
+	/// What `find` finds.
+	pub(super) fn found(
+		_descriptor: usize,
+		_class: &CStr,
+		_name: &CStr,
+		find: impl FnOnce() -> Result<NonNull<sys::ScriptFunctionBinding_t>, BindingError>,
+	) -> Result<NonNull<sys::ScriptFunctionBinding_t>, BindingError> {
+		find()
+	}
+}
+
+/// The bindings lookups found, kept for the rest of the process.
+///
+/// Script class descriptors and their bindings are statics of the game DLL,
+/// which registers them as it loads and keeps them while plugins are loaded,
+/// so what a lookup found stays true. The keys are the descriptors'
+/// addresses. Only bindings found are kept.
+#[cfg(not(any(test, feature = "_test-support")))]
+mod bindings {
+	use super::BindingError;
+	use std::collections::HashMap;
+	use std::ffi::{CStr, CString};
+	use std::ptr::NonNull;
+	use std::sync::{Mutex, PoisonError};
+
+	/// How many bindings are kept for one descriptor: more than a plugin
+	/// would call of any class.
+	const MAX_PER_DESCRIPTOR: usize = 256;
+
+	/// The bindings found by each descriptor's address, with the names of
+	/// their class and their own, and their addresses.
+	static FOUND: Mutex<Option<HashMap<usize, Vec<(CString, CString, usize)>>>> = Mutex::new(None);
+
+	/// The binding of the class `class` named `name` for the descriptor at
+	/// `descriptor`, as `find` found it before, or finds it.
+	pub(super) fn found(
+		descriptor: usize,
+		class: &CStr,
+		name: &CStr,
+		find: impl FnOnce() -> Result<NonNull<sys::ScriptFunctionBinding_t>, BindingError>,
+	) -> Result<NonNull<sys::ScriptFunctionBinding_t>, BindingError> {
+		let cached = FOUND
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.as_ref()
+			.and_then(|found| {
+				found
+					.get(&descriptor)?
+					.iter()
+					.find(|(found_class, found_name, _)| {
+						found_class.as_c_str() == class && found_name.as_c_str() == name
+					})
+					.map(|&(_, _, binding)| binding)
+			});
+
+		// SAFETY: Only the non-null addresses of found bindings are kept.
+		if let Some(binding) = cached {
+			return Ok(unsafe { NonNull::new_unchecked(binding as *mut _) });
+		}
+
+		let binding = find()?;
+		let mut found = FOUND.lock().unwrap_or_else(PoisonError::into_inner);
+		let bindings = found.get_or_insert_default().entry(descriptor).or_default();
+
+		if bindings.len() < MAX_PER_DESCRIPTOR {
+			bindings.push((class.to_owned(), name.to_owned(), binding.as_ptr() as usize));
+		}
+
+		Ok(binding)
+	}
 }

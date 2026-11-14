@@ -5,6 +5,11 @@
 use super::{Error, Module};
 use std::sync::{Mutex, PoisonError};
 
+/// The keys [`ModuleKey::of`] found last, most recent first: one for each of
+/// the few modules whose factories plugins pass, such as the game server's
+/// and the engine's.
+static KNOWN_KEYS: Mutex<[Option<ModuleKey>; 4]> = Mutex::new([None; 4]);
+
 /// The last resolution a resolver kept, with the module it was resolved in.
 ///
 /// A [`get_or_resolve`](Self::get_or_resolve) for the same [`ModuleKey`]
@@ -76,20 +81,35 @@ pub struct ModuleKey {
 
 impl ModuleKey {
 	/// The key of the module whose `CreateInterface` export is at `factory`,
-	/// which the loader finds.
+	/// which the loader finds the first time, and the last keys found are
+	/// remembered by factory: asking the loader takes a lock on Windows and
+	/// searches the module's symbols on Linux, too slow for every callback.
 	///
 	/// Fails if no loaded module contains `factory`.
 	///
 	/// # Safety
 	///
-	/// The module containing `factory` stays loaded for the whole call.
+	/// The module containing `factory` stays loaded for the whole call. As
+	/// [`ModuleCache`] assumes, no other image is later loaded with its
+	/// `CreateInterface` at the same address: Source never unloads the game's
+	/// modules while plugins are loaded.
 	pub unsafe fn of(factory: usize) -> Result<Self, Error> {
+		let mut known = KNOWN_KEYS.lock().unwrap_or_else(PoisonError::into_inner);
+
+		if let Some(key) = known.iter().flatten().find(|key| key.factory == factory) {
+			return Ok(*key);
+		}
+
 		// SAFETY: The caller keeps the factory's module loaded for this call, so
 		// it stays loaded while the loader finds it. On Windows, the loader
 		// reference `Module` takes is released when it drops, at the end of this
 		// statement.
 		let base = unsafe { Module::at(factory) }?.base();
+		let key = Self { base, factory };
 
-		Ok(Self { base, factory })
+		known.rotate_right(1);
+		known[0] = Some(key);
+
+		Ok(key)
 	}
 }
