@@ -63,6 +63,10 @@ static GRAVITY: BaseField<f32> = BaseField::new(c"m_flGravity", sys::_fieldtypes
 static LOCAL_ANGLES: BaseField<QAngle> =
 	BaseField::new(c"m_angRotation", sys::_fieldtypes_FIELD_VECTOR);
 
+/// `m_vecAngVelocity`, the `avelocity` key value.
+static LOCAL_ANGULAR_VELOCITY: BaseField<QAngle> =
+	BaseField::new(c"m_vecAngVelocity", sys::_fieldtypes_FIELD_VECTOR);
+
 /// `m_vecOrigin`, which the `origin` key value sets while the entity has no
 /// parent.
 static LOCAL_ORIGIN: BaseField<Vector> =
@@ -652,6 +656,14 @@ impl<'s> Entity<'s> {
 	#[doc(alias("GetLocalAngles", "m_angRotation"))]
 	pub fn local_angles(self) -> Result<QAngle, FieldError> {
 		LOCAL_ANGLES.read(self)
+	}
+
+	/// The entity's turning rate relative to its move parent, or in the world
+	/// without one, in degrees per second (`m_vecAngVelocity`), which the
+	/// `avelocity` key value sets.
+	#[doc(alias("GetLocalAngularVelocity", "m_vecAngVelocity"))]
+	pub fn local_angular_velocity(self) -> Result<QAngle, FieldError> {
+		LOCAL_ANGULAR_VELOCITY.read(self)
 	}
 
 	/// The entity's origin relative to its move parent, or to the attachment it
