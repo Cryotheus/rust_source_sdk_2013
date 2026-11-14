@@ -580,8 +580,8 @@ impl<'s> StandardSendProxies<'s> {
 		unsafe { is_direct_table_proxy(self.as_ptr(), prop.as_ptr()) }
 	}
 
-	/// How a scalar property's variable is stored, judged by its proxy.
-	fn storage(self, prop: SendProp<'_>) -> Storage {
+	/// How a scalar property's variable is stored, judged by its proxy anew.
+	fn judge_storage(self, prop: SendProp<'_>) -> Storage {
 		// SAFETY: As for `is_direct`.
 		let proxies = unsafe { standard_var_proxies(self.as_ptr(), prop.as_ptr()) };
 		let signed = !prop.flags().contains(PropFlags::UNSIGNED);
@@ -598,6 +598,11 @@ impl<'s> StandardSendProxies<'s> {
 			PropKind::Vector if proxies.vector => Storage::Vector,
 			_ => Storage::Unknown,
 		}
+	}
+
+	/// How a scalar property's variable is stored, judged by its proxy.
+	fn storage(self, prop: SendProp<'_>) -> Storage {
+		lookups::storage(self, prop, || self.judge_storage(prop))
 	}
 }
 
@@ -830,7 +835,7 @@ pub struct NetProp<'s> {
 impl<'s> NetProp<'s> {
 	/// Finds the first variable named `name` in `table` or the tables nested
 	/// within it, depth first, as SourceMod does.
-	pub(crate) fn resolve(
+	fn find(
 		table: SendTable<'s>,
 		name: &CStr,
 		proxies: StandardSendProxies<'s>,
@@ -925,6 +930,17 @@ impl<'s> NetProp<'s> {
 			offset,
 			element: 0,
 		})
+	}
+
+	/// Finds the first variable named `name` in `table` or the tables nested
+	/// within it, depth first, as SourceMod does, or what an earlier lookup of
+	/// the name in the table found.
+	pub(crate) fn resolve(
+		table: SendTable<'s>,
+		name: &CStr,
+		proxies: StandardSendProxies<'s>,
+	) -> Result<Self, NetPropError> {
+		lookups::resolve(table, name, proxies, || Self::find(table, name, proxies))
 	}
 
 	/// Checks that the variable's offset holds for `entity`, returning its edict.
@@ -1602,4 +1618,167 @@ impl sealed::Sealed for bool {}
 /// Copies a name into an error, replacing invalid UTF-8.
 fn lossy(string: &CStr) -> String {
 	string.to_string_lossy().into_owned()
+}
+
+/// Lookups for builds with tests, which look up anew every time: tests build
+/// tables that they free, and that later tables may replace at the same
+/// addresses.
+#[cfg(any(test, feature = "_test-support"))]
+mod lookups {
+	use super::{NetProp, NetPropError, SendProp, SendTable, StandardSendProxies, Storage};
+	use std::ffi::CStr;
+
+	/// What `find` returns.
+	pub(super) fn resolve<'s>(
+		_table: SendTable<'s>,
+		_name: &CStr,
+		_proxies: StandardSendProxies<'s>,
+		find: impl FnOnce() -> Result<NetProp<'s>, NetPropError>,
+	) -> Result<NetProp<'s>, NetPropError> {
+		find()
+	}
+
+	/// What `judge` tells.
+	pub(super) fn storage(
+		_proxies: StandardSendProxies<'_>,
+		_prop: SendProp<'_>,
+		judge: impl FnOnce() -> Storage,
+	) -> Storage {
+		judge()
+	}
+}
+
+/// What lookups of networked variables by name, and of how variables are
+/// stored, found, kept for the rest of the process.
+///
+/// Send tables, their properties and the standard proxies are statics of the
+/// game server module, which the engine builds at startup and keeps loaded
+/// as long as plugins are, so what a lookup found in them stays true. The
+/// keys are their addresses. A property's storage is also keyed by its proxy,
+/// so a proxy replaced since, such as by another plugin's override, is judged
+/// again.
+#[cfg(not(any(test, feature = "_test-support")))]
+mod lookups {
+	use super::{NetProp, NetPropError, SendProp, SendTable, StandardSendProxies, Storage};
+	use std::collections::HashMap;
+	use std::ffi::{CStr, CString};
+	use std::ptr::NonNull;
+	use std::sync::{Mutex, PoisonError};
+
+	/// How many names are kept for one table: more than the variables of any
+	/// class a plugin would look up by name.
+	const MAX_NAMES_PER_TABLE: usize = 512;
+
+	/// The names looked up in each table and what was found for them, by the
+	/// addresses of the table and of the standard proxies.
+	static RESOLVED: Mutex<
+		Option<HashMap<(usize, usize), Vec<(CString, Result<Found, NetPropError>)>>>,
+	> = Mutex::new(None);
+
+	/// How each property's variable is stored, by the addresses of the
+	/// standard proxies, of the property, and of its proxy.
+	static STORAGE: Mutex<Option<HashMap<(usize, usize, usize), Storage>>> = Mutex::new(None);
+
+	/// Where a variable that a lookup found lives.
+	#[derive(Debug, Clone, Copy)]
+	struct Found {
+		/// The address of its property, which is not null.
+		prop: usize,
+		struct_offset: usize,
+		offset: usize,
+	}
+
+	/// What `find`, [`NetProp::find`] for `name` in `table`, returns, which it
+	/// finds the first time.
+	pub(super) fn resolve<'s>(
+		table: SendTable<'s>,
+		name: &CStr,
+		proxies: StandardSendProxies<'s>,
+		find: impl FnOnce() -> Result<NetProp<'s>, NetPropError>,
+	) -> Result<NetProp<'s>, NetPropError> {
+		let key = (table.as_ptr() as usize, proxies.as_ptr() as usize);
+		let rebuild = |found: Found| {
+			// SAFETY: The address is that of a property `find` found in the table,
+			// a static of the game server module, which stays loaded for `'s` as
+			// the table does.
+			let prop = unsafe { SendProp::from_raw(NonNull::new_unchecked(found.prop as *mut _)) };
+
+			NetProp {
+				prop,
+				class_table: table,
+				proxies,
+				struct_offset: found.struct_offset,
+				offset: found.offset,
+				element: 0,
+			}
+		};
+
+		let cached = RESOLVED
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.as_ref()
+			.and_then(|tables| {
+				let (_, result) = tables
+					.get(&key)?
+					.iter()
+					.find(|(cached, _)| cached.as_c_str() == name)?;
+
+				Some(result.clone())
+			});
+
+		if let Some(result) = cached {
+			return result.map(rebuild);
+		}
+
+		let result = find();
+		let found = match &result {
+			Ok(prop) => Ok(Found {
+				prop: prop.prop.as_ptr() as usize,
+				struct_offset: prop.struct_offset,
+				offset: prop.offset,
+			}),
+
+			Err(error) => Err(error.clone()),
+		};
+
+		let mut tables = RESOLVED.lock().unwrap_or_else(PoisonError::into_inner);
+		let names = tables.get_or_insert_default().entry(key).or_default();
+
+		if names.len() < MAX_NAMES_PER_TABLE
+			&& !names.iter().any(|(cached, _)| cached.as_c_str() == name)
+		{
+			names.push((name.to_owned(), found));
+		}
+
+		result
+	}
+
+	/// How `prop`'s variable is stored, as `judge` tells the first time.
+	pub(super) fn storage(
+		proxies: StandardSendProxies<'_>,
+		prop: SendProp<'_>,
+		judge: impl FnOnce() -> Storage,
+	) -> Storage {
+		let proxy = prop_field!(prop, m_ProxyFn).map_or(0, |proxy| proxy as usize);
+		let key = (proxies.as_ptr() as usize, prop.as_ptr() as usize, proxy);
+		let cached = STORAGE
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.as_ref()
+			.and_then(|storages| storages.get(&key).copied());
+
+		if let Some(storage) = cached {
+			return storage;
+		}
+
+		let storage = judge();
+
+		STORAGE
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.get_or_insert_default()
+			.insert(key, storage);
+
+		storage
+	}
 }

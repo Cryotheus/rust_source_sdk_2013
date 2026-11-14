@@ -5,7 +5,11 @@
 //! it, so that hooks come and go without the library's hooks doing so.
 
 use super::signature::{HOOK_MANAGERS, Signature};
-use super::{Handler, HookAction, HookCall, HookError, HookId, HookTiming, khook, sourcehook};
+
+use super::{
+	Handler, HookAction, HookCall, HookError, HookId, HookTiming, khook, sourcehook, timing,
+};
+
 use crate::MetamodApi;
 use crate::api::MetamodVersion;
 use crate::sys::plugin::{PluginStatus, cpp_metamod_plugin_status};
@@ -335,8 +339,11 @@ impl<S: Signature> Site<S> {
 				continue;
 			}
 
-			let action = catch_unwind(AssertUnwindSafe(|| entry.handler.call(call)))
-				.unwrap_or(HookAction::Ignore);
+			let action = timing::time(
+				|| entry.handler.name(),
+				|| catch_unwind(AssertUnwindSafe(|| entry.handler.call(call))),
+			)
+			.unwrap_or(HookAction::Ignore);
 
 			call.record(action);
 		}

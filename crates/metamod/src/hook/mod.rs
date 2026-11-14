@@ -87,6 +87,7 @@ mod khook;
 mod signature;
 mod site;
 mod sourcehook;
+pub mod timing;
 
 #[cfg(test)]
 #[path = "../tests/hook.rs"]
@@ -151,6 +152,11 @@ pub trait Handler<S: Signature>: 'static {
 	/// function, as the hook was installed. A panic is caught, and counts as
 	/// [`HookAction::Ignore`].
 	fn call(&self, call: &HookCall<'_, S>) -> HookAction<S::Output>;
+
+	/// The handler's name in [`timing`]'s times: by default, its type's.
+	fn name(&self) -> &'static str {
+		std::any::type_name::<Self>()
+	}
 }
 
 impl<S, F> Handler<S> for F
