@@ -635,3 +635,68 @@ fn vtables_not_laid_out_for_deflections_are_not_hooked_for_them() {
 		);
 	});
 }
+
+thread_local! {
+	/// What each mock `DeflectProjectiles` returns: whether it fired.
+	static FIRES: Cell<bool> = const { Cell::new(true) };
+}
+
+/// `CTFWeaponBase::DeflectProjectiles`, which notes that it ran, and returns
+/// [`FIRES`].
+unsafe extern "C" fn fire(_this: *mut sys::CBaseEntity) -> bool {
+	CALLS.with_borrow_mut(|calls| calls.push("fire"));
+	FIRES.get()
+}
+
+/// The airblast callback, which notes that it ran and the weapon it was
+/// given.
+fn on_fire(_server: Server<'_>, fire: AirblastFire<'_>) {
+	CALLS.with_borrow_mut(|calls| calls.push("callback"));
+	SEEN.set(Some((fire.kind, fire.weapon.as_ptr().addr(), 0, 0)));
+}
+
+#[test]
+fn only_airblasts_fired_are_seen_after_they_act() {
+	on_both(|harness| {
+		let classes = (
+			[
+				Weapon::new_class(fire, push_player, deflect_entity),
+				Weapon::new_class(fire, push_player, deflect_entity),
+			],
+			Weapon::new_class(fire, ignore_player, ignore_entity),
+		);
+		let mut weapon = Weapon::of_class(classes.0[1]);
+		let weapon = weapon.ptr();
+
+		// SAFETY: As for `install`.
+		let _fires = unsafe {
+			harness.api().install_airblast_routes(
+				DEFLECT_PROJECTILES,
+				&FIRE_ROUTES,
+				classes.0,
+				classes.1,
+				tf2_binding(no_interfaces),
+				on_fire,
+			)
+		}
+		.unwrap();
+
+		let airblast = |fires| {
+			FIRES.set(fires);
+			CALLS.take();
+			SEEN.take();
+			let fired = harness.call::<DeflectProjectiles>(weapon, DEFLECT_PROJECTILES_SLOT, ());
+			(fired, CALLS.take())
+		};
+
+		assert_eq!(airblast(true), (true, vec!["fire", "callback"]));
+		assert_eq!(
+			SEEN.get(),
+			Some((AirblastWeapon::DragonsFury, weapon.addr(), 0, 0))
+		);
+
+		// Under water, the weapon fires nothing.
+		assert_eq!(airblast(false), (false, vec!["fire"]));
+		assert_eq!(SEEN.get(), None);
+	});
+}
