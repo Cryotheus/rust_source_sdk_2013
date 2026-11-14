@@ -129,8 +129,9 @@ impl LineTrace<'_> {
 	}
 }
 
-/// A line, or a box swept along one, for [`EngineTrace::trace`] to trace, as
-/// `Ray_t::Init` makes them.
+/// A line, or a box swept along one, for [`EngineTrace::trace`] to trace or
+/// [`EngineTrace::clip_to_entity`] to clip to one entity, as `Ray_t::Init`
+/// makes them.
 #[doc(alias("Ray_t"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Ray {
@@ -296,9 +297,12 @@ impl<'s> Trace<'s> {
 			fraction_left_solid: raw.fractionleftsolid,
 			normal: raw._base.plane.normal.into(),
 			contents: raw._base.contents,
-			// SAFETY: The engine points a surface's name at a string of its own or
-			// of the level's, which lasts while the level does, beyond `'s`, and a
-			// name it never set is null, as the trace started zeroed.
+			// SAFETY: A surface's name points at a string of the engine's or of
+			// the level's, or of the game's where an entity that tests collisions
+			// itself filled the trace. A module's string lasts while the module
+			// is loaded, and the level's while the level does: by the first and
+			// third conditions of `Server::new`, each for all of `'s`. A name
+			// that was never set is null, as the trace started zeroed.
 			surface_name: NonNull::new(raw.surface.name.cast_mut())
 				.map(|name| unsafe { CStr::from_ptr(name.as_ptr()) }),
 			surface_flags: raw.surface.flags,
@@ -629,6 +633,13 @@ impl<'s> EngineTrace<'s> {
 	/// An entity with no collideable is not passed to the engine, which is not
 	/// known to check for one: the ray misses it, with a fraction of 1 at the
 	/// ray's end.
+	///
+	/// Of a ray that misses an entity the engine was asked about, only the
+	/// [fraction](Trace::fraction) of 1 is promised. The engine fills the
+	/// rest, and its [end](Trace::end) is not known to be the ray's own to
+	/// the last bit. [`Trace::fraction_left_solid`] is whatever the engine's
+	/// clip leaves, which is not known to be what [`Self::trace`] reports of
+	/// the same entity for a box.
 	///
 	/// Clipping the entities a ray could meet one by one, and keeping the
 	/// nearest answer, is a way to trace through entities chosen beforehand
