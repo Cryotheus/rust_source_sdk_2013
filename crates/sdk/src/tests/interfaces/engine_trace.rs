@@ -1,11 +1,12 @@
 //! Tests of `EngineTrace`: the boxes and points it clips to one entity, with
 //! the ray the engine receives, as `Ray_t::Init` makes it, and the answer it
-//! gives; and the lines and hulls it traces, with the ray, mask and kind of
-//! trace the engine receives, the entities the filters let a ray hit, and
-//! what the traces report.
+//! gives; the rays it clips to one entity, with the entity they name, and the
+//! entities it keeps from the engine; and the lines and hulls it traces, with
+//! the ray, mask and kind of trace the engine receives, the entities the
+//! filters let a ray hit, and what the traces report.
 
 use super::*;
-use crate::test_support::entities::{MockEntity, set_datamap, state_maps};
+use crate::test_support::entities::{MockEntity, remove_collideable, set_datamap, state_maps};
 use sdk_raw::test_support::{mock_vtable, unexpected_call};
 use std::cell::{Cell, RefCell};
 
@@ -15,6 +16,10 @@ thread_local! {
 
 	/// Every call to `ClipRayToEntity`, in order.
 	static CLIPPED: RefCell<Vec<Clipped>> = const { RefCell::new(Vec::new()) };
+
+	/// Whether the rays `ClipRayToEntity` clips stop halfway, as [`fill`] has a
+	/// hit, or reach their ends.
+	static CLIP_STOPS: Cell<bool> = const { Cell::new(false) };
 
 	/// Whether the traces `ClipRayToEntity` fills start solid.
 	static START_SOLID: Cell<bool> = const { Cell::new(false) };
@@ -49,10 +54,11 @@ struct MockEngineTrace {
 }
 
 impl MockEngineTrace {
-	/// Records `ClipRayToEntity`, whose traces start solid as [`START_SOLID`]
-	/// says, and `TraceRay`, which stops halfway along a line at the nearest of
-	/// the entities `along` it that the filter lets it hit, and fills every
-	/// other slot with a stub that fails the test if called.
+	/// Records `ClipRayToEntity`, whose rays stop halfway as [`CLIP_STOPS`] says
+	/// and start solid as [`START_SOLID`] says, and `TraceRay`, which stops
+	/// halfway along a line at the nearest of the entities `along` it that the
+	/// filter lets it hit, and fills every other slot with a stub that fails the
+	/// test if called.
 	fn new(along: &[*mut sys::IHandleEntity]) -> Self {
 		// SAFETY: The vtable holds only function pointers, `unexpected_call`
 		// aborts whichever slot reaches it, and the patch only writes slots of
@@ -72,6 +78,7 @@ impl MockEngineTrace {
 
 		ALONG.set(along.to_vec());
 		CLIPPED.take();
+		CLIP_STOPS.set(false);
 		START_SOLID.set(false);
 		TRACED.take();
 
@@ -136,7 +143,8 @@ fn boxes_start_at_their_center_and_lead_back_to_their_position() {
 }
 
 /// `IEngineTrace::ClipRayToEntity`, which records its arguments, and fills
-/// the trace as starting solid if [`START_SOLID`] is set.
+/// the trace as [`fill`] does: stopped halfway if [`CLIP_STOPS`] is set, and
+/// starting solid if [`START_SOLID`] is set. It names no entity.
 unsafe extern "C" fn clip_ray_to_entity(
 	_this: *mut sys::IEngineTrace,
 	ray: *const sys::Ray_t,
@@ -145,13 +153,14 @@ unsafe extern "C" fn clip_ray_to_entity(
 	trace: *mut sys::trace_t,
 ) {
 	// SAFETY: The wrapper passes a live ray, and a live trace to fill, which
-	// are read and written as the engine does.
-	let clipped = unsafe {
-		let ray = &*ray;
+	// nothing else uses during the call.
+	let (ray, trace) = unsafe { (&*ray, &mut *trace) };
 
-		(&raw mut (*trace)._base.startsolid).write(START_SOLID.get());
+	fill(trace, ray, CLIP_STOPS.get());
+	trace._base.startsolid = START_SOLID.get();
 
-		Clipped {
+	CLIPPED.with_borrow_mut(|calls| {
+		calls.push(Clipped {
 			start: ray.m_Start._base.into(),
 			delta: ray.m_Delta._base.into(),
 			start_offset: ray.m_StartOffset._base.into(),
@@ -160,10 +169,103 @@ unsafe extern "C" fn clip_ray_to_entity(
 			is_swept: ray.m_IsSwept,
 			mask,
 			entity,
-		}
-	};
+		});
+	});
+}
 
-	CLIPPED.with_borrow_mut(|calls| calls.push(clipped));
+#[test]
+fn clips_name_the_entity_they_are_given() {
+	let mut door = MockEntity::new(3);
+	let entity = door.entity();
+	let mut mock = MockEngineTrace::new(&[entity.as_ptr().cast()]);
+	let engine = mock.engine_trace();
+	let hull = Ray::hull(
+		LINE.0,
+		LINE.1,
+		Vector::new(-24.0, -24.0, 0.0),
+		Vector::new(24.0, 24.0, 82.0),
+	);
+
+	// A ray that misses the entity reaches its end.
+	let missed = engine.clip_to_entity(hull, MASK_PLAYERSOLID, entity);
+
+	assert_eq!(missed.fraction, 1.0);
+	assert_eq!(missed.end, LINE.1);
+	assert_eq!(missed.entity, None);
+
+	// One that starts inside the entity and leaves it met it, though it
+	// reaches its end too.
+	START_SOLID.set(true);
+
+	let inside = engine.clip_to_entity(hull, MASK_PLAYERSOLID, entity);
+
+	assert!(inside.start_solid && !inside.hit());
+	assert_eq!(inside.entity, Some(entity));
+
+	// A hit reports what a trace's does, and is on the entity given, which
+	// the mock engine's clips, unlike its traces, do not name.
+	START_SOLID.set(false);
+	CLIP_STOPS.set(true);
+
+	let clipped = engine.clip_to_entity(hull, MASK_PLAYERSOLID, entity);
+
+	assert_eq!(clipped.fraction, 0.5);
+	assert_eq!(
+		clipped,
+		engine.trace(hull, MASK_PLAYERSOLID, TraceFilter::Everything)
+	);
+}
+
+#[test]
+fn entities_without_a_collideable_are_never_clipped() {
+	let mut bare = MockEntity::new(5);
+	let entity = bare.entity();
+	let mut mock = MockEngineTrace::new(&[]);
+	let engine = mock.engine_trace();
+	let origin = Vector::new(0.0, 0.0, 0.0);
+
+	// The mock engine would have every ray start inside the entity.
+	START_SOLID.set(true);
+	remove_collideable();
+
+	let trace = engine.clip_to_entity(Ray::line(LINE.0, LINE.1), MASK_SOLID, entity);
+
+	assert_eq!(trace.fraction, 1.0);
+	assert_eq!(trace.end, LINE.1);
+	assert!(!trace.start_solid);
+	assert_eq!(trace.entity, None);
+	assert!(!engine.box_overlaps_entity(entity, LINE.0, origin, origin, MASK_ALL));
+
+	CLIPPED.with_borrow(|clipped| assert!(clipped.is_empty()));
+}
+
+/// Fills `trace` for `ray` as the mock engine does: stopped halfway, if
+/// `hit`, on a surface facing back along the X axis, or at the ray's end.
+/// As the engine does, it moves the end by the ray's start offset, back to
+/// where a box's position is. A hit is on [`SURFACE`] of a displacement,
+/// with hitbox 4 in the head's hit group, and the ray leaves what it starts
+/// in a quarter of the way along. The entity is left to the caller.
+fn fill(trace: &mut sys::trace_t, ray: &sys::Ray_t, hit: bool) {
+	let fraction = if hit { 0.5 } else { 1.0 };
+	let (start, delta, start_offset) = (
+		Vector::from(ray.m_Start._base),
+		Vector::from(ray.m_Delta._base),
+		Vector::from(ray.m_StartOffset._base),
+	);
+
+	trace._base.fraction = fraction;
+	trace._base.endpos = Vector(*start + *delta * fraction + *start_offset).into();
+
+	if hit {
+		trace._base.plane.normal = Vector::new(-1.0, 0.0, 0.0).into();
+		trace._base.contents = CONTENTS_MONSTER.cast_signed();
+		trace._base.dispFlags = 0b111;
+		trace.fractionleftsolid = 0.25;
+		trace.surface.name = SURFACE.as_ptr();
+		trace.surface.flags = 0x4;
+		trace.hitbox = 4;
+		trace.hitgroup = HITGROUP_HEAD;
+	}
 }
 
 #[test]
@@ -444,12 +546,9 @@ fn team_filters_pass_through_the_teams_entities() {
 }
 
 /// `IEngineTrace::TraceRay`: offers the filter the entities along the ray,
-/// unless it asks for the world alone, and stops halfway at the first it lets
-/// the ray hit, on a surface facing back along the X axis, or reaches the
-/// ray's end. As the engine does, it moves the end by the ray's start offset,
-/// back to where a box's position is. A hit is on [`SURFACE`] of a
-/// displacement, with hitbox 4 in the head's hit group, and the ray leaves
-/// what it starts in a quarter of the way along.
+/// unless it asks for the world alone, and fills the trace as [`fill`] does,
+/// stopped halfway at the first entity the filter lets the ray hit, which it
+/// names, or at the ray's end.
 unsafe extern "C" fn trace_ray(
 	_this: *mut sys::IEngineTrace,
 	ray: *const sys::Ray_t,
@@ -491,22 +590,7 @@ unsafe extern "C" fn trace_ray(
 			(methods.ITraceFilter_ShouldHitEntity)(filter, entity, mask.cast_signed())
 		});
 
-	let fraction = if hit.is_some() { 0.5 } else { 1.0 };
-
-	trace._base.fraction = fraction;
-	trace._base.endpos = Vector(*start + *delta * fraction + *start_offset).into();
-
-	if hit.is_some() {
-		trace._base.plane.normal = Vector::new(-1.0, 0.0, 0.0).into();
-		trace._base.contents = CONTENTS_MONSTER.cast_signed();
-		trace._base.dispFlags = 0b111;
-		trace.fractionleftsolid = 0.25;
-		trace.surface.name = SURFACE.as_ptr();
-		trace.surface.flags = 0x4;
-		trace.hitbox = 4;
-		trace.hitgroup = HITGROUP_HEAD;
-	}
-
+	fill(trace, ray, hit.is_some());
 	trace.m_pEnt = hit.map_or(ptr::null_mut(), <*mut _>::cast);
 }
 
