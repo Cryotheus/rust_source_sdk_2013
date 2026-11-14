@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::Module;
-use crate::datatables::PropFlags;
+use crate::datatables::{PropFlags, PropKind};
 use crate::interfaces::{PluginHelpers, ServerTools, ValveEngine};
 use crate::test_support::datatables::{int8_proxy, int32_proxy, prop, table, vector_proxy};
 use crate::test_support::edicts::{change_accessor, shared_change_info};
@@ -13,6 +13,7 @@ use crate::test_support::interfaces::server_game_dll::export_standard_proxies;
 use crate::test_support::leak;
 use crate::test_support::server::{export, mock_server, null_server};
 use crate::test_support::tf2::game_rules::{ENTITIES, World as RulesWorld, round_rules_proxy};
+use crate::test_support::tf2::objectives::array3_prop;
 
 use crate::test_support::tf2::script_binding::{
 	SCRIPT_DESCRIPTION_SLOT, class_description, member_binding,
@@ -108,6 +109,8 @@ struct FakeEntity {
 	owner: u32,
 	active_weapon: u32,
 	weapons: [u32; 3],
+	/// `m_hViewModel` of a player.
+	view_models: [u32; 2],
 	ammo: [c_int; 7],
 	view_offset: [f32; 3],
 	force: [f32; 3],
@@ -192,6 +195,7 @@ impl World {
 			mock_vtable::<sys::IServerNetworkable__bindgen_vtable>(
 				unexpected_call as *const (),
 				|vtable| {
+					(&raw mut (*vtable).IServerNetworkable_GetClassName).write(class_name);
 					(&raw mut (*vtable).IServerNetworkable_GetServerClass).write(server_class);
 					(&raw mut (*vtable).IServerNetworkable_GetEdict).write(edict);
 				},
@@ -240,10 +244,10 @@ impl World {
 			handle_prop(c"m_hRagdoll", offset_of!(FakeEntity, ragdoll)),
 			handle_prop(c"m_hActiveWeapon", offset_of!(FakeEntity, active_weapon)),
 			inside_array(handle_prop(
-				c"m_hMyWeapons",
-				offset_of!(FakeEntity, weapons),
+				c"m_hViewModel",
+				offset_of!(FakeEntity, view_models),
 			)),
-			array_prop(c"m_hMyWeapons", 3),
+			array_prop(c"m_hViewModel", 2),
 			inside_array(int_prop(c"m_iAmmo", offset_of!(FakeEntity, ammo))),
 			array_prop(c"m_iAmmo", 7),
 			float_prop(c"m_vecViewOffset[0]", offset_of!(FakeEntity, view_offset)),
@@ -254,6 +258,13 @@ impl World {
 			float_prop(
 				c"m_vecViewOffset[2]",
 				offset_of!(FakeEntity, view_offset) + 8,
+			),
+			array3_prop(
+				c"m_hMyWeapons",
+				offset_of!(FakeEntity, weapons),
+				3,
+				size_of::<u32>(),
+				handle_prop,
 			),
 		]);
 		let ragdoll_props = leak([
@@ -332,6 +343,7 @@ impl World {
 				owner: NULL,
 				active_weapon: NULL,
 				weapons: [NULL; 3],
+				view_models: [NULL; 2],
 				ammo: [0, 32, 200, 0, 1, 0, 0],
 				view_offset: STANDING,
 				force: [10.0, 0.0, 5.0],
@@ -377,6 +389,8 @@ impl World {
 			player.ragdoll = (*world.ragdoll).handle;
 			player.active_weapon = (*world.weapon).handle;
 			player.weapons = [(*world.weapon).handle, (*world.prop).handle, NULL];
+			// The prop stands in for a view model.
+			player.view_models = [NULL, (*world.prop).handle];
 			(*world.ragdoll).owner = player.handle;
 			(*world.weapon).owner = player.handle;
 			(*world.stolen).owner = newcomer.handle;
@@ -457,6 +471,13 @@ fn byte_prop(name: &'static CStr, at: usize) -> sys::SendProp {
 /// Takes the calls of native members made since the last.
 fn calls() -> Vec<(&'static CStr, Vec<Argument>)> {
 	CALLS.take()
+}
+
+/// `IServerNetworkable::GetClassName`, which returns the name of the fake
+/// entity's server class.
+unsafe extern "C" fn class_name(this: *const sys::IServerNetworkable) -> *const c_char {
+	// SAFETY: As for `edict`.
+	unsafe { (*(*fake_of(this)).class).m_pNetworkName }
 }
 
 #[test]
@@ -745,6 +766,66 @@ fn float_prop(name: &'static CStr, at: usize) -> sys::SendProp {
 		PropFlags::default(),
 		Some(int32_proxy),
 	)
+}
+
+#[test]
+fn handle_arrays_of_either_shape_are_read_whole() {
+	let world = World::new();
+	let scope = ();
+	let dll = mock_server(&scope).server_game_dll().unwrap();
+	let player = entity(world.player);
+	// SAFETY: As for the fields written in `World::new`.
+	let (weapon, prop) = unsafe { ((*world.weapon).handle, (*world.prop).handle) };
+
+	// `SendPropArray3` nests its elements in a table, and `SendPropArray`
+	// follows its element with the array. Empty slots are read too.
+	for (name, kind, expected) in [
+		(
+			c"m_hMyWeapons",
+			PropKind::DataTable,
+			vec![weapon, prop, NULL],
+		),
+		(c"m_hViewModel", PropKind::Array, vec![NULL, prop]),
+	] {
+		let array = dll.entity_net_prop(player, name).unwrap();
+		let one_by_one = (0..array.element_count().unwrap())
+			.map(|index| array.element(index).unwrap().get_handle(player).unwrap())
+			.collect::<Vec<_>>();
+		let handles = array.get_handles(player).unwrap();
+
+		assert_eq!(array.prop().kind(), kind);
+		assert_eq!(handles, one_by_one);
+		assert_eq!(
+			handles
+				.into_iter()
+				.map(EntityHandle::to_raw)
+				.collect::<Vec<_>>(),
+			expected
+		);
+	}
+
+	let weapons = dll.entity_net_prop(player, c"m_hMyWeapons").unwrap();
+
+	// Another class's entity is refused before anything is read.
+	assert!(matches!(
+		weapons.get_handles(entity(world.weapon)),
+		Err(NetPropError::ClassMismatch { .. })
+	));
+	assert!(matches!(
+		dll.entity_net_prop(player, c"m_hActiveWeapon")
+			.unwrap()
+			.get_handles(player),
+		Err(NetPropError::NotAnArray {
+			kind: PropKind::Int,
+			..
+		})
+	));
+	assert!(matches!(
+		dll.entity_net_prop(player, c"m_iAmmo")
+			.unwrap()
+			.get_handles(player),
+		Err(NetPropError::NotAHandle { .. })
+	));
 }
 
 /// An entity handle property, as `SendPropEHandle` declares one.

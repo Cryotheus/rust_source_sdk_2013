@@ -1162,6 +1162,53 @@ impl<'s> NetProp<'s> {
 		}))
 	}
 
+	/// Reads every element of an array of entity handles (`CHandle`), such as
+	/// `m_hMyWeapons`, from an entity, in order and as stored, as
+	/// [`get_handle`](Self::get_handle) reads each [`element`](Self::element),
+	/// empty ones included. The array may be declared by `SendPropArray`, or by
+	/// `SendPropArray3`, which nests its elements in a table.
+	///
+	/// The entity is checked once rather than once an element.
+	///
+	/// Fails with [`NetPropError::NotAnArray`] if the property is neither kind of
+	/// array, and otherwise as [`get_handle`](Self::get_handle) does, or as
+	/// [`element`](Self::element) does for any element.
+	#[doc(alias("SendPropArray", "SendPropArray3"))]
+	pub fn get_handles(self, entity: Entity<'_>) -> Result<Vec<EntityHandle>, NetPropError> {
+		let len = self
+			.element_count()
+			.ok_or_else(|| NetPropError::NotAnArray {
+				name: lossy(self.prop.name()),
+				kind: self.prop.kind(),
+			})?;
+
+		self.check_entity(entity)?;
+
+		let mut handles = Vec::with_capacity(len);
+
+		for index in 0..len {
+			let element = self.element(index)?;
+
+			element.check_handle()?;
+
+			// SAFETY: The entity's class derives from the class the offset was
+			// resolved in, which its elements share, and the element is a handle,
+			// whose `CBaseHandle` holds only its raw value, read without forming a
+			// reference or assuming alignment. Entities are zeroed when allocated,
+			// so every byte is initialized.
+			handles.push(EntityHandle::from_raw(unsafe {
+				entity
+					.as_ptr()
+					.cast::<u8>()
+					.add(element.offset)
+					.cast::<u32>()
+					.read_unaligned()
+			}));
+		}
+
+		Ok(handles)
+	}
+
 	/// Reads an entity handle variable (`CHandle`), as stored, from the
 	/// structure at `base`, as [`get_handle`](Self::get_handle) reads one from an
 	/// entity.
