@@ -301,6 +301,43 @@ impl<'s> TempEntities<'s> {
 		Ok(())
 	}
 
+	/// Plays the particle system with index `system` from `from` to `to` for
+	/// `recipients`, on no entity, as the game's `DispatchParticleEffect` does
+	/// with two points, through the `ParticleEffect` effect: each client plays
+	/// it with its first control point at `from` and its second at `to`, as
+	/// TF2's particle tracers, such as `bullet_tracer_raygun_red`, take their
+	/// start and end (`ParticleTracerCallback`).
+	///
+	/// It is played as [`Self::dispatch_particle_effect_at`] plays one at a
+	/// point: where it is, whatever becomes of the entities there, to the
+	/// recipients given, with prediction filtering turned off for the dispatch.
+	/// The particle system must be one the level precached, and an index out of
+	/// the range clients receive fails. Once the effect passes, an empty
+	/// `recipients` returns `Ok` without dispatching it.
+	#[doc(alias("DispatchParticleEffect", "DispatchEffect", "ParticleTracer"))]
+	pub fn dispatch_particle_effect_between(
+		self,
+		recipients: &Recipients,
+		system: usize,
+		from: Vector,
+		to: Vector,
+	) -> Result<(), ParticleEffectError> {
+		let hit_box = system_index(system)?;
+
+		if recipients.is_empty() {
+			return Ok(());
+		}
+
+		let mut data = EffectData::new();
+
+		data.origin = from.into();
+		data.start = to.into();
+		data.hit_box = hit_box;
+
+		self.dispatch_effect(recipients, PARTICLE_EFFECT, &data);
+		Ok(())
+	}
+
 	/// Stops every particle effect on an entity for `recipients`, as the
 	/// game's `StopParticleEffects` does, through the `ParticleEffectStop`
 	/// effect: each client stops its copy's effects emitting, and lets the

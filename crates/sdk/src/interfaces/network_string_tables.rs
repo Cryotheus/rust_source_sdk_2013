@@ -364,9 +364,9 @@ impl<'s> NetworkStringTables<'s> {
 	///
 	/// The sample must be spelled as it was precached, including any of the
 	/// engine's leading sound characters. Unlike the engine's own
-	/// [`EngineSound::is_sound_precached`], which TF2's 64-bit Windows engine
-	/// was observed to answer `true` for a sample it had not precached, this reads the table the engine looks samples up
-	/// in. `false` if the level has no such table.
+	/// [`EngineSound::is_sound_precached`], which TF2's 64-bit Windows and Linux
+	/// engines were observed to answer `true` for a sample they had not
+	/// precached, this reads the table the engine looks samples up in. `false` if the level has no such table.
 	///
 	/// [`EngineSound::is_sound_precached`]: crate::interfaces::EngineSound::is_sound_precached
 	#[doc(alias("IsSoundPrecached"))]

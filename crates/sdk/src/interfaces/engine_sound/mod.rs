@@ -517,10 +517,9 @@ impl<'s> EngineSound<'s> {
 	/// What the engine answers when asked whether a sound is in the precache
 	/// table.
 	///
-	/// TF2's 64-bit Windows server has been observed to answer `true` for a
-	/// sample it has not precached, which it then refuses to play, so use
-	/// [`NetworkStringTables::is_sound_precached`] instead. Linux servers have
-	/// not been tested.
+	/// TF2's 64-bit Windows and Linux servers have been observed to answer
+	/// `true` for a sample they have not precached, which they then refuse to
+	/// play, so use [`NetworkStringTables::is_sound_precached`] instead.
 	///
 	/// [`NetworkStringTables::is_sound_precached`]: crate::interfaces::NetworkStringTables::is_sound_precached
 	#[doc(alias("IsSoundPrecached"))]
