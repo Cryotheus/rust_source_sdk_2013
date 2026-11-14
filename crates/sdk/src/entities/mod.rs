@@ -333,6 +333,12 @@ impl<'s> Entity<'s> {
 			.unwrap_or_default()
 	}
 
+	/// The entity's `ICollideable`, or `None` if Source reports none.
+	pub(crate) fn collideable(self) -> Option<NonNull<sys::ICollideable>> {
+		// SAFETY: As for `handle`.
+		NonNull::new(unsafe { vcall!(self.server_entity() => IServerEntity_GetCollideable()) })
+	}
+
 	/// The entity's collision group (`m_CollisionGroup`), as its collision
 	/// property reports it, from which the game decides what the entity collides
 	/// with, and the engine which triggers it touches.

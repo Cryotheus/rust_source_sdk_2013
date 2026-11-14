@@ -103,9 +103,10 @@ pub struct MockEntity {
 
 impl MockEntity {
 	/// Builds an entity whose handle is `handle`, and resets the datamap,
-	/// origin, box in its own space, solid type, collision group, teleport count,
-	/// transmit state update count, `TakeHealth`, `Activate` and `SetModel`
-	/// calls, server class, and edict that mock entities on this thread report.
+	/// collideable, origin, box in its own space, solid type, collision group,
+	/// teleport count, transmit state update count, `TakeHealth`, `Activate`
+	/// and `SetModel` calls, server class, and edict that mock entities on this
+	/// thread report.
 	pub fn new(handle: u32) -> Self {
 		Self::with_layout(handle, Layout::new::<[usize; 64]>())
 	}
@@ -728,6 +729,14 @@ unsafe extern "C" fn is_alive(this: *mut sys::CBaseEntity) -> bool {
 /// For tests only.
 pub fn models_set() -> Vec<(*mut sys::CBaseEntity, CString)> {
 	MODELS_SET.with_borrow(Clone::clone)
+}
+
+/// Makes mock entities on this thread report no collideable, until the next
+/// [`MockEntity::new`] gives them one again.
+///
+/// For tests only.
+pub fn remove_collideable() {
+	COLLIDEABLE.set(null_mut());
 }
 
 /// Sets what mock entities' `AcceptInput` returns on this thread.
