@@ -254,7 +254,7 @@ impl<'s> SendTable<'s> {
 	/// # Safety
 	///
 	/// `raw` must be one of the game DLL's send tables, which are statics.
-	pub(crate) const unsafe fn from_raw(raw: NonNull<sys::SendTable>) -> Self {
+	pub const unsafe fn from_raw(raw: NonNull<sys::SendTable>) -> Self {
 		Self {
 			raw,
 			_scope: PhantomData,
@@ -353,6 +353,35 @@ impl<'s> SendTable<'s> {
 	pub fn len(self) -> usize {
 		// SAFETY: As for `name`.
 		usize::try_from(unsafe { (&raw const (*self.as_ptr()).m_nProps).read() }).unwrap_or(0)
+	}
+
+	/// Reads every variable of a networked object of this table that has no
+	/// entity, such as a temporary entity, by calling its send proxies as the
+	/// engine does when it encodes the object, and returns them in the table's
+	/// order, with those of nested tables and base classes. Array elements
+	/// come one by one.
+	///
+	/// Variables the engine would not send as plain values are left out:
+	/// excluded properties, those of nested tables whose proxy relocates their
+	/// data, and types this crate does not know. At most [`MAX_OBJECT_VALUES`]
+	/// are read.
+	///
+	/// # Safety
+	///
+	/// `base` must point to a live object of the class this table describes,
+	/// which stays live for the call, and the call must be made on the
+	/// server's main thread.
+	pub unsafe fn read_object(
+		self,
+		proxies: StandardSendProxies<'s>,
+		base: NonNull<c_void>,
+	) -> Vec<ObjectValue> {
+		let mut values = Vec::new();
+
+		// SAFETY: The caller upholds the contract.
+		unsafe { read_table(self, proxies, base.as_ptr(), &mut values, 0) };
+
+		values
 	}
 
 	/// The table's name, such as `DT_TFPlayer`.
@@ -506,6 +535,156 @@ pub enum NetValue {
 	/// A copy of a [`PropKind::String`] property's value, empty if the proxy
 	/// gave none.
 	String(CString),
+}
+
+/// The most variables [`SendTable::read_object`] reads from one object.
+pub const MAX_OBJECT_VALUES: usize = 256;
+
+/// A variable of an object without an entity, from [`SendTable::read_object`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectValue {
+	/// The variable's name, such as `m_iEffectName`.
+	pub name: String,
+
+	/// With an element of an array: its index.
+	pub element: Option<usize>,
+
+	/// The value as clients receive it.
+	pub value: NetValue,
+}
+
+/// Reads the value a proxy filled in, as its property's kind says, or `None`
+/// for a kind with no single value.
+///
+/// # Safety
+///
+/// `value` must be filled in by a send proxy of a property of this `kind`.
+unsafe fn net_value(kind: PropKind, value: sys::DVariant) -> Option<NetValue> {
+	let value = value.__bindgen_anon_1;
+
+	// SAFETY: Proxies fill in the union member matching the property type.
+	Some(unsafe {
+		match kind {
+			PropKind::Int => NetValue::Int(value.m_Int),
+			PropKind::Float => NetValue::Float(value.m_Float),
+
+			PropKind::Vector => NetValue::Vector(Vector::new(
+				value.m_Vector[0],
+				value.m_Vector[1],
+				value.m_Vector[2],
+			)),
+
+			PropKind::VectorXY => {
+				NetValue::VectorXY(Vec2::new(value.m_Vector[0], value.m_Vector[1]))
+			}
+
+			PropKind::String => NetValue::String(copy_cstr(value.m_pString).unwrap_or_default()),
+
+			PropKind::Array | PropKind::DataTable | PropKind::Unknown(_) => return None,
+		}
+	})
+}
+
+/// Reads the variables of `table` within the structure at `struct_base` into
+/// `values`, descending into nested tables whose proxies pass their data
+/// through.
+///
+/// # Safety
+///
+/// As for [`SendTable::read_object`], with `struct_base` the structure `table`
+/// describes within the live object.
+unsafe fn read_table(
+	table: SendTable<'_>,
+	proxies: StandardSendProxies<'_>,
+	struct_base: *const c_void,
+	values: &mut Vec<ObjectValue>,
+	depth: usize,
+) {
+	if depth > MAX_TABLE_DEPTH {
+		return;
+	}
+
+	let at = |offset: c_int| struct_base.cast::<u8>().wrapping_offset(offset as isize);
+
+	for prop in table.props() {
+		if values.len() >= MAX_OBJECT_VALUES {
+			return;
+		}
+
+		if prop.flags().contains(PropFlags::INSIDE_ARRAY)
+			|| prop.flags().contains(PropFlags::EXCLUDE)
+		{
+			continue;
+		}
+
+		let name = prop.name().to_string_lossy().into_owned();
+
+		match prop.kind() {
+			PropKind::DataTable => {
+				if let Some(nested) = prop.data_table()
+					&& proxies.is_direct(prop)
+				{
+					// SAFETY: The nested structure lies within the object.
+					unsafe {
+						read_table(nested, proxies, at(prop.offset()).cast(), values, depth + 1)
+					};
+				}
+			}
+
+			PropKind::Array => {
+				let Some(element) = prop.array_prop() else {
+					continue;
+				};
+
+				let count = usize::try_from(prop.element_count()).unwrap_or(0);
+				let stride = prop.element_stride() as isize;
+
+				for index in 0..count.min(MAX_OBJECT_VALUES.saturating_sub(values.len())) {
+					let data = at(element.offset()).wrapping_offset(stride * index as isize);
+
+					// SAFETY: The element lies within the object, and its proxy
+					// is called with the arguments the engine passes.
+					let value = unsafe {
+						call_var_proxy(
+							element.as_ptr(),
+							struct_base,
+							data.cast(),
+							index as c_int,
+							0,
+						)
+					}
+					.and_then(|value| unsafe { net_value(element.kind(), value) });
+
+					if let Some(value) = value {
+						values.push(ObjectValue {
+							name: name.clone(),
+							element: Some(index),
+							value,
+						});
+					}
+				}
+			}
+
+			PropKind::Unknown(_) => {}
+
+			kind => {
+				// SAFETY: The variable lies within the object, and its proxy is
+				// called with the arguments the engine passes.
+				let value = unsafe {
+					call_var_proxy(prop.as_ptr(), struct_base, at(prop.offset()).cast(), 0, 0)
+				}
+				.and_then(|value| unsafe { net_value(kind, value) });
+
+				if let Some(value) = value {
+					values.push(ObjectValue {
+						name,
+						element: None,
+						value,
+					});
+				}
+			}
+		}
+	}
 }
 
 /// A type a networked variable can be read or written as.
@@ -1410,32 +1589,11 @@ impl<'s> NetProp<'s> {
 		}
 		.ok_or_else(|| NetPropError::NoProxy {
 			name: lossy(self.prop.name()),
-		})?
-		.__bindgen_anon_1;
+		})?;
 
-		// SAFETY: Proxies fill in the union member matching the property type.
-		Ok(unsafe {
-			match kind {
-				PropKind::Int => NetValue::Int(value.m_Int),
-				PropKind::Float => NetValue::Float(value.m_Float),
-
-				PropKind::Vector => NetValue::Vector(Vector::new(
-					value.m_Vector[0],
-					value.m_Vector[1],
-					value.m_Vector[2],
-				)),
-
-				PropKind::VectorXY => {
-					NetValue::VectorXY(Vec2::new(value.m_Vector[0], value.m_Vector[1]))
-				}
-
-				PropKind::String => {
-					NetValue::String(copy_cstr(value.m_pString).unwrap_or_default())
-				}
-
-				PropKind::Array | PropKind::DataTable | PropKind::Unknown(_) => unreachable!(),
-			}
-		})
+		// SAFETY: The proxy of a property of this kind filled it in, and the
+		// kinds without a single value were refused above.
+		Ok(unsafe { net_value(kind, value) }.expect("scalar kinds have values"))
 	}
 }
 

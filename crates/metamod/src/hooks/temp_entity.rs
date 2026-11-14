@@ -45,6 +45,7 @@ use crate::hook::{
 };
 
 use crate::recipients::Recipients;
+use source_sdk_2013::datatables::{ObjectValue, SendTable};
 use source_sdk_2013::interfaces::ValveEngine;
 
 use source_sdk_2013::raw::interfaces::valve_engine::{
@@ -54,7 +55,7 @@ use source_sdk_2013::raw::interfaces::valve_engine::{
 use source_sdk_2013::raw::util::cstr::borrow_cstr;
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
-use std::ffi::{CStr, c_int};
+use std::ffi::{CStr, c_int, c_void};
 use std::ptr::NonNull;
 
 /// Decides whether a temporary entity the server plays back is sent. A panic
@@ -84,6 +85,38 @@ pub struct PlayedTempEntity<'a> {
 
 	/// The index of its server class.
 	pub class_id: c_int,
+
+	/// The description of its networked variables.
+	send_table: SendTable<'a>,
+
+	/// The temporary entity, live for the call.
+	sender: *const c_void,
+}
+
+impl PlayedTempEntity<'_> {
+	/// Reads the temporary entity's networked variables as clients receive
+	/// them, such as the `m_iEffectName` of a `DT_TEEffectDispatch`, by
+	/// calling their send proxies. Those of nested tables are included, and
+	/// at most [`MAX_OBJECT_VALUES`](source_sdk_2013::datatables::MAX_OBJECT_VALUES)
+	/// are read. Empty if the game gives no standard send proxies, or sent
+	/// no object.
+	pub fn read_fields(&self, server: Server<'_>) -> Vec<ObjectValue> {
+		let (Some(sender), Ok(game_dll)) = (
+			NonNull::new(self.sender.cast_mut()),
+			server.server_game_dll(),
+		) else {
+			return Vec::new();
+		};
+
+		let Some(proxies) = game_dll.standard_send_proxies() else {
+			return Vec::new();
+		};
+
+		// SAFETY: The engine passed the live temporary entity and the send table
+		// of its class, and the callback runs on the main thread during the
+		// call, so the object is live and of the table's class.
+		unsafe { self.send_table.read_object(proxies, sender) }
+	}
 }
 
 #[derive(Clone, Copy)]
@@ -127,12 +160,16 @@ impl Handler<PlaybackTempEntity> for TempEntityRoute {
 			return HookAction::Ignore;
 		};
 
-		let (filter, delay, _sender, table, class_id) = call.args();
+		let (filter, delay, sender, table, class_id) = call.args();
 
 		let (Some(filter), Some(table)) = (NonNull::new(filter), NonNull::new(table.cast_mut()))
 		else {
 			return HookAction::Ignore;
 		};
+
+		// SAFETY: The engine passes one of the game DLL's send tables, which
+		// are statics.
+		let send_table = unsafe { SendTable::from_raw(table) };
 
 		// SAFETY: Send tables and their names are statics of the game DLL. The
 		// field is read without forming a reference.
@@ -149,6 +186,8 @@ impl Handler<PlaybackTempEntity> for TempEntityRoute {
 			delay,
 			table,
 			class_id,
+			send_table,
+			sender,
 		};
 
 		let scope = ();

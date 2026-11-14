@@ -375,3 +375,53 @@ fn variables_are_read_and_written_only_as_stored() {
 
 	set_networking(null_mut(), null_mut());
 }
+
+#[test]
+fn an_object_without_an_entity_is_read_through_its_nested_tables_and_arrays() {
+	let tables = Tables::new();
+	let proxies = tables.proxies();
+	let derived = Tables::table(&tables.derived);
+	let mut mock = MockEntity::new(3);
+	let entity = mock.entity();
+	let base = NonNull::new(entity.as_ptr().cast::<c_void>()).unwrap();
+	// SAFETY: Every offset written here lies within the mock's storage.
+	let at = |offset: usize| unsafe { entity.as_ptr().cast::<u8>().add(offset) };
+
+	// SAFETY: The offsets are those the tables declare, within the mock's
+	// storage, and aligned for what is written there.
+	unsafe {
+		at(16).cast::<i32>().write(125);
+		at(68).write(1);
+		at(100).cast::<i16>().write(5);
+		at(102).cast::<i16>().write(6);
+		at(104).cast::<i16>().write(-3);
+		at(106).cast::<i16>().write(8);
+		at(124).cast::<u32>().write(9);
+	}
+
+	// SAFETY: The mock is a live object of `DT_Derived`'s layout.
+	let values = unsafe { derived.read_object(proxies, base) };
+	let named = |name: &str, element: Option<usize>| {
+		values
+			.iter()
+			.find(|value| value.name == name && value.element == element)
+			.map(|value| value.value.clone())
+	};
+
+	// The base class's variable and its direct nested table are read; the
+	// excluded property and the relocated table are not.
+	assert_eq!(named("m_iHealth", None), Some(NetValue::Int(125)));
+	assert_eq!(named("m_bDucked", None), Some(NetValue::Int(1)));
+	assert_eq!(named("m_iHidden", None), None);
+	assert_eq!(named("m_iAmmo", Some(0)), Some(NetValue::Int(5)));
+	assert_eq!(named("m_iAmmo", Some(2)), Some(NetValue::Int(-3)));
+	assert_eq!(named("m_iAmmo", Some(3)), Some(NetValue::Int(8)));
+	assert_eq!(named("m_nFlags", None), Some(NetValue::Int(9)));
+	assert_eq!(
+		values
+			.iter()
+			.filter(|value| value.name == "m_iHealth")
+			.count(),
+		1
+	);
+}
