@@ -19,10 +19,12 @@ use sdk_raw::interfaces::{CreateInterfaceFn, create_interface};
 #[cfg(test)]
 use std::cell::Cell;
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_void};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+
+pub(crate) use lookups::Kept;
 
 /// The explicitly supplied filesystem factory lacks the exact base interface.
 ///
@@ -78,6 +80,9 @@ impl Game {
 ///
 /// `Raw` must be the C++ class that [`Self::MODULE`] exports under
 /// [`Self::VERSION`], and `bind` may only wrap the pointer it is given.
+/// `MODULE` exports `VERSION` as a singleton, the same object for every
+/// request, and `kept` returns a `Kept` of this implementation's own that no
+/// other implementation returns.
 pub(crate) unsafe trait Interface<'s>: Sized {
 	/// The C++ class of the exported object, such as `sys::IVEngineServer`.
 	type Raw;
@@ -95,6 +100,9 @@ pub(crate) unsafe trait Interface<'s>: Sized {
 	/// `raw` must be the live object exported under [`Self::VERSION`], alive
 	/// for `'s`.
 	unsafe fn bind(raw: NonNull<Self::Raw>, server: &Server<'s>) -> Self;
+
+	/// Where [`Server`] keeps the object it found for this interface.
+	fn kept() -> &'static Kept;
 }
 
 /// A module does not export an interface at the version these bindings expect.
@@ -171,12 +179,14 @@ impl Display for Module {
 /// The running server, as seen from one call the engine makes into a plugin.
 ///
 /// Every other type in this crate is reached from here. A `Server` holds the
-/// engine's and game server's interface factories and resolves an interface
-/// each time an ordinary accessor is called. Interfaces are process-wide
-/// singletons, so each accessor returns the same object; resolving is a short
-/// string search. An ordinary accessor returns an [`InterfaceError`] if its
-/// module lacks the expected exact version. A separately supplied filesystem
-/// factory has its own contract in [`Server::base_file_system_from_factory`].
+/// engine's and game server's interface factories. An ordinary accessor
+/// resolves its interface the first time it succeeds through its module's
+/// factory, and keeps it for that factory for the rest of the process; a
+/// failed lookup is retried at the next call. Interfaces are process-wide
+/// singletons, so each accessor returns the same object. An ordinary accessor
+/// returns an [`InterfaceError`] if its module lacks the expected exact
+/// version. A separately supplied filesystem factory has its own contract in
+/// [`Server::base_file_system_from_factory`].
 ///
 /// The lifetime `'s` is the scope [`Server::new`] vouches for. Handles derived
 /// from a `Server` carry it, so none can outlive the callback that created it.
@@ -200,7 +210,14 @@ impl<'s> Server<'s> {
 	///
 	/// 1. `engine` and `game_server` are the `CreateInterface` functions of the
 	///    running server's engine and game-server modules, neither of which is
-	///    unloaded.
+	///    unloaded. Neither is a wrapper whose answers can change, such as
+	///    Metamod:Source's synthetic factories: for as long as this crate stays
+	///    loaded, a factory at the same address, in any later `Server`, returns
+	///    the same objects under the versions the typed accessors request,
+	///    because the crate keeps what they find for the rest of the process.
+	///    Source's modules export these as singletons and stay loaded while
+	///    plugins are. Test doubles that export different objects must enable
+	///    the `_test-support` feature.
 	/// 2. The game DLL was built for `game`.
 	/// 3. `'s` lies within a single call from the engine into the plugin, on
 	///    the server's main thread. No frame, level change, or shutdown completes
@@ -360,21 +377,27 @@ impl<'s> Server<'s> {
 		self.interface()
 	}
 
+	/// The interface factory of `module`.
+	const fn factory(&self, module: Module) -> InterfaceFactory {
+		match module {
+			Module::Engine => self.engine,
+			Module::GameServer => self.game_server,
+		}
+	}
+
 	/// Looks up an interface this crate does not wrap.
 	///
 	/// The pointer is valid for `'s` if `version` names an interface that the
 	/// module implements as a singleton, which almost all are. Dereferencing
 	/// it requires `T` to match that interface. Returns an [`InterfaceError`]
-	/// if the module does not export `version`.
+	/// if the module does not export `version`. Unlike the typed accessors,
+	/// this asks the factory every time.
 	pub fn find_interface<T>(
 		&self,
 		module: Module,
 		version: &CStr,
 	) -> Result<NonNull<T>, InterfaceError> {
-		let factory = match module {
-			Module::Engine => self.engine,
-			Module::GameServer => self.game_server,
-		};
+		let factory = self.factory(module);
 
 		// SAFETY: `new` guarantees the factory is the module's `CreateInterface`,
 		// which stays loaded for `'s`, on the server's main thread.
@@ -404,11 +427,16 @@ impl<'s> Server<'s> {
 
 	/// Looks up the interface `I` wraps and binds its handle to `'s`.
 	fn interface<I: Interface<'s>>(&self) -> Result<I, InterfaceError> {
-		let raw = self.find_interface::<I::Raw>(I::MODULE, I::VERSION)?;
+		let factory = self.factory(I::MODULE).as_raw() as usize;
+		let raw = I::kept().get_or_find(factory, || {
+			self.find_interface::<c_void>(I::MODULE, I::VERSION)
+		})?;
 
-		// SAFETY: `I::Raw` is the class exported under `I::VERSION`, and `new`
-		// guarantees the module keeps the singleton alive for `'s`.
-		Ok(unsafe { I::bind(raw, self) })
+		// SAFETY: `I::Raw` is the class exported under `I::VERSION` as a
+		// singleton. The object is the one this factory returned for it, now or
+		// earlier in the process, which condition 1 of `new` guarantees it still
+		// returns, and `new` guarantees the module keeps it alive for `'s`.
+		Ok(unsafe { I::bind(raw.cast(), self) })
 	}
 
 	/// `IVModelInfo`, the server's model registry.
@@ -550,4 +578,85 @@ fn tier0_print(message: &CStr) -> bool {
 	// thread inside an engine callback, where the engine's tier0 is loaded and
 	// may print.
 	unsafe { sdk_raw::tier0::print(message) }
+}
+
+/// Kept interfaces for builds with tests, which look up anew every time: the
+/// mock factories sit at fixed addresses and export per-thread objects that
+/// later tests replace.
+#[cfg(any(test, feature = "_test-support"))]
+mod lookups {
+	use super::InterfaceError;
+	use std::ffi::c_void;
+	use std::ptr::NonNull;
+
+	/// Where an interface's object would be kept.
+	pub(crate) struct Kept;
+
+	impl Kept {
+		/// A place that keeps nothing.
+		pub(crate) const fn new() -> Self {
+			Self
+		}
+
+		/// What `find` returns.
+		pub(crate) fn get_or_find(
+			&self,
+			_factory: usize,
+			find: impl FnOnce() -> Result<NonNull<c_void>, InterfaceError>,
+		) -> Result<NonNull<c_void>, InterfaceError> {
+			find()
+		}
+	}
+}
+
+/// The objects the typed accessors of [`Server`] find, kept for the rest of
+/// the process.
+///
+/// Each interface a typed accessor requests is a singleton of its module, the
+/// same object for every request, and a module has registered all of its
+/// interfaces once it has loaded, so the object a factory returns under a
+/// version is the one it returns ever after. The modules stay loaded as long
+/// as plugins are, and so do their singletons, as condition 1 of
+/// [`Server::new`] requires. An object is kept with the address of the factory
+/// that returned it, and only returned again for that factory: a lookup
+/// through another factory asks that factory, and is not kept. A lookup that
+/// failed is not kept either, so the next one asks again.
+#[cfg(not(any(test, feature = "_test-support")))]
+mod lookups {
+	use super::InterfaceError;
+	use std::ffi::c_void;
+	use std::ptr::{self, NonNull};
+	use std::sync::OnceLock;
+
+	/// Where one interface's object is kept, by the addresses of the factory
+	/// that returned it and of the object.
+	pub(crate) struct Kept(OnceLock<(usize, usize)>);
+
+	impl Kept {
+		/// A place that keeps nothing yet.
+		pub(crate) const fn new() -> Self {
+			Self(OnceLock::new())
+		}
+
+		/// The object kept for the factory at the address `factory`, or else
+		/// what `find` returns, which is kept if nothing is yet.
+		pub(crate) fn get_or_find(
+			&self,
+			factory: usize,
+			find: impl FnOnce() -> Result<NonNull<c_void>, InterfaceError>,
+		) -> Result<NonNull<c_void>, InterfaceError> {
+			if let Some(&(kept_factory, object)) = self.0.get()
+				&& kept_factory == factory
+				&& let Some(object) =
+					NonNull::new(ptr::with_exposed_provenance_mut::<c_void>(object))
+			{
+				return Ok(object);
+			}
+
+			let object = find()?;
+			let _ = self.0.set((factory, object.as_ptr().expose_provenance()));
+
+			Ok(object)
+		}
+	}
 }

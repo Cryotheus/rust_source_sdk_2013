@@ -46,8 +46,9 @@ macro_rules! interface {
 			}
 		}
 
-		// SAFETY: `$Raw` is the class exported under `$version`, and `bind`
-		// only wraps the pointer.
+		// SAFETY: `$Raw` is the class exported under `$version`, as a singleton,
+		// `bind` only wraps the pointer, and `kept` returns this type's own
+		// static.
 		unsafe impl<'s> $crate::server::Interface<'s> for $Name<'s> {
 			type Raw = $Raw;
 
@@ -57,6 +58,11 @@ macro_rules! interface {
 			unsafe fn bind(raw: ::core::ptr::NonNull<$Raw>, _server: &$crate::server::Server<'s>) -> Self {
 				// SAFETY: The caller upholds the same contract.
 				unsafe { Self::from_raw(raw) }
+			}
+
+			fn kept() -> &'static $crate::server::Kept {
+				static KEPT: $crate::server::Kept = $crate::server::Kept::new();
+				&KEPT
 			}
 		}
 	};
