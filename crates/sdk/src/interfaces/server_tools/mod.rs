@@ -10,7 +10,7 @@ use crate::entities::{Entity, EntityHandle, HammerId, ProtectedEntity, TeleportE
 use crate::inputs::{self, InputError, InputValue};
 use crate::interfaces::TempEntities;
 use crate::math::{QAngle, Vector};
-use crate::server::{Game, Interface, Module, Server};
+use crate::server::{Game, Interface, Kept, Module, Server};
 use sdk_raw::util::cstr::{borrow_cstr, copy_cstr, cstring_from_buffer};
 use sdk_raw::vcall;
 use std::ffi::{CStr, CString, c_char, c_int};
@@ -646,7 +646,8 @@ impl<'s> ServerTools<'s> {
 	}
 }
 
-// SAFETY: `sys::IServerTools` is the class exported under `VSERVERTOOLS003`.
+// SAFETY: `sys::IServerTools` is the class exported under `VSERVERTOOLS003`,
+// as a singleton, and `kept` returns this impl's own static.
 unsafe impl<'s> Interface<'s> for ServerTools<'s> {
 	type Raw = sys::IServerTools;
 
@@ -657,5 +658,10 @@ unsafe impl<'s> Interface<'s> for ServerTools<'s> {
 		// SAFETY: The caller upholds the contract, and `Server::new` guarantees
 		// the game DLL was built for `server.game()`.
 		unsafe { Self::from_raw(raw, server.game()) }
+	}
+
+	fn kept() -> &'static Kept {
+		static KEPT: Kept = Kept::new();
+		&KEPT
 	}
 }

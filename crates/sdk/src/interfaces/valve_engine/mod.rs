@@ -53,6 +53,16 @@ impl ClusterBounds {
 		self.cluster
 	}
 
+	/// The low corner of the bounds.
+	pub const fn mins(self) -> Vector {
+		self.mins
+	}
+
+	/// The high corner of the bounds.
+	pub const fn maxs(self) -> Vector {
+		self.maxs
+	}
+
 	/// Whether these bounds overlap the finite, ordered box, including its
 	/// boundary. This can include extra leaves; it cannot omit an intersecting
 	/// leaf merely because no sampled point lies inside that leaf.
