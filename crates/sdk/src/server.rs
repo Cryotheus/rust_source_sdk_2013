@@ -211,13 +211,8 @@ impl<'s> Server<'s> {
 	/// 1. `engine` and `game_server` are the `CreateInterface` functions of the
 	///    running server's engine and game-server modules, neither of which is
 	///    unloaded. Neither is a wrapper whose answers can change, such as
-	///    Metamod:Source's synthetic factories: for as long as this crate stays
-	///    loaded, a factory at the same address, in any later `Server`, returns
-	///    the same objects under the versions the typed accessors request,
-	///    because the crate keeps what they find for the rest of the process.
-	///    Source's modules export these as singletons and stay loaded while
-	///    plugins are. Test doubles that export different objects must enable
-	///    the `_test-support` feature.
+	///    Metamod:Source's synthetic factories, and each keeps its answers for
+	///    longer than `'s`, as the paragraph after this list says.
 	/// 2. The game DLL was built for `game`.
 	/// 3. `'s` lies within a single call from the engine into the plugin, on
 	///    the server's main thread. No frame, level change, or shutdown completes
@@ -240,6 +235,14 @@ impl<'s> Server<'s> {
 	///    plugin: unloading a Metamod:Source plugin unmaps the commands and
 	///    variables it declared, and unloading a SourceMod plugin can free the
 	///    commands it created, with their names.
+	///
+	/// Beyond `'s`, and for as long as this crate stays loaded, a factory at
+	/// the same address as `engine` or `game_server`, in any later `Server`,
+	/// returns the same objects under the versions the typed accessors
+	/// request, because the crate keeps what they find for the rest of the
+	/// process. Source's modules export these as singletons and stay loaded
+	/// while plugins are. Test doubles that export different objects must
+	/// enable the `_test-support` feature.
 	pub const unsafe fn new<S: ?Sized>(
 		engine: InterfaceFactory,
 		game_server: InterfaceFactory,
@@ -434,8 +437,8 @@ impl<'s> Server<'s> {
 
 		// SAFETY: `I::Raw` is the class exported under `I::VERSION` as a
 		// singleton. The object is the one this factory returned for it, now or
-		// earlier in the process, which condition 1 of `new` guarantees it still
-		// returns, and `new` guarantees the module keeps it alive for `'s`.
+		// earlier in the process, which `new`'s safety section guarantees it
+		// still returns, and `new` guarantees the module keeps it alive for `'s`.
 		Ok(unsafe { I::bind(raw.cast(), self) })
 	}
 
@@ -528,11 +531,13 @@ impl ServerBinding {
 	///
 	/// # Safety
 	///
-	/// Conditions 1, 2, 4 and 5 of [`Server::new`] must hold during every call
-	/// from the engine into the plugin in which this binding, or a copy, is
-	/// turned into a [`Server`]. In practice: the factories belong to the
-	/// running server, which the plugin is unloaded from before those modules
-	/// are, and the game DLL was built for `game`.
+	/// Conditions 1, 2, 4 and 5 of [`Server::new`], and the paragraph after
+	/// them, must hold during every call from the engine into the plugin in
+	/// which this binding, or a copy, is turned into a [`Server`]. In practice:
+	/// the factories belong to the running server, which the plugin is unloaded
+	/// from before those modules are, neither is a wrapper such as
+	/// Metamod:Source's synthetic factories, and the game DLL was built for
+	/// `game`.
 	pub const unsafe fn new(
 		engine: InterfaceFactory,
 		game_server: InterfaceFactory,
@@ -616,7 +621,7 @@ mod lookups {
 /// same object for every request, and a module has registered all of its
 /// interfaces once it has loaded, so the object a factory returns under a
 /// version is the one it returns ever after. The modules stay loaded as long
-/// as plugins are, and so do their singletons, as condition 1 of
+/// as plugins are, and so do their singletons, as the safety section of
 /// [`Server::new`] requires. An object is kept with the address of the factory
 /// that returned it, and only returned again for that factory: a lookup
 /// through another factory asks that factory, and is not kept. A lookup that
