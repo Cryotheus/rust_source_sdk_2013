@@ -15,6 +15,7 @@ mod tests;
 
 use crate::NotThreadSafe;
 use crate::entities::Entity;
+use crate::math::QAngle;
 use crate::math::Vector;
 use crate::user_messages::Recipients;
 
@@ -295,6 +296,56 @@ impl<'s> TempEntities<'s> {
 		let mut data = EffectData::new();
 
 		data.origin = origin.into();
+		data.hit_box = hit_box;
+
+		self.dispatch_effect(recipients, PARTICLE_EFFECT, &data);
+		Ok(())
+	}
+
+	/// Plays the particle system with index `system` from `from` to `to` for
+	/// `recipients`, on no entity, as the game's `DispatchParticleEffect` does
+	/// with two points, through the `ParticleEffect` effect: each client plays
+	/// it with its first control point at `from`, facing along the segment, and
+	/// its second at `to`, as TF2's particle tracers, such as
+	/// `bullet_tracer_raygun_red`, take their start and end
+	/// (`ParticleTracerCallback`). A zero-length segment leaves the first point
+	/// unrotated.
+	///
+	/// It is played as [`Self::dispatch_particle_effect_at`] plays one at a
+	/// point: where it is, whatever becomes of the entities there, to the
+	/// recipients given, with prediction filtering turned off for the dispatch.
+	/// The particle system must be one the level precached, and an index out of
+	/// the range clients receive fails. Once the effect passes, an empty
+	/// `recipients` returns `Ok` without dispatching it.
+	#[doc(alias("DispatchParticleEffect", "DispatchEffect", "ParticleTracer"))]
+	pub fn dispatch_particle_effect_between(
+		self,
+		recipients: &Recipients,
+		system: usize,
+		from: Vector,
+		to: Vector,
+	) -> Result<(), ParticleEffectError> {
+		let hit_box = system_index(system)?;
+
+		if recipients.is_empty() {
+			return Ok(());
+		}
+
+		let mut data = EffectData::new();
+		let along = to.0 - from.0;
+
+		// `VectorAngles`, as `ParticleTracerCallback` orients its tracers.
+		if along.length_squared() > 0.0 {
+			data.angles = QAngle {
+				pitch: (-along.z).atan2(along.truncate().length()).to_degrees(),
+				yaw: along.y.atan2(along.x).to_degrees(),
+				roll: 0.0,
+			}
+			.into();
+		}
+
+		data.origin = from.into();
+		data.start = to.into();
 		data.hit_box = hit_box;
 
 		self.dispatch_effect(recipients, PARTICLE_EFFECT, &data);

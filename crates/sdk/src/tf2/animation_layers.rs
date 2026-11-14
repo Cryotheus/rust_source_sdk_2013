@@ -15,6 +15,8 @@
 //! [`AnimationLayers::hold_gesture`] holds a gesture still at a chosen point,
 //! as a pose: it finds the layer through the entity's datamap
 //! (`m_AnimOverlay`) and stops it advancing and being removed.
+//! [`AnimationLayers::set_gesture_playback_rate`] finds it the same way and
+//! changes how fast it plays.
 //!
 //! Clients show the layers of an entity the server animates, but not those of
 //! TF2's players, whose clients animate them on their own.
@@ -81,6 +83,10 @@ pub enum AnimationLayerError {
 	/// The model has no gesture for the activity, so no layer plays it.
 	#[error("the model has no gesture for the activity")]
 	NoGesture,
+
+	/// A layer's playback rate must be finite and nonnegative.
+	#[error("a layer's playback rate must be finite and nonnegative")]
+	InvalidPlaybackRate,
 
 	/// The server does not run TF2.
 	#[error("animation layers require a TF2 server")]
@@ -289,6 +295,41 @@ impl<'s> AnimationLayers<'s> {
 			)
 		};
 		Ok(())
+	}
+
+	/// Sets the playback rate of the layer that plays the gesture of
+	/// `activity` on `entity`, if one does, and says whether one did: at 0.5
+	/// it plays at half speed, and a layer the game added with autokill takes
+	/// twice as long to be removed. The game sets a layer's rate as it adds the
+	/// layer, usually to 1, and leaves it: a restarted layer keeps its rate,
+	/// but a gesture the game adds again gets a new layer, so call it as the
+	/// entity animates. The rate is not networked; clients play a layer the
+	/// server animates from the cycles it sends, so they see the new speed.
+	///
+	/// Fails with [`AnimationLayerError::InvalidPlaybackRate`] for a negative or
+	/// non-finite `rate`, and with [`AnimationLayerError::MarkedForDeletion`] or
+	/// [`AnimationLayerError::NoLayers`] for such an `entity`.
+	#[doc(alias("m_flPlaybackRate", "SetLayerPlaybackRate"))]
+	pub fn set_gesture_playback_rate(
+		self,
+		entity: Entity<'s>,
+		activity: c_int,
+		rate: f32,
+	) -> Result<bool, AnimationLayerError> {
+		if !rate.is_finite() || rate < 0.0 {
+			return Err(AnimationLayerError::InvalidPlaybackRate);
+		}
+
+		let Some(layer) = self.gesture_layer(entity, activity)? else {
+			return Ok(false);
+		};
+
+		// SAFETY: `gesture_layer` found the layer among the live entity's
+		// layers, laid out as `Layer`, on the main thread, and nothing else
+		// holds a reference to it during this call. The rate is written through
+		// the pointer, as the game writes it.
+		unsafe { (*layer.as_ptr()).playback_rate = rate };
+		Ok(true)
 	}
 }
 

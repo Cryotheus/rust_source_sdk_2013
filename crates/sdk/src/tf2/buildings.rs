@@ -125,6 +125,16 @@ pub enum BuildingError {
 	#[error("buildings have levels 1 to 3, not {0}")]
 	InvalidLevel(u8),
 
+	/// A sentry's shield level is not one of TF2's (`SHIELD_NONE`,
+	/// `SHIELD_NORMAL` and `SHIELD_MAX`: 0 to 2).
+	#[error("sentry shield levels are 0 to 2, not {0}")]
+	InvalidShield(c_int),
+
+	/// A building's next level takes 0 to 511 metal, the most clients
+	/// receive.
+	#[error("upgrade metal must be 0 to 511, not {0}")]
+	InvalidUpgradeMetal(c_int),
+
 	/// The building, or player, is already marked for deletion.
 	#[error("the entity is marked for deletion")]
 	MarkedForDeletion,
@@ -288,6 +298,10 @@ use sdk_raw::util;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+
+/// The most metal clients read of a building's next level
+/// (`m_iUpgradeMetalRequired`), which TF2 sends in 10 signed bits.
+const MAX_NETWORKED_UPGRADE_METAL: c_int = (1 << 9) - 1;
 
 /// The most rockets a level 3 sentry holds (`SENTRYGUN_MAX_ROCKETS`).
 const MAX_ROCKETS: c_int = 20;
@@ -928,6 +942,40 @@ impl<'s> Building<'s> {
 	#[doc(alias("SetSolidToPlayer", "InputSetSolidToPlayer", "SetSolidToPlayers"))]
 	pub fn set_solid_to_players(self, solid: SolidToPlayers) -> Result<(), BuildingError> {
 		self.input(c"SetSolidToPlayer", InputValue::Int(solid.to_raw()))
+	}
+
+	/// Sets the metal the building's next level takes
+	/// (`m_iUpgradeMetalRequired`), and records the change for clients, whose
+	/// building panels show the metal put in against it. The game sets it as the
+	/// building spawns, from its object's `UpgradeCost`, 200 for each level of
+	/// TF2's buildings, and again each time an engineer's building is redeployed,
+	/// so a caller that changes it sets it again after. A wrench hit puts in no
+	/// more than this, and the building upgrades on the hit that brings the metal
+	/// put in up to it.
+	///
+	/// Clients receive it in 10 signed bits, so they read no more than 511 of it.
+	/// Fails with [`BuildingError::InvalidUpgradeMetal`] for an amount outside 0
+	/// to 511.
+	#[doc(alias("m_iUpgradeMetalRequired"))]
+	pub fn set_upgrade_metal_required(self, metal: c_int) -> Result<(), BuildingError> {
+		if !(0..=MAX_NETWORKED_UPGRADE_METAL).contains(&metal) {
+			return Err(BuildingError::InvalidUpgradeMetal(metal));
+		}
+
+		if self.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		let engine = self.server.valve_engine()?;
+
+		// SAFETY: The game stores the metal as a networked `int`, which it compares
+		// with the metal put in, and writes and networks the same way.
+		unsafe {
+			self.net_prop(c"m_iUpgradeMetalRequired")?
+				.set(engine, self.entity, metal)
+		}?;
+
+		Ok(())
 	}
 
 	/// Shows a hidden building through its `Show` input and recalculates its
@@ -1949,6 +1997,27 @@ impl<'s> Sentry<'s> {
 		self.0.int(c"m_iKills")
 	}
 
+	/// The model attachment the sentry last chose to fire from
+	/// (`m_iLastMuzzleAttachmentFired`), numbered from 1 as
+	/// [`lookup_attachment`](crate::tf2::animating::lookup_attachment) numbers
+	/// them, or 0 before it first chose one. The sentry chooses it with
+	/// `GetFireAttachment`: a level 1 sentry always from its `muzzle`, and a
+	/// level 2 or 3 sentry alternately from its `muzzle_l` and `muzzle_r`. The
+	/// game also chooses one for a shot that a wall then stops, and for the
+	/// Wrangler's auto-aim check, so a change does not prove a shot.
+	#[doc(alias("m_iLastMuzzleAttachmentFired", "GetFireAttachment"))]
+	pub fn last_fire_attachment(self) -> c_int {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, and the
+		// member is a `c_int` of the generated class.
+		unsafe {
+			self.field::<c_int>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_iLastMuzzleAttachmentFired
+			))
+			.read_unaligned()
+		}
+	}
+
 	/// The most rockets the sentry holds, which only level 3 sentries have
 	/// (`SENTRYGUN_MAX_ROCKETS`, 20).
 	pub fn max_rockets(self) -> Result<c_int, BuildingError> {
@@ -2144,6 +2213,38 @@ impl<'s> Sentry<'s> {
 		self.set_ammo(c"m_iAmmoRockets", rockets)
 	}
 
+	/// Sets the most shells the sentry takes on (see [`Self::shell_capacity`]),
+	/// which its spawn and each upgrade set again, so a caller that changes it
+	/// sets it again after. With 0, a wrench spends no metal on shells; the
+	/// shells it holds stay, for [`Self::set_shells`]. A sentry that finishes
+	/// building, other than one redeployed, is given this many shells, so a
+	/// caller keeps it as the game set it until then.
+	///
+	/// Fails with [`BuildingError::InvalidAmmo`] for a negative capacity.
+	#[doc(alias("m_iMaxAmmoShells"))]
+	pub fn set_shell_capacity(self, capacity: c_int) -> Result<(), BuildingError> {
+		if capacity < 0 {
+			return Err(BuildingError::InvalidAmmo(capacity));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: As for `shell_capacity`. The member is a network variable of the
+		// class that no send table lists, so nothing networks it; only the
+		// sentry's own spawn, activation, upgrades and resupply read it.
+		unsafe {
+			self.field::<c_int>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_iMaxAmmoShells
+			))
+			.write_unaligned(capacity);
+		}
+
+		Ok(())
+	}
+
 	/// Sets the shells the sentry holds (`m_iAmmoShells`) and records the
 	/// change for clients, as [`Self::set_rockets`] does for rockets.
 	#[doc(alias("m_iAmmoShells"))]
@@ -2151,10 +2252,112 @@ impl<'s> Sentry<'s> {
 		self.set_ammo(c"m_iAmmoShells", shells)
 	}
 
+	/// Sets when the sentry's shield fades (see [`Self::shield_fade_time`]). A
+	/// caller keeping a shield on moves it ahead while it does, and one taking
+	/// it off sets a time past, which the sentry's next think acts on.
+	///
+	/// Fails with [`BuildingError::InvalidTime`] for a time that is not finite.
+	#[doc(alias("m_flShieldFadeTime"))]
+	pub fn set_shield_fade_time(self, time: f32) -> Result<(), BuildingError> {
+		if !time.is_finite() {
+			return Err(BuildingError::InvalidTime(time));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: The member is an `f32` of the generated class, which only the
+		// sentry's own think and target search read; it is not networked.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_flShieldFadeTime
+			))
+			.write_unaligned(time);
+		}
+
+		Ok(())
+	}
+
+	/// Shields the sentry (`m_nShieldLevel`), as its builder's Wrangler does while
+	/// aiming it, and records the change for clients, which draw the shield
+	/// themselves: 0 takes it away, 1 is the Wrangler's (`SHIELD_NORMAL`), and 2
+	/// the stronger one a Mann vs. Machine canteen gives (`SHIELD_MAX`).
+	///
+	/// Shielded, the sentry takes a third of the damage at level 1
+	/// (`SHIELD_NORMAL_VALUE`), or a tenth at level 2, unless sapped, disabled by
+	/// the Cow Mangler, or hit by a weapon that pierces resistances. With the
+	/// Wrangler's level, as with the Wrangler, a wrench also repairs and refills it
+	/// a third as much, and it looks for no targets of its own, its search
+	/// drooping it as it droops a disabled sentry. Its think takes the shield away
+	/// once its fade time has passed (see [`Self::set_shield_fade_time`]), which
+	/// the Wrangler moves ahead while it aims the sentry.
+	///
+	/// Fails with [`BuildingError::InvalidShield`] for a level outside 0 to 2.
+	#[doc(alias("m_nShieldLevel", "SHIELD_NORMAL"))]
+	pub fn set_shield_level(self, level: c_int) -> Result<(), BuildingError> {
+		if !(0..=2).contains(&level) {
+			return Err(BuildingError::InvalidShield(level));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		let engine = self.0.server.valve_engine()?;
+
+		// SAFETY: The game stores the shield level as a networked unsigned `int`,
+		// which it compares with its three levels, and writes and networks the
+		// same way; 0 to 2 are those levels.
+		unsafe {
+			self.0
+				.net_prop(c"m_nShieldLevel")?
+				.set(engine, self.0.entity, level)
+		}?;
+
+		Ok(())
+	}
+
+	/// The most shells the sentry takes on (`m_iMaxAmmoShells`), which its spawn
+	/// and upgrades set by its level (see [`Self::max_shells`]), scaled by its
+	/// builder's `mvm_sentry_ammo` attributes. A wrench's resupply spends metal
+	/// on shells up to this, and a sentry that finishes building or upgrading,
+	/// other than one redeployed, is filled to it.
+	#[doc(alias("m_iMaxAmmoShells"))]
+	pub fn shell_capacity(self) -> c_int {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so the
+		// entity is one, laid out as the generated class says; the member's network
+		// variable holds a `c_int` first.
+		unsafe {
+			self.field::<c_int>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_iMaxAmmoShells
+			))
+			.read_unaligned()
+		}
+	}
+
 	/// The shells the sentry holds (`m_iAmmoShells`).
 	#[doc(alias("m_iAmmoShells"))]
 	pub fn shells(self) -> Result<c_int, BuildingError> {
 		self.0.int(c"m_iAmmoShells")
+	}
+
+	/// When the sentry's shield fades (`m_flShieldFadeTime`), in server time:
+	/// once it has passed, the sentry's think takes the shield away and levels
+	/// its aim. The Wrangler moves it 3 seconds ahead while it aims the sentry
+	/// (`WRANGLER_DISABLE_TIME`).
+	#[doc(alias("m_flShieldFadeTime"))]
+	pub fn shield_fade_time(self) -> f32 {
+		// SAFETY: The member is an `f32` of the generated class.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_flShieldFadeTime
+			))
+			.read_unaligned()
+		}
 	}
 
 	/// The shield the Wrangler gives the sentry while it aims it

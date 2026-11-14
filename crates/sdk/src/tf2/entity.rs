@@ -444,6 +444,25 @@ impl<'s> TfEntity<'s> {
 		unsafe { self.call(c"SetLocalAngles", &mut [qangle(&angles)]) }
 	}
 
+	/// Moves the entity relative to its move parent (`SetLocalOrigin`), in the
+	/// parent's frame, or in the frame of the parent's attachment the entity
+	/// follows. Unlike [`Self::set_abs_origin`], the offset holds as the parent
+	/// moves. Clients interpolate the move. Fails with
+	/// [`TfEntityError::NonFinite`] before calling the game when any coordinate
+	/// is not finite.
+	#[doc(alias("SetLocalOrigin"))]
+	pub fn set_local_origin(self, origin: Vector) -> Result<(), TfEntityError> {
+		if !origin.is_finite() {
+			return Err(TfEntityError::NonFinite);
+		}
+
+		let origin = sys::Vector::from(origin);
+
+		// SAFETY: SetLocalOrigin reads and copies the finite origin during the call,
+		// updating the derived absolute origin and interpolation state.
+		unsafe { self.call(c"SetLocalOrigin", &mut [vector(&origin)]) }
+	}
+
 	/// Sets how fast the entity's VPhysics object spins, about the entity's
 	/// own x, y and z axes, in degrees per second (`SetPhysAngularVelocity`).
 	///
