@@ -37,6 +37,7 @@ pub mod gunfire;
 pub mod host_timescale;
 pub mod item_generation;
 pub mod item_schema;
+pub mod loadout_respawn;
 pub mod medigun_targets;
 pub mod melee;
 pub mod minigun;

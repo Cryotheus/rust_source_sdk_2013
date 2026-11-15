@@ -22,6 +22,7 @@ pub mod give_item;
 pub mod gunfire;
 pub mod grenade;
 pub mod input;
+pub mod loadout;
 pub mod max_health;
 pub mod medigun;
 pub mod melee;
