@@ -72,6 +72,16 @@ impl<'s> PlayerTaunts<'s> {
 		unsafe { self.call(c"CancelTaunt", &mut []) }
 	}
 
+	/// Cancels the attack the player's taunt has scheduled, if any, so that it
+	/// never lands, as the game does once it has run one. The taunt itself goes
+	/// on. An attack that lands in stages, such as the Spy's fencing, schedules
+	/// its next stage only as a stage lands, so cancelling stops the rest.
+	#[doc(alias("m_iTauntAttack", "m_flTauntAttackTime"))]
+	pub fn cancel_scheduled_attack(self) {
+		// SAFETY: As for `scheduled_attack`.
+		unsafe { raw_taunts::cancel_scheduled_attack(self.raw_player()) }
+	}
+
 	/// Ends the player's press-and-hold taunt as letting go of the taunt key
 	/// does, after its least time and through its outro, if it has them.
 	/// Returns whether the player was in such a taunt; the game would read

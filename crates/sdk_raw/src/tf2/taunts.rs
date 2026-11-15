@@ -24,6 +24,27 @@ pub const ATTACK_OFFSET: usize = offset_of!(sys::CTFPlayer, m_iTauntAttack);
 /// after which the scheduled attack lands, or 0 for none.
 pub const ATTACK_TIME_OFFSET: usize = offset_of!(sys::CTFPlayer, m_flTauntAttackTime);
 
+/// Cancels the attack `player`'s taunt has scheduled, if any, as the game
+/// does once it runs one: the attack is set back to `TAUNTATK_NONE` and its
+/// time to 0, so that no think runs it. The taunt itself goes on.
+///
+/// # Safety
+///
+/// `player` is a live `CTFPlayer`, which nothing else reads or writes during
+/// the call.
+#[doc(alias("m_iTauntAttack", "m_flTauntAttackTime"))]
+pub unsafe fn cancel_scheduled_attack(player: NonNull<sys::CBaseEntity>) {
+	let player = player.as_ptr().cast::<u8>();
+
+	// SAFETY: As for `scheduled_attack`; the caller vouches that nothing else
+	// uses the members meanwhile. Neither is networked, so the engine need not
+	// be told of the change.
+	unsafe {
+		player.byte_add(ATTACK_OFFSET).cast::<c_int>().write(0);
+		player.byte_add(ATTACK_TIME_OFFSET).cast::<f32>().write(0.0);
+	}
+}
+
 /// The attack `player`'s taunt has scheduled, a `taunt_attack_t`, and the
 /// game time after which it lands, both as the player keeps them: either may
 /// be left over from an attack the game no longer runs.
