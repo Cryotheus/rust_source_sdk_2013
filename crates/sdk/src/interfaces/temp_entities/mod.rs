@@ -80,7 +80,7 @@ impl ParticleAttachment {
 
 /// A particle system played on an entity, which
 /// [`TempEntities::dispatch_particle_effect`] sends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParticleEffect<'a> {
 	/// The particle system, by its index in the
 	/// [`PARTICLE_EFFECT_NAMES`](crate::interfaces::network_string_tables::PARTICLE_EFFECT_NAMES)
@@ -98,6 +98,14 @@ pub struct ParticleEffect<'a> {
 	/// Whether the entity's other particle effects stop emitting first
 	/// (`PARTICLE_DISPATCH_RESET_PARTICLES`).
 	pub reset: bool,
+
+	/// The value of the effect's second control point, which clients set
+	/// after creating it (`m_bControlPoint1`, `m_ControlPoint1.m_vecOffset`),
+	/// or `None` to leave it to the particle system. Some systems read it as
+	/// data rather than a place, such as TF2's `speech_mediccall`, which takes
+	/// the caller's fraction of their health in each component, as the
+	/// game's clients set it.
+	pub control_point_1: Option<Vector>,
 }
 
 impl<'a> ParticleEffect<'a> {
@@ -109,6 +117,7 @@ impl<'a> ParticleEffect<'a> {
 			entity,
 			attachment: ParticleAttachment::OriginFollow,
 			reset: false,
+			control_point_1: None,
 		}
 	}
 }
@@ -232,6 +241,7 @@ impl<'s> TempEntities<'s> {
 			entity,
 			attachment,
 			reset,
+			control_point_1,
 		} = *effect;
 
 		let hit_box = system_index(system)?;
@@ -259,6 +269,11 @@ impl<'s> TempEntities<'s> {
 
 		if reset {
 			data.flags |= PARTICLE_DISPATCH_RESET_PARTICLES;
+		}
+
+		if let Some(value) = control_point_1 {
+			data.control_point_1 = true;
+			data.control_point_1_offset = value.into();
 		}
 
 		self.dispatch_effect(recipients, PARTICLE_EFFECT, &data);

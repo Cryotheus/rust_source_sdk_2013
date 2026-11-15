@@ -36,6 +36,7 @@ struct Dispatched {
 	damage_type: c_int,
 	hit_box: c_int,
 	control_point_1_attachment: c_int,
+	control_point_1: Option<Vector>,
 
 	/// Whether `IPredictionSystem::GetSuppressHost` returned null, so that
 	/// `SuppressTE` left the filter alone.
@@ -125,6 +126,9 @@ unsafe extern "C" fn dispatch_effect(
 			damage_type: data.damage_type,
 			hit_box: data.hit_box,
 			control_point_1_attachment: data.control_point_1_attachment,
+			control_point_1: data
+				.control_point_1
+				.then(|| data.control_point_1_offset.into()),
 			unfiltered: base.m_nStatusPushed > 0 || base.m_pSuppressHost.is_null(),
 		}
 	};
@@ -277,6 +281,7 @@ fn particle_effects_at_a_point_reach_the_game_on_no_entity() {
 				damage_type: 0,
 				hit_box: 42,
 				control_point_1_attachment: 0,
+				control_point_1: None,
 				unfiltered: true,
 			}]
 		);
@@ -323,6 +328,7 @@ fn particle_effects_between_two_points_face_along_them() {
 				damage_type: 0,
 				hit_box: 42,
 				control_point_1_attachment: 0,
+				control_point_1: None,
 				unfiltered: true,
 			}
 		);
@@ -371,6 +377,16 @@ fn particle_effects_reach_the_game_as_dispatch_particle_effect_sends_them() {
 		)
 		.unwrap();
 
+	temp_entities
+		.dispatch_particle_effect(
+			&recipients(&[4], false),
+			&ParticleEffect {
+				control_point_1: Some(Vector::new(0.25, 0.5, 0.75)),
+				..effect
+			},
+		)
+		.unwrap();
+
 	let following = Dispatched {
 		recipients: vec![2, 5],
 		reliable: false,
@@ -387,6 +403,7 @@ fn particle_effects_reach_the_game_as_dispatch_particle_effect_sends_them() {
 		damage_type: 1,
 		hit_box: 42,
 		control_point_1_attachment: 0,
+		control_point_1: None,
 		unfiltered: true,
 	};
 
@@ -401,6 +418,11 @@ fn particle_effects_reach_the_game_as_dispatch_particle_effect_sends_them() {
 					flags: 3,
 					attachment_index: 15,
 					damage_type: 4,
+					..following.clone()
+				},
+				Dispatched {
+					recipients: vec![4],
+					control_point_1: Some(Vector::new(0.25, 0.5, 0.75)),
 					..following
 				},
 			]
@@ -451,6 +473,7 @@ fn stopping_reaches_the_game_as_stop_particle_effects_sends_it() {
 				damage_type: 0,
 				hit_box: 0,
 				control_point_1_attachment: 0,
+				control_point_1: None,
 				unfiltered: true,
 			}]
 		);
