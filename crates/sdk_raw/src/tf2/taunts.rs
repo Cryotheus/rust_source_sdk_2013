@@ -1,4 +1,5 @@
-//! Hand-written ABI of TF2's taunt attacks: the two `CTFPlayer` members in
+//! Hand-written ABI of TF2's taunt attacks, and of the delay of a taunt's
+//! looping sound ([`SOUND_LOOP_TIME_OFFSET`]): the two `CTFPlayer` members in
 //! which a taunt schedules its attack, `m_iTauntAttack`, a `taunt_attack_t`,
 //! and `m_flTauntAttackTime`, the game time it lands after. Neither is
 //! networked, so they are read at their offsets in the generated layout,
@@ -24,6 +25,11 @@ pub const ATTACK_OFFSET: usize = offset_of!(sys::CTFPlayer, m_iTauntAttack);
 /// after which the scheduled attack lands, or 0 for none.
 pub const ATTACK_TIME_OFFSET: usize = offset_of!(sys::CTFPlayer, m_flTauntAttackTime);
 
+/// The offset of `CTFPlayer::m_flTauntSoundLoopTime` in players: the game
+/// time after which the player's think starts their taunt's looping sound
+/// (the item's `taunt success sound loop`), or 0 for none pending.
+pub const SOUND_LOOP_TIME_OFFSET: usize = offset_of!(sys::CTFPlayer, m_flTauntSoundLoopTime);
+
 /// Cancels the attack `player`'s taunt has scheduled, if any, as the game
 /// does once it runs one: the attack is set back to `TAUNTATK_NONE` and its
 /// time to 0, so that no think runs it. The taunt itself goes on.
@@ -42,6 +48,33 @@ pub unsafe fn cancel_scheduled_attack(player: NonNull<sys::CBaseEntity>) {
 	unsafe {
 		player.byte_add(ATTACK_OFFSET).cast::<c_int>().write(0);
 		player.byte_add(ATTACK_TIME_OFFSET).cast::<f32>().write(0.0);
+	}
+}
+
+/// Keeps `player`'s taunt from starting its looping sound, if it has not yet:
+/// sets the time it starts after to 0, as the game does once it has started
+/// it. The game starts the loop in `CTFPlayer::TFPlayerThink`, by a reliable
+/// `PlayerTauntSoundLoopStart` user message to every client, which plays it on
+/// the player; the sound never goes through the engine's sound calls. The
+/// loop's name stays, so the taunt's end still sends
+/// `PlayerTauntSoundLoopEnd`, which stops nothing.
+///
+/// # Safety
+///
+/// `player` is a live `CTFPlayer`, which nothing else reads or writes during
+/// the call.
+#[doc(alias("m_flTauntSoundLoopTime"))]
+pub unsafe fn cancel_sound_loop(player: NonNull<sys::CBaseEntity>) {
+	// SAFETY: The caller vouches for the player, a `CTFPlayer` as every TF2
+	// player is, whose member is at this offset of the generated layout, a
+	// 4-byte float the game writes the same way. It is not networked.
+	unsafe {
+		player
+			.as_ptr()
+			.cast::<u8>()
+			.byte_add(SOUND_LOOP_TIME_OFFSET)
+			.cast::<f32>()
+			.write(0.0);
 	}
 }
 

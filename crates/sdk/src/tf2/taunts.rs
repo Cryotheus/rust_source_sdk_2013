@@ -82,6 +82,17 @@ impl<'s> PlayerTaunts<'s> {
 		unsafe { raw_taunts::cancel_scheduled_attack(self.raw_player()) }
 	}
 
+	/// Keeps the player's taunt from starting its looping sound, such as the
+	/// Mannbulance!'s siren, if it has not started yet. Clients play the loop on
+	/// the player when a message the game broadcasts says so, so no sound hook
+	/// sees it; cancel it before the player's next think, in which the game
+	/// sends that message once its delay has passed.
+	#[doc(alias("m_flTauntSoundLoopTime"))]
+	pub fn cancel_sound_loop(self) {
+		// SAFETY: As for `scheduled_attack`.
+		unsafe { raw_taunts::cancel_sound_loop(self.raw_player()) }
+	}
+
 	/// Ends the player's press-and-hold taunt as letting go of the taunt key
 	/// does, after its least time and through its outro, if it has them.
 	/// Returns whether the player was in such a taunt; the game would read
