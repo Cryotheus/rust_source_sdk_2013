@@ -10,6 +10,7 @@
 pub mod identity;
 pub mod minigun;
 pub mod shortstop;
+pub mod slap;
 
 #[cfg(test)]
 #[path = "../../tests/tf2/weapons.rs"]

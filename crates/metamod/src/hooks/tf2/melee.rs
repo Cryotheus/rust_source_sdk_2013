@@ -1,8 +1,10 @@
-//! TF2 melee hit notifications after the game's `OnEntityHit`.
+//! TF2 melee hit notifications after the game's `OnEntityHit`, the landing
+//! of melee swings (`Smack`), which [`MetamodApi::hook_melee_impacts`] can
+//! replace, and the weapons' sounds.
 //!
-//! A real traced hit reaches this method even for a teammate whose trace
-//! attack does no damage. Hooks observe the native attack; they never alter
-//! its arguments or return. Classes, pause, removal, unload and panic
+//! A real traced hit reaches `OnEntityHit` even for a teammate whose trace
+//! attack does no damage. The hit and swing hooks observe the native attack;
+//! they never alter its arguments or return. Classes, pause, removal, unload and panic
 //! containment follow [`crate::hooks::tf2::class`].
 
 use crate::MetamodApi;
@@ -11,7 +13,8 @@ use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
 
 use source_sdk_2013::raw::tf2::melee::{
-	MeleeHitFn as Hit, ON_ENTITY_HIT_SLOT, WEAPON_SOUND_SLOT, WeaponSoundFn, WeaponSoundKind,
+	MeleeHitFn as Hit, MeleeSwingFn as MeleeSwing, ON_ENTITY_HIT_SLOT, SMACK_SLOT,
+	WEAPON_SOUND_SLOT, WeaponSoundFn, WeaponSoundKind,
 };
 
 use source_sdk_2013::raw::vcall;
@@ -25,12 +28,30 @@ use std::ptr::NonNull;
 /// Neither entity nor any engine reference may outlive the callback.
 pub type MeleeHitFn = for<'s> fn(Server<'s>, Entity<'s>, Entity<'s>);
 
+/// The callback-scoped server and the melee weapon whose swing lands now,
+/// deciding whether the game's smack runs. A panic is contained by the hook
+/// dispatcher, and lets the smack run.
+pub type MeleeImpactFn = for<'s> fn(Server<'s>, Entity<'s>) -> MeleeImpactAction;
+
 /// The callback-scoped server, the melee weapon, and the kind of sound
 /// (`WeaponSound_t`, such as
 /// [`MELEE_HIT_WORLD_SOUND`](source_sdk_2013::raw::tf2::melee::MELEE_HIT_WORLD_SOUND))
 /// it is about to play, deciding what it plays. The weapon may be traced in
 /// the callback, as a swing is when the sound plays.
 pub type MeleeSoundFn = for<'s> fn(Server<'s>, Entity<'s>, WeaponSoundKind) -> MeleeSoundAction;
+
+/// Whether the game's smack of a landing melee swing runs.
+#[must_use]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum MeleeImpactAction {
+	/// Runs the game's smack: its trace, hit, damage and hit sound.
+	#[default]
+	Continue,
+
+	/// Skips the game's smack, which the callback replaced, and the hooks of
+	/// other plugins that would run after this one.
+	Replace,
+}
 
 /// What a melee weapon plays for a kind of sound.
 #[must_use]
@@ -58,6 +79,10 @@ thread_local! {
 pub type MeleeSwingFn = for<'s> fn(Server<'s>, HookTiming, Entity<'s>);
 
 const ON_ENTITY_HIT: VirtualFunction<Hit> = VirtualFunction::new(ON_ENTITY_HIT_SLOT);
+
+/// `Smack` in a TF2 melee weapon's primary vtable.
+const SMACK: VirtualFunction<MeleeSwing> = VirtualFunction::new(SMACK_SLOT);
+
 const WEAPON_SOUND: VirtualFunction<WeaponSoundFn> = VirtualFunction::new(WEAPON_SOUND_SLOT);
 
 impl MetamodApi<'_> {
@@ -74,9 +99,7 @@ impl MetamodApi<'_> {
 		ClassHooks::new(
 			binding,
 			callback,
-			VirtualFunction::<source_sdk_2013::raw::tf2::melee::MeleeSwingFn>::new(
-				source_sdk_2013::raw::tf2::melee::SMACK_SLOT,
-			),
+			SMACK,
 			&[HookTiming::Pre, HookTiming::Post],
 			|server, callback, weapon, call| {
 				callback(server, call.timing(), weapon);
@@ -121,6 +144,49 @@ impl MetamodApi<'_> {
 				}
 
 				HookAction::Ignore
+			},
+		)
+	}
+
+	/// Runs `callback` before each `CTFWeaponBaseMelee::Smack` of the melee
+	/// weapons of the classes the returned hooks cover, which are none until
+	/// [`ClassHooks::cover`] covers them: as a melee swing lands, once the time
+	/// its `GetSmackTime` gave passed, at which the game traces in front of the
+	/// weapon's owner, and hits and damages what it finds. The Hot Hand's second
+	/// slap lands the same way.
+	///
+	/// [`MeleeImpactAction::Replace`] skips the smack of the weapon's own class,
+	/// as a wrench's does when it finds a building (`CTFWrench::Smack`): the game
+	/// traces, hits and damages nothing and plays no hit sound. What a derived
+	/// class does after the base smack is skipped too, such as the Hot Hand
+	/// timing its second slap, which
+	/// [`LandingSlap`](source_sdk_2013::tf2::weapons::slap::LandingSlap) does in
+	/// its place. The swinging player's client predicts its own smacks, so it may
+	/// still show a hit on its own screen.
+	///
+	/// Cover each intended melee class with [`ClassHooks::cover`] or
+	/// [`ClassHooks::cover_entity`]; covering a base does not cover derived
+	/// classes. `binding` must describe the running server. The callback must
+	/// not delete entities immediately, as [`Server::new`] requires.
+	pub fn hook_melee_impacts(
+		self,
+		binding: ServerBinding,
+		callback: MeleeImpactFn,
+	) -> ClassHooks<TfMeleeWeapon> {
+		ClassHooks::new(
+			binding,
+			callback,
+			SMACK,
+			&[HookTiming::Pre],
+			|server, callback, weapon, call| {
+				if call.superseded() == Some(true) {
+					return HookAction::Ignore;
+				}
+
+				match callback(server, weapon) {
+					MeleeImpactAction::Continue => HookAction::Ignore,
+					MeleeImpactAction::Replace => HookAction::Supersede(()),
+				}
 			},
 		)
 	}
@@ -514,5 +580,84 @@ mod tests {
 			BURST_SOUND => MeleeSoundAction::Silence,
 			_ => MeleeSoundAction::Continue,
 		}
+	}
+
+	thread_local! {
+		/// What [`on_impact`] decides.
+		static IMPACT: Cell<MeleeImpactAction> = const { Cell::new(MeleeImpactAction::Continue) };
+
+		/// The smacks seen since the last check: `true` for the game's, `false`
+		/// for the callback's.
+		static SMACKS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
+	}
+
+	/// The game's `Smack`, which notes that it ran.
+	unsafe extern "C" fn game_smack(_: *mut sys::CBaseEntity) {
+		SMACKS.with_borrow_mut(|smacks| smacks.push(true));
+	}
+
+	#[test]
+	fn impacts_run_or_replace_the_game_s_smack() {
+		fn skip(_call: &HookCall<'_, MeleeSwing>) -> HookAction<()> {
+			HookAction::Supersede(())
+		}
+
+		/// A weapon of a new class whose smack is the game's.
+		fn smacking() -> Box<Weapon> {
+			let slots = Vec::leak(vec![
+				game_smack as MeleeSwing as *mut c_void;
+				SMACK_SLOT + 1
+			]);
+
+			Weapon::of_class(slots.as_mut_ptr())
+		}
+
+		fn smack(harness: &Harness, weapon: &mut Weapon, action: MeleeImpactAction) -> Vec<bool> {
+			IMPACT.set(action);
+			harness.call::<MeleeSwing>(weapon.ptr(), SMACK_SLOT, ());
+			SMACKS.take()
+		}
+
+		on_both(|harness| {
+			let api = harness.api();
+			let mut weapon = smacking();
+			let mut skipped = smacking();
+			let hooks = api.hook_melee_impacts(tf2_binding(no_interfaces), on_impact);
+
+			// SAFETY: The leaked primary vtable holds the smack's signature at
+			// its generated slot, and the hook outlives every call.
+			unsafe {
+				api.add_hook(
+					SMACK,
+					HookTarget::vtable(NonNull::new(skipped.vtable).unwrap()),
+					HookTiming::Pre,
+					&skip,
+				)
+			}
+			.unwrap();
+
+			assert_eq!(hooks.cover(api, weapon.target()), Ok(true));
+			assert_eq!(hooks.cover(api, skipped.target()), Ok(true));
+
+			assert_eq!(
+				smack(harness, &mut weapon, MeleeImpactAction::Continue),
+				[false, true]
+			);
+			assert_eq!(
+				smack(harness, &mut weapon, MeleeImpactAction::Replace),
+				[false]
+			);
+
+			// A smack another hook already skipped is not asked about.
+			assert_eq!(
+				smack(harness, &mut skipped, MeleeImpactAction::Continue),
+				Vec::<bool>::new()
+			);
+		});
+	}
+
+	fn on_impact(_server: Server<'_>, _weapon: Entity<'_>) -> MeleeImpactAction {
+		SMACKS.with_borrow_mut(|smacks| smacks.push(false));
+		IMPACT.get()
 	}
 }
