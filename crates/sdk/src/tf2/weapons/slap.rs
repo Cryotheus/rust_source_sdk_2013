@@ -20,7 +20,7 @@ mod tests;
 
 use super::{Weapon, check_live};
 use crate::Server;
-use crate::datatables::{NetProp, PropKind};
+use crate::datatables::{NetProp, PropKind, ServerClass};
 use crate::entities::Entity;
 use sdk_raw::vcall;
 use std::ffi::c_int;
@@ -51,7 +51,12 @@ impl<'s> LandingSlap<'s> {
 	pub fn new(weapon: Weapon<'s>) -> Result<Self, SlapError> {
 		let entity = weapon.entity();
 
-		if check_live(entity).is_err() || !entity.has_data_map_class(c"CTFSlap") {
+		// The server's `CTFSlap` declares no datamap of its own, so its class is
+		// told by its network name.
+		if check_live(entity).is_err()
+			|| !entity.has_data_map_class(c"CTFWeaponBaseMelee")
+			|| entity.server_class().map(ServerClass::name) != Some(c"CTFSlap")
+		{
 			return Err(SlapError::NotSlap);
 		}
 
@@ -151,7 +156,8 @@ impl<'s> LandingSlap<'s> {
 /// Why [`LandingSlap::new`] refused a weapon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SlapError {
-	/// The weapon is no Hot Hand (`CTFSlap`), or is marked for deletion.
+	/// The weapon is no Hot Hand (a melee weapon of the server class
+	/// `CTFSlap`), or is marked for deletion.
 	#[error("the weapon is not a live Hot Hand")]
 	NotSlap,
 

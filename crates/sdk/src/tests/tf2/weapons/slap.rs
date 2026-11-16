@@ -35,8 +35,9 @@ struct FakeSlap {
 }
 
 impl FakeSlap {
-	/// A Hot Hand of the class `class`, whose datamap is named `map`.
-	fn new(class: *mut sys::ServerClass, map: &'static CStr) -> *mut Self {
+	/// A melee weapon of the server class `class`, whose most derived datamap
+	/// is `CTFWeaponBaseMelee`'s, as the server's Hot Hand declares none.
+	fn new(class: *mut sys::ServerClass) -> *mut Self {
 		let slot = |field: usize| field / size_of::<usize>();
 		let smack_time = vtable_slot!(
 			sys::CTFWeaponBaseMelee__bindgen_vtable,
@@ -67,7 +68,7 @@ impl FakeSlap {
 		leak(Self {
 			head: Head {
 				vtable: vtable.leak().as_ptr(),
-				map: weapon_map(map),
+				map: weapon_map(),
 				networkable: sys::IServerNetworkable {
 					vtable_: networkable,
 				},
@@ -109,8 +110,7 @@ fn a_landing_first_slap_times_the_second_once() {
 
 	let scope = ();
 	let server = mock_server(&scope);
-	let class = slap_class();
-	let slap = FakeSlap::new(class, c"CTFSlap");
+	let slap = FakeSlap::new(slap_class(c"CTFSlap"));
 	let landing = LandingSlap::new(weapon(server, slap)).unwrap();
 
 	assert_eq!(landing.finish(), Ok(true));
@@ -169,10 +169,9 @@ fn only_hot_hands_whose_smack_lands_are_taken() {
 
 	let scope = ();
 	let server = mock_server(&scope);
-	let class = slap_class();
 
 	// A timed smack that has not landed shows a layout the slap cannot trust.
-	let waiting = FakeSlap::new(class, c"CTFSlap");
+	let waiting = FakeSlap::new(slap_class(c"CTFSlap"));
 
 	// SAFETY: The fake is leaked, and only this test writes it.
 	unsafe { (*waiting).smack_time = 3.0 };
@@ -182,7 +181,7 @@ fn only_hot_hands_whose_smack_lands_are_taken() {
 	);
 
 	// Other melee weapons are no Hot Hands.
-	let bottle = FakeSlap::new(class, c"CTFBottle");
+	let bottle = FakeSlap::new(slap_class(c"CTFBottle"));
 
 	assert_eq!(
 		LandingSlap::new(weapon(server, bottle)).unwrap_err(),
@@ -195,9 +194,9 @@ unsafe extern "C" fn server_class(this: *mut sys::IServerNetworkable) -> *mut sy
 	unsafe { (*fake_of(this)).head.class }
 }
 
-/// The server class of the Hot Hand, whose send table networks
-/// `m_bFirstHit`.
-fn slap_class() -> *mut sys::ServerClass {
+/// A server class named `name`, whose send table networks `m_bFirstHit`, as
+/// the Hot Hand's does.
+fn slap_class(name: &'static CStr) -> *mut sys::ServerClass {
 	let base = leak(table(c"DT_TFWeaponBaseMelee", &mut []));
 	let props = vec![
 		table_prop(c"baseclass", 0, base, Some(direct_table)),
@@ -211,7 +210,7 @@ fn slap_class() -> *mut sys::ServerClass {
 	];
 
 	leak(sys::ServerClass {
-		m_pNetworkName: c"CTFSlap".as_ptr(),
+		m_pNetworkName: name.as_ptr(),
 		m_pTable: leak(table(c"DT_TFWeaponSlap", props.leak())),
 		m_pNext: null_mut(),
 		m_ClassID: 1,
@@ -228,8 +227,8 @@ fn weapon<'s>(server: Server<'s>, fake: *mut FakeSlap) -> Weapon<'s> {
 	Weapon::new(server, entity).unwrap()
 }
 
-/// The datamap of weapons whose class is named `class`, a melee weapon's.
-fn weapon_map(class: &'static CStr) -> *mut sys::datamap_t {
+/// The datamap of a melee weapon.
+fn weapon_map() -> *mut sys::datamap_t {
 	let mut flags = field(
 		c"m_iEFlags",
 		sys::_fieldtypes_FIELD_INTEGER,
@@ -250,7 +249,5 @@ fn weapon_map(class: &'static CStr) -> *mut sys::datamap_t {
 	let base = data_map(c"CBaseEntity", vec![flags], null_mut());
 	let combat = data_map(c"CBaseCombatWeapon", vec![owner], base);
 	let weapon = data_map(c"CTFWeaponBase", vec![], combat);
-	let melee = data_map(c"CTFWeaponBaseMelee", vec![], weapon);
-
-	data_map(class, vec![], melee)
+	data_map(c"CTFWeaponBaseMelee", vec![], weapon)
 }
