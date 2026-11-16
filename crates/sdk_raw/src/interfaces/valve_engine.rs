@@ -44,6 +44,27 @@ pub type CreateFakeClientExFn = unsafe extern "C" fn(
 pub type CreateFakeClientFn =
 	unsafe extern "C" fn(this: *mut sys::IVEngineServer, name: *const c_char) -> *mut sys::edict_t;
 
+/// `IVEngineServer::EmitAmbientSound`: plays the sample `sample` from the entity
+/// at `entity_index`, at `position`, to every client, as the game's
+/// `ambient_generic` entities do through `UTIL_EmitAmbientSound`. `flags` are
+/// the `SND_*` flags, and `delay` the seconds before it starts.
+///
+/// The engine sends it apart from the sounds a recipient filter lists: while a
+/// level loads it writes a looping sound into the connection data new clients
+/// read as they join, and afterwards it broadcasts it.
+#[doc(alias("EmitAmbientSound"))]
+pub type EmitAmbientSoundFn = unsafe extern "C" fn(
+	this: *mut sys::IVEngineServer,
+	entity_index: c_int,
+	position: *const sys::Vector,
+	sample: *const c_char,
+	volume: f32,
+	level: sys::soundlevel_t,
+	flags: c_int,
+	pitch: c_int,
+	delay: f32,
+);
+
 /// `IVEngineServer::EntityMessageBegin`: begins a message to the client-side
 /// object of the entity at `entity_index`, whose server class is `class`, sent
 /// reliably if `reliable` is set, and returns the buffer to write its payload
@@ -157,6 +178,9 @@ const _: fn(&sys::IVEngineServer__bindgen_vtable) -> CreateFakeClientExFn =
 const _: fn(&sys::IVEngineServer__bindgen_vtable) -> CreateFakeClientFn =
 	|vtable| vtable.IVEngineServer_CreateFakeClient;
 
+const _: fn(&sys::IVEngineServer__bindgen_vtable) -> EmitAmbientSoundFn =
+	|vtable| vtable.IVEngineServer_EmitAmbientSound;
+
 const _: fn(&sys::IVEngineServer__bindgen_vtable) -> EntityMessageBeginFn =
 	|vtable| vtable.IVEngineServer_EntityMessageBegin;
 
@@ -192,6 +216,13 @@ pub const CREATE_FAKE_CLIENT_EX_SLOT: usize = vtable_slot!(
 pub const CREATE_FAKE_CLIENT_SLOT: usize = vtable_slot!(
 	sys::IVEngineServer__bindgen_vtable,
 	IVEngineServer_CreateFakeClient
+);
+
+/// The slot of `IVEngineServer::EmitAmbientSound`, from the generated binding.
+#[doc(alias("EmitAmbientSound"))]
+pub const EMIT_AMBIENT_SOUND_SLOT: usize = vtable_slot!(
+	sys::IVEngineServer__bindgen_vtable,
+	IVEngineServer_EmitAmbientSound
 );
 
 /// The slot of `IVEngineServer::EntityMessageBegin`, from the generated
