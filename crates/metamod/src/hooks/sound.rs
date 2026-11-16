@@ -22,7 +22,8 @@
 //!
 //! - sounds emitted through the overload that takes an attenuation instead of
 //!   a sound level, sentences, or ambient sounds, such as an
-//!   `ambient_generic`'s;
+//!   `ambient_generic`'s, which
+//!   [`hook_emit_ambient_sound`](MetamodApi::hook_emit_ambient_sound) sees;
 //! - sounds clients play on their own, such as predicted weapon sounds, and
 //!   those clients play for networked state or game events, such as TF2's
 //!   announcer lines from a `teamplay_broadcast_audio` event;
@@ -30,6 +31,14 @@
 //!
 //! The game sends the closed caption of a script entry apart from its sound,
 //! so a client with captions on can still read a blocked sound's caption.
+//!
+//! # Ambient sounds
+//!
+//! `ambient_generic` entities play through `IVEngineServer::EmitAmbientSound`,
+//! which has no recipient filter: the engine plays the sound for every client.
+//! While a level loads it writes a looping sound into the connection data that
+//! clients joining later read, so a hook installed after the level loaded
+//! never sees the sounds that were already playing.
 
 #[cfg(test)]
 #[path = "../tests/hooks/sound.rs"]
@@ -42,9 +51,12 @@ use crate::hook::{
 };
 
 use crate::recipients::Recipients;
-use source_sdk_2013::interfaces::EngineSound;
+use source_sdk_2013::interfaces::{EngineSound, ValveEngine};
 use source_sdk_2013::math::Vector;
 use source_sdk_2013::raw::interfaces::engine_sound::{EMIT_SOUND_SLOT, EmitSoundFn as EmitSound};
+use source_sdk_2013::raw::interfaces::valve_engine::{
+	EMIT_AMBIENT_SOUND_SLOT, EmitAmbientSoundFn as EmitAmbientSound,
+};
 use source_sdk_2013::raw::util::cstr::borrow_cstr;
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
@@ -59,10 +71,20 @@ pub type EmitSoundFn = for<'s> fn(Server<'s>, &EmittedSound<'_>) -> EmitSoundAct
 /// clients the engine sends it to. Valid only for the call.
 pub type SoundRecipients<'a> = Recipients<'a>;
 
+/// Decides whether an ambient sound the server emits is played. A panic is
+/// contained by the hook dispatcher, and lets the sound through.
+pub type EmitAmbientSoundFn = for<'s> fn(Server<'s>, &EmittedAmbientSound<'_>) -> EmitSoundAction;
+
 /// `IEngineSound::EmitSound`, the overload that takes a sound level.
 const EMIT_SOUND: VirtualFunction<EmitSound> = VirtualFunction::new(EMIT_SOUND_SLOT);
 
+/// `IVEngineServer::EmitAmbientSound`.
+const EMIT_AMBIENT_SOUND: VirtualFunction<EmitAmbientSound> =
+	VirtualFunction::new(EMIT_AMBIENT_SOUND_SLOT);
+
 static ROUTE: SoundRoute = SoundRoute::new();
+
+static AMBIENT_ROUTE: AmbientRoute = AmbientRoute::new();
 
 /// What to do with a sound the server emits.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +142,107 @@ pub struct EmittedSound<'a> {
 	/// The index of the entity that speaks the sound, or -1.
 	pub speaker: c_int,
 }
+
+/// An ambient sound the server is emitting, as an [`EmitAmbientSoundFn`] sees
+/// it, with the arguments of `EmitAmbientSound`.
+#[derive(Debug, Clone, Copy)]
+pub struct EmittedAmbientSound<'a> {
+	/// The index of the entity the sound plays from, such as an
+	/// `ambient_generic`'s source.
+	pub entity: c_int,
+
+	/// Where the sound plays.
+	pub origin: Vector,
+
+	/// The sample: a path under `sound/`, or a sentence as `!` and its number.
+	pub sample: &'a CStr,
+
+	/// The volume, from 0 to 1.
+	pub volume: f32,
+
+	/// The sound level, in decibels.
+	pub level: sys::soundlevel_t,
+
+	/// The `SND_*` flags, which include the stop flag for the sound that stops
+	/// a looping one.
+	pub flags: c_int,
+
+	/// The pitch, where 100 is normal.
+	pub pitch: c_int,
+
+	/// The seconds before the sound starts.
+	pub delay: f32,
+}
+
+#[derive(Clone, Copy)]
+struct RoutedAmbientSounds {
+	binding: ServerBinding,
+	callback: EmitAmbientSoundFn,
+	hook: HookId,
+}
+
+struct AmbientRoute {
+	state: Cell<Option<RoutedAmbientSounds>>,
+}
+
+impl AmbientRoute {
+	const fn new() -> Self {
+		Self {
+			state: Cell::new(None),
+		}
+	}
+}
+
+impl Handler<EmitAmbientSound> for AmbientRoute {
+	fn call(&self, call: &HookCall<'_, EmitAmbientSound>) -> HookAction<()> {
+		// An earlier hook blocked it.
+		if call.superseded() == Some(true) {
+			return HookAction::Ignore;
+		}
+
+		let Some(routed) = self.state.get() else {
+			return HookAction::Ignore;
+		};
+
+		let (entity, origin, sample, volume, level, flags, pitch, delay) = call.args();
+
+		// SAFETY: The game passes a terminated sample, which outlives the call.
+		let Some(sample) = (unsafe { borrow_cstr(sample) }) else {
+			return HookAction::Ignore;
+		};
+
+		// SAFETY: The game passes null or a live vector, which outlives the call.
+		let Some(origin) = (unsafe { origin.as_ref() }).map(|&origin| origin.into()) else {
+			return HookAction::Ignore;
+		};
+
+		let sound = EmittedAmbientSound {
+			entity,
+			origin,
+			sample,
+			volume,
+			level,
+			flags,
+			pitch,
+			delay,
+		};
+
+		let scope = ();
+
+		// SAFETY: The hook dispatcher runs on the main thread, during one call
+		// from the engine. The plugin supplied the binding with the hook.
+		let server = unsafe { routed.binding.server(&scope) };
+
+		match (routed.callback)(server, &sound) {
+			EmitSoundAction::Continue => HookAction::Ignore,
+			EmitSoundAction::Block => HookAction::Supersede(()),
+		}
+	}
+}
+
+// SAFETY: Installation requires a main-thread MetamodApi; the hook dispatcher
+// calls handlers only on that thread. Cell borrows are never held over calls.
+unsafe impl Sync for AmbientRoute {}
 
 #[derive(Clone, Copy)]
 struct RoutedSounds {
@@ -268,6 +391,66 @@ impl MetamodApi<'_> {
 		}?;
 
 		ROUTE.state.set(Some(RoutedSounds {
+			binding,
+			callback,
+			hook,
+		}));
+		Ok(())
+	}
+
+	/// Runs `callback` before each ambient sound the server emits through
+	/// `engine`, which decides whether the sound is played; see the
+	/// [module documentation](crate::hooks::sound).
+	///
+	/// This hooks `IVEngineServer::EmitAmbientSound`, the call `ambient_generic`
+	/// entities play and stop their sounds through. Installing again while the
+	/// hook is installed returns [`HookError::AlreadyInstalled`].
+	pub fn hook_emit_ambient_sound(
+		self,
+		engine: ValveEngine<'_>,
+		binding: ServerBinding,
+		callback: EmitAmbientSoundFn,
+	) -> Result<(), HookError> {
+		let engine = NonNull::new(engine.as_ptr()).ok_or(HookError::InvalidArgument)?;
+
+		// SAFETY: The interface is the engine's, which outlives the plugin, and
+		// has `EmitAmbientSound` at the slot, which the generated binding checks.
+		unsafe { self.install_emit_ambient_sound(engine, binding, callback) }
+	}
+
+	/// Hooks `EmitAmbientSound` on `engine`.
+	///
+	/// # Safety
+	///
+	/// `engine` must be live, and its vtable must hold a function of the
+	/// signature [`EmitAmbientSound`] at [`EMIT_AMBIENT_SOUND_SLOT`] until
+	/// Metamod unloads the plugin.
+	unsafe fn install_emit_ambient_sound(
+		self,
+		engine: NonNull<sys::IVEngineServer>,
+		binding: ServerBinding,
+		callback: EmitAmbientSoundFn,
+	) -> Result<(), HookError> {
+		if AMBIENT_ROUTE
+			.state
+			.get()
+			.is_some_and(|state| self.has_hook(state.hook))
+		{
+			return Err(HookError::AlreadyInstalled);
+		}
+
+		// SAFETY: As the caller promises; a `MetamodApi` only exists on the main
+		// thread.
+		let hook = unsafe {
+			self.add_hook(
+				EMIT_AMBIENT_SOUND,
+				HookTarget::instance(engine),
+				HookTiming::Pre,
+				&AMBIENT_ROUTE,
+			)
+		}?;
+
+		AMBIENT_ROUTE.state.set(Some(RoutedAmbientSounds {
 			binding,
 			callback,
 			hook,

@@ -329,3 +329,135 @@ fn sounds_an_earlier_hook_blocked_skip_the_callback() {
 extern "C" fn unexpected_call() {
 	panic!("unexpected virtual call");
 }
+
+/// An engine of a C++ class, as far as hooks know it, with `EmitAmbientSound`.
+#[repr(C)]
+struct AmbientEngine {
+	vtable: *mut *mut c_void,
+}
+
+impl AmbientEngine {
+	fn new() -> Box<Self> {
+		let vtable = mock_vtable::<sys::IVEngineServer__bindgen_vtable>(&[(
+			EMIT_AMBIENT_SOUND_SLOT,
+			engine_emit_ambient as *mut c_void,
+		)]);
+
+		Box::new(Self { vtable })
+	}
+
+	fn ptr(&mut self) -> NonNull<sys::IVEngineServer> {
+		NonNull::from(self).cast()
+	}
+}
+
+#[test]
+fn ambient_sounds_reach_the_callback_and_the_engine_unless_blocked() {
+	on_both(|harness| {
+		let api = harness.api();
+		let mut engine = AmbientEngine::new();
+
+		// SAFETY: The mock interface has `EmitAmbientSound` at the slot, and is
+		// leaked with its vtable.
+		unsafe {
+			api.install_emit_ambient_sound(engine.ptr(), tf2_binding(no_interfaces), block_alarms)
+		}
+		.unwrap();
+
+		assert!(matches!(
+			// SAFETY: As above.
+			unsafe {
+				api.install_emit_ambient_sound(
+					engine.ptr(),
+					tf2_binding(no_interfaces),
+					block_alarms,
+				)
+			},
+			Err(HookError::AlreadyInstalled)
+		));
+
+		let emit = |engine: &mut AmbientEngine, sample: &CStr, origin: &sys::Vector| {
+			SEEN.take();
+
+			harness.call::<EmitAmbientSound>(
+				engine.ptr().as_ptr(),
+				EMIT_AMBIENT_SOUND_SLOT,
+				(12, origin, sample.as_ptr(), 0.5, 75, 0, 100, 0.0),
+			);
+
+			SEEN.take()
+		};
+
+		let origin = sys::Vector {
+			x: 8.0,
+			y: 0.0,
+			z: -4.0,
+		};
+
+		assert_eq!(
+			emit(&mut engine, c"ambient/machines/hum.wav", &origin),
+			[
+				Seen::Callback(
+					"ambient/machines/hum.wav".to_owned(),
+					Vec::new(),
+					false,
+					12,
+					Some(origin.into())
+				),
+				Seen::Emitted("ambient/machines/hum.wav".to_owned())
+			]
+		);
+
+		assert_eq!(
+			emit(&mut engine, c"ambient/alarm.wav", &origin),
+			[Seen::Callback(
+				"ambient/alarm.wav".to_owned(),
+				Vec::new(),
+				false,
+				12,
+				Some(origin.into())
+			)]
+		);
+	});
+}
+
+/// The callback, which notes what it saw and blocks alarms.
+fn block_alarms(_server: Server<'_>, sound: &EmittedAmbientSound<'_>) -> EmitSoundAction {
+	let sample = sound.sample.to_str().unwrap();
+
+	SEEN.with_borrow_mut(|seen| {
+		seen.push(Seen::Callback(
+			sample.to_owned(),
+			Vec::new(),
+			false,
+			sound.entity,
+			Some(sound.origin),
+		));
+	});
+
+	match sample.contains("alarm") {
+		true => EmitSoundAction::Block,
+		false => EmitSoundAction::Continue,
+	}
+}
+
+/// The mock engine's `EmitAmbientSound`, which notes the sample.
+unsafe extern "C" fn engine_emit_ambient(
+	_this: *mut sys::IVEngineServer,
+	_entity: c_int,
+	_origin: *const sys::Vector,
+	sample: *const c_char,
+	_volume: f32,
+	_level: sys::soundlevel_t,
+	_flags: c_int,
+	_pitch: c_int,
+	_delay: f32,
+) {
+	// SAFETY: The tests emit terminated samples.
+	let sample = unsafe { CStr::from_ptr(sample) }
+		.to_str()
+		.unwrap()
+		.to_owned();
+
+	SEEN.with_borrow_mut(|seen| seen.push(Seen::Emitted(sample)));
+}
