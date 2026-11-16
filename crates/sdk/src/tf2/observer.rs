@@ -278,6 +278,61 @@ impl<'s> PlayerObserver<'s> {
 		Ok(())
 	}
 
+	/// Switches how the player watches the game, as the game does
+	/// (`CTFPlayer::SetObserverMode`), which checks the target again for the
+	/// modes that follow one, and keeps a dead player on a team from roaming
+	/// (see the [module documentation](self)). Returns whether the game took
+	/// the mode: it refuses a number outside its modes, which [`ObserverMode`]
+	/// never holds.
+	///
+	/// Fails with [`ObserverError::MarkedForDeletion`] for a player marked for
+	/// deletion.
+	#[doc(alias("SetObserverMode"))]
+	pub fn set_mode(self, mode: ObserverMode) -> Result<bool, ObserverError> {
+		if self.player.is_marked_for_deletion() {
+			return Err(ObserverError::MarkedForDeletion);
+		}
+
+		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+
+		// SAFETY: `new` found `CTFPlayer` in the player's datamaps, so it is
+		// one, whose entity base `sdk_raw::tf2` asserts is at offset zero. The
+		// player is live during `'s`, on the main thread. `SetObserverMode`
+		// assigns networked variables and checks the target, which deletes
+		// nothing.
+		Ok(unsafe {
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_SetObserverMode(
+				mode.to_raw(),
+			))
+		})
+	}
+
+	/// Has the player follow `target`, as the game does
+	/// (`CTFPlayer::SetObserverTarget`), and moves a roaming player behind it.
+	/// Returns whether the game took it: it refuses a target the player may
+	/// not follow (`IsValidObserverTarget`), such as a dead player, or one on
+	/// the other team while `mp_forcecamera` keeps a dead player to their own.
+	///
+	/// Fails with [`ObserverError::MarkedForDeletion`] if the player or the
+	/// target is marked for deletion.
+	#[doc(alias("SetObserverTarget"))]
+	pub fn set_target(self, target: Entity<'s>) -> Result<bool, ObserverError> {
+		if self.player.is_marked_for_deletion() || target.is_marked_for_deletion() {
+			return Err(ObserverError::MarkedForDeletion);
+		}
+
+		let player = self.player.as_ptr().cast::<sys::CTFPlayer>();
+
+		// SAFETY: As for `set_mode`. The target is live during `'s`.
+		// `SetObserverTarget` checks it, then assigns the handle and may move
+		// a roaming player, which deletes nothing.
+		Ok(unsafe {
+			vcall!(player as sys::CTFPlayer__bindgen_vtable => CTFPlayer_SetObserverTarget(
+				target.as_ptr(),
+			))
+		})
+	}
+
 	/// The entity the player follows (`m_hObserverTarget`), or `None` if they
 	/// follow nothing, or it no longer exists.
 	#[doc(alias("m_hObserverTarget", "GetObserverTarget"))]
