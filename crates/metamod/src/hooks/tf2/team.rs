@@ -20,6 +20,11 @@
 //! restart creates again, until removed or the plugin unloads, but not the
 //! classes deriving from it, which have vtables of their own. As with other
 //! Metamod hooks, they stop calling handlers while the plugin is paused.
+//!
+//! A player's own change of team goes through `CTFPlayer::ChangeTeam(int,
+//! bool, bool, bool)` instead, which only reaches `CBaseEntity::ChangeTeam`
+//! past the vtable. [`MetamodApi::hook_player_team_changes`] runs a callback
+//! before and after it, for the players' classes it covers.
 
 #[cfg(test)]
 #[path = "../../tests/hooks/tf2/team.rs"]
@@ -31,14 +36,26 @@ use crate::hook::{
 	Handler, HookAction, HookCall, HookError, HookId, HookTarget, HookTiming, VirtualFunction,
 };
 
+use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
-use source_sdk_2013::raw::tf2::teams::{CHANGE_TEAM_SLOT, ChangeTeamFn as ChangeTeam};
+
+use source_sdk_2013::raw::tf2::teams::{
+	CHANGE_TEAM_SLOT, ChangeTeamFn as ChangeTeam, PLAYER_CHANGE_TEAM_SLOT,
+	PlayerChangeTeamFn as PlayerChangeTeam,
+};
+
 use source_sdk_2013::raw::util::vtable::vtable_pointer;
+use source_sdk_2013::tf2::class_targets::TfPlayer;
 use source_sdk_2013::tf2::teams::TeamTarget;
 use source_sdk_2013::{Game, Server, ServerBinding};
 use std::cell::Cell;
 use std::ffi::{c_int, c_void};
 use std::ptr::NonNull;
+
+/// A callback-scoped server, whether the game's `CTFPlayer::ChangeTeam` is
+/// about to run or has run, the player, and the team numbered as the last
+/// argument the game asked for. A panic is contained by the hook dispatcher.
+pub type PlayerTeamChangeFn = for<'s> fn(Server<'s>, HookTiming, Entity<'s>, c_int);
 
 /// A callback-scoped server, and the entity about to be put on the team
 /// numbered as the last argument, which decides what team it goes on. A panic
@@ -47,6 +64,10 @@ pub type TeamChangeFn = for<'s> fn(Server<'s>, Entity<'s>, c_int) -> TeamChange;
 
 /// `ChangeTeam` in a TF2 entity's primary vtable.
 const CHANGE_TEAM: VirtualFunction<ChangeTeam> = VirtualFunction::new(CHANGE_TEAM_SLOT);
+
+/// `ChangeTeam(int, bool, bool, bool)` in a TF2 player's primary vtable.
+const PLAYER_CHANGE_TEAM: VirtualFunction<PlayerChangeTeam> =
+	VirtualFunction::new(PLAYER_CHANGE_TEAM_SLOT);
 
 static ROUTES: [TeamRoute; 16] = [const { TeamRoute::new() }; 16];
 
@@ -272,5 +293,51 @@ impl MetamodApi<'_> {
 			vtable: address,
 		}));
 		Ok(hook)
+	}
+}
+
+impl MetamodApi<'_> {
+	/// Runs `callback` before and after each `CTFPlayer::ChangeTeam(int, bool,
+	/// bool, bool)` of the players of the classes the returned hooks cover,
+	/// which are none until [`ClassHooks::cover`] covers them: as a player
+	/// asks for a team with `jointeam`, `autoteam` or `spectate`, and as TF2's
+	/// autobalance moves them. Cover the players' classes, those of
+	/// [`ClassTargets::players`](source_sdk_2013::tf2::class_targets::ClassTargets::players),
+	/// to hook every player's.
+	///
+	/// The game may refuse the change, and may put the player on another team
+	/// than the one asked for (`GetTeamAssignmentOverride`): after the call,
+	/// the player's team tells what it did. A change it makes goes through
+	/// its steps in this order, all within the call: the player's projectiles
+	/// are removed and their buildings detonated, the team changes, and a
+	/// player alive on RED or BLU is killed.
+	///
+	/// `CTFPlayer::ForceChangeTeam`, which the game and plugins call to move a
+	/// player themselves, is not virtual and does not call this method, nor
+	/// do the hooks see it.
+	///
+	/// `binding` must describe the running server. The callback must not
+	/// delete entities immediately, as [`Server::new`] requires. Under
+	/// SourceHook, the hooks take a hook manager, which every handle shares.
+	/// The killing runs inside the call, so the callback may see another team
+	/// change of the player, such as a plugin's to the spectators as they die,
+	/// between the call's before and after.
+	pub fn hook_player_team_changes(
+		self,
+		binding: ServerBinding,
+		callback: PlayerTeamChangeFn,
+	) -> ClassHooks<TfPlayer> {
+		ClassHooks::new(
+			binding,
+			callback,
+			PLAYER_CHANGE_TEAM,
+			&[HookTiming::Pre, HookTiming::Post],
+			|server, callback, player, call| {
+				let (team, _auto_team, _silent, _auto_balance) = call.args();
+
+				callback(server, call.timing(), player, team);
+				HookAction::Ignore
+			},
+		)
 	}
 }
