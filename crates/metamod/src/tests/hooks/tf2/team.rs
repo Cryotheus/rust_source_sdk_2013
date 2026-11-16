@@ -5,6 +5,7 @@ use super::*;
 use crate::test_support::harness::{Harness, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
 use source_sdk_2013::sys;
+use source_sdk_2013::tf2::class_targets::ClassTarget;
 use std::cell::RefCell;
 
 thread_local! {
@@ -77,6 +78,18 @@ unsafe extern "C" fn game_change_team(_this: *mut sys::CBaseEntity, team: c_int)
 	CALLS.with_borrow_mut(|calls| calls.push(("game", team)));
 }
 
+/// The game's `CTFPlayer::ChangeTeam(int, bool, bool, bool)`, which notes the
+/// team it was given.
+unsafe extern "C" fn game_player_change_team(
+	_this: *mut sys::CBaseEntity,
+	team: c_int,
+	_auto_team: bool,
+	_silent: bool,
+	_auto_balance: bool,
+) {
+	CALLS.with_borrow_mut(|calls| calls.push(("game", team)));
+}
+
 /// The callback, which notes the team, keeps entities off team 1, moves
 /// teams 2 and 3 to 0, and keeps team 0 as it is.
 fn on_change(_server: Server<'_>, _entity: Entity<'_>, team: c_int) -> TeamChange {
@@ -88,6 +101,46 @@ fn on_change(_server: Server<'_>, _entity: Entity<'_>, team: c_int) -> TeamChang
 		0 => TeamChange::Replace(0),
 		_ => TeamChange::Allow,
 	}
+}
+
+/// The player callback, which notes when it ran and the team.
+fn on_player_change(_server: Server<'_>, timing: HookTiming, _player: Entity<'_>, team: c_int) {
+	let when = match timing {
+		HookTiming::Pre => "before",
+		HookTiming::Post => "after",
+	};
+
+	CALLS.with_borrow_mut(|calls| calls.push((when, team)));
+}
+
+#[test]
+fn player_team_changes_are_seen_before_and_after_the_game() {
+	on_both(|harness| {
+		let api = harness.api();
+		let slots = Vec::leak(vec![
+			game_player_change_team as PlayerChangeTeam
+				as *mut c_void;
+			PLAYER_CHANGE_TEAM_SLOT + 1
+		]);
+		let mut player = Box::new(Mock {
+			vtable: slots.as_mut_ptr(),
+		});
+		// SAFETY: The test only calls the hooked slot, which holds a method of
+		// its signature.
+		let target = unsafe { ClassTarget::<TfPlayer>::from_raw(player.vtable()) };
+		let hooks = api.hook_player_team_changes(tf2_binding(no_interfaces), on_player_change);
+
+		assert_eq!(hooks.cover(api, target), Ok(true));
+
+		CALLS.take();
+		harness.call::<PlayerChangeTeam>(
+			player.ptr().as_ptr(),
+			PLAYER_CHANGE_TEAM_SLOT,
+			(3, false, false, false),
+		);
+
+		assert_eq!(CALLS.take(), [("before", 3), ("game", 3), ("after", 3)]);
+	});
 }
 
 #[test]

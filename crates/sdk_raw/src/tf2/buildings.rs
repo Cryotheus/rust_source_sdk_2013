@@ -93,11 +93,28 @@ const _: fn(
 
 // The generated method takes no argument and returns nothing.
 const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CBaseObject) =
+	|vtable| vtable.CBaseObject_DetonateObject;
+
+// The generated method takes no argument and returns nothing.
+const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CBaseObject) =
 	|vtable| vtable.CBaseObject_FinishedBuilding;
 
 // The generated method takes no argument and returns nothing.
 const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CBaseObject) =
 	|vtable| vtable.CBaseObject_StartUpgrading;
+
+/// The slot of `CBaseObject::DetonateObject` in a TF2 building's primary
+/// vtable, from the generated binding. It has the signature of
+/// [`EntityFn`](crate::tf2::virtuals::EntityFn), `void ()`.
+///
+/// It destroys the building as if it died by its own hand (`Killed`, with the
+/// building as attacker and inflictor), as an Engineer's PDA destroys one,
+/// and as the game removes a player's buildings with explosions
+/// (`CTFPlayer::RemoveAllObjects(true)`), such as as they change team or
+/// leave. The dispenser overrides it, and calls `CBaseObject`'s.
+#[doc(alias("DetonateObject"))]
+pub const DETONATE_OBJECT_SLOT: usize =
+	vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_DetonateObject);
 
 /// `DISPENSER_STATE_IDLE`: a dispenser that is not upgrading.
 pub const DISPENSER_STATE_IDLE: c_int = 0;
