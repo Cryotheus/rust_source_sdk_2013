@@ -432,6 +432,25 @@ impl<'s> Building<'s> {
 		})
 	}
 
+	/// The seconds the building takes to be built from nothing, without
+	/// wrenches (`CBaseObject::GetTotalTime`): its kind's build time, as its
+	/// builder's attributes change it, shortened by `tf_fastbuild` and quick
+	/// build times. TF2 builds it by its most health, less its starting 0.1,
+	/// over this time, each tenth of a second (`CBaseObject::BuildingThink`).
+	/// Blueprints and dying/deleted buildings are refused before calling native
+	/// code.
+	#[doc(alias("GetTotalTime"))]
+	pub fn total_build_time(self) -> Result<f32, BuildingError> {
+		self.check_removable()?;
+		let this = self.entity.as_ptr();
+		// SAFETY: Building::new checked the CBaseObject primary base. The
+		// generated virtual is float(this) on both supported platforms, and
+		// only reads the object's info, its builder's attributes and convars.
+		Ok(unsafe {
+			sdk_raw::vcall!(this as sys::CBaseObject__bindgen_vtable => CBaseObject_GetTotalTime())
+		})
+	}
+
 	/// How much of the building is built (`m_flPercentageConstructed`), from 0
 	/// to 1.
 	#[doc(alias("m_flPercentageConstructed", "GetPercentageConstructed"))]
