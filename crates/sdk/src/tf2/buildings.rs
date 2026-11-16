@@ -147,6 +147,10 @@ pub enum BuildingError {
 	#[error("the entity is not a TF2 building")]
 	NotBuilding,
 
+	/// The building is not the player's: they did not build it.
+	#[error("the building is not the player's")]
+	NotBuilder,
+
 	/// The building is not carried, or packed away, so it cannot be
 	/// redeployed.
 	#[error("the building is not carried")]
@@ -1790,6 +1794,66 @@ impl<'s> PlayerBuildings<'s> {
 		};
 
 		Building::new(self.server, entity).map(Some)
+	}
+
+	/// Has the player carry `building`, one of theirs, as TF2 makes an
+	/// engineer carry the building they pick up, once it allowed the pickup
+	/// (`CBaseObject::MakeCarriedObject`): it is marked carried, follows the
+	/// player, loses its screens, remembers its health for its redeploy, and
+	/// fires `player_carryobject` for the server's listeners. A building packed
+	/// away, or one that stayed marked carried after its carrier let go of it,
+	/// is taken up again.
+	///
+	/// None of TF2's checks for a pickup are made, and the player's weapon is
+	/// left as it is: an engineer places it with their builder weapon, which
+	/// the caller switches them to, as TF2 does.
+	///
+	/// Fails with [`BuildingError::NotPackable`] for a sapper,
+	/// [`BuildingError::NotBuilder`] for another player's building,
+	/// [`BuildingError::CarrierBusy`] if the player carries one, and as
+	/// [`Building::destroy`] does for a building that is a blueprint (one
+	/// carried already is not) or being removed, or a player being removed.
+	#[doc(alias("MakeCarriedObject", "TryToPickupBuilding"))]
+	pub fn carry(self, building: Building<'s>) -> Result<(), BuildingError> {
+		// A building carried already is placing while the builder weapon is out.
+		if building.is_carried()? {
+			if building.entity.is_marked_for_deletion() {
+				return Err(BuildingError::MarkedForDeletion);
+			}
+
+			if building.is_dying() {
+				return Err(BuildingError::Dying);
+			}
+		} else {
+			building.check_removable()?;
+		}
+
+		building.check_packable()?;
+
+		if self.player.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		if building.builder()?.map(|builder| builder.handle()) != Some(self.player.handle()) {
+			return Err(BuildingError::NotBuilder);
+		}
+
+		if self.carried()?.is_some() {
+			return Err(BuildingError::CarrierBusy);
+		}
+
+		let object = building.entity.as_ptr();
+		let player = self.player.as_ptr().cast();
+
+		// SAFETY: As for `Building::pack_away`: both are live during `'s`, on the
+		// main thread, and neither is being removed. `MakeCarriedObject` removes
+		// the building's screens through the engine's deferred deletion, and sets
+		// the player's carrying, its own carried state and its parent.
+		unsafe {
+			vcall!(object as sys::CBaseObject__bindgen_vtable => CBaseObject_MakeCarriedObject(player));
+		}
+
+		Ok(())
 	}
 
 	/// Whether the player, a spy, placed a sapper in the last 3 seconds
