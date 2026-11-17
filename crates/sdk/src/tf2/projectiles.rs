@@ -27,10 +27,11 @@ mod tests;
 
 use crate::datatables::{NetProp, NetPropError, NetVar};
 use crate::entities::Entity;
+use crate::math::{QAngle, Vector};
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::projectiles as raw;
 use sdk_raw::vcall;
-use std::ffi::{CStr, c_int};
+use std::ffi::{CStr, CString, c_int};
 
 /// The entity classes of projectiles, as a pattern
 /// [`ServerTools::find_by_class_name`](crate::interfaces::ServerTools::find_by_class_name)
@@ -504,6 +505,11 @@ pub enum ProjectileError {
 	#[error("{0} is not a damage a projectile can do")]
 	InvalidDamage(f32),
 
+	/// An [`ArrowLaunch`] has numbers that are not finite, a negative speed,
+	/// gravity or damage, or is of a grappling hook.
+	#[error("the arrow cannot be launched so")]
+	InvalidLaunch,
+
 	/// A networked variable could not be read or written, as one the
 	/// projectile does not have.
 	#[error(transparent)]
@@ -517,9 +523,17 @@ pub enum ProjectileError {
 	#[error("the projectile is not a pipebomb")]
 	NotPipebomb,
 
+	/// The owner of an [`ArrowLaunch`] is not a player.
+	#[error("an arrow's owner must be a player")]
+	NotPlayer,
+
 	/// The entity is not a TF2 projectile.
 	#[error("the entity is not a TF2 projectile")]
 	NotProjectile,
+
+	/// The game made no arrow of the class, or removed it as it spawned.
+	#[error("the game did not spawn the arrow")]
+	NotSpawned,
 
 	/// The server does not run Team Fortress 2.
 	#[error("projectile operations require Team Fortress 2")]
@@ -872,4 +886,197 @@ fn net_prop<'s>(
 	name: &CStr,
 ) -> Result<NetProp<'s>, ProjectileError> {
 	Ok(server.server_game_dll()?.entity_net_prop(entity, name)?)
+}
+
+/// An arrow or a bolt to launch, as a weapon fires one
+/// (`CTFProjectile_Arrow::Create`, then what `FireArrow` sets): from an
+/// origin, along angles, at a speed, with a gravity, a damage and a critical
+/// flag, owned by a player, who scores its hits, and fired by a launcher.
+///
+/// [`launch`](Self::launch) spawns it as TF2's own `Create` does: the entity
+/// of the kind's class (`tf_projectile_healing_bolt` for the Crusader's
+/// Crossbow's bolts, `tf_projectile_arrow` for the others) is created at the
+/// origin and spawned, owned by the player, and then `InitArrow` runs on it,
+/// which puts it on its owner's team, spawns it again as its kind, with its
+/// model, size, flight and touch, sets its gravity and velocity, and takes
+/// the time it was fired, from which a healing bolt's damage and healing grow
+/// over its first 0.6 seconds. Its weapon then sets its launcher, whether it
+/// is critical and its damage. A Rescue Ranger's bolt has its sprite trail,
+/// as `InitArrow` makes it; a healing bolt's trail is its clients' own.
+///
+/// A healing bolt heals its owner's teammates by twice its damage only if its
+/// owner is a player, and none of its hits strike its owner, so a bolt meant
+/// to heal everyone but a player is fired by another player. A Rescue
+/// Ranger's bolt repairs its team's buildings only by its scorer's
+/// `arrow_heals_buildings` attribute, and spends their metal.
+#[doc(alias("CTFProjectile_Arrow::Create", "InitArrow", "FireArrow"))]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArrowLaunch {
+	kind: ArrowKind,
+	origin: Vector,
+	angles: QAngle,
+	speed: f32,
+	gravity: f32,
+	damage: f32,
+	critical: bool,
+}
+
+impl ArrowLaunch {
+	/// An arrow of `kind` from `origin`, flying along `angles` at `speed`
+	/// units a second, with no gravity, no damage, and not critical.
+	pub const fn new(kind: ArrowKind, origin: Vector, angles: QAngle, speed: f32) -> Self {
+		Self {
+			kind,
+			origin,
+			angles,
+			speed,
+			gravity: 0.0,
+			damage: 0.0,
+			critical: false,
+		}
+	}
+
+	/// Whether it is critical (`m_bCritical`), which its clients show, and
+	/// which doubles what it does to enemies.
+	pub const fn critical(mut self, critical: bool) -> Self {
+		self.critical = critical;
+		self
+	}
+
+	/// Its damage (`SetDamage`), from which a healing bolt heals too: the
+	/// Crusader's Crossbow's is 75.
+	pub const fn damage(mut self, damage: f32) -> Self {
+		self.damage = damage;
+		self
+	}
+
+	/// The share of the world's gravity it falls by (`SetGravity`): the
+	/// Crusader's Crossbow's and the Rescue Ranger's is 0.2.
+	pub const fn gravity(mut self, gravity: f32) -> Self {
+		self.gravity = gravity;
+		self
+	}
+
+	/// Spawns it, owned by `owner`, a player, who scores its hits and whose
+	/// team it is on, fired by `launcher` if any, a weapon. Returns it, flying.
+	///
+	/// Fails with [`ProjectileError::WrongGame`] unless the server runs TF2,
+	/// [`ProjectileError::InvalidLaunch`] for a grappling hook, which only
+	/// its weapon fires, or numbers that are not finite, or a negative damage,
+	/// speed or gravity, [`ProjectileError::NotPlayer`] unless `owner` is a
+	/// player, and [`ProjectileError::NotSpawned`] if the game made no arrow
+	/// of the class, or removed it as it spawned.
+	///
+	/// # Safety
+	///
+	/// No VPhysics simulation or callback may be running, as the arrow's spawn
+	/// sets its collision rules, and nothing may delete entities immediately
+	/// during the call, as [`Server::new`] requires. The engine callbacks
+	/// plugins are given, such as a game frame, meet both.
+	pub unsafe fn launch<'s>(
+		self,
+		server: Server<'s>,
+		owner: Entity<'_>,
+		launcher: Option<Entity<'_>>,
+	) -> Result<Projectile<'s>, ProjectileError> {
+		if server.game() != Game::TeamFortress2 {
+			return Err(ProjectileError::WrongGame);
+		}
+
+		let finite = [
+			self.origin.x,
+			self.origin.y,
+			self.origin.z,
+			self.angles.pitch,
+			self.angles.yaw,
+			self.angles.roll,
+		]
+		.into_iter()
+		.all(f32::is_finite);
+
+		let positive = [self.speed, self.gravity, self.damage]
+			.into_iter()
+			.all(|value| value.is_finite() && value >= 0.0);
+
+		if !finite || !positive || self.kind == ArrowKind::GrapplingHook {
+			return Err(ProjectileError::InvalidLaunch);
+		}
+
+		if owner.class_name() != c"player" || owner.is_marked_for_deletion() {
+			return Err(ProjectileError::NotPlayer);
+		}
+
+		let class = match self.kind {
+			ArrowKind::HealingBolt | ArrowKind::FestiveHealingBolt => c"tf_projectile_healing_bolt",
+			_ => c"tf_projectile_arrow",
+		};
+
+		let tools = server.server_tools()?;
+
+		// SAFETY: An arrow's constructor frees nothing.
+		let arrow =
+			unsafe { tools.create_entity_by_name(class) }.ok_or(ProjectileError::NotSpawned)?;
+
+		if !arrow.has_data_map_class(c"CTFProjectile_Arrow") {
+			let _ = tools.remove(arrow);
+			return Err(ProjectileError::NotSpawned);
+		}
+
+		let origin = format!("{} {} {}", self.origin.x, self.origin.y, self.origin.z);
+		let angles = format!(
+			"{} {} {}",
+			self.angles.pitch, self.angles.yaw, self.angles.roll
+		);
+
+		for (key, value) in [(c"origin", origin), (c"angles", angles)] {
+			let value = CString::new(value).expect("numbers contain no NUL");
+
+			if !tools.set_key_value(arrow, key, &value) {
+				let _ = tools.remove(arrow);
+				return Err(ProjectileError::NotSpawned);
+			}
+		}
+
+		arrow.set_owner(Some(owner));
+
+		// SAFETY: The arrow is new and has not spawned; its `Spawn` sets its
+		// model, size, collision and touch, and frees nothing, and the caller
+		// vouches that no VPhysics callback runs.
+		unsafe { tools.dispatch_spawn(arrow) };
+
+		if arrow.is_marked_for_deletion() {
+			return Err(ProjectileError::NotSpawned);
+		}
+
+		let this = arrow.as_ptr().cast::<sys::CTFProjectile_Arrow>();
+		let angles = sys::QAngle::from(self.angles);
+
+		// SAFETY: The arrow's datamaps include `CTFProjectile_Arrow`, so its
+		// vtable is that class's or a subclass's. `InitArrow` is what the
+		// game's `Create` runs next with the same arguments: it changes the
+		// arrow's team to its owner's, a player's, spawns it again as its
+		// type, adds a sprite trail entity for a Rescue Ranger's bolt, and
+		// reads the angles only during the call. `SetLauncher` stores a handle
+		// to the weapon.
+		unsafe {
+			vcall!(this as sys::CTFProjectile_Arrow__bindgen_vtable => CTFProjectile_Arrow_InitArrow(
+				&angles,
+				self.speed,
+				self.gravity,
+				self.kind.to_raw() as sys::ProjectileType_t,
+				owner.as_ptr(),
+				owner.as_ptr(),
+			));
+
+			if let Some(launcher) = launcher {
+				vcall!(this as sys::CTFProjectile_Arrow__bindgen_vtable => CTFProjectile_Arrow_SetLauncher(launcher.as_ptr()));
+			}
+		}
+
+		let projectile = Projectile::new(server, arrow)?;
+
+		projectile.set_critical(self.critical)?;
+		projectile.set_damage(self.damage)?;
+		Ok(projectile)
+	}
 }

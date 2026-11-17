@@ -2295,6 +2295,29 @@ impl<'s> Sentry<'s> {
 		Ok(())
 	}
 
+	/// Where the sentry's guns point (`m_vecCurAngles`), and where it turns
+	/// them (`m_vecGoalAngles`), both relative to its own angles: their yaws
+	/// are kept from 0 to 360 degrees, and their pitches from -50 to 50. The
+	/// game fires on a target only once the two are within 10 degrees of each
+	/// other, as the length of their difference.
+	#[doc(alias("m_vecCurAngles", "m_vecGoalAngles"))]
+	pub fn aim(self) -> (QAngle, QAngle) {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so
+		// the entity is one, laid out as the generated class says; both members
+		// are plain `QAngle`s.
+		unsafe {
+			(
+				self.field::<QAngle>(core::mem::offset_of!(sys::CObjectSentrygun, m_vecCurAngles))
+					.read_unaligned(),
+				self.field::<QAngle>(core::mem::offset_of!(
+					sys::CObjectSentrygun,
+					m_vecGoalAngles
+				))
+				.read_unaligned(),
+			)
+		}
+	}
+
 	/// Sets the most rockets the sentry takes on (see [`Self::rocket_capacity`]),
 	/// which its spawn sets again, as an engineer's sentry is redeployed, so a
 	/// caller that changes it sets it again after. With 0, a wrench spends no
