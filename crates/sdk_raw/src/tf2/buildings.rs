@@ -12,6 +12,20 @@
 use crate::vtable_slot;
 use std::ffi::c_int;
 
+/// The signature of `CBaseObject::CanBeUpgraded`, `bool (CTFPlayer *)`, with
+/// the building as its receiver, which tells whether the player's wrench hit
+/// may put upgrade metal into the building. TF2 refuses while it upgrades, for
+/// mini-buildings and disposable sentries, for a player whose class cannot
+/// build its kind, and at `OBJ_MAX_UPGRADE_LEVEL` (3), whatever the
+/// building's own `GetMaxUpgradeLevel` says. A refused hit still repairs and
+/// refills the building, and spends no metal on upgrading it.
+///
+/// `player` is the player's entity. The class also declares a `const`
+/// overload without a player, in another slot.
+#[doc(alias("CanBeUpgraded"))]
+pub type CanBeUpgradedFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, player: *mut sys::CBaseEntity) -> bool;
+
 /// The signature of `CBaseObject::FinishedBuilding`, `void ()`, with the
 /// building as its receiver, which the game calls as a building finishes
 /// being built, or redeployed after being carried.
@@ -85,6 +99,12 @@ const _: fn(
 	sys::Vector,
 ) -> bool = |vtable| vtable.CBaseObject_InputWrenchHit;
 
+// The generated method takes the player and returns a `bool`.
+const _: fn(
+	&sys::CBaseObject__bindgen_vtable,
+) -> unsafe extern "C" fn(*mut sys::CBaseObject, *mut sys::CTFPlayer) -> bool =
+	|vtable| vtable.CBaseObject_CanBeUpgraded;
+
 // The generated method takes only its receiver and returns a C++ float.
 const _: fn(
 	&sys::CBaseObject__bindgen_vtable,
@@ -102,6 +122,13 @@ const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys:
 // The generated method takes no argument and returns nothing.
 const _: fn(&sys::CBaseObject__bindgen_vtable) -> unsafe extern "C" fn(*mut sys::CBaseObject) =
 	|vtable| vtable.CBaseObject_StartUpgrading;
+
+/// The slot of `CBaseObject::CanBeUpgraded(CTFPlayer *)` in a TF2 building's
+/// primary vtable, from the generated binding, which every building class
+/// keeps.
+#[doc(alias("CanBeUpgraded"))]
+pub const CAN_BE_UPGRADED_SLOT: usize =
+	vtable_slot!(sys::CBaseObject__bindgen_vtable, CBaseObject_CanBeUpgraded);
 
 /// The slot of `CBaseObject::DetonateObject` in a TF2 building's primary
 /// vtable, from the generated binding. It has the signature of
