@@ -10,7 +10,8 @@
 //! placed, and the search for building classes' vtables.
 
 use crate::vtable_slot;
-use std::ffi::c_int;
+use std::ffi::{c_char, c_int};
+use std::mem::offset_of;
 
 /// The signature of `CBaseObject::CanBeUpgraded`, `bool (CTFPlayer *)`, with
 /// the building as its receiver, which tells whether the player's wrench hit
@@ -74,6 +75,13 @@ pub type InputWrenchHitFn = unsafe extern "C" fn(
 pub type KilledFn =
 	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::CTakeDamageInfo);
 
+/// A building's list of its screens, `m_hScreens`, a
+/// `CUtlVector<CHandle<CVGuiScreen>>` of the `vgui_screen` entities its
+/// `SpawnControlPanels` made, which `DestroyScreens` removes, as the building
+/// is carried or destroyed. TF2 neither networks nor saves it.
+pub type ScreenList =
+	sys::CUtlVector<sys::CBaseObject_ScreenHandle_t, sys::CUtlMemory<sys::CHandle>>;
+
 /// The signature of `CBaseObject::StartUpgrading`, `void ()`, with the
 /// building as its receiver, which raises the building's level by one and
 /// starts its upgrade animation. The game also calls it for each level a
@@ -81,6 +89,24 @@ pub type KilledFn =
 /// buildings.
 #[doc(alias("StartUpgrading"))]
 pub type StartUpgradingFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
+
+// The list ends before the variable that follows it, and a screen's handle is
+// an entity handle's 32 bits, its index and serial.
+const _: () = assert!(
+	SCREENS_BEFORE_WAS_MAP_PLACED >= size_of::<ScreenList>()
+		&& size_of::<sys::CHandle>() == size_of::<u32>()
+);
+
+// The generated methods take the panel's index, and write the name of its
+// panel or of its screen's entity class, or leave the pointer alone.
+const _: fn(
+	&sys::CBaseObject__bindgen_vtable,
+) -> [unsafe extern "C" fn(*mut sys::CBaseObject, c_int, *mut *const c_char); 2] = |vtable| {
+	[
+		vtable.CBaseObject_GetControlPanelInfo,
+		vtable.CBaseObject_GetControlPanelClassName,
+	]
+};
 
 // The generated method takes the damage by reference and returns nothing.
 const _: fn(
@@ -230,6 +256,12 @@ pub const OF_MUST_BE_BUILT_ON_ATTACHMENT: c_int = 0x02;
 /// rules destroy as their builder dies.
 pub const OF_PLAYER_DESTRUCTION: c_int = 0x08;
 
+/// How many bytes a building's [`ScreenList`] lies before its networked
+/// `m_bWasMapPlaced`, the variable that follows it, from the generated
+/// binding.
+pub const SCREENS_BEFORE_WAS_MAP_PLACED: usize =
+	offset_of!(sys::CBaseObject, m_bWasMapPlaced) - offset_of!(sys::CBaseObject, m_hScreens);
+
 /// `SENTRY_STATE_ATTACKING`: a sentry firing at its enemy.
 pub const SENTRY_STATE_ATTACKING: c_int = 2;
 
@@ -313,3 +345,48 @@ pub const TTYPE_ENTRANCE: c_int = 1;
 /// `TTYPE_EXIT`: the `teleporterType` key value of a teleporter exit a map
 /// places.
 pub const TTYPE_EXIT: c_int = 2;
+
+/// The handles of the screens in a building's [`ScreenList`], which lies
+/// `offset` bytes into the building, as raw entity handles.
+///
+/// # Safety
+///
+/// `building` points to a live `CBaseObject` whose screen list lies at
+/// `offset`, read on the main thread, which alone changes it.
+pub unsafe fn screens(building: *const sys::CBaseEntity, offset: usize) -> Vec<u32> {
+	// SAFETY: The caller guarantees the list is there. Its memory holds its
+	// count of handles, each a 32-bit entity handle.
+	unsafe {
+		let list = building.byte_add(offset).cast::<ScreenList>();
+		let elements = (&raw const (*list).m_Memory.m_pMemory).read_unaligned();
+		let len = usize::try_from((&raw const (*list).m_Size).read_unaligned()).unwrap_or(0);
+
+		if elements.is_null() {
+			return Vec::new();
+		}
+
+		(0..len)
+			.map(|index| elements.add(index).cast::<u32>().read_unaligned())
+			.collect()
+	}
+}
+
+/// Replaces the screen at `index` of a building's [`ScreenList`], which lies
+/// `offset` bytes into the building, with the raw entity handle `screen`.
+///
+/// # Safety
+///
+/// As for [`screens`], and `index` is less than the list's count.
+pub unsafe fn set_screen(
+	building: *mut sys::CBaseEntity,
+	offset: usize,
+	index: usize,
+	screen: u32,
+) {
+	// SAFETY: As for `screens`; the caller guarantees the element exists.
+	unsafe {
+		let list = building.byte_add(offset).cast::<ScreenList>();
+		let elements = (&raw const (*list).m_Memory.m_pMemory).read_unaligned();
+		elements.add(index).cast::<u32>().write_unaligned(screen);
+	}
+}
