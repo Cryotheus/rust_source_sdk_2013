@@ -53,6 +53,15 @@ pub type BodyTargetFn = unsafe extern "C" fn(
 /// [`PHYSICS_SIMULATE_SLOT`] and [`UPDATE_ON_REMOVE_SLOT`].
 pub type EntityFn = unsafe extern "C" fn(this: *mut sys::CBaseEntity);
 
+/// The signature of `CBaseEntity::FireBullets`,
+/// `void (const FireBulletsInfo_t &info)`, at [`FIRE_BULLETS_SLOT`]: fires
+/// `info.m_iShots` bullets, tracing each, drawing their tracers and impacts,
+/// and dealing their damage once all are traced. TF2's sentry guns fire
+/// through it; its players' weapons fire through `FX_FireBullets` instead.
+#[doc(alias("FireBullets"))]
+pub type FireBulletsFn =
+	unsafe extern "C" fn(this: *mut sys::CBaseEntity, info: *const sys::FireBulletsInfo_t);
+
 /// The signature of `CBaseEntity::ForceVPhysicsCollide`,
 /// `bool (CBaseEntity *entity)`, at [`FORCE_VPHYSICS_COLLIDE_SLOT`].
 #[doc(alias("ForceVPhysicsCollide"))]
@@ -352,6 +361,22 @@ const _: () = {
 	let _: fn(&Entity) -> BodyTargetFn = |vtable| vtable.CBaseEntity_BodyTarget;
 };
 
+// Buildings, sentry guns included, keep `FireBullets` in `CBaseEntity`'s slot.
+const _: () = {
+	use sys::{
+		CBaseEntity__bindgen_vtable as Entity, CBaseObject__bindgen_vtable as Object,
+		CObjectSentrygun__bindgen_vtable as Sentry,
+	};
+
+	assert!(FIRE_BULLETS_SLOT == vtable_slot!(Object, CBaseObject_FireBullets));
+	assert!(FIRE_BULLETS_SLOT == vtable_slot!(Sentry, CObjectSentrygun_FireBullets));
+
+	let _: fn(
+		&Entity,
+	) -> unsafe extern "C" fn(*mut sys::CBaseEntity, *const sys::FireBulletsInfo_t) =
+		|vtable| vtable.CBaseEntity_FireBullets;
+};
+
 // `game/server/baseentity.h` declares `IsProjectileCollisionTarget` right
 // after `IsCombatItem`, which the generated binding places at 88 on Windows
 // and 89 on Linux. `CTFPointManager` derives from `CBaseEntity` alone, and
@@ -442,6 +467,12 @@ pub const CALC_IS_ATTACK_CRITICAL_HELPER_SLOT: usize = vtable_slot!(
 #[doc(alias("CanBeAutobalanced"))]
 pub const CAN_BE_AUTOBALANCED_SLOT: usize =
 	vtable_slot!(sys::CTFPlayer__bindgen_vtable, CTFPlayer_CanBeAutobalanced);
+
+/// The slot of `CBaseEntity::FireBullets` in an entity's primary vtable, from
+/// the generated binding: the method that fires a sentry gun's bullets.
+#[doc(alias("FireBullets"))]
+pub const FIRE_BULLETS_SLOT: usize =
+	vtable_slot!(sys::CBaseEntity__bindgen_vtable, CBaseEntity_FireBullets);
 
 /// The slot of `CBaseEntity::ForceVPhysicsCollide` in an entity's primary
 /// vtable, from the generated binding: the method VPhysics's collision filter
