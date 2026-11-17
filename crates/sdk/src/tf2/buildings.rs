@@ -35,7 +35,9 @@
 mod tests;
 
 use crate::datatables::{NetProp, NetPropError, NetVar};
-use crate::entities::Entity;
+use crate::entities::fields::FieldError;
+use crate::entities::hierarchy::ParentError;
+use crate::entities::{Entity, EntityHandle, ProtectedEntity, TeleportError};
 use crate::entities::spawn::{EntitySpawn, SpawnError};
 use crate::inputs::{InputError, InputValue};
 use crate::math::{QAngle, Vector};
@@ -46,7 +48,7 @@ use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::buildings as raw;
 use sdk_raw::tf2::script_binding::{BOOL, boolean};
 use sdk_raw::vcall;
-use std::ffi::{CStr, CString, c_int};
+use std::ffi::{CStr, CString, c_char, c_int};
 use std::num::NonZeroU16;
 
 /// The classes of buildings, as patterns
@@ -188,9 +190,52 @@ pub enum BuildingError {
 	#[error("the building's state {0} is not one of its kind's")]
 	UnknownState(c_int),
 
+	/// The building's screens could not be made again.
+	#[error(transparent)]
+	Screen(#[from] ScreenError),
+
 	/// The server does not run Team Fortress 2.
 	#[error("building operations require Team Fortress 2")]
 	WrongGame,
+}
+
+/// Why [`Building::respawn_screens`] could not make a building's screens
+/// again.
+#[derive(Debug, thiserror::Error)]
+pub enum ScreenError {
+	/// A member of a screen could not be read or written.
+	#[error(transparent)]
+	Field(#[from] FieldError),
+
+	/// The game refused an input to a screen.
+	#[error(transparent)]
+	Input(#[from] InputError),
+
+	/// The building names no panel or class for one of its screens.
+	#[error("the building names no panel for its screen {0}")]
+	NoPanel(usize),
+
+	/// The game could not create a screen of the class the building names.
+	#[error("the game could not create a {0:?} screen")]
+	NotCreated(CString),
+
+	/// A new screen could not be parented where the old one was.
+	#[error(transparent)]
+	Parent(#[from] ParentError),
+
+	/// The old screen could not be removed.
+	#[error(transparent)]
+	Protected(#[from] ProtectedEntity),
+
+	/// A new screen could not be moved where the old one was.
+	#[error(transparent)]
+	Teleport(#[from] TeleportError),
+
+	/// The building's list of screens is not where the generated binding has
+	/// it, or holds something other than live screens moving with the
+	/// building, so the game DLL does not match the SDK.
+	#[error("the building's list of screens is not where the SDK expects it")]
+	UnsupportedLayout,
 }
 
 /// What a building is (`m_iObjectType`), as TF2 numbers them
@@ -878,6 +923,223 @@ impl<'s> Building<'s> {
 		}
 
 		Ok(())
+	}
+
+	/// Replaces each of the building's screens, the `vgui_screen`s of a
+	/// dispenser's control panels, with a new entity that shows the panel the
+	/// building now names for itself (`GetControlPanelInfo`), and returns how
+	/// many it replaced.
+	///
+	/// TF2 names a dispenser's panels by team (`screen_obj_dispenser_red` and
+	/// `_blue`), and makes them only as the building starts being built
+	/// (`SpawnControlPanels`). Clients only show a screen's new panel when they
+	/// make the screen: a screen whose panel name changes in place keeps
+	/// showing its old panel, so a building whose team changed shows its old
+	/// team's screens until it is redeployed. Each new screen is made as
+	/// `CreateVGuiScreen` makes one, on the same entity and attachment, with
+	/// the old one's size, flags, overlay, owner, player owner and team, and
+	/// takes its place in the building's list (`m_hScreens`), which
+	/// `DestroyScreens` removes as the building is carried or destroyed. The
+	/// old one is removed.
+	///
+	/// The list is read where the generated binding has it, just before the
+	/// networked `m_bWasMapPlaced`, and only if every entry is a live screen
+	/// that moves with the building or the entity it is built on. Fails with
+	/// [`ScreenError::UnsupportedLayout`] otherwise, changing nothing, and as
+	/// [`Self::destroy`] does for a building that is a blueprint or being
+	/// removed. Should a later screen fail, those before it stay replaced.
+	#[doc(alias(
+		"SpawnControlPanels",
+		"CreateVGuiScreen",
+		"m_hScreens",
+		"GetControlPanelInfo"
+	))]
+	pub fn respawn_screens(self) -> Result<usize, BuildingError> {
+		/// More screens than any building makes.
+		const MAX_SCREENS: usize = 8;
+
+		/// How many panel indexes are tried for the names of the screens.
+		const MAX_PANELS: c_int = 16;
+
+		self.check_removable()?;
+
+		let tools = self.server.server_tools()?;
+		let engine = self.server.valve_engine()?;
+		let anchor = self.net_prop(c"m_bWasMapPlaced")?.offset();
+		let offset = anchor
+			.checked_sub(raw::SCREENS_BEFORE_WAS_MAP_PLACED)
+			.ok_or(ScreenError::UnsupportedLayout)?;
+
+		// SAFETY: `new` found `CBaseObject` in the building's datamaps; its
+		// screen list lies the binding's distance before `m_bWasMapPlaced`,
+		// whose offset the live send table gives, and is read on the main
+		// thread. The entries are checked before anything is written.
+		let handles = unsafe { raw::screens(self.entity.as_ptr(), offset) };
+		let built_on = self.built_on()?.map(Entity::handle);
+		let mut screens = Vec::with_capacity(handles.len());
+
+		if handles.len() > MAX_SCREENS {
+			return Err(ScreenError::UnsupportedLayout.into());
+		}
+
+		for &raw_handle in &handles {
+			let screen = tools
+				.entity_by_handle(EntityHandle::from_raw(raw_handle))
+				.filter(|screen| {
+					!screen.is_marked_for_deletion() && screen.has_data_map_class(c"CVGuiScreen")
+				})
+				.ok_or(ScreenError::UnsupportedLayout)?;
+			let parent = screen.move_parent().map_err(ScreenError::from)?;
+
+			if parent != Some(self.entity.handle()) && (parent.is_none() || parent != built_on) {
+				return Err(ScreenError::UnsupportedLayout.into());
+			}
+
+			screens.push(screen);
+		}
+
+		let object = self.entity.as_ptr().cast::<sys::CBaseObject>();
+		let mut panels = Vec::with_capacity(screens.len());
+
+		for panel in 0..MAX_PANELS {
+			if panels.len() == screens.len() {
+				break;
+			}
+
+			let mut name: *const c_char = std::ptr::null();
+			let mut class: *const c_char = std::ptr::null();
+
+			// SAFETY: The building is a live `CBaseObject`, at its entity's
+			// address, on the main thread. Both methods only write the static
+			// name of the panel `panel` and of its screen's class, or leave the
+			// pointer null, as `SpawnControlPanels` calls them.
+			unsafe {
+				vcall!(object as sys::CBaseObject__bindgen_vtable => CBaseObject_GetControlPanelInfo(panel, &raw mut name));
+				vcall!(object as sys::CBaseObject__bindgen_vtable => CBaseObject_GetControlPanelClassName(panel, &raw mut class));
+			}
+
+			if name.is_null() || class.is_null() {
+				continue;
+			}
+
+			// SAFETY: Both are the game's NUL-terminated static strings.
+			panels.push(unsafe {
+				(
+					CStr::from_ptr(name).to_owned(),
+					CStr::from_ptr(class).to_owned(),
+				)
+			});
+		}
+
+		let team = self.team()?;
+
+		for (index, (old, (panel, class))) in screens.into_iter().zip(panels.iter()).enumerate() {
+			let parent = old
+				.move_parent()
+				.map_err(ScreenError::from)?
+				.and_then(|parent| tools.entity_by_handle(parent))
+				.ok_or(ScreenError::UnsupportedLayout)?;
+
+			let width: f32 = old.data_field(c"m_flWidth").map_err(ScreenError::from)?;
+			let height: f32 = old.data_field(c"m_flHeight").map_err(ScreenError::from)?;
+			let attachment: c_int = old
+				.data_field(c"m_nAttachmentIndex")
+				.map_err(ScreenError::from)?;
+			let flags: c_int = old
+				.data_field(c"m_fScreenFlags")
+				.map_err(ScreenError::from)?;
+			let player_owner: EntityHandle = old
+				.data_field(c"m_hPlayerOwner")
+				.map_err(ScreenError::from)?;
+			let overlay_prop = self
+				.server
+				.server_game_dll()?
+				.entity_net_prop(old, c"m_nOverlayMaterial")?;
+			let overlay: c_int = overlay_prop.get(old)?;
+			let effects = old.effects().map_err(ScreenError::from)?;
+			let owner = old
+				.owner()
+				.ok()
+				.flatten()
+				.and_then(|owner| tools.entity_by_handle(owner));
+			let origin = old.position();
+			let angles = old.abs_angles().map_err(ScreenError::from)?;
+
+			// SAFETY: `CVGuiScreen`'s constructor frees nothing.
+			let screen = unsafe { tools.create_entity_by_name(class) }
+				.ok_or_else(|| ScreenError::NotCreated(class.clone()))?;
+
+			tools.set_key_value(screen, c"panelname", panel);
+			tools.set_key_value(
+				screen,
+				c"width",
+				&CString::new(width.to_string()).unwrap_or_default(),
+			);
+			tools.set_key_value(
+				screen,
+				c"height",
+				&CString::new(height.to_string()).unwrap_or_default(),
+			);
+
+			// SAFETY: The screen was just created. `CVGuiScreen::Spawn` sizes it,
+			// makes it active and not solid, and frees nothing.
+			unsafe { tools.dispatch_spawn(screen) };
+
+			let configured = (|| -> Result<(), BuildingError> {
+				tools
+					.teleport(screen, origin, angles, None)
+					.map_err(ScreenError::from)?;
+				tools
+					.set_parent(screen, parent)
+					.map_err(ScreenError::from)?;
+				screen.set_owner(owner);
+				screen
+					.set_effects(engine, effects)
+					.map_err(ScreenError::from)?;
+				screen
+					.set_data_field(engine, c"m_nAttachmentIndex", attachment)
+					.map_err(ScreenError::from)?;
+				screen
+					.set_data_field(engine, c"m_fScreenFlags", flags)
+					.map_err(ScreenError::from)?;
+				screen
+					.set_data_field(engine, c"m_hPlayerOwner", player_owner)
+					.map_err(ScreenError::from)?;
+
+				// SAFETY: The index is the old screen's, a material the game
+				// precached for screens, or its invalid index.
+				unsafe { overlay_prop.set(engine, screen, overlay) }?;
+
+				tools
+					.accept_input(screen, c"SetTeam", InputValue::Int(team), screen, screen)
+					.map_err(ScreenError::from)?;
+
+				Ok(())
+			})();
+
+			if let Err(error) = configured {
+				let _ = tools.remove(screen);
+				return Err(error);
+			}
+
+			// SAFETY: As for the read above; `index` is less than the count
+			// read, which nothing changed since.
+			unsafe {
+				raw::set_screen(
+					self.entity.as_ptr(),
+					offset,
+					index,
+					screen.handle().to_raw(),
+				)
+			};
+			tools.remove(old).map_err(ScreenError::from)?;
+		}
+
+		if panels.len() < handles.len() {
+			return Err(ScreenError::NoPanel(panels.len()).into());
+		}
+
+		Ok(handles.len())
 	}
 
 	/// The sapper on the building, or `None` if none is. A sapper's blueprint
