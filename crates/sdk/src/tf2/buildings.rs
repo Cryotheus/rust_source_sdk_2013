@@ -436,25 +436,6 @@ impl<'s> Building<'s> {
 		})
 	}
 
-	/// The seconds the building takes to be built from nothing, without
-	/// wrenches (`CBaseObject::GetTotalTime`): its kind's build time, as its
-	/// builder's attributes change it, shortened by `tf_fastbuild` and quick
-	/// build times. TF2 builds it by its most health, less its starting 0.1,
-	/// over this time, each tenth of a second (`CBaseObject::BuildingThink`).
-	/// Blueprints and dying/deleted buildings are refused before calling native
-	/// code.
-	#[doc(alias("GetTotalTime"))]
-	pub fn total_build_time(self) -> Result<f32, BuildingError> {
-		self.check_removable()?;
-		let this = self.entity.as_ptr();
-		// SAFETY: Building::new checked the CBaseObject primary base. The
-		// generated virtual is float(this) on both supported platforms, and
-		// only reads the object's info, its builder's attributes and convars.
-		Ok(unsafe {
-			sdk_raw::vcall!(this as sys::CBaseObject__bindgen_vtable => CBaseObject_GetTotalTime())
-		})
-	}
-
 	/// How much of the building is built (`m_flPercentageConstructed`), from 0
 	/// to 1.
 	#[doc(alias("m_flPercentageConstructed", "GetPercentageConstructed"))]
@@ -967,6 +948,36 @@ impl<'s> Building<'s> {
 		self.input(c"SetSolidToPlayer", InputValue::Int(solid.to_raw()))
 	}
 
+	/// Sets when the building's current upgrade ends (see
+	/// [`Self::upgrade_complete_time`]), lengthening or shortening it; the
+	/// upgrade animation plays on at its own rate. Fails with
+	/// [`BuildingError::InvalidTime`] for a time that is not finite.
+	#[doc(alias("m_flUpgradeCompleteTime"))]
+	pub fn set_upgrade_complete_time(self, time: f32) -> Result<(), BuildingError> {
+		if !time.is_finite() {
+			return Err(BuildingError::InvalidTime(time));
+		}
+
+		self.check_removable()?;
+
+		// SAFETY: As for `upgrade_complete_time`. The member is not networked, and
+		// only the building's upgrade think and its sapper's reverse build read
+		// it.
+		unsafe {
+			self.entity
+				.as_ptr()
+				.cast::<u8>()
+				.add(core::mem::offset_of!(
+					sys::CBaseObject,
+					m_flUpgradeCompleteTime
+				))
+				.cast::<f32>()
+				.write_unaligned(time);
+		}
+
+		Ok(())
+	}
+
 	/// Sets the metal the building's next level takes
 	/// (`m_iUpgradeMetalRequired`), and records the change for clients, whose
 	/// building panels show the metal put in against it. The game sets it as the
@@ -1042,6 +1053,25 @@ impl<'s> Building<'s> {
 		self.int(c"m_iTeamNum")
 	}
 
+	/// The seconds the building takes to be built from nothing, without
+	/// wrenches (`CBaseObject::GetTotalTime`): its kind's build time, as its
+	/// builder's attributes change it, shortened by `tf_fastbuild` and quick
+	/// build times. TF2 builds it by its most health, less its starting 0.1,
+	/// over this time, each tenth of a second (`CBaseObject::BuildingThink`).
+	/// Blueprints and dying/deleted buildings are refused before calling native
+	/// code.
+	#[doc(alias("GetTotalTime"))]
+	pub fn total_build_time(self) -> Result<f32, BuildingError> {
+		self.check_removable()?;
+		let this = self.entity.as_ptr();
+		// SAFETY: Building::new checked the CBaseObject primary base. The
+		// generated virtual is float(this) on both supported platforms, and
+		// only reads the object's info, its builder's attributes and convars.
+		Ok(unsafe {
+			sdk_raw::vcall!(this as sys::CBaseObject__bindgen_vtable => CBaseObject_GetTotalTime())
+		})
+	}
+
 	/// Clears `m_bCarried` of a building [`Self::pack_away`] packed away, which
 	/// no player carries, so that removing it leaves its builder alone:
 	/// `CBaseObject::DestroyObject` has the builder of a building marked carried
@@ -1069,6 +1099,30 @@ impl<'s> Building<'s> {
 		unsafe { carried.set(self.server.valve_engine()?, self.entity, false) }?;
 
 		Ok(())
+	}
+
+	/// When the building's current upgrade ends, in server time
+	/// (`m_flUpgradeCompleteTime`): its upgrade think finishes it on the first
+	/// think after this. Starting an upgrade sets it to the kind's upgrade
+	/// duration ahead (`CBaseObject::StartUpgrading`); a quick build sets it to
+	/// the current time. It means nothing while the building is not upgrading.
+	#[doc(alias("m_flUpgradeCompleteTime"))]
+	pub fn upgrade_complete_time(self) -> Result<f32, BuildingError> {
+		self.check_removable()?;
+
+		// SAFETY: Building::new checked the CBaseObject primary base, laid out as
+		// the generated class says, and the member is an `f32` of it.
+		Ok(unsafe {
+			self.entity
+				.as_ptr()
+				.cast::<u8>()
+				.add(core::mem::offset_of!(
+					sys::CBaseObject,
+					m_flUpgradeCompleteTime
+				))
+				.cast::<f32>()
+				.read_unaligned()
+		})
 	}
 
 	/// The metal put into the building's next level (`m_iUpgradeMetal`).
