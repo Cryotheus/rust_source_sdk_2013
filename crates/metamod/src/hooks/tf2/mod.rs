@@ -18,6 +18,7 @@ pub mod death;
 pub mod detonation;
 pub mod dispenser;
 pub mod dispenser_state;
+pub mod dispenser_tuning;
 pub mod duel;
 pub mod flame;
 pub mod give_item;
