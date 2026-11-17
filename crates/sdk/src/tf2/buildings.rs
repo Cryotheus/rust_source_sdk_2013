@@ -978,6 +978,36 @@ impl<'s> Building<'s> {
 		Ok(())
 	}
 
+	/// Sets the metal put into the building's next level (`m_iUpgradeMetal`),
+	/// and records the change for clients, whose building panels show it
+	/// against [`upgrade_metal_required`](Self::upgrade_metal_required). The
+	/// building upgrades only on a wrench hit that brings it up to that, not as
+	/// it is set.
+	///
+	/// Clients receive it in 10 signed bits, as the metal required. Fails with
+	/// [`BuildingError::InvalidUpgradeMetal`] for an amount outside 0 to 511.
+	#[doc(alias("m_iUpgradeMetal"))]
+	pub fn set_upgrade_metal(self, metal: c_int) -> Result<(), BuildingError> {
+		if !(0..=MAX_NETWORKED_UPGRADE_METAL).contains(&metal) {
+			return Err(BuildingError::InvalidUpgradeMetal(metal));
+		}
+
+		if self.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		let engine = self.server.valve_engine()?;
+
+		// SAFETY: The game stores the metal put in as a networked `int`, which it
+		// compares with the metal required, and writes and networks the same way.
+		unsafe {
+			self.net_prop(c"m_iUpgradeMetal")?
+				.set(engine, self.entity, metal)
+		}?;
+
+		Ok(())
+	}
+
 	/// Sets the metal the building's next level takes
 	/// (`m_iUpgradeMetalRequired`), and records the change for clients, whose
 	/// building panels show the metal put in against it. The game sets it as the
@@ -1129,33 +1159,6 @@ impl<'s> Building<'s> {
 	#[doc(alias("m_iUpgradeMetal"))]
 	pub fn upgrade_metal(self) -> Result<c_int, BuildingError> {
 		self.int(c"m_iUpgradeMetal")
-	}
-
-	/// Sets the metal put into the building's next level (`m_iUpgradeMetal`),
-	/// and records the change for clients, whose building panels show it
-	/// against [`upgrade_metal_required`](Self::upgrade_metal_required). The
-	/// building upgrades only on a wrench hit that brings it up to that, not as
-	/// it is set.
-	///
-	/// Clients receive it in 10 signed bits, as the metal required. Fails with
-	/// [`BuildingError::InvalidUpgradeMetal`] for an amount outside 0 to 511.
-	#[doc(alias("m_iUpgradeMetal"))]
-	pub fn set_upgrade_metal(self, metal: c_int) -> Result<(), BuildingError> {
-		if !(0..=MAX_NETWORKED_UPGRADE_METAL).contains(&metal) {
-			return Err(BuildingError::InvalidUpgradeMetal(metal));
-		}
-
-		if self.entity.is_marked_for_deletion() {
-			return Err(BuildingError::MarkedForDeletion);
-		}
-
-		let engine = self.server.valve_engine()?;
-
-		// SAFETY: The game stores the metal put in as a networked `int`, which it
-		// compares with the metal required, and writes and networks the same way.
-		unsafe { self.net_prop(c"m_iUpgradeMetal")?.set(engine, self.entity, metal) }?;
-
-		Ok(())
 	}
 
 	/// The metal the building's next level takes (`m_iUpgradeMetalRequired`).
@@ -1693,6 +1696,34 @@ impl<'s> Dispenser<'s> {
 		self.0
 	}
 
+	/// A pointer to the dispenser's member at `offset`, of type `T`.
+	///
+	/// # Safety
+	///
+	/// `offset` is that of a `T` member of the generated `CObjectDispenser`.
+	unsafe fn field<T>(self, offset: usize) -> *mut T {
+		// SAFETY: `new` found `CObjectDispenser` in the building's datamaps, so
+		// the entity is one, and the caller vouches for the member.
+		unsafe { self.0.entity.as_ptr().cast::<u8>().add(offset).cast::<T>() }
+	}
+
+	/// Whether the dispenser plays TF2's generate sound
+	/// (`Building_Dispenser.GenerateMetal`) as its refill think adds metal
+	/// (`m_bUseGenerateMetalSound`, set as it spawns). The refill itself is
+	/// unchanged.
+	#[doc(alias("m_bUseGenerateMetalSound"))]
+	pub fn generate_metal_sound(self) -> bool {
+		// SAFETY: `new` found `CObjectDispenser` in the building's datamaps, so
+		// the entity is one, with this bool member.
+		unsafe {
+			self.field::<bool>(core::mem::offset_of!(
+				sys::CObjectDispenser,
+				m_bUseGenerateMetalSound
+			))
+			.read()
+		}
+	}
+
 	/// Whether a payload cart carries the dispenser (`mapobj_cart_dispenser`).
 	#[doc(alias("CObjectCartDispenser", "mapobj_cart_dispenser"))]
 	pub fn is_cart(self) -> bool {
@@ -1703,6 +1734,26 @@ impl<'s> Dispenser<'s> {
 	#[doc(alias("m_iAmmoMetal"))]
 	pub fn metal(self) -> Result<c_int, BuildingError> {
 		self.0.int(c"m_iAmmoMetal")
+	}
+
+	/// Sets whether the dispenser plays TF2's generate sound as its refill
+	/// think adds metal. The flag is the server's alone; nothing is networked.
+	#[doc(alias("m_bUseGenerateMetalSound"))]
+	pub fn set_generate_metal_sound(self, play: bool) -> Result<(), BuildingError> {
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: `new` found `CObjectDispenser` in the building's datamaps, so
+		// the entity is one, with this bool member, read only on the main thread.
+		unsafe {
+			self.field::<bool>(core::mem::offset_of!(
+				sys::CObjectDispenser,
+				m_bUseGenerateMetalSound
+			))
+			.write(play)
+		};
+		Ok(())
 	}
 
 	/// Sets the dispenser's real stored metal (`m_iAmmoMetal`) and records
@@ -2135,6 +2186,17 @@ impl<'s> Sentry<'s> {
 		self.0.handle(c"m_hEnemy")
 	}
 
+	/// A pointer to the sentry's member at `offset`, of type `T`.
+	///
+	/// # Safety
+	///
+	/// `offset` is that of a `T` member of the generated `CObjectSentrygun`.
+	unsafe fn field<T>(self, offset: usize) -> *mut T {
+		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so
+		// the entity is one, and the caller vouches for the member.
+		unsafe { self.0.entity.as_ptr().cast::<u8>().add(offset).cast::<T>() }
+	}
+
 	/// Where the sentry turns its guns toward (`m_vecGoalAngles`), as
 	/// [`Self::aim`] gives them: while it attacks, toward its enemy's aim point.
 	/// `CObjectSentrygun::Attack` fires once the two are within 10 degrees, as
@@ -2151,17 +2213,6 @@ impl<'s> Sentry<'s> {
 		};
 
 		QAngle { pitch, yaw, roll }
-	}
-
-	/// A pointer to the sentry's member at `offset`, of type `T`.
-	///
-	/// # Safety
-	///
-	/// `offset` is that of a `T` member of the generated `CObjectSentrygun`.
-	unsafe fn field<T>(self, offset: usize) -> *mut T {
-		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so
-		// the entity is one, and the caller vouches for the member.
-		unsafe { self.0.entity.as_ptr().cast::<u8>().add(offset).cast::<T>() }
 	}
 
 	/// Whether the sentry looks for targets on its own, as its `FindTarget`
