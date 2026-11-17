@@ -2006,6 +2006,21 @@ impl<'s> Sentry<'s> {
 		Ok(())
 	}
 
+	/// Where the sentry's guns point (`m_vecCurAngles`), as world pitch and yaw
+	/// in degrees, with no roll: its think turns them toward
+	/// [`Self::goal_aim`] at its turn rate (`MoveTurret`). Pitch is TF2's, down
+	/// positive, kept within 50 degrees either way.
+	#[doc(alias("m_vecCurAngles", "MoveTurret"))]
+	pub fn aim(self) -> QAngle {
+		// SAFETY: The member is a `QAngle` (three `f32`s) of the generated class.
+		let [pitch, yaw, roll] = unsafe {
+			self.field::<[f32; 3]>(core::mem::offset_of!(sys::CObjectSentrygun, m_vecCurAngles))
+				.read_unaligned()
+		};
+
+		QAngle { pitch, yaw, roll }
+	}
+
 	/// The kills the sentry assisted in (`m_iAssists`).
 	#[doc(alias("m_iAssists"))]
 	pub fn assists(self) -> Result<c_int, BuildingError> {
@@ -2037,6 +2052,24 @@ impl<'s> Sentry<'s> {
 	#[doc(alias("m_hEnemy", "GetEnemy"))]
 	pub fn enemy(self) -> Result<Option<Entity<'s>>, BuildingError> {
 		self.0.handle(c"m_hEnemy")
+	}
+
+	/// Where the sentry turns its guns toward (`m_vecGoalAngles`), as
+	/// [`Self::aim`] gives them: while it attacks, toward its enemy's aim point.
+	/// `CObjectSentrygun::Attack` fires once the two are within 10 degrees, as
+	/// the length of their difference.
+	#[doc(alias("m_vecGoalAngles"))]
+	pub fn goal_aim(self) -> QAngle {
+		// SAFETY: The member is a `QAngle` (three `f32`s) of the generated class.
+		let [pitch, yaw, roll] = unsafe {
+			self.field::<[f32; 3]>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_vecGoalAngles
+			))
+			.read_unaligned()
+		};
+
+		QAngle { pitch, yaw, roll }
 	}
 
 	/// A pointer to the sentry's member at `offset`, of type `T`.
