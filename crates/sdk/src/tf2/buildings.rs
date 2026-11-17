@@ -436,25 +436,6 @@ impl<'s> Building<'s> {
 		})
 	}
 
-	/// The seconds the building takes to be built from nothing, without
-	/// wrenches (`CBaseObject::GetTotalTime`): its kind's build time, as its
-	/// builder's attributes change it, shortened by `tf_fastbuild` and quick
-	/// build times. TF2 builds it by its most health, less its starting 0.1,
-	/// over this time, each tenth of a second (`CBaseObject::BuildingThink`).
-	/// Blueprints and dying/deleted buildings are refused before calling native
-	/// code.
-	#[doc(alias("GetTotalTime"))]
-	pub fn total_build_time(self) -> Result<f32, BuildingError> {
-		self.check_removable()?;
-		let this = self.entity.as_ptr();
-		// SAFETY: Building::new checked the CBaseObject primary base. The
-		// generated virtual is float(this) on both supported platforms, and
-		// only reads the object's info, its builder's attributes and convars.
-		Ok(unsafe {
-			sdk_raw::vcall!(this as sys::CBaseObject__bindgen_vtable => CBaseObject_GetTotalTime())
-		})
-	}
-
 	/// How much of the building is built (`m_flPercentageConstructed`), from 0
 	/// to 1.
 	#[doc(alias("m_flPercentageConstructed", "GetPercentageConstructed"))]
@@ -1040,6 +1021,25 @@ impl<'s> Building<'s> {
 	#[doc(alias("m_iTeamNum", "GetTeamNumber"))]
 	pub fn team(self) -> Result<c_int, BuildingError> {
 		self.int(c"m_iTeamNum")
+	}
+
+	/// The seconds the building takes to be built from nothing, without
+	/// wrenches (`CBaseObject::GetTotalTime`): its kind's build time, as its
+	/// builder's attributes change it, shortened by `tf_fastbuild` and quick
+	/// build times. TF2 builds it by its most health, less its starting 0.1,
+	/// over this time, each tenth of a second (`CBaseObject::BuildingThink`).
+	/// Blueprints and dying/deleted buildings are refused before calling native
+	/// code.
+	#[doc(alias("GetTotalTime"))]
+	pub fn total_build_time(self) -> Result<f32, BuildingError> {
+		self.check_removable()?;
+		let this = self.entity.as_ptr();
+		// SAFETY: Building::new checked the CBaseObject primary base. The
+		// generated virtual is float(this) on both supported platforms, and
+		// only reads the object's info, its builder's attributes and convars.
+		Ok(unsafe {
+			sdk_raw::vcall!(this as sys::CBaseObject__bindgen_vtable => CBaseObject_GetTotalTime())
+		})
 	}
 
 	/// Clears `m_bCarried` of a building [`Self::pack_away`] packed away, which
@@ -2006,6 +2006,21 @@ impl<'s> Sentry<'s> {
 		Ok(())
 	}
 
+	/// Where the sentry's guns point (`m_vecCurAngles`), as world pitch and yaw
+	/// in degrees, with no roll: its think turns them toward
+	/// [`Self::goal_aim`] at its turn rate (`MoveTurret`). Pitch is TF2's, down
+	/// positive, kept within 50 degrees either way.
+	#[doc(alias("m_vecCurAngles", "MoveTurret"))]
+	pub fn aim(self) -> QAngle {
+		// SAFETY: The member is a `QAngle` (three `f32`s) of the generated class.
+		let [pitch, yaw, roll] = unsafe {
+			self.field::<[f32; 3]>(core::mem::offset_of!(sys::CObjectSentrygun, m_vecCurAngles))
+				.read_unaligned()
+		};
+
+		QAngle { pitch, yaw, roll }
+	}
+
 	/// The kills the sentry assisted in (`m_iAssists`).
 	#[doc(alias("m_iAssists"))]
 	pub fn assists(self) -> Result<c_int, BuildingError> {
@@ -2048,6 +2063,24 @@ impl<'s> Sentry<'s> {
 		// SAFETY: `new` found `CObjectSentrygun` in the building's datamaps, so
 		// the entity is one, and the caller vouches for the member.
 		unsafe { self.0.entity.as_ptr().cast::<u8>().add(offset).cast::<T>() }
+	}
+
+	/// Where the sentry turns its guns toward (`m_vecGoalAngles`), as
+	/// [`Self::aim`] gives them: while it attacks, toward its enemy's aim point.
+	/// `CObjectSentrygun::Attack` fires once the two are within 10 degrees, as
+	/// the length of their difference.
+	#[doc(alias("m_vecGoalAngles"))]
+	pub fn goal_aim(self) -> QAngle {
+		// SAFETY: The member is a `QAngle` (three `f32`s) of the generated class.
+		let [pitch, yaw, roll] = unsafe {
+			self.field::<[f32; 3]>(core::mem::offset_of!(
+				sys::CObjectSentrygun,
+				m_vecGoalAngles
+			))
+			.read_unaligned()
+		};
+
+		QAngle { pitch, yaw, roll }
 	}
 
 	/// Whether the sentry looks for targets on its own, as its `FindTarget`
@@ -2119,6 +2152,21 @@ impl<'s> Sentry<'s> {
 		} else {
 			MAX_SHELLS
 		})
+	}
+
+	/// When the sentry may next fire its guns, in server time
+	/// (`m_flNextAttack`). `CObjectSentrygun::Attack` fires once the time has
+	/// come and its guns are aimed, then sets it a shot's interval ahead: 0.2
+	/// seconds at level 1 and 0.1 seconds above, scaled by its builder's
+	/// `mult_sentry_firerate` attributes. Acquiring a target sets it a think
+	/// ahead, and an empty click 0.2 seconds ahead.
+	#[doc(alias("m_flNextAttack"))]
+	pub fn next_attack(self) -> f32 {
+		// SAFETY: The member is an `f32` of the generated class.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(sys::CObjectSentrygun, m_flNextAttack))
+				.read_unaligned()
+		}
 	}
 
 	/// When the sentry may next fire rockets, in server time
@@ -2226,6 +2274,31 @@ impl<'s> Sentry<'s> {
 				m_iBaseTurnRate
 			))
 			.write_unaligned(c_int::from(rate.get()));
+		}
+
+		Ok(())
+	}
+
+	/// Sets when the sentry may next fire its guns (see [`Self::next_attack`]):
+	/// a time kept ahead of the server's stops it firing, shells and rockets
+	/// alike, and clicking empty, while it still finds targets and turns to
+	/// them. Fails with [`BuildingError::InvalidTime`] for a time that is not
+	/// finite.
+	#[doc(alias("m_flNextAttack"))]
+	pub fn set_next_attack(self, time: f32) -> Result<(), BuildingError> {
+		if !time.is_finite() {
+			return Err(BuildingError::InvalidTime(time));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: The member is an `f32` of the generated class, which only the
+		// sentry's own think reads and writes; it is not networked.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(sys::CObjectSentrygun, m_flNextAttack))
+				.write_unaligned(time);
 		}
 
 		Ok(())
