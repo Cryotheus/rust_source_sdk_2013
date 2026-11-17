@@ -2121,6 +2121,20 @@ impl<'s> Sentry<'s> {
 		})
 	}
 
+	/// When the sentry may next fire, in server time (`m_flNextAttack`): it
+	/// fires on a target only once this has passed and it aims within 10
+	/// degrees of it, and each shot sets it ahead by the time between its shots.
+	/// Its rockets are launched only as it fires (`CObjectSentrygun::Fire`), so a
+	/// sentry kept from firing launches none either.
+	#[doc(alias("m_flNextAttack"))]
+	pub fn next_attack(self) -> f32 {
+		// SAFETY: The member is an `f32` of the generated class.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(sys::CObjectSentrygun, m_flNextAttack))
+				.read_unaligned()
+		}
+	}
+
 	/// When the sentry may next fire rockets, in server time
 	/// (`m_flNextRocketAttack`). Firing a salvo sets it 3 seconds ahead, or
 	/// 2.25 seconds while its builder aims it with the Wrangler.
@@ -2226,6 +2240,30 @@ impl<'s> Sentry<'s> {
 				m_iBaseTurnRate
 			))
 			.write_unaligned(c_int::from(rate.get()));
+		}
+
+		Ok(())
+	}
+
+	/// Sets when the sentry may next fire (see [`Self::next_attack`]). A caller
+	/// that keeps the sentry from firing moves it ahead as time passes, as the
+	/// sentry sets it itself as it finds a new target. Fails with
+	/// [`BuildingError::InvalidTime`] for a time that is not finite.
+	#[doc(alias("m_flNextAttack"))]
+	pub fn set_next_attack(self, time: f32) -> Result<(), BuildingError> {
+		if !time.is_finite() {
+			return Err(BuildingError::InvalidTime(time));
+		}
+
+		if self.0.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		// SAFETY: The member is an `f32` of the generated class, which only the
+		// sentry's own attacks read and write; it is not networked.
+		unsafe {
+			self.field::<f32>(core::mem::offset_of!(sys::CObjectSentrygun, m_flNextAttack))
+				.write_unaligned(time);
 		}
 
 		Ok(())
