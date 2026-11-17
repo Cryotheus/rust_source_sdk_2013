@@ -130,8 +130,8 @@ pub enum BuildingError {
 	#[error("sentry shield levels are 0 to 2, not {0}")]
 	InvalidShield(c_int),
 
-	/// A building's next level takes 0 to 511 metal, the most clients
-	/// receive.
+	/// The metal a building's next level takes, or that is put into it, is 0
+	/// to 511, the most clients receive.
 	#[error("upgrade metal must be 0 to 511, not {0}")]
 	InvalidUpgradeMetal(c_int),
 
@@ -1075,6 +1075,33 @@ impl<'s> Building<'s> {
 	#[doc(alias("m_iUpgradeMetal"))]
 	pub fn upgrade_metal(self) -> Result<c_int, BuildingError> {
 		self.int(c"m_iUpgradeMetal")
+	}
+
+	/// Sets the metal put into the building's next level (`m_iUpgradeMetal`),
+	/// and records the change for clients, whose building panels show it
+	/// against [`upgrade_metal_required`](Self::upgrade_metal_required). The
+	/// building upgrades only on a wrench hit that brings it up to that, not as
+	/// it is set.
+	///
+	/// Clients receive it in 10 signed bits, as the metal required. Fails with
+	/// [`BuildingError::InvalidUpgradeMetal`] for an amount outside 0 to 511.
+	#[doc(alias("m_iUpgradeMetal"))]
+	pub fn set_upgrade_metal(self, metal: c_int) -> Result<(), BuildingError> {
+		if !(0..=MAX_NETWORKED_UPGRADE_METAL).contains(&metal) {
+			return Err(BuildingError::InvalidUpgradeMetal(metal));
+		}
+
+		if self.entity.is_marked_for_deletion() {
+			return Err(BuildingError::MarkedForDeletion);
+		}
+
+		let engine = self.server.valve_engine()?;
+
+		// SAFETY: The game stores the metal put in as a networked `int`, which it
+		// compares with the metal required, and writes and networks the same way.
+		unsafe { self.net_prop(c"m_iUpgradeMetal")?.set(engine, self.entity, metal) }?;
+
+		Ok(())
 	}
 
 	/// The metal the building's next level takes (`m_iUpgradeMetalRequired`).
