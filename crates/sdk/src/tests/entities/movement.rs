@@ -278,6 +278,25 @@ fn a_physics_object_is_only_used_while_its_entity_holds_it() {
 	object.set_moving(false);
 	assert_eq!(held.motion_enabled(), Ok(false));
 
+	// Within a VPhysics callback's scope, collisions do not change, until the
+	// last scope ends.
+	let outer = PhysicsCallbackScope::enter();
+	let inner = PhysicsCallbackScope::enter();
+
+	assert_eq!(
+		held.set_collisions_enabled(true),
+		Err(PhysicsObjectError::Simulating)
+	);
+
+	drop(inner);
+	assert_eq!(
+		held.set_collisions_enabled(true),
+		Err(PhysicsObjectError::Simulating)
+	);
+
+	drop(outer);
+	assert!(!object.enabled());
+
 	// Once the game replaces or destroys the object, it is not called.
 	set(other.as_ptr());
 	assert_eq!(

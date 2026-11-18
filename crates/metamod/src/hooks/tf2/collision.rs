@@ -18,6 +18,7 @@ use crate::MetamodApi;
 use crate::hook::{HookAction, HookCall, HookTiming, VirtualFunction};
 use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::raw::tf2::virtuals::{SHOULD_COLLIDE_SLOT, ShouldCollideFn as ShouldCollide};
 use source_sdk_2013::tf2::class_targets::BaseEntity;
 use source_sdk_2013::{Server, ServerBinding};
@@ -94,6 +95,11 @@ fn decide<'s>(
 	}
 
 	let (group, contents) = call.args();
+
+	// VPhysics' own checks of a pair may ask too, during its step, so the
+	// callback runs in a scope that keeps it from changing what the library
+	// tests for collisions.
+	let _scope = PhysicsCallbackScope::enter();
 
 	match callback(server, entity, group, contents.cast_unsigned()) {
 		CollideAction::Continue => HookAction::Ignore,

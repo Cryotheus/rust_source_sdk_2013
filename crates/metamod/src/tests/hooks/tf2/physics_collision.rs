@@ -5,6 +5,7 @@
 use super::*;
 use crate::test_support::harness::on_both;
 use crate::test_support::server::{no_interfaces, tf2_binding};
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::sys;
 use source_sdk_2013::tf2::class_targets::ClassTarget;
 use std::cell::{Cell, RefCell};
@@ -62,6 +63,7 @@ fn hooks_force_collisions_before_the_game() {
 			CALLS.take();
 			let forced =
 				harness.call::<ForceVPhysicsCollide>(this, FORCE_VPHYSICS_COLLIDE_SLOT, (other,));
+			assert!(!PhysicsCallbackScope::is_entered());
 			(forced, CALLS.take())
 		};
 		let (this_addr, other_addr) = (this.addr(), other.addr());
@@ -97,8 +99,15 @@ fn on_force_collide(
 	entity: Entity<'_>,
 	other: Entity<'_>,
 ) -> ForceCollideAction {
+	// The dispatcher keeps the callback from changing collisions.
+	let hook = if PhysicsCallbackScope::is_entered() {
+		"hook"
+	} else {
+		"hook out of its scope"
+	};
+
 	CALLS.with_borrow_mut(|calls| {
-		calls.push(("hook", entity.as_ptr().addr(), other.as_ptr().addr()));
+		calls.push((hook, entity.as_ptr().addr(), other.as_ptr().addr()));
 	});
 	ACTION.get()
 }

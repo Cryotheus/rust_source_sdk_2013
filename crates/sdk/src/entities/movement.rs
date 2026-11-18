@@ -8,6 +8,7 @@
 #[path = "../tests/entities/movement.rs"]
 mod tests;
 
+use crate::NotThreadSafe;
 use crate::entities::fields::{BaseField, FieldError};
 use crate::entities::{Entity, EntityHandle};
 use crate::interfaces::{ServerTools, ValveEngine};
@@ -35,7 +36,9 @@ use sdk_raw::entities::{
 };
 
 use sdk_raw::vcall;
+use std::cell::Cell;
 use std::ffi::{c_int, c_void};
+use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
@@ -827,14 +830,21 @@ impl<'s> ServerTools<'s> {
 /// # VPhysics' simulation
 ///
 /// Enabling or disabling an object's collisions changes what the physics
-/// library tests it against, which is only safe while the library is not
-/// simulating: never from a hook or callback the game or the library runs
+/// library tests it against, which is only known to be safe while the library
+/// is not simulating: not from a hook or callback the game or the library runs
 /// during its step, such as one asking whether two objects collide
 /// (`ShouldCollide`, `ForceVPhysicsCollide`) or one reporting a collision
 /// (`VPhysicsCollision`). Make the change from callbacks the engine makes
 /// outside of it, such as a game frame or a think, or put it off until one.
-/// The crate cannot tell, so it does not check: the bindings include no
-/// interface through which the library tells whether it is simulating.
+///
+/// The bindings include no interface through which the library tells whether
+/// it is simulating, so the crate cannot ask it. Instead,
+/// [`set_collisions_enabled`](Self::set_collisions_enabled) fails with
+/// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`],
+/// which the hook dispatchers that run a callback during the step enter. The
+/// game defers its own damage and removals during VPhysics callbacks, and
+/// buffers the touches it runs from them, so no other callback a plugin is
+/// given is known to run within one, as [`Entity::set_owner`] relies on too.
 #[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhysicsObject<'s> {
@@ -886,6 +896,11 @@ impl<'s> PhysicsObject<'s> {
 	///
 	/// Fails as the [type's documentation](Self) says, without reading the
 	/// object.
+	///
+	/// # Panics
+	///
+	/// As [`Entity::is_marked_for_deletion`] does, if `CBaseEntity`'s datamap
+	/// lacks `m_iEFlags`.
 	#[doc(alias("IsCollisionEnabled"))]
 	pub fn collisions_enabled(self) -> Result<bool, PhysicsObjectError> {
 		let object = self.live()?;
@@ -950,6 +965,10 @@ impl<'s> PhysicsObject<'s> {
 	///
 	/// Fails as the [type's documentation](Self) says, without reading the
 	/// object.
+	///
+	/// # Panics
+	///
+	/// As [`collisions_enabled`](Self::collisions_enabled).
 	#[doc(alias("IsMotionEnabled"))]
 	pub fn motion_enabled(self) -> Result<bool, PhysicsObjectError> {
 		let object = self.live()?;
@@ -966,14 +985,25 @@ impl<'s> PhysicsObject<'s> {
 	///
 	/// Only call this outside of VPhysics' simulation, as the
 	/// [type's documentation](Self#vphysics-simulation) says. Fails as it
-	/// says too, without changing the object.
+	/// says too, without changing the object, and with
+	/// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`].
+	///
+	/// # Panics
+	///
+	/// As [`collisions_enabled`](Self::collisions_enabled).
 	#[doc(alias("EnableCollisions"))]
 	pub fn set_collisions_enabled(self, enabled: bool) -> Result<(), PhysicsObjectError> {
+		if PhysicsCallbackScope::is_entered() {
+			return Err(PhysicsObjectError::Simulating);
+		}
+
 		let object = self.live()?;
 
 		// SAFETY: As for `collisions_enabled`. The physics library changes its
-		// own state, which the caller keeps it from using during the call by
-		// calling outside of its simulation.
+		// own state, so the call must not come while it simulates. It does not
+		// come within a `PhysicsCallbackScope`, which the dispatchers of the
+		// hooks that run during the step enter, and no other callback `'s` lies
+		// in is known to run during it, as the type's documentation says.
 		unsafe { vcall!(object.as_ptr() => IPhysicsObject_EnableCollisions(enabled)) };
 		Ok(())
 	}
@@ -991,4 +1021,52 @@ pub enum PhysicsObjectError {
 	/// The entity is marked for deletion.
 	#[error("the entity holding the physics object is marked for deletion")]
 	MarkedForDeletion,
+
+	/// The call came within a [`PhysicsCallbackScope`], while VPhysics
+	/// simulates.
+	#[error("collisions cannot change during a VPhysics callback")]
+	Simulating,
+}
+
+thread_local! {
+	/// How many [`PhysicsCallbackScope`]s are entered on this thread.
+	static PHYSICS_CALLBACKS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The scope of a callback that VPhysics runs during its simulation, such as
+/// a hook asking whether two physics objects collide. Hook dispatchers that
+/// hand such a callback entities enter one around it, as `metamod_source`'s
+/// do, and while one is entered on the thread,
+/// [`PhysicsObject::set_collisions_enabled`] fails with
+/// [`PhysicsObjectError::Simulating`].
+///
+/// Entering a scope only makes such calls fail, so it is safe anywhere, and a
+/// scope that is never dropped only keeps them failing.
+#[must_use = "the scope ends as soon as it is dropped"]
+#[derive(Debug)]
+pub struct PhysicsCallbackScope {
+	_not_thread_safe: NotThreadSafe,
+}
+
+impl PhysicsCallbackScope {
+	/// Enters the scope on this thread, until the returned value is dropped.
+	pub fn enter() -> Self {
+		PHYSICS_CALLBACKS.with(|entered| entered.set(entered.get() + 1));
+
+		Self {
+			_not_thread_safe: PhantomData,
+		}
+	}
+
+	/// Whether a scope is entered on this thread.
+	pub fn is_entered() -> bool {
+		PHYSICS_CALLBACKS.with(|entered| entered.get() != 0)
+	}
+}
+
+impl Drop for PhysicsCallbackScope {
+	fn drop(&mut self) {
+		// The scope is `!Send`, so it is dropped on the thread that entered it.
+		PHYSICS_CALLBACKS.with(|entered| entered.set(entered.get() - 1));
+	}
 }
