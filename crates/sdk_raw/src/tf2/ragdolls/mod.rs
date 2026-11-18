@@ -1,7 +1,8 @@
 //! TF2's server-side ragdolls: `CreateServerRagdoll`
 //! (`game/server/physics_prop_ragdoll.cpp`), which turns an animating entity's
 //! current pose into a new `prop_ragdoll` whose physics the server simulates,
-//! and the header values describing such ragdolls.
+//! the header values describing such ragdolls, and where a `prop_ragdoll`
+//! keeps its physics objects ([`find_ragdoll_object_fields`]).
 //!
 //! TF2's players instead become ragdolls their clients simulate, through
 //! `BecomeRagdollOnClient` and `CTFPlayer::CreateRagdollEntity`. The game
@@ -26,6 +27,10 @@
 //! `CreateInterface` at the same address is the image that was inspected.
 //! Failures are not kept.
 
+#[cfg(test)]
+#[path = "../../tests/tf2/ragdolls/mod.rs"]
+mod tests;
+
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
@@ -34,9 +39,10 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
+use crate::entities::datamap::DataMap;
 use crate::interfaces::CreateInterfaceFn;
 use crate::util::{ModuleCache, ModuleKey};
-use std::ffi::c_int;
+use std::ffi::{CStr, c_int};
 use std::mem::transmute;
 use std::ptr::{self, NonNull};
 
@@ -263,4 +269,145 @@ pub enum ServerRagdollsError {
 	/// not match retail TF2's, as the [module documentation](self) describes.
 	#[error("the game's CreateServerRagdoll could not be found")]
 	Unresolved,
+}
+
+/// The class of a `prop_ragdoll` (`CRagdollProp`), as its data description
+/// map names it.
+#[doc(alias("CRagdollProp", "prop_ragdoll"))]
+pub const RAGDOLL_PROP_CLASS: &CStr = c"CRagdollProp";
+
+/// The offset under which [`find_ragdoll_object_fields`] trusts a member of a
+/// `prop_ragdoll` to lie, well past the size of the class.
+pub const RAGDOLL_PROP_FIELD_OFFSET_LIMIT: usize = 16384;
+
+/// Where a `prop_ragdoll` keeps its physics objects, in its `m_ragdoll`, as
+/// [`find_ragdoll_object_fields`] finds them.
+///
+/// The ragdoll has one physics object for each element of its list in use,
+/// the first `m_ragdoll.listCount` of [`RAGDOLL_MAX_ELEMENTS`]. Element 0's
+/// object is also the entity's own `m_pPhysicsObject`, which
+/// [`find_physics_object_field`] finds, and the ragdoll's map declares only
+/// the other elements' objects.
+///
+/// [`find_physics_object_field`]: crate::entities::find_physics_object_field
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RagdollObjectFields {
+	/// The offset of `m_ragdoll.listCount`, an `int`: how many elements of the
+	/// list are in use.
+	pub count: usize,
+
+	/// The offsets of `m_ragdoll.list[1].pObject` to
+	/// `m_ragdoll.list[23].pObject`, in order: each an `IPhysicsObject *`, null
+	/// for none.
+	pub objects: [usize; RAGDOLL_OBJECT_MEMBERS],
+}
+
+/// How many of a ragdoll's physics objects its map declares: every element's
+/// but the first.
+const RAGDOLL_OBJECT_MEMBERS: usize = RAGDOLL_MAX_ELEMENTS as usize - 1;
+
+/// Finds where a `prop_ragdoll` keeps its physics objects, as `map`, the own
+/// map of its class ([`RAGDOLL_PROP_CLASS`]), declares them:
+/// `m_ragdoll.listCount` as one `FIELD_INTEGER` of 4 bytes, and each
+/// `m_ragdoll.list[i].pObject`, for `i` from 1 to 23, as one `FIELD_CUSTOM`
+/// member (`DEFINE_PHYSPTR`), whose size the map leaves out.
+///
+/// Fails closed, returning `None` unless the map declares the count and every
+/// one of these objects exactly once, each under
+/// [`RAGDOLL_PROP_FIELD_OFFSET_LIMIT`] and aligned for its type, with the
+/// objects an element's size apart, as members of an array are, and the count
+/// clear of them. A map that declares the object of element 0, or of an
+/// element past the most a ragdoll has, is another layout, and gives `None`
+/// too.
+#[doc(alias("m_ragdoll", "listCount", "pObject"))]
+pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectFields> {
+	let pointer = align_of::<*const ()>();
+	let mut count = None;
+	let mut objects = [None; RAGDOLL_OBJECT_MEMBERS];
+
+	for field in map.fields() {
+		let Some(name) = field.name() else {
+			continue;
+		};
+
+		if name == c"m_ragdoll.listCount" {
+			let offset = field.offset().filter(|&offset| {
+				field.fieldType == sys::_fieldtypes_FIELD_INTEGER
+					&& field.fieldSize == 1
+					&& usize::try_from(field.fieldSizeInBytes) == Ok(size_of::<c_int>())
+					&& offset < RAGDOLL_PROP_FIELD_OFFSET_LIMIT
+					&& offset.is_multiple_of(align_of::<c_int>())
+			})?;
+
+			if count.replace(offset).is_some() {
+				return None;
+			}
+		} else if let Some(element) = ragdoll_object_element(name.to_bytes()) {
+			let offset = field.offset().filter(|&offset| {
+				field.fieldType == sys::_fieldtypes_FIELD_CUSTOM
+					&& field.fieldSize == 1
+					&& offset < RAGDOLL_PROP_FIELD_OFFSET_LIMIT
+					&& offset.is_multiple_of(pointer)
+			})?;
+
+			// Element 0's is the entity's own object, and those past the last
+			// element are another layout's.
+			let slot = objects.get_mut(element.checked_sub(1)?)?;
+
+			if slot.replace(offset).is_some() {
+				return None;
+			}
+		}
+	}
+
+	let count = count?;
+	let mut found = [0; RAGDOLL_OBJECT_MEMBERS];
+
+	for (found, object) in found.iter_mut().zip(objects) {
+		*found = object?;
+	}
+
+	let first = found[0];
+	let stride = found[1].checked_sub(first)?;
+
+	// An element holds at least its object, and the array keeps the objects
+	// aligned, so the elements lie a whole number of pointers apart.
+	let in_array = stride >= pointer
+		&& stride.is_multiple_of(pointer)
+		&& (0..).zip(found).all(|(element, object)| {
+			stride
+				.checked_mul(element)
+				.and_then(|distance| first.checked_add(distance))
+				== Some(object)
+		});
+
+	let count_clear = found
+		.iter()
+		.all(|&object| count + size_of::<c_int>() <= object || object + pointer <= count);
+
+	(in_array && count_clear).then_some(RagdollObjectFields {
+		count,
+		objects: found,
+	})
+}
+
+/// The element `i` of a member named `m_ragdoll.list[i].pObject`, with `i` in
+/// decimal without leading zeros, or `None` for any other name.
+fn ragdoll_object_element(name: &[u8]) -> Option<usize> {
+	let digits = name
+		.strip_prefix(b"m_ragdoll.list[")?
+		.strip_suffix(b"].pObject")?;
+
+	if digits.is_empty()
+		|| (digits.len() > 1 && digits[0] == b'0')
+		|| !digits.iter().all(u8::is_ascii_digit)
+	{
+		return None;
+	}
+
+	digits.iter().try_fold(0_usize, |element, &digit| {
+		element
+			.checked_mul(10)?
+			.checked_add(usize::from(digit - b'0'))
+	})
 }
