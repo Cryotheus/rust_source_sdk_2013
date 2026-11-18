@@ -20,9 +20,9 @@ const COUNT: usize = 1024;
 /// Where mock ragdolls' element 0 starts.
 const LIST: usize = 1040;
 
-/// How far apart mock ragdolls' elements lie, as `ragdollelement_t`'s do on
-/// x86-64.
-const STRIDE: usize = 40;
+/// How far apart mock ragdolls' elements lie: an arbitrary size, a whole number
+/// of pointers, which the finder must learn from the map.
+const STRIDE: usize = 32;
 
 #[test]
 fn a_count_beyond_the_most_finds_every_element_once() {
@@ -88,13 +88,22 @@ fn every_object_of_a_ragdoll_is_found_and_switched() {
 	}
 
 	// The objects come in the order of their elements, from the entity's own.
-	let found: Vec<_> = RagdollPhysicsObjects::new(mock.entity())
-		.unwrap()
-		.map(|object| object.set_collisions_enabled(true))
-		.collect();
+	let mut found = 0;
 
-	assert_eq!(found.len(), objects.len());
-	assert!(objects.iter().all(|object| object.enabled()));
+	for (element, object) in RagdollPhysicsObjects::new(mock.entity())
+		.unwrap()
+		.enumerate()
+	{
+		assert_eq!(object.set_collisions_enabled(true), Ok(()));
+
+		let (switched, left) = objects.split_at(element + 1);
+
+		assert!(switched.iter().all(|object| object.enabled()));
+		assert!(left.iter().all(|object| !object.enabled()));
+		found += 1;
+	}
+
+	assert_eq!(found, objects.len());
 }
 
 /// A mock ragdoll with an object for each of its elements, all in use.
@@ -121,10 +130,10 @@ fn mock_ragdoll(class: &'static CStr, fields: Vec<sys::typedescription_t>) -> Mo
 	mock
 }
 
-/// Where a mock ragdoll stores the object of `element`, from 1, 16 bytes into
+/// Where a mock ragdoll stores the object of `element`, from 1, 8 bytes into
 /// it.
 fn object_offset(element: usize) -> usize {
-	LIST + element * STRIDE + 16
+	LIST + element * STRIDE + 8
 }
 
 #[test]

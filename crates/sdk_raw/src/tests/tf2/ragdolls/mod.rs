@@ -11,9 +11,9 @@ const COUNT: usize = 1024;
 /// Where the fixture's element 0 starts.
 const LIST: usize = 1040;
 
-/// How far apart the fixture's elements lie, as `ragdollelement_t`'s do on
-/// x86-64.
-const STRIDE: usize = 40;
+/// How far apart the fixture's elements lie: an arbitrary size, a whole number
+/// of pointers, which the finder must learn from the map.
+const STRIDE: usize = 32;
 
 #[test]
 fn a_missing_or_repeated_member_finds_nothing() {
@@ -163,9 +163,9 @@ fn named(field: &sys::typedescription_t, name: &CStr) -> bool {
 	!field.fieldName.is_null() && unsafe { CStr::from_ptr(field.fieldName) } == name
 }
 
-/// Where the fixture's object of `element` lies, 16 bytes into it.
+/// Where the fixture's object of `element` lies, 8 bytes into it.
 fn object(element: usize) -> usize {
-	LIST + element * STRIDE + 16
+	LIST + element * STRIDE + 8
 }
 
 /// The member `m_ragdoll.list[element].pObject`, declared as the game does.
