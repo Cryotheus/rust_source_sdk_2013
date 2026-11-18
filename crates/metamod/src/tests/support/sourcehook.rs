@@ -2,6 +2,7 @@
 //! as SourceHook does.
 
 use super::harness::expect;
+
 use crate::sys::sourcehook::{
 	AddHookMode, HookManagerPubFunc, IHookContext, IHookContextVtable, IHookManagerInfo,
 	IHookManagerInfoVtable, IShDelegate, ISourceHook, ISourceHookVtable, MetaRes, Plugin,
@@ -146,6 +147,13 @@ impl MockSourceHook {
 		ptr::from_ref(self).cast::<ISourceHook>().cast_mut()
 	}
 
+	fn top_context(&self) -> &MockContext {
+		let context = *self.state.borrow().contexts.last().unwrap();
+
+		// SAFETY: Contexts live until `end_context`.
+		unsafe { &*context }
+	}
+
 	/// Removes the plugin's hooks, as Metamod 1.12 does as it unloads it, before
 	/// it unloads the library. Other plugins' hooks stay.
 	pub(crate) fn unload_plugin(&self) {
@@ -162,13 +170,6 @@ impl MockSourceHook {
 			// SAFETY: The mock outlives the call.
 			unsafe { remove_hook_by_id(self.ptr(), id) };
 		}
-	}
-
-	fn top_context(&self) -> &MockContext {
-		let context = *self.state.borrow().contexts.last().unwrap();
-
-		// SAFETY: Contexts live until `end_context`.
-		unsafe { &*context }
 	}
 }
 
