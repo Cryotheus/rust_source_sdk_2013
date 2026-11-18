@@ -638,41 +638,6 @@ impl<'s> Entity<'s> {
 		Ok(!object.is_null())
 	}
 
-	/// The entity's VPhysics object (`m_pPhysicsObject`), or `None` while it
-	/// has none, as [`has_physics_object`](Self::has_physics_object) tells.
-	///
-	/// A ragdoll has one object for each of its parts, and this is the first
-	/// part's. With the `tf2` feature, `tf2::ragdolls::RagdollPhysicsObjects`
-	/// goes over them all.
-	///
-	/// Fails as [`has_physics_object`](Self::has_physics_object) does.
-	#[doc(alias("VPhysicsGetObject", "m_pPhysicsObject"))]
-	pub fn physics_object(self) -> Result<Option<PhysicsObject<'s>>, FieldError> {
-		let member = self.physics_object_offset()?;
-
-		// SAFETY: The datamap of every entity's `CBaseEntity` base declares the
-		// member as the entity's `IPhysicsObject` pointer, at an offset aligned
-		// for it.
-		Ok(unsafe { PhysicsObject::from_member(self, member, None) })
-	}
-
-	/// The offset of `m_pPhysicsObject`, found once and kept, as every entity
-	/// shares it through its `CBaseEntity` base.
-	pub(crate) fn physics_object_offset(self) -> Result<usize, FieldError> {
-		static OFFSET: OnceLock<usize> = OnceLock::new();
-
-		if let Some(&offset) = OFFSET.get() {
-			return Ok(offset);
-		}
-
-		let offset =
-			find_physics_object_field(self.data_maps()).ok_or_else(|| FieldError::NotFound {
-				name: c"m_pPhysicsObject".to_owned(),
-			})?;
-
-		Ok(*OFFSET.get_or_init(|| offset))
-	}
-
 	/// The entity's angles relative to its move parent, or to the attachment it
 	/// follows, or in the world without one, in degrees (`m_angRotation`), which
 	/// the `angles` key value sets while it has no parent.
@@ -725,6 +690,41 @@ impl<'s> Entity<'s> {
 	#[doc(alias("GetMoveType", "m_MoveType"))]
 	pub fn move_type(self) -> Result<Option<MoveType>, FieldError> {
 		MOVE_TYPE.read(self).map(MoveType::from_raw)
+	}
+
+	/// The entity's VPhysics object (`m_pPhysicsObject`), or `None` while it
+	/// has none, as [`has_physics_object`](Self::has_physics_object) tells.
+	///
+	/// A ragdoll has one object for each of its parts, and this is the first
+	/// part's. With the `tf2` feature, `tf2::ragdolls::RagdollPhysicsObjects`
+	/// goes over them all.
+	///
+	/// Fails as [`has_physics_object`](Self::has_physics_object) does.
+	#[doc(alias("VPhysicsGetObject", "m_pPhysicsObject"))]
+	pub fn physics_object(self) -> Result<Option<PhysicsObject<'s>>, FieldError> {
+		let member = self.physics_object_offset()?;
+
+		// SAFETY: The datamap of every entity's `CBaseEntity` base declares the
+		// member as the entity's `IPhysicsObject` pointer, at an offset aligned
+		// for it.
+		Ok(unsafe { PhysicsObject::from_member(self, member, None) })
+	}
+
+	/// The offset of `m_pPhysicsObject`, found once and kept, as every entity
+	/// shares it through its `CBaseEntity` base.
+	pub(crate) fn physics_object_offset(self) -> Result<usize, FieldError> {
+		static OFFSET: OnceLock<usize> = OnceLock::new();
+
+		if let Some(&offset) = OFFSET.get() {
+			return Ok(offset);
+		}
+
+		let offset =
+			find_physics_object_field(self.data_maps()).ok_or_else(|| FieldError::NotFound {
+				name: c"m_pPhysicsObject".to_owned(),
+			})?;
+
+		Ok(*OFFSET.get_or_init(|| offset))
 	}
 
 	/// Sets the entity's flags (`m_fFlags`), as `CBaseEntity::AddFlag` and
