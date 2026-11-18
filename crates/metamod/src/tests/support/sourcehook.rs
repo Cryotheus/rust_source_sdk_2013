@@ -1,6 +1,7 @@
 //! A mock of SourceHook, Metamod 1.12's hooking library, which runs hook loops
 //! as SourceHook does.
 
+use super::harness::expect;
 use crate::sys::sourcehook::{
 	AddHookMode, HookManagerPubFunc, IHookContext, IHookContextVtable, IHookManagerInfo,
 	IHookManagerInfoVtable, IShDelegate, ISourceHook, ISourceHookVtable, MetaRes, Plugin,
@@ -145,6 +146,24 @@ impl MockSourceHook {
 		ptr::from_ref(self).cast::<ISourceHook>().cast_mut()
 	}
 
+	/// Removes the plugin's hooks, as Metamod 1.12 does as it unloads it, before
+	/// it unloads the library. Other plugins' hooks stay.
+	pub(crate) fn unload_plugin(&self) {
+		let ids = self
+			.state
+			.borrow()
+			.hooks
+			.iter()
+			.map(|hook| hook.id)
+			.filter(|&id| id != 0)
+			.collect::<Vec<_>>();
+
+		for id in ids {
+			// SAFETY: The mock outlives the call.
+			unsafe { remove_hook_by_id(self.ptr(), id) };
+		}
+	}
+
 	fn top_context(&self) -> &MockContext {
 		let context = *self.state.borrow().contexts.last().unwrap();
 
@@ -167,6 +186,8 @@ pub(crate) struct ShManager {
 	plugin: Plugin,
 	public_function: usize,
 	pub(crate) info: Box<MockInfo>,
+	/// Whether SourceHook registered it, as it does while it patches a slot.
+	pub(crate) registered: bool,
 }
 
 #[derive(Default)]
@@ -214,7 +235,7 @@ unsafe extern "C" fn add_hook(
 		}
 	};
 
-	let (manager, patch) = {
+	let (manager, patch, register) = {
 		let mut state = sourcehook.state.borrow_mut();
 		let key = public_function as usize;
 
@@ -230,29 +251,43 @@ unsafe extern "C" fn add_hook(
 					plugin,
 					public_function: key,
 					info,
+					registered: false,
 				});
 
 				state.managers.len() - 1
 			}
 		};
 
-		let manager = ptr::from_ref(&*state.managers[manager].info);
 		let patch = !state.slots.iter().any(|&(slot, ..)| slot == vfnptr);
+
+		// SourceHook registers a hook manager as it patches its first slot, and
+		// unregisters it once it patches none.
+		let register = patch && !state.slots.iter().any(|&(.., other)| other == key);
 
 		if patch {
 			// SAFETY: As above.
 			state.slots.push((vfnptr, unsafe { vfnptr.read() }, key));
 		}
 
-		(manager, patch)
+		if register {
+			state.managers[manager].registered = true;
+		}
+
+		(
+			ptr::from_ref(&*state.managers[manager].info),
+			patch,
+			register,
+		)
 	};
 
-	if patch {
-		// SAFETY: SourceHook registers the hook manager it patches the slot with,
-		// and reads its hook function through the pointer it reported. Records
-		// live as long as the mock.
-		unsafe {
+	// SAFETY: SourceHook reads the hook manager's hook function through the
+	// pointer it reported. Records live as long as the mock.
+	unsafe {
+		if register {
 			public_function(true, (*manager).ptr());
+		}
+
+		if patch {
 			vfnptr.write((*manager).hook_function.get().cast::<*mut c_void>().read());
 		}
 	}
@@ -449,6 +484,12 @@ unsafe extern "C" fn remove_hook_by_id(this: *mut ISourceHook, id: c_int) -> boo
 			unsafe { vfnptr.write(original) };
 
 			if !state.slots.iter().any(|&(.., other)| other == key) {
+				state
+					.managers
+					.iter_mut()
+					.filter(|manager| manager.public_function == key)
+					.for_each(|manager| manager.registered = false);
+
 				unregister = Some(key);
 			}
 		}
@@ -489,7 +530,7 @@ unsafe extern "C" fn set_res(this: *mut ISourceHook, res: MetaRes) {
 )]
 unsafe extern "C" fn setup_hook_loop(
 	this: *mut ISourceHook,
-	_info: *mut IHookManagerInfo,
+	info: *mut IHookManagerInfo,
 	vfnptr: *mut c_void,
 	thisptr: *mut c_void,
 	orig_call_addr: *mut *mut c_void,
@@ -502,10 +543,31 @@ unsafe extern "C" fn setup_hook_loop(
 	let mut state = mock_sourcehook(this).state.borrow_mut();
 	let vfnptr = vfnptr.cast::<*mut c_void>();
 
-	if let Some(&(_, original, _)) = state.slots.iter().find(|&&(slot, ..)| slot == vfnptr) {
+	let slot = state
+		.slots
+		.iter()
+		.find(|&&(slot, ..)| slot == vfnptr)
+		.copied();
+
+	if let Some((_, original, _)) = slot {
 		// SAFETY: The hook function passes its variable.
 		unsafe { orig_call_addr.write(original) };
 	}
+
+	// SourceHook runs the loop with what the hook function passes as the
+	// record of the hook manager that patched the slot, which must be the one
+	// it registered.
+	let registered = slot.and_then(|(.., key)| {
+		state
+			.managers
+			.iter()
+			.find(|manager| manager.public_function == key && manager.registered)
+	});
+
+	expect(
+		registered.is_some_and(|manager| manager.info.ptr() == info),
+		"a hook function passed SourceHook another record than its registered hook manager's",
+	);
 
 	let delegates = |post: bool| {
 		state

@@ -93,9 +93,8 @@ fn pauses_and_reloads_let_the_game_update() {
 		harness.set_status(true, true, harness.generation);
 		assert_eq!(think(harness, &mut resource), [("game", address)]);
 
-		// A later load, which has not installed its own hook yet. Its
-		// generation is one no later harness takes, as it installs hooks.
-		harness.set_status(true, false, harness.generation | 1 << 63);
+		// A later load, which has not installed its own hook yet.
+		harness.load_again();
 		assert_eq!(think(harness, &mut resource), [("game", address)]);
 		assert!(!api.has_hook(hook));
 

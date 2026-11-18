@@ -299,9 +299,8 @@ fn unhooking_finds_only_this_loads_hooks() {
 		api.hook_server_hibernation(game_dll, binding(), after_hibernation)
 			.unwrap();
 
-		// A later load, which has not installed its own hooks yet. Its
-		// generation is one no later harness takes, as it installs hooks.
-		harness.set_status(true, false, harness.generation | 1 << 63);
+		// A later load, which has not installed its own hooks yet.
+		harness.load_again();
 		assert!(!api.unhook_server_hibernation());
 
 		api.hook_server_hibernation(game_dll, binding(), after_hibernation)

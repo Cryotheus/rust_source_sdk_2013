@@ -136,6 +136,19 @@ impl Harness {
 		self.khook.ptr()
 	}
 
+	/// Has the shell report a later load of the plugin, numbered apart from the
+	/// loads of later harnesses. Metamod 1.12 removes the plugin's hooks as it
+	/// unloads it, before any later load, so they are removed first under
+	/// SourceHook. Under KHook they stay, as for a library Metamod has yet to
+	/// unload.
+	pub(crate) fn load_again(&self) {
+		if self.version == MetamodVersion::Stable1226 {
+			self.sourcehook.unload_plugin();
+		}
+
+		self.set_status(true, false, self.generation | 1 << 63);
+	}
+
 	/// Has Metamod report itself as `build`, or report no build. The plugin
 	/// reads it as it installs its first hook of a load.
 	pub(crate) fn set_metamod_build(&self, build: Option<u32>) {

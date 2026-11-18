@@ -230,7 +230,7 @@ fn pause_unload_and_later_generation_disable_old_routes() {
 			supply(harness, &mut dispenser, ptr::without_provenance_mut(PLAYER)),
 			(true, vec!["stock supply"])
 		);
-		harness.set_status(true, false, harness.generation | 1 << 63);
+		harness.load_again();
 		assert_eq!(
 			supply(harness, &mut dispenser, ptr::without_provenance_mut(PLAYER)),
 			(true, vec!["stock supply"])
