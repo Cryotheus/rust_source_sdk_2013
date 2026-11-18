@@ -556,6 +556,240 @@ impl MoveType {
 	}
 }
 
+/// A VPhysics object (`IPhysicsObject`) an entity holds in one of its
+/// members, with the entity, for the scope the entity is borrowed for.
+///
+/// The physics library owns the object, and the game destroys it as it
+/// removes the entity, or as it rebuilds the entity's physics, which can
+/// happen during the scope, through what the plugin calls. So the object is
+/// only used through its entity: each method first reads the member again,
+/// and fails with [`PhysicsObjectError::Gone`] unless the entity still holds
+/// this same object there, among the elements it has in use for a member of
+/// a list, and with [`PhysicsObjectError::MarkedForDeletion`] once the entity
+/// is to be removed. While neither is the case, the object is live, as the
+/// game itself relies on whenever it calls an object it finds there.
+///
+/// Like every handle, it is `!Send` and `!Sync`, and cannot outlive the
+/// entity's scope:
+///
+/// ```compile_fail,E0277
+/// use source_sdk_2013::entities::movement::PhysicsObject;
+///
+/// fn send(object: PhysicsObject<'static>) {
+///     std::thread::spawn(move || drop(object));
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use source_sdk_2013::entities::Entity;
+/// use source_sdk_2013::entities::movement::PhysicsObject;
+///
+/// fn escape<'s>(entity: Entity<'s>) -> PhysicsObject<'static> {
+///     entity.physics_object().unwrap().unwrap()
+/// }
+/// ```
+///
+/// # VPhysics' simulation
+///
+/// Enabling or disabling an object's collisions changes what the physics
+/// library tests it against, which is only known to be safe while the library
+/// is not simulating: not from a hook or callback the game or the library runs
+/// during its step, such as one asking whether two objects collide
+/// (`ShouldCollide`, `ForceVPhysicsCollide`) or one reporting a collision
+/// (`VPhysicsCollision`). Make the change from callbacks the engine makes
+/// outside of it, such as a game frame or a think, or put it off until one.
+///
+/// The bindings include no interface through which the library tells whether
+/// it is simulating, so the crate cannot ask it. Instead,
+/// [`set_collisions_enabled`](Self::set_collisions_enabled) fails with
+/// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`],
+/// which the hook dispatchers that run a callback during the step enter. The
+/// game defers its own damage and removals during VPhysics callbacks, and
+/// buffers the touches it runs from them, so no other callback a plugin is
+/// given is known to run within one, as [`Entity::set_owner`] relies on too.
+#[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PhysicsObject<'s> {
+	entity: Entity<'s>,
+	/// The offset of the member holding the object in the entity.
+	member: usize,
+	/// For an element of a list, the offset of the `int` that tells how many
+	/// elements are in use, and the element's index.
+	in_use: Option<(usize, usize)>,
+	raw: NonNull<sys::IPhysicsObject>,
+}
+
+impl<'s> PhysicsObject<'s> {
+	/// Wraps the object `entity` holds in its member at offset `member`, or
+	/// returns `None` while it holds none.
+	///
+	/// With `in_use`, `(count, element)`, the member holds the object of
+	/// element `element` of a list, of which the `int` member at offset `count`
+	/// tells how many elements are in use: the object is wrapped, and later
+	/// used, only while `element` is below that count.
+	///
+	/// # Safety
+	///
+	/// The datamaps of `entity`'s class must declare a member at offset
+	/// `member` that holds the entity's `IPhysicsObject *`, null for none,
+	/// aligned for the pointer, and, with `in_use`, an `int` member at offset
+	/// `count`, aligned for it, telling how many elements of a list, whose
+	/// element `element`'s object is the one at `member`, are in use.
+	pub(crate) unsafe fn from_member(
+		entity: Entity<'s>,
+		member: usize,
+		in_use: Option<(usize, usize)>,
+	) -> Option<Self> {
+		let unread = Self {
+			entity,
+			member,
+			in_use,
+			raw: NonNull::dangling(),
+		};
+
+		Some(Self {
+			raw: unread.current()?,
+			..unread
+		})
+	}
+
+	/// Whether the physics library tests the object for collisions with
+	/// others (`IsCollisionEnabled`).
+	///
+	/// Fails as the [type's documentation](Self) says, without reading the
+	/// object.
+	///
+	/// # Panics
+	///
+	/// As [`Entity::is_marked_for_deletion`] does, if `CBaseEntity`'s datamap
+	/// lacks `m_iEFlags`.
+	#[doc(alias("IsCollisionEnabled"))]
+	pub fn collisions_enabled(self) -> Result<bool, PhysicsObjectError> {
+		let object = self.live()?;
+
+		// SAFETY: The object is live, as `live` checked through its entity, on
+		// the main thread, and the generated vtable is the target ABI's, with
+		// the method's own slot. The method only reads the object.
+		Ok(unsafe { vcall!(object.as_ptr().cast_const() => IPhysicsObject_IsCollisionEnabled()) })
+	}
+
+	/// The object the entity holds in the member now, if its element is in
+	/// use.
+	fn current(self) -> Option<NonNull<sys::IPhysicsObject>> {
+		if let Some((count, element)) = self.in_use {
+			// SAFETY: The entity is live for `'s`, and `from_member`'s caller
+			// vouched for an aligned `int` member at the offset, which is read
+			// without forming a reference, as the game writes it too, on this,
+			// the main thread.
+			let count = unsafe { self.entity.as_ptr().byte_add(count).cast::<c_int>().read() };
+
+			if usize::try_from(count)
+				.ok()
+				.is_none_or(|count| element >= count)
+			{
+				return None;
+			}
+		}
+
+		// SAFETY: As for the count, with the pointer member `from_member`'s
+		// caller vouched for.
+		let object = unsafe {
+			self.entity
+				.as_ptr()
+				.byte_add(self.member)
+				.cast::<*mut sys::IPhysicsObject>()
+				.read()
+		};
+
+		NonNull::new(object)
+	}
+
+	/// The entity holding the object.
+	pub const fn entity(self) -> Entity<'s> {
+		self.entity
+	}
+
+	/// The object, after checking that its entity is not to be removed and
+	/// still holds it, in an element in use for a list's.
+	fn live(self) -> Result<NonNull<sys::IPhysicsObject>, PhysicsObjectError> {
+		if self.entity.is_marked_for_deletion() {
+			return Err(PhysicsObjectError::MarkedForDeletion);
+		}
+
+		match self.current() {
+			Some(object) if object == self.raw => Ok(object),
+			_ => Err(PhysicsObjectError::Gone),
+		}
+	}
+
+	/// Whether the physics library moves the object (`IsMotionEnabled`), which
+	/// a ragdoll's `DisableMotion` input stops for each of its objects.
+	///
+	/// Fails as the [type's documentation](Self) says, without reading the
+	/// object.
+	///
+	/// # Panics
+	///
+	/// As [`collisions_enabled`](Self::collisions_enabled).
+	#[doc(alias("IsMotionEnabled"))]
+	pub fn motion_enabled(self) -> Result<bool, PhysicsObjectError> {
+		let object = self.live()?;
+
+		// SAFETY: As for `collisions_enabled`.
+		Ok(unsafe { vcall!(object.as_ptr().cast_const() => IPhysicsObject_IsMotionEnabled()) })
+	}
+
+	/// Enables or disables the object's collisions with others
+	/// (`EnableCollisions`): without them, the physics library tests it
+	/// against nothing, the world included, so an object whose motion is
+	/// enabled falls through the world, and nothing the library simulates
+	/// bumps into it.
+	///
+	/// Only call this outside of VPhysics' simulation, as the
+	/// [type's documentation](Self#vphysics-simulation) says. Fails as it
+	/// says too, without changing the object, and with
+	/// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`].
+	///
+	/// # Panics
+	///
+	/// As [`collisions_enabled`](Self::collisions_enabled).
+	#[doc(alias("EnableCollisions"))]
+	pub fn set_collisions_enabled(self, enabled: bool) -> Result<(), PhysicsObjectError> {
+		if PhysicsCallbackScope::is_entered() {
+			return Err(PhysicsObjectError::Simulating);
+		}
+
+		let object = self.live()?;
+
+		// SAFETY: As for `collisions_enabled`. The physics library changes its
+		// own state, so the call must not come while it simulates. It does not
+		// come within a `PhysicsCallbackScope`, which the dispatchers of the
+		// hooks that run during the step enter, and no other callback `'s` lies
+		// in is known to run during it, as the type's documentation says.
+		unsafe { vcall!(object.as_ptr() => IPhysicsObject_EnableCollisions(enabled)) };
+		Ok(())
+	}
+}
+
+/// Why a [`PhysicsObject`] could not be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum PhysicsObjectError {
+	/// The entity no longer holds the object: the game destroyed it, or holds
+	/// another one in its place, or the element holding it is no longer in
+	/// use.
+	#[error("the entity no longer holds the physics object")]
+	Gone,
+
+	/// The entity is marked for deletion.
+	#[error("the entity holding the physics object is marked for deletion")]
+	MarkedForDeletion,
+
+	/// The call came within a [`PhysicsCallbackScope`], while VPhysics
+	/// simulates.
+	#[error("collisions cannot change during a VPhysics callback")]
+	Simulating,
+}
+
 impl<'s> Entity<'s> {
 	/// The entity's angles in the world, in degrees (`GetAbsAngles`), or `None`
 	/// while the game has yet to compute them from the entity's move parent,
@@ -792,240 +1026,6 @@ impl<'s> ServerTools<'s> {
 			))
 		};
 	}
-}
-
-/// A VPhysics object (`IPhysicsObject`) an entity holds in one of its
-/// members, with the entity, for the scope the entity is borrowed for.
-///
-/// The physics library owns the object, and the game destroys it as it
-/// removes the entity, or as it rebuilds the entity's physics, which can
-/// happen during the scope, through what the plugin calls. So the object is
-/// only used through its entity: each method first reads the member again,
-/// and fails with [`PhysicsObjectError::Gone`] unless the entity still holds
-/// this same object there, among the elements it has in use for a member of
-/// a list, and with [`PhysicsObjectError::MarkedForDeletion`] once the entity
-/// is to be removed. While neither is the case, the object is live, as the
-/// game itself relies on whenever it calls an object it finds there.
-///
-/// Like every handle, it is `!Send` and `!Sync`, and cannot outlive the
-/// entity's scope:
-///
-/// ```compile_fail,E0277
-/// use source_sdk_2013::entities::movement::PhysicsObject;
-///
-/// fn send(object: PhysicsObject<'static>) {
-///     std::thread::spawn(move || drop(object));
-/// }
-/// ```
-///
-/// ```compile_fail
-/// use source_sdk_2013::entities::Entity;
-/// use source_sdk_2013::entities::movement::PhysicsObject;
-///
-/// fn escape<'s>(entity: Entity<'s>) -> PhysicsObject<'static> {
-///     entity.physics_object().unwrap().unwrap()
-/// }
-/// ```
-///
-/// # VPhysics' simulation
-///
-/// Enabling or disabling an object's collisions changes what the physics
-/// library tests it against, which is only known to be safe while the library
-/// is not simulating: not from a hook or callback the game or the library runs
-/// during its step, such as one asking whether two objects collide
-/// (`ShouldCollide`, `ForceVPhysicsCollide`) or one reporting a collision
-/// (`VPhysicsCollision`). Make the change from callbacks the engine makes
-/// outside of it, such as a game frame or a think, or put it off until one.
-///
-/// The bindings include no interface through which the library tells whether
-/// it is simulating, so the crate cannot ask it. Instead,
-/// [`set_collisions_enabled`](Self::set_collisions_enabled) fails with
-/// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`],
-/// which the hook dispatchers that run a callback during the step enter. The
-/// game defers its own damage and removals during VPhysics callbacks, and
-/// buffers the touches it runs from them, so no other callback a plugin is
-/// given is known to run within one, as [`Entity::set_owner`] relies on too.
-#[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PhysicsObject<'s> {
-	entity: Entity<'s>,
-	/// The offset of the member holding the object in the entity.
-	member: usize,
-	/// For an element of a list, the offset of the `int` that tells how many
-	/// elements are in use, and the element's index.
-	in_use: Option<(usize, usize)>,
-	raw: NonNull<sys::IPhysicsObject>,
-}
-
-impl<'s> PhysicsObject<'s> {
-	/// Wraps the object `entity` holds in its member at offset `member`, or
-	/// returns `None` while it holds none.
-	///
-	/// With `in_use`, `(count, element)`, the member holds the object of
-	/// element `element` of a list, of which the `int` member at offset `count`
-	/// tells how many elements are in use: the object is wrapped, and later
-	/// used, only while `element` is below that count.
-	///
-	/// # Safety
-	///
-	/// The datamaps of `entity`'s class must declare a member at offset
-	/// `member` that holds the entity's `IPhysicsObject *`, null for none,
-	/// aligned for the pointer, and, with `in_use`, an `int` member at offset
-	/// `count`, aligned for it, telling how many elements of a list, whose
-	/// element `element`'s object is the one at `member`, are in use.
-	pub(crate) unsafe fn from_member(
-		entity: Entity<'s>,
-		member: usize,
-		in_use: Option<(usize, usize)>,
-	) -> Option<Self> {
-		let unread = Self {
-			entity,
-			member,
-			in_use,
-			raw: NonNull::dangling(),
-		};
-
-		Some(Self {
-			raw: unread.current()?,
-			..unread
-		})
-	}
-
-	/// Whether the physics library tests the object for collisions with
-	/// others (`IsCollisionEnabled`).
-	///
-	/// Fails as the [type's documentation](Self) says, without reading the
-	/// object.
-	///
-	/// # Panics
-	///
-	/// As [`Entity::is_marked_for_deletion`] does, if `CBaseEntity`'s datamap
-	/// lacks `m_iEFlags`.
-	#[doc(alias("IsCollisionEnabled"))]
-	pub fn collisions_enabled(self) -> Result<bool, PhysicsObjectError> {
-		let object = self.live()?;
-
-		// SAFETY: The object is live, as `live` checked through its entity, on
-		// the main thread, and the generated vtable is the target ABI's, with
-		// the method's own slot. The method only reads the object.
-		Ok(unsafe { vcall!(object.as_ptr().cast_const() => IPhysicsObject_IsCollisionEnabled()) })
-	}
-
-	/// The object the entity holds in the member now, if its element is in
-	/// use.
-	fn current(self) -> Option<NonNull<sys::IPhysicsObject>> {
-		if let Some((count, element)) = self.in_use {
-			// SAFETY: The entity is live for `'s`, and `from_member`'s caller
-			// vouched for an aligned `int` member at the offset, which is read
-			// without forming a reference, as the game writes it too, on this,
-			// the main thread.
-			let count = unsafe { self.entity.as_ptr().byte_add(count).cast::<c_int>().read() };
-
-			if usize::try_from(count)
-				.ok()
-				.is_none_or(|count| element >= count)
-			{
-				return None;
-			}
-		}
-
-		// SAFETY: As for the count, with the pointer member `from_member`'s
-		// caller vouched for.
-		let object = unsafe {
-			self.entity
-				.as_ptr()
-				.byte_add(self.member)
-				.cast::<*mut sys::IPhysicsObject>()
-				.read()
-		};
-
-		NonNull::new(object)
-	}
-
-	/// The entity holding the object.
-	pub const fn entity(self) -> Entity<'s> {
-		self.entity
-	}
-
-	/// The object, after checking that its entity is not to be removed and
-	/// still holds it, in an element in use for a list's.
-	fn live(self) -> Result<NonNull<sys::IPhysicsObject>, PhysicsObjectError> {
-		if self.entity.is_marked_for_deletion() {
-			return Err(PhysicsObjectError::MarkedForDeletion);
-		}
-
-		match self.current() {
-			Some(object) if object == self.raw => Ok(object),
-			_ => Err(PhysicsObjectError::Gone),
-		}
-	}
-
-	/// Whether the physics library moves the object (`IsMotionEnabled`), which
-	/// a ragdoll's `DisableMotion` input stops for each of its objects.
-	///
-	/// Fails as the [type's documentation](Self) says, without reading the
-	/// object.
-	///
-	/// # Panics
-	///
-	/// As [`collisions_enabled`](Self::collisions_enabled).
-	#[doc(alias("IsMotionEnabled"))]
-	pub fn motion_enabled(self) -> Result<bool, PhysicsObjectError> {
-		let object = self.live()?;
-
-		// SAFETY: As for `collisions_enabled`.
-		Ok(unsafe { vcall!(object.as_ptr().cast_const() => IPhysicsObject_IsMotionEnabled()) })
-	}
-
-	/// Enables or disables the object's collisions with others
-	/// (`EnableCollisions`): without them, the physics library tests it
-	/// against nothing, the world included, so an object whose motion is
-	/// enabled falls through the world, and nothing the library simulates
-	/// bumps into it.
-	///
-	/// Only call this outside of VPhysics' simulation, as the
-	/// [type's documentation](Self#vphysics-simulation) says. Fails as it
-	/// says too, without changing the object, and with
-	/// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`].
-	///
-	/// # Panics
-	///
-	/// As [`collisions_enabled`](Self::collisions_enabled).
-	#[doc(alias("EnableCollisions"))]
-	pub fn set_collisions_enabled(self, enabled: bool) -> Result<(), PhysicsObjectError> {
-		if PhysicsCallbackScope::is_entered() {
-			return Err(PhysicsObjectError::Simulating);
-		}
-
-		let object = self.live()?;
-
-		// SAFETY: As for `collisions_enabled`. The physics library changes its
-		// own state, so the call must not come while it simulates. It does not
-		// come within a `PhysicsCallbackScope`, which the dispatchers of the
-		// hooks that run during the step enter, and no other callback `'s` lies
-		// in is known to run during it, as the type's documentation says.
-		unsafe { vcall!(object.as_ptr() => IPhysicsObject_EnableCollisions(enabled)) };
-		Ok(())
-	}
-}
-
-/// Why a [`PhysicsObject`] could not be used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
-pub enum PhysicsObjectError {
-	/// The entity no longer holds the object: the game destroyed it, or holds
-	/// another one in its place, or the element holding it is no longer in
-	/// use.
-	#[error("the entity no longer holds the physics object")]
-	Gone,
-
-	/// The entity is marked for deletion.
-	#[error("the entity holding the physics object is marked for deletion")]
-	MarkedForDeletion,
-
-	/// The call came within a [`PhysicsCallbackScope`], while VPhysics
-	/// simulates.
-	#[error("collisions cannot change during a VPhysics callback")]
-	Simulating,
 }
 
 thread_local! {

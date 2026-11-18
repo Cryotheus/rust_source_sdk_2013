@@ -27,10 +27,6 @@
 //! `CreateInterface` at the same address is the image that was inspected.
 //! Failures are not kept.
 
-#[cfg(test)]
-#[path = "../../tests/tf2/ragdolls/mod.rs"]
-mod tests;
-
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
@@ -38,6 +34,10 @@ mod platform;
 #[cfg(target_os = "windows")]
 #[path = "windows.rs"]
 mod platform;
+
+#[cfg(test)]
+#[path = "../../tests/tf2/ragdolls/mod.rs"]
+mod tests;
 
 use crate::entities::datamap::DataMap;
 use crate::interfaces::CreateInterfaceFn;
@@ -77,6 +77,19 @@ pub const NO_FORCE_BONE: c_int = -1;
 /// This is `RAGDOLL_MAX_ELEMENTS` from `game/shared/ragdoll_shared.h`.
 pub const RAGDOLL_MAX_ELEMENTS: c_int = 24;
 
+/// How many of a ragdoll's physics objects its map declares: every element's
+/// but the first.
+const RAGDOLL_OBJECT_MEMBERS: usize = RAGDOLL_MAX_ELEMENTS as usize - 1;
+
+/// The class of a `prop_ragdoll` (`CRagdollProp`), as its data description
+/// map names it.
+#[doc(alias("CRagdollProp", "prop_ragdoll"))]
+pub const RAGDOLL_PROP_CLASS: &CStr = c"CRagdollProp";
+
+/// The offset under which [`find_ragdoll_object_fields`] trusts a member of a
+/// `prop_ragdoll` to lie, well past the size of the class.
+pub const RAGDOLL_PROP_FIELD_OFFSET_LIMIT: usize = 16384;
+
 /// The `prop_ragdoll` spawn flag that lets it be dissolved.
 pub const SF_RAGDOLLPROP_ALLOW_DISSOLVE: c_int = 0x2000;
 
@@ -105,6 +118,28 @@ pub const SF_RAGDOLLPROP_USE_LRU_RETIREMENT: c_int = 0x1000;
 /// The last resolution [`ServerRagdolls::cached`] kept, with the module it
 /// was resolved in.
 static CACHE: ModuleCache<usize> = ModuleCache::new();
+
+/// Where a `prop_ragdoll` keeps its physics objects, in its `m_ragdoll`, as
+/// [`find_ragdoll_object_fields`] finds them.
+///
+/// The ragdoll has one physics object for each element of its list in use,
+/// the first `m_ragdoll.listCount` of [`RAGDOLL_MAX_ELEMENTS`]. The ragdoll's
+/// map declares only the objects of elements 1 on. Element 0's is taken to be
+/// the entity's own `m_pPhysicsObject`, which [`find_physics_object_field`]
+/// finds, as it is the ragdoll's first part, though nothing declares that.
+///
+/// [`find_physics_object_field`]: crate::entities::find_physics_object_field
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RagdollObjectFields {
+	/// The offset of `m_ragdoll.listCount`, an `int`: how many elements of the
+	/// list are in use.
+	pub count: usize,
+
+	/// The offsets of `m_ragdoll.list[1].pObject` to
+	/// `m_ragdoll.list[23].pObject`, in order: each an `IPhysicsObject *`, null
+	/// for none.
+	pub objects: [usize; RAGDOLL_OBJECT_MEMBERS],
+}
 
 /// TF2's `CreateServerRagdoll`, resolved in a game server module.
 ///
@@ -270,41 +305,6 @@ pub enum ServerRagdollsError {
 	#[error("the game's CreateServerRagdoll could not be found")]
 	Unresolved,
 }
-
-/// The class of a `prop_ragdoll` (`CRagdollProp`), as its data description
-/// map names it.
-#[doc(alias("CRagdollProp", "prop_ragdoll"))]
-pub const RAGDOLL_PROP_CLASS: &CStr = c"CRagdollProp";
-
-/// The offset under which [`find_ragdoll_object_fields`] trusts a member of a
-/// `prop_ragdoll` to lie, well past the size of the class.
-pub const RAGDOLL_PROP_FIELD_OFFSET_LIMIT: usize = 16384;
-
-/// Where a `prop_ragdoll` keeps its physics objects, in its `m_ragdoll`, as
-/// [`find_ragdoll_object_fields`] finds them.
-///
-/// The ragdoll has one physics object for each element of its list in use,
-/// the first `m_ragdoll.listCount` of [`RAGDOLL_MAX_ELEMENTS`]. The ragdoll's
-/// map declares only the objects of elements 1 on. Element 0's is taken to be
-/// the entity's own `m_pPhysicsObject`, which [`find_physics_object_field`]
-/// finds, as it is the ragdoll's first part, though nothing declares that.
-///
-/// [`find_physics_object_field`]: crate::entities::find_physics_object_field
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RagdollObjectFields {
-	/// The offset of `m_ragdoll.listCount`, an `int`: how many elements of the
-	/// list are in use.
-	pub count: usize,
-
-	/// The offsets of `m_ragdoll.list[1].pObject` to
-	/// `m_ragdoll.list[23].pObject`, in order: each an `IPhysicsObject *`, null
-	/// for none.
-	pub objects: [usize; RAGDOLL_OBJECT_MEMBERS],
-}
-
-/// How many of a ragdoll's physics objects its map declares: every element's
-/// but the first.
-const RAGDOLL_OBJECT_MEMBERS: usize = RAGDOLL_MAX_ELEMENTS as usize - 1;
 
 /// Finds where a `prop_ragdoll` keeps its physics objects, as `map`, the own
 /// map of its class ([`RAGDOLL_PROP_CLASS`]), declares them:
