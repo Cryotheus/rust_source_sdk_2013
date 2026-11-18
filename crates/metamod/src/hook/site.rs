@@ -129,7 +129,8 @@ pub(super) struct Registry {
 	/// SourceHook's hook manager for each signature and vtable slot.
 	hook_managers: [Option<(TypeId, c_int)>; HOOK_MANAGERS],
 	sites: Vec<&'static dyn AnySite>,
-	/// The KHook hooks of detoured functions, which Metamod does not track.
+	/// The KHook hooks of detoured functions, which Metamod only tracks from
+	/// build 1474, so the plugin removes them as it unloads.
 	detours: Vec<crate::sys::khook::HookId>,
 	/// Whether the library's hooks leave vtable slots without handlers.
 	releases: bool,
@@ -523,8 +524,11 @@ impl<S: Signature> AnySite for Site<S> {
 					true
 				}
 
-				// SAFETY: The site's handlers are not running, so neither is the
-				// hook's delegate, which runs them.
+				// SAFETY: The site's handlers are not running on the main thread,
+				// the only one this library's hook functions run hook loops on, so
+				// none of their loops runs the hook's delegate. Another plugin's
+				// hook function could run it from another thread, which SourceHook
+				// does not guard against, as it does not when a hook is added.
 				(Some(LibraryHook::SourceHook(id)), Backend::SourceHook { sourcehook, .. }) => unsafe {
 					sourcehook::remove(sourcehook, id);
 					true

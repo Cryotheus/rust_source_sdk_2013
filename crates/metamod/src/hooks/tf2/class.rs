@@ -21,8 +21,7 @@
 //! Under SourceHook, a plugin has [128 hook managers](crate::hook), one for each
 //! method it hooks by signature and slot, which all the classes it covers
 //! share: each module documents how many of them its hooks take. Each handle
-//! leaks a small allocation, its hooks' handler, which stays allocated for as
-//! long as the hooking library might call it.
+//! leaks a small allocation, its hooks' handler, which is never freed.
 //!
 //! [`ClassHooks::remove`] stops the callback at once. Once no handler of the
 //! plugin's is left on a class's method, the hooking library's hook leaves the
@@ -31,16 +30,19 @@
 //! stays until the plugin unloads, and each call of the method still passes
 //! through it, finds no handler and goes on to the method, which costs a little
 //! on every call of a method the game calls very often. Covering the class
-//! again installs the library's hook again.
+//! again installs the library's hook again, which under KHook keeps a few
+//! bytes for good, has Metamod remember one more hook until the plugin
+//! unloads, and can miss the first calls, as the next paragraph says. So a
+//! plugin that would remove and cover a class often should keep it covered.
 //!
 //! With Metamod 2.0, KHook can queue a hook's activation on its worker when
 //! the vtable slot already has a detour, such as from the hook after the
 //! method for the one before it, or from hooks removed earlier, whose detour
-//! KHook keeps. A covered class means its hooks were
-//! accepted, not that the next call reaches them. KHook polls every 5 ms and
-//! can retry while a detour is busy, so calls shortly after a class is covered
-//! can be missed, or reach only the hook after the method, which installs
-//! first.
+//! KHook keeps. A covered class means its hooks were accepted, not that the
+//! next call reaches them. KHook's worker inserts one waiting hook, of any
+//! plugin's, every 5 ms or more, and retries while a detour is busy, so calls
+//! shortly after a class is covered can be missed, or reach only the hook
+//! after the method, which installs first.
 
 #[cfg(test)]
 #[path = "../../tests/hooks/tf2/class.rs"]

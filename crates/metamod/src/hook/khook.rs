@@ -62,6 +62,11 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 /// own on vtable slots: those whose unload walks a copy of the plugin's hook
 /// IDs, with a KHook that reports the removal of a hook it no longer has.
 /// Later builds are not assumed to, until they are checked.
+///
+/// A build is the count of commits in the history Metamod was built from,
+/// which names the official builds of its main history only. Metamod gives
+/// plugins nothing else to tell builds apart by, so a custom build or a fork
+/// of the same count is trusted as that build.
 const RELEASING_BUILDS: RangeInclusive<u32> = 1490..=1490;
 
 /// The latest `IKHook` Metamod gave the plugin.
@@ -79,7 +84,9 @@ pub(super) struct Context<S: Signature> {
 }
 
 impl<S: Signature> Context<S> {
-	/// A context for a new hook of the site's, until the library is unloaded.
+	/// A context for a new hook of the site's. It is never freed, as KHook may
+	/// still call the hook for a while after its removal is asked for: each
+	/// installation keeps one, of two words.
 	fn leak(site: &'static Site<S>) -> &'static Self {
 		Box::leak(Box::new(Self {
 			site,
@@ -217,6 +224,11 @@ unsafe extern "C" fn copy<R: HookReturn>(destination: *mut R, value: *const R) {
 }
 
 /// The value Metamod declared its `metamod_version` console variable with.
+///
+/// It reads the variable by hand rather than through `source_sdk_2013`'s
+/// `Cvar::find_var` and `ConVar::default_string`, which need a `Server`
+/// binding: the plugin may install its first hook before it made one, and the
+/// hook registry keeps none.
 #[cfg(all(not(test), feature = "sdk"))]
 fn declared_version(api: MetamodApi<'_>) -> Option<std::ffi::CString> {
 	use source_sdk_2013::raw::interfaces::cvar::VERSION;
@@ -423,9 +435,11 @@ pub(super) fn releases_slot_hooks(api: MetamodApi<'_>) -> bool {
 	running_build(api).is_some_and(|build| RELEASING_BUILDS.contains(&build))
 }
 
-/// Removes the detours `ids`, which [`install_function`] added, which Metamod does not
-/// remove as it unloads the plugin, so that no detour calls into the unloaded
-/// library. Call it before the plugin's `Unload` returns.
+/// Removes the detours `ids`, which [`install_function`] added, so that no
+/// detour calls into the unloaded library under a Metamod before build 1474,
+/// which keeps no record of them. Call it before the plugin's `Unload`
+/// returns. From build 1474, Metamod removes them itself, and only build 1490
+/// copes with the plugin removing them first (see the [module](self)).
 pub(super) fn remove_detours(ids: Vec<KHookId>) {
 	if ids.is_empty() {
 		return;

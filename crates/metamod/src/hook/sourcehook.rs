@@ -15,8 +15,10 @@
 //!
 //! A hook leaves when its site has no handler of its timing left, by its ID:
 //! SourceHook frees its delegate, and restores the slot once no plugin's hook
-//! is left on it. It keeps the hook manager registered, without a slot, until
-//! the plugin unloads, so a hook added again later reuses it.
+//! is left on it. SourceHook keeps its record of the hook manager until the
+//! plugin unloads. It unregisters the hook manager once it hooks no slot, and
+//! registers it again with the next hook, so a hook added again later reuses
+//! the same hook manager.
 //!
 //! SourceHook runs every hook loop on one stack of contexts, which is not safe
 //! to use from two threads at once. A hook function called from any thread
@@ -683,10 +685,15 @@ unsafe extern "C" fn public_function<const MANAGER: usize>(
 ///
 /// # Safety
 ///
-/// The hook's delegate must not be running: no dispatch of its site runs.
+/// No dispatch of the hook's site may be running on the main thread, the only
+/// one this library's hook functions run hook loops on, so none of their loops
+/// runs the delegate. A hook loop of another plugin's hook function, on
+/// another thread, could still be running it as SourceHook frees it:
+/// SourceHook does not guard against that, as it does not when a hook is
+/// added.
 pub(super) unsafe fn remove(sourcehook: NonNull<ISourceHook>, id: c_int) {
-	// SAFETY: SourceHook lasts as long as Metamod. As the caller promises, the
-	// delegate it frees is not in use.
+	// SAFETY: SourceHook lasts as long as Metamod. As the caller promises, no
+	// hook loop of this library's runs the delegate it frees.
 	unsafe { ((*(*sourcehook.as_ptr()).vtable).remove_hook_by_id)(sourcehook.as_ptr(), id) };
 }
 
