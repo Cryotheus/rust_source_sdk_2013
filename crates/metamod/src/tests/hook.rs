@@ -7,7 +7,7 @@
 use super::*;
 use crate::api::MetamodVersion;
 use crate::test_support::foreign::{FOREIGN_KHOOK, ForeignDelegate, khook_superseding};
-use crate::test_support::harness::{Harness, expect};
+use crate::test_support::harness::{DEV_BUILD, Harness, expect};
 use std::cell::RefCell;
 use std::ptr;
 
@@ -30,6 +30,9 @@ thread_local! {
 
 	/// What the last handler to note a call saw of `superseded`.
 	static SEEN_SUPERSEDED: Cell<Option<Option<bool>>> = const { Cell::new(None) };
+
+	/// The harness and hook a handler removes as it runs.
+	static SELF_REMOVAL: Cell<Option<(*const Harness, HookId)>> = const { Cell::new(None) };
 }
 
 type Add = unsafe extern "C" fn(*mut Object, i32) -> i32;
@@ -142,6 +145,110 @@ fn class() -> *mut *mut c_void {
 }
 
 #[test]
+fn classes_sharing_a_hooked_method_keep_their_hooks_apart() {
+	fn count(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+		HookAction::Override(-1)
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let (first, second) = (class(), class());
+		let mut first_object = Object::new(first, 5);
+		let mut second_object = Object::new(second, 5);
+
+		// SAFETY: Both classes have `Add` at the slot.
+		let [first_hook, second_hook] = unsafe {
+			[
+				api.add_hook(
+					ADD,
+					HookTarget::class_of(first_object.ptr()),
+					HookTiming::Pre,
+					&count,
+				)
+				.unwrap(),
+				api.add_hook(
+					ADD,
+					HookTarget::class_of(second_object.ptr()),
+					HookTiming::Pre,
+					&count,
+				)
+				.unwrap(),
+			]
+		};
+
+		assert_eq!(library_hooks(harness, first, ADD.index()), 1);
+		assert_eq!(library_hooks(harness, second, ADD.index()), 1);
+
+		// One class's method is emptied; the other's keeps its hook and handler.
+		assert!(api.remove_hook(first_hook));
+		assert_eq!(library_hooks(harness, first, ADD.index()), 0);
+		assert_eq!(library_hooks(harness, second, ADD.index()), 1);
+		assert_eq!(
+			harness.call::<Add>(&raw mut *first_object, ADD.index(), (1,)),
+			6
+		);
+		assert_eq!(
+			harness.call::<Add>(&raw mut *second_object, ADD.index(), (1,)),
+			-1
+		);
+		assert_eq!(HANDLER_CALLS.get(), 1);
+
+		match harness.version {
+			MetamodVersion::Stable1226 => {
+				let state = harness.sourcehook.state.borrow();
+
+				// The classes share one hook manager, which stays registered for the
+				// slot it still patches.
+				assert_eq!(state.managers.len(), 1);
+				assert!(state.managers[0].registered);
+
+				// SAFETY: The classes have the slot.
+				unsafe {
+					assert_eq!(first.add(ADD.index()).read(), add as Add as *mut c_void);
+					assert_ne!(second.add(ADD.index()).read(), add as Add as *mut c_void);
+				}
+			}
+
+			MetamodVersion::Dev1469 => {
+				assert_eq!(harness.khook.state.borrow().removals.len(), 1);
+			}
+		}
+
+		// The emptied class is hooked again, through the same hook manager.
+		// SAFETY: As above.
+		let first_hook = unsafe {
+			api.add_hook(
+				ADD,
+				HookTarget::class_of(first_object.ptr()),
+				HookTiming::Pre,
+				&count,
+			)
+		}
+		.unwrap();
+
+		assert_eq!(
+			harness.call::<Add>(&raw mut *first_object, ADD.index(), (1,)),
+			-1
+		);
+		assert_eq!(HANDLER_CALLS.get(), 2);
+
+		// Once neither class is hooked, SourceHook unregisters the hook manager.
+		assert!(api.remove_hook(first_hook));
+		assert!(api.remove_hook(second_hook));
+		assert_eq!(library_hooks(harness, first, ADD.index()), 0);
+		assert_eq!(library_hooks(harness, second, ADD.index()), 0);
+
+		if harness.version == MetamodVersion::Stable1226 {
+			let state = harness.sourcehook.state.borrow();
+
+			assert_eq!(state.managers.len(), 1);
+			assert!(!state.managers[0].registered);
+		}
+	});
+}
+
+#[test]
 fn detoured_functions_run_handlers_on_khook_only() {
 	fn double_after(call: &HookCall<'_, Add>) -> HookAction<i32> {
 		note_handler(call.superseded());
@@ -192,6 +299,65 @@ fn detoured_functions_run_handlers_on_khook_only() {
 				assert_eq!(
 					harness.call_function::<Add>(address, &raw mut *object, (1,)),
 					6
+				);
+			}
+		}
+	});
+}
+
+#[test]
+fn emptied_slots_lose_the_library_hook_until_a_handler_returns() {
+	fn count(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+		HookAction::Override(-1)
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let vtable = class();
+		let mut object = Object::new(vtable, 5);
+		let target = HookTarget::class_of(object.ptr());
+
+		// Hooked, emptied and hooked again, any number of times.
+		for round in 1..=3 {
+			// SAFETY: The class has `Add` at the slot.
+			let hook = unsafe { api.add_hook(ADD, target, HookTiming::Pre, &count) }.unwrap();
+
+			assert_eq!(library_hooks(harness, vtable, ADD.index()), 1);
+			assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), -1);
+			assert_eq!(HANDLER_CALLS.get(), round);
+
+			assert!(api.remove_hook(hook));
+			assert_eq!(library_hooks(harness, vtable, ADD.index()), 0);
+			assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+			assert_eq!(HANDLER_CALLS.get(), round);
+		}
+
+		match harness.version {
+			MetamodVersion::Stable1226 => {
+				let state = harness.sourcehook.state.borrow();
+
+				// The slot holds its function again, and one hook manager served
+				// every round.
+				// SAFETY: The class has the slot.
+				assert_eq!(
+					unsafe { vtable.add(ADD.index()).read() },
+					add as Add as *mut c_void
+				);
+				assert_eq!(state.managers.len(), 1);
+			}
+
+			MetamodVersion::Dev1469 => {
+				let state = harness.khook.state.borrow();
+
+				// Removed from KHook's own thread, with nothing to call back, as the
+				// library may be gone by the time the removal completes.
+				assert_eq!(state.removals.len(), 3);
+				assert!(
+					state
+						.removals
+						.iter()
+						.all(|&(_, is_async, calls_back)| is_async && !calls_back)
 				);
 			}
 		}
@@ -337,6 +503,56 @@ fn handlers_ignore_other_threads() {
 }
 
 #[test]
+fn handlers_removing_their_own_hook_leave_the_library_hook_until_later() {
+	fn remove_self(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+
+		if let Some((harness, hook)) = SELF_REMOVAL.take() {
+			// SAFETY: The test keeps the harness for the call.
+			let harness = unsafe { &*harness };
+
+			expect(harness.api().remove_hook(hook), "the hook was not removed");
+		}
+
+		HookAction::Ignore
+	}
+
+	fn other(_call: &HookCall<'_, Poke>) -> HookAction<()> {
+		HookAction::Ignore
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let vtable = class();
+		let mut object = Object::new(vtable, 5);
+		let target = HookTarget::class_of(object.ptr());
+
+		for timing in [HookTiming::Pre, HookTiming::Post] {
+			// SAFETY: The class has `Add` at the slot.
+			let hook = unsafe { api.add_hook(ADD, target, timing, &remove_self) }.unwrap();
+
+			SELF_REMOVAL.set(Some((ptr::from_ref(harness), hook)));
+			assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+			assert!(!api.has_hook(hook));
+
+			// The handler is gone, but the library's hook stays while it ran.
+			assert_eq!(library_hooks(harness, vtable, ADD.index()), 1);
+			assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+
+			// Until the plugin next adds or removes a hook outside the handlers.
+			// SAFETY: The class has `Poke` at the slot.
+			let poke = unsafe { api.add_hook(POKE, target, HookTiming::Pre, &other) }.unwrap();
+
+			assert_eq!(library_hooks(harness, vtable, ADD.index()), 0);
+			assert!(api.remove_hook(poke));
+		}
+
+		assert_eq!(HANDLER_CALLS.get(), 2);
+		assert_eq!(ORIGINAL_CALLS.get(), 4);
+	});
+}
+
+#[test]
 fn handlers_see_earlier_hooks_only_through_sourcehook() {
 	fn look(call: &HookCall<'_, Add>) -> HookAction<i32> {
 		note_handler(call.superseded());
@@ -470,6 +686,70 @@ fn inactive_plugins_run_no_handlers() {
 }
 
 #[test]
+fn khook_hooks_awaiting_insertion_are_removed_at_once() {
+	fn look(_call: &HookCall<'_, Add>) -> HookAction<i32> {
+		HookAction::Ignore
+	}
+
+	let harness = Harness::new(MetamodVersion::Dev1469);
+	let api = harness.api();
+	let vtable = class();
+	let object = Object::new(vtable, 5);
+	let target = HookTarget::vtable(NonNull::new(object.vtable).unwrap());
+
+	harness.khook.state.borrow_mut().defer_virtual_hooks = true;
+
+	// SAFETY: The class has `Add` at the slot.
+	let hook = unsafe { api.add_hook(ADD, target, HookTiming::Pre, &look) }.unwrap();
+
+	assert!(api.remove_hook(hook));
+
+	// KHook took it off its worker's queue before inserting it.
+	harness.khook.activate_pending_hooks();
+	assert_eq!(library_hooks(&harness, vtable, ADD.index()), 0);
+}
+
+#[test]
+fn khook_hooks_being_removed_run_no_handlers() {
+	fn count(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+		HookAction::Override(call.return_value().unwrap_or_default() + 1)
+	}
+
+	let harness = Harness::new(MetamodVersion::Dev1469);
+	let api = harness.api();
+	let vtable = class();
+	let mut object = Object::new(vtable, 5);
+	let target = HookTarget::class_of(object.ptr());
+
+	HANDLER_CALLS.set(0);
+	harness.khook.state.borrow_mut().defer_removals = true;
+
+	// SAFETY: The class has `Add` at the slot.
+	let first = unsafe { api.add_hook(ADD, target, HookTiming::Post, &count) }.unwrap();
+
+	assert!(api.remove_hook(first));
+
+	// KHook has yet to remove it, and still calls it, with no handler.
+	assert_eq!(library_hooks(&harness, vtable, ADD.index()), 1);
+	assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+
+	// SAFETY: As above.
+	unsafe { api.add_hook(ADD, target, HookTiming::Post, &count) }.unwrap();
+
+	// Both hooks run, but only the newer one runs the handler.
+	assert_eq!(library_hooks(&harness, vtable, ADD.index()), 2);
+	assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 7);
+	assert_eq!(HANDLER_CALLS.get(), 1);
+
+	harness.khook.finish_removals();
+
+	assert_eq!(library_hooks(&harness, vtable, ADD.index()), 1);
+	assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 7);
+	assert_eq!(HANDLER_CALLS.get(), 2);
+}
+
+#[test]
 fn khook_hooks_stay_installed_with_their_stack_sizes() {
 	fn handler(_call: &HookCall<'_, Mixed>) -> HookAction<f64> {
 		HookAction::Ignore
@@ -480,6 +760,10 @@ fn khook_hooks_stay_installed_with_their_stack_sizes() {
 	}
 
 	let harness = Harness::new(MetamodVersion::Dev1469);
+
+	// A build that keeps hooks on their slots until the plugin unloads.
+	harness.set_metamod_build(Some(1489));
+
 	let api = harness.api();
 	let mut object = Object::new(class(), 5);
 	let target = HookTarget::class_of(object.ptr());
@@ -516,6 +800,118 @@ fn khook_hooks_stay_installed_with_their_stack_sizes() {
 
 	assert_eq!(stack_sizes, expected);
 	assert_eq!(state.removed, 0);
+}
+
+#[test]
+fn khook_keeps_hooks_on_builds_that_do_not_cope() {
+	fn count(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+		HookAction::Ignore
+	}
+
+	// Just below and just above the build known to cope, and a Metamod whose
+	// build the plugin cannot read.
+	for build in [Some(DEV_BUILD - 1), Some(DEV_BUILD + 1), None] {
+		let harness = Harness::new(MetamodVersion::Dev1469);
+
+		harness.set_metamod_build(build);
+		HANDLER_CALLS.set(0);
+
+		let api = harness.api();
+		let vtable = class();
+		let mut object = Object::new(vtable, 5);
+		let target = HookTarget::class_of(object.ptr());
+
+		for _ in 0..2 {
+			// SAFETY: The class has `Add` at the slot.
+			let hook = unsafe { api.add_hook(ADD, target, HookTiming::Pre, &count) }.unwrap();
+
+			assert!(api.remove_hook(hook));
+		}
+
+		// One hook of the library's, never removed, and reused.
+		assert_eq!(library_hooks(&harness, vtable, ADD.index()), 1);
+		assert_eq!(harness.khook.state.borrow().removed, 0);
+
+		// SAFETY: As above.
+		unsafe { api.add_hook(ADD, target, HookTiming::Pre, &count) }.unwrap();
+
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+		assert_eq!(library_hooks(&harness, vtable, ADD.index()), 1);
+		assert_eq!(HANDLER_CALLS.get(), 1, "with {build:?}");
+	}
+}
+
+#[test]
+fn later_loads_leave_the_hooks_of_earlier_ones_to_metamod() {
+	fn count(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+		HookAction::Override(-1)
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let vtable = class();
+		let mut object = Object::new(vtable, 5);
+		let target = HookTarget::class_of(object.ptr());
+
+		// SAFETY: The class has `Add` at the slot.
+		let earlier = unsafe { api.add_hook(ADD, target, HookTiming::Pre, &count) }.unwrap();
+
+		// A later load. Metamod 1.12 removed the earlier load's hooks before it.
+		// Under KHook, Metamod has yet to remove them, from a library it did not
+		// unload.
+		harness.load_again();
+
+		let left = match harness.version {
+			MetamodVersion::Stable1226 => 0,
+			MetamodVersion::Dev1469 => 1,
+		};
+
+		assert!(!api.remove_hook(earlier));
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), left);
+
+		// SAFETY: As above.
+		let later = unsafe { api.add_hook(ADD, target, HookTiming::Pre, &count) }.unwrap();
+
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), left + 1);
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), -1);
+		assert_eq!(HANDLER_CALLS.get(), 1);
+
+		// Only the later load's own hook leaves.
+		assert!(api.remove_hook(later));
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), left);
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+		assert_eq!(HANDLER_CALLS.get(), 1);
+	});
+}
+
+/// How many hooks of any plugin's the hooking library has on a vtable slot.
+fn library_hooks(harness: &Harness, vtable: *mut *mut c_void, index: usize) -> usize {
+	match harness.version {
+		// SAFETY: The tests' vtables have the slot.
+		MetamodVersion::Stable1226 => harness.sourcehook.hooks_on(unsafe { vtable.add(index) }),
+
+		MetamodVersion::Dev1469 => harness.khook.hook_ids(vtable, index).len(),
+	}
+}
+
+#[test]
+fn metamod_builds_are_read_from_its_version_string() {
+	assert_eq!(khook::build_of(c"2.0.0-dev+1490"), Some(1490));
+	assert_eq!(khook::build_of(c"2.0.1-dev+1503"), Some(1503));
+
+	// The stable branch, a release without a build, and malformed strings.
+	for version in [
+		c"1.12.0-dev+1229",
+		c"2.0.0",
+		c"2.0.0-dev+",
+		c"2.0.0-dev+1490V",
+		c"2.0.x-dev+1490",
+		c"2.0.0-dev+99999999999",
+	] {
+		assert_eq!(khook::build_of(version), None, "{version:?}");
+	}
 }
 
 #[allow(
@@ -570,6 +966,79 @@ fn on_both(test: impl Fn(&Harness)) {
 }
 
 #[test]
+fn other_plugins_keep_their_hooks_on_slots_this_one_leaves() {
+	fn count(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+		HookAction::Ignore
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let vtable = class();
+		let mut object = Object::new(vtable, 5);
+		let target = HookTarget::class_of(object.ptr());
+
+		// SAFETY: The class has `Add` at the slot.
+		let hook = unsafe { api.add_hook(ADD, target, HookTiming::Pre, &count) }.unwrap();
+
+		// Another plugin's hook on the same slot, superseding every call.
+		let foreign = ForeignDelegate::new::<i32>(harness.sourcehook_ptr(), MetaRes::SUPERCEDE, 77);
+		let superseding = 77;
+		let foreign_hook = khook_superseding::<Object, i32, i32>(&superseding);
+
+		match harness.version {
+			MetamodVersion::Stable1226 => harness.sourcehook.add_foreign(
+				// SAFETY: The class has the slot.
+				unsafe { vtable.add(ADD.index()) },
+				foreign.ptr(),
+			),
+
+			MetamodVersion::Dev1469 => harness.khook.add_foreign(vtable, ADD.index(), foreign_hook),
+		}
+
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), 2);
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 77);
+		assert_eq!(HANDLER_CALLS.get(), 1);
+
+		// This plugin's hook leaves, and the other plugin's stays and still
+		// decides the call.
+		assert!(api.remove_hook(hook));
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), 1);
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 77);
+		assert_eq!((HANDLER_CALLS.get(), ORIGINAL_CALLS.get()), (1, 0));
+
+		match harness.version {
+			// SourceHook keeps the slot patched for the hook left, through the hook
+			// manager that patched it, which stays registered.
+			MetamodVersion::Stable1226 => {
+				// SAFETY: The class has the slot.
+				assert_ne!(
+					unsafe { vtable.add(ADD.index()).read() },
+					add as Add as *mut c_void
+				);
+				assert!(harness.sourcehook.state.borrow().managers[0].registered);
+			}
+
+			// Only this plugin's own hook was removed.
+			MetamodVersion::Dev1469 => {
+				let state = harness.khook.state.borrow();
+
+				assert_eq!(state.removals.len(), 1);
+				assert_ne!(state.removals[0].0, foreign_hook.id);
+			}
+		}
+
+		// A handler added again runs beside the other plugin's hook.
+		// SAFETY: As above.
+		unsafe { api.add_hook(ADD, target, HookTiming::Pre, &count) }.unwrap();
+
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), 2);
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 77);
+		assert_eq!((HANDLER_CALLS.get(), ORIGINAL_CALLS.get()), (2, 0));
+	});
+}
+
+#[test]
 fn panicking_handlers_are_ignored() {
 	fn panic(_call: &HookCall<'_, Add>) -> HookAction<i32> {
 		panic!("a handler panicked, as this test means it to");
@@ -596,6 +1065,47 @@ fn panicking_handlers_are_ignored() {
 
 unsafe extern "C" fn poke(_this: *mut Object) {
 	ORIGINAL_CALLS.set(ORIGINAL_CALLS.get() + 1);
+}
+
+#[test]
+fn slots_keep_the_library_hook_while_a_handler_of_its_timing_is_left() {
+	fn look(call: &HookCall<'_, Add>) -> HookAction<i32> {
+		note_handler(call.superseded());
+		HookAction::Ignore
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let vtable = class();
+		let mut object = Object::new(vtable, 5);
+		let target = HookTarget::class_of(object.ptr());
+
+		// SAFETY: The class has `Add` at the slot.
+		let [first, second, after] = unsafe {
+			[
+				api.add_hook(ADD, target, HookTiming::Pre, &look).unwrap(),
+				api.add_hook(ADD, target, HookTiming::Pre, &look).unwrap(),
+				api.add_hook(ADD, target, HookTiming::Post, &look).unwrap(),
+			]
+		};
+
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), 2);
+
+		assert!(api.remove_hook(first));
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), 2);
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+		assert_eq!(HANDLER_CALLS.get(), 2);
+
+		// The hook before the function leaves; the one after stays.
+		assert!(api.remove_hook(second));
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), 1);
+		assert_eq!(harness.call::<Add>(&raw mut *object, ADD.index(), (1,)), 6);
+		assert_eq!(HANDLER_CALLS.get(), 3);
+
+		assert!(api.remove_hook(after));
+		assert_eq!(library_hooks(harness, vtable, ADD.index()), 0);
+		assert_eq!(ORIGINAL_CALLS.get(), 2);
+	});
 }
 
 #[test]

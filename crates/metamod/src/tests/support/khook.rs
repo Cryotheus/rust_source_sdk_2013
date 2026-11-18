@@ -29,6 +29,7 @@ static MOCK_KHOOK_VTABLE: IKHookVtable = IKHookVtable {
 /// A hook KHook installed on a vtable slot.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct KhHook {
+	pub(crate) id: KHookId,
 	pub(crate) context: *mut c_void,
 	pub(crate) pre: *mut c_void,
 	pub(crate) post: *mut c_void,
@@ -88,12 +89,26 @@ pub(crate) struct KhState {
 	contexts: Vec<*mut c_void>,
 	/// How many times `RemoveHook` was called.
 	pub(crate) removed: u32,
+	/// Each call of `RemoveHook`: the ID, whether it was asynchronous, and
+	/// whether it asked to be called back.
+	pub(crate) removals: Vec<(KHookId, bool, bool)>,
 	/// Opt-in model of accepted registrations awaiting the worker's insertion.
 	pub(crate) defer_virtual_hooks: bool,
 	pending_virtual_hooks: Vec<(*mut *mut c_void, c_int, KhHook)>,
+	/// Opt-in model of asynchronous removals awaiting KHook's delete thread.
+	pub(crate) defer_removals: bool,
+	pending_removals: Vec<KHookId>,
 }
 
 impl KhState {
+	/// Takes the hook `id` out of whichever slot has it, as KHook's delete
+	/// thread does. The slot keeps its detour.
+	fn erase(&mut self, id: KHookId) {
+		for slot in &mut self.slots {
+			slot.hooks.retain(|hook| hook.id != id);
+		}
+	}
+
 	fn function_slot(&mut self, function: *mut c_void) -> &mut KhSlot {
 		let position = self.slots.iter().position(|slot| slot.function == function);
 
@@ -330,13 +345,33 @@ impl MockKHook {
 
 impl MockKHook {
 	/// Models successful worker insertion without any wall-clock timing.
-	#[cfg(feature = "tf2")]
 	pub(crate) fn activate_pending_hooks(&self) {
 		let mut state = self.state.borrow_mut();
 		let pending = std::mem::take(&mut state.pending_virtual_hooks);
 		for (vtable, index, hook) in pending {
 			state.slot(vtable, index).insert(hook);
 		}
+	}
+
+	/// Completes the asynchronous removals asked for so far, as KHook's delete
+	/// thread would once no call of their functions runs.
+	pub(crate) fn finish_removals(&self) {
+		let mut state = self.state.borrow_mut();
+
+		for id in std::mem::take(&mut state.pending_removals) {
+			state.erase(id);
+		}
+	}
+
+	/// The IDs of the hooks KHook has on a vtable slot, in KHook's order.
+	pub(crate) fn hook_ids(&self, vtable: *mut *mut c_void, index: usize) -> Vec<KHookId> {
+		self.state
+			.borrow()
+			.slots
+			.iter()
+			.filter(|slot| slot.vtable == vtable && slot.index == index as c_int)
+			.flat_map(|slot| slot.hooks.iter().map(|hook| hook.id))
+			.collect()
 	}
 }
 
@@ -447,14 +482,44 @@ fn mock_khook<'a>(this: *mut IKHook) -> &'a MockKHook {
 	unsafe { &*this.cast::<MockKHook>() }
 }
 
+/// Removes a hook: at once if it awaits insertion or the removal is
+/// synchronous, else on the modelled delete thread, if the test defers it.
 unsafe extern "C" fn remove_hook(
 	this: *mut IKHook,
-	_id: KHookId,
-	_async: bool,
-	_removal: Option<HookRemovalFn>,
-	_context: *mut c_void,
+	id: KHookId,
+	is_async: bool,
+	removal: Option<HookRemovalFn>,
+	context: *mut c_void,
 ) {
-	mock_khook(this).state.borrow_mut().removed += 1;
+	let deferred = {
+		let mut state = mock_khook(this).state.borrow_mut();
+
+		state.removed += 1;
+		state.removals.push((id, is_async, removal.is_some()));
+
+		let queued = state.pending_virtual_hooks.len();
+
+		state
+			.pending_virtual_hooks
+			.retain(|(_, _, hook)| hook.id != id);
+
+		let deferred =
+			state.pending_virtual_hooks.len() == queued && is_async && state.defer_removals;
+
+		match deferred {
+			true => state.pending_removals.push(id),
+			false => state.erase(id),
+		}
+
+		deferred
+	};
+
+	// The delete thread would call back once it removed the hook, which these
+	// tests have no need of.
+	if let Some(removal) = removal.filter(|_| !deferred) {
+		// SAFETY: The caller passes a function taking this context.
+		unsafe { removal(id, context) };
+	}
 }
 
 unsafe extern "C" fn save_return_value(
@@ -510,6 +575,7 @@ unsafe extern "C" fn setup_hook(
 
 	state.next_id += 1;
 	state.function_slot(function).insert(KhHook {
+		id,
 		context,
 		pre,
 		post,
@@ -540,6 +606,7 @@ unsafe extern "C" fn setup_virtual_hook(
 	let id = state.next_id;
 	state.next_id += 1;
 	let hook = KhHook {
+		id,
 		context,
 		pre,
 		post,

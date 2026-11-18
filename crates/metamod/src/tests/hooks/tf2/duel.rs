@@ -145,9 +145,8 @@ fn pauses_and_reloads_let_the_jobs_run() {
 			(false, vec![("response", false)])
 		);
 
-		// A later load, which has not installed its own hooks yet. Its
-		// generation is one no later harness takes, as it installs hooks.
-		harness.set_status(true, false, harness.generation | 1 << 63);
+		// A later load, which has not installed its own hooks yet.
+		harness.load_again();
 		assert_eq!(
 			run(harness, &mut response),
 			(false, vec![("response", false)])

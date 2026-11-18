@@ -2,7 +2,10 @@
 //!
 //! A site is one hooked vtable slot, or one hooked function. It has one hook of
 //! the library's per timing, through which it runs the handlers installed on
-//! it, so that hooks come and go without the library's hooks doing so.
+//! it, so that handlers come and go without the library's hooks doing so for
+//! each. On a vtable slot, the library's hook of a timing leaves once no
+//! handler of that timing is left, where the library allows it (see
+//! [`Registry::release_emptied`]), and is installed again with the next one.
 
 use super::signature::{HOOK_MANAGERS, Signature};
 
@@ -12,6 +15,7 @@ use super::{
 
 use crate::MetamodApi;
 use crate::api::MetamodVersion;
+use crate::sys::khook::HookId as KHookId;
 use crate::sys::plugin::{PluginStatus, cpp_metamod_plugin_status};
 use crate::sys::sourcehook::ISourceHook;
 use std::any::{Any, TypeId};
@@ -40,6 +44,10 @@ trait AnySite: Any {
 	/// What the site hooks.
 	fn place(&self) -> Place;
 
+	/// Takes the library's hook of each timing that has no handler left off a
+	/// vtable slot, unless the site's handlers are running.
+	fn release(&self, backend: Backend);
+
 	fn remove(&self, id: HookId) -> bool;
 }
 
@@ -65,6 +73,31 @@ struct Entry<S: Signature> {
 	/// Removed while the site's handlers ran, to be dropped after.
 	removed: bool,
 }
+
+/// The hook of the library's through which a site runs its handlers of one
+/// timing.
+pub(super) enum LibraryHook<S: Signature> {
+	/// A KHook detour of a function, which stays until the plugin removes every
+	/// detour as it unloads, with [`Registry::remove_detours`].
+	Detour,
+
+	/// A KHook hook on a vtable slot, and the context KHook calls it with.
+	KHook {
+		id: KHookId,
+		context: &'static khook::Context<S>,
+	},
+
+	/// A SourceHook hook on a vtable slot, by its ID.
+	SourceHook(c_int),
+}
+
+impl<S: Signature> Clone for LibraryHook<S> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+impl<S: Signature> Copy for LibraryHook<S> {}
 
 /// A value only the server's main thread uses.
 struct MainThread<T>(T);
@@ -96,8 +129,11 @@ pub(super) struct Registry {
 	/// SourceHook's hook manager for each signature and vtable slot.
 	hook_managers: [Option<(TypeId, c_int)>; HOOK_MANAGERS],
 	sites: Vec<&'static dyn AnySite>,
-	/// The KHook hooks of detoured functions, which Metamod does not track.
+	/// The KHook hooks of detoured functions, which Metamod only tracks from
+	/// build 1474, so the plugin removes them as it unloads.
 	detours: Vec<crate::sys::khook::HookId>,
+	/// Whether the library's hooks leave vtable slots without handlers.
+	releases: bool,
 }
 
 impl Registry {
@@ -109,6 +145,7 @@ impl Registry {
 			hook_managers: [None; HOOK_MANAGERS],
 			sites: Vec::new(),
 			detours: Vec::new(),
+			releases: false,
 		}
 	}
 
@@ -141,17 +178,25 @@ impl Registry {
 		}
 
 		if registry.backend.is_none() {
-			registry.backend = Some(match api.version() {
-				MetamodVersion::Stable1226 => Backend::SourceHook {
-					sourcehook: sourcehook::bind(api)?,
-					plugin: status.id,
-				},
+			let (backend, releases) = match api.version() {
+				// SourceHook removes a hook by its ID whenever asked, and Metamod 1.12
+				// removes the plugin's remaining hooks as it unloads it.
+				MetamodVersion::Stable1226 => (
+					Backend::SourceHook {
+						sourcehook: sourcehook::bind(api)?,
+						plugin: status.id,
+					},
+					true,
+				),
 
 				MetamodVersion::Dev1469 => {
 					khook::bind(api, status.id)?;
-					Backend::KHook
+					(Backend::KHook, khook::releases_slot_hooks(api))
 				}
-			});
+			};
+
+			registry.backend = Some(backend);
+			registry.releases = releases;
 		}
 
 		Ok(registry)
@@ -188,15 +233,19 @@ impl Registry {
 		site: &'static Site<S>,
 		timing: HookTiming,
 	) -> Result<(), HookError> {
-		match (self.backend, site.place()) {
+		let hook = match (self.backend, site.place()) {
 			// SAFETY: As the caller promises.
 			(Some(Backend::KHook), Place::Slot { vtable, index }) => unsafe {
 				khook::install_slot(site, vtable, index, timing)
+					.map(|(id, context)| LibraryHook::KHook { id, context })
 			},
 
 			// SAFETY: As the caller promises.
 			(Some(Backend::KHook), Place::Function(function)) => unsafe {
-				khook::install_function(site, function, timing).map(|id| self.detours.push(id))
+				khook::install_function(site, function, timing).map(|id| {
+					self.detours.push(id);
+					LibraryHook::Detour
+				})
 			},
 
 			(Some(Backend::SourceHook { sourcehook, plugin }), Place::Slot { vtable, index }) => {
@@ -206,6 +255,7 @@ impl Registry {
 				unsafe {
 					sourcehook::install(sourcehook, plugin, manager, site, vtable, index, timing)
 				}
+				.map(LibraryHook::SourceHook)
 			}
 
 			// SourceHook only hooks virtual functions.
@@ -214,7 +264,10 @@ impl Registry {
 			}
 
 			(None, _) => Err(HookError::NotBound),
-		}
+		}?;
+
+		site.hooks[timing as usize].set(Some(hook));
+		Ok(())
 	}
 
 	/// The function a vtable slot held before any hook.
@@ -240,8 +293,40 @@ impl Registry {
 		}
 	}
 
+	/// Takes the library's hook of each timing of a vtable slot that no handler
+	/// is left for off the slot, unless the slot's handlers are running, or the
+	/// library cannot have it removed safely: then it stays, and each call
+	/// through it finds no handler. It is installed again with the next handler.
+	///
+	/// SourceHook removes a hook at once, and restores the slot once it has no
+	/// hook left. KHook removes it on its own thread soon after, without the
+	/// main thread waiting for it, so that a removal never waits for a call of
+	/// the hooked function that is running, maybe on this very thread. KHook
+	/// hooks are only removed under a Metamod known to unload the plugin all
+	/// the same (see [`khook::releases_slot_hooks`]).
+	///
+	/// Handlers removed while their site's handlers ran leave its hooks on the
+	/// slot until the next removal or addition of a hook outside them.
+	pub(super) fn release_emptied(&self) {
+		let Some(backend) = self.backend.filter(|_| self.releases) else {
+			return;
+		};
+
+		for site in &self.sites {
+			site.release(backend);
+		}
+	}
+
+	/// Stops the hook's handler, and takes the library's hooks that no handler
+	/// is left for off their slots, where it can.
 	pub(super) fn remove(&self, id: HookId) -> bool {
-		self.sites.iter().any(|site| site.remove(id))
+		let removed = self.sites.iter().any(|site| site.remove(id));
+
+		if removed {
+			self.release_emptied();
+		}
+
+		removed
 	}
 
 	/// Removes the detours of function hooks, and their handlers.
@@ -284,7 +369,7 @@ impl Registry {
 			place,
 			entries: RefCell::new(Vec::new()),
 			depth: Cell::new(0),
-			installed: [Cell::new(false), Cell::new(false)],
+			hooks: [Cell::new(None), Cell::new(None)],
 		}));
 
 		self.sites.push(site);
@@ -301,8 +386,8 @@ pub(super) struct Site<S: Signature> {
 	entries: RefCell<Vec<Entry<S>>>,
 	/// How many calls are running the site's handlers.
 	depth: Cell<u32>,
-	/// Whether the library's hook for each timing is installed.
-	installed: [Cell<bool>; 2],
+	/// The library's hook for each timing, while installed.
+	hooks: [Cell<Option<LibraryHook<S>>>; 2],
 }
 
 impl<S: Signature> Site<S> {
@@ -358,7 +443,7 @@ impl<S: Signature> Site<S> {
 	}
 
 	pub(super) fn installed(&self, timing: HookTiming) -> bool {
-		self.installed[timing as usize].get()
+		self.hooks[timing as usize].get().is_some()
 	}
 
 	pub(super) const fn place(&self) -> Place {
@@ -379,10 +464,6 @@ impl<S: Signature> Site<S> {
 			handler,
 			removed: false,
 		});
-	}
-
-	pub(super) fn set_installed(&self, timing: HookTiming) {
-		self.installed[timing as usize].set(true);
 	}
 }
 
@@ -411,13 +492,61 @@ impl<S: Signature> AnySite for Site<S> {
 			entries.iter_mut().for_each(|entry| entry.removed = true);
 		}
 
-		self.installed
-			.iter()
-			.for_each(|installed| installed.set(false));
+		self.hooks.iter().for_each(|hook| hook.set(None));
 	}
 
 	fn place(&self) -> Place {
 		self.place
+	}
+
+	fn release(&self, backend: Backend) {
+		// While the handlers run, called from the library's hook itself, a
+		// removal only marks the entries, and the hook stays until a removal or
+		// addition outside them.
+		if self.depth.get() != 0 {
+			return;
+		}
+
+		for timing in [HookTiming::Pre, HookTiming::Post] {
+			let hook = &self.hooks[timing as usize];
+
+			// The entries are only looked through for a hook of the library's that
+			// could be released. Detours stay until the plugin unloads.
+			if matches!(hook.get(), None | Some(LibraryHook::Detour)) {
+				continue;
+			}
+
+			let handled = self
+				.entries
+				.borrow()
+				.iter()
+				.any(|entry| entry.timing == timing && !entry.removed);
+
+			let released = match (hook.get(), backend) {
+				_ if handled => false,
+
+				(Some(LibraryHook::KHook { id, context }), Backend::KHook) => {
+					khook::remove_slot_hook(id, context);
+					true
+				}
+
+				// SAFETY: The site's handlers are not running on the main thread,
+				// the only one this library's hook functions run hook loops on, so
+				// none of their loops runs the hook's delegate. Another plugin's
+				// hook function could run it from another thread, which SourceHook
+				// does not guard against, as it does not when a hook is added.
+				(Some(LibraryHook::SourceHook(id)), Backend::SourceHook { sourcehook, .. }) => unsafe {
+					sourcehook::remove(sourcehook, id);
+					true
+				},
+
+				_ => false,
+			};
+
+			if released {
+				hook.set(None);
+			}
+		}
 	}
 
 	fn remove(&self, id: HookId) -> bool {

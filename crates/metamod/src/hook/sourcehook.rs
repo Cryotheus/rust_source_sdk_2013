@@ -13,6 +13,13 @@
 //! Metamod removes a plugin's hooks and hook managers when it unloads the
 //! plugin, before unloading the library.
 //!
+//! A hook leaves when its site has no handler of its timing left, by its ID:
+//! SourceHook frees its delegate, and restores the slot once no plugin's hook
+//! is left on it. SourceHook keeps its record of the hook manager until the
+//! plugin unloads. It unregisters the hook manager once it hooks no slot, and
+//! registers it again with the next hook, so a hook added again later reuses
+//! the same hook manager.
+//!
 //! SourceHook runs every hook loop on one stack of contexts, which is not safe
 //! to use from two threads at once. A hook function called from any thread
 //! but the main one calls the slot's original function directly instead, so
@@ -448,7 +455,7 @@ pub(super) fn hook_manager<S: Signature>(
 }
 
 /// Adds a delegate for the site's handlers of `timing`, on a vtable, through
-/// the hook manager.
+/// the hook manager. Returns SourceHook's ID of the hook.
 ///
 /// # Safety
 ///
@@ -462,7 +469,7 @@ pub(super) unsafe fn install<S: Signature>(
 	table: NonNull<*mut c_void>,
 	index: usize,
 	timing: HookTiming,
-) -> Result<(), HookError> {
+) -> Result<c_int, HookError> {
 	let delegate = Delegate::allocate(site, timing, sourcehook);
 
 	// SAFETY: SourceHook lasts as long as Metamod. Calls through the vtable are
@@ -504,7 +511,7 @@ pub(super) unsafe fn install<S: Signature>(
 		note_original(slot, original);
 	}
 
-	Ok(())
+	Ok(id)
 }
 
 /// Whether `other` is this delegate, for SourceHook's comparisons of a
@@ -669,6 +676,25 @@ unsafe extern "C" fn public_function<const MANAGER: usize>(
 	}
 
 	0
+}
+
+/// Removes a hook [`install`] added, by its ID, which frees its delegate.
+///
+/// SourceHook allows removing a hook while hook loops run, its slot's
+/// included, as it moves on to the next hook.
+///
+/// # Safety
+///
+/// No dispatch of the hook's site may be running on the main thread, the only
+/// one this library's hook functions run hook loops on, so none of their loops
+/// runs the delegate. A hook loop of another plugin's hook function, on
+/// another thread, could still be running it as SourceHook frees it:
+/// SourceHook does not guard against that, as it does not when a hook is
+/// added.
+pub(super) unsafe fn remove(sourcehook: NonNull<ISourceHook>, id: c_int) {
+	// SAFETY: SourceHook lasts as long as Metamod. As the caller promises, no
+	// hook loop of this library's runs the delegate it frees.
+	unsafe { ((*(*sourcehook.as_ptr()).vtable).remove_hook_by_id)(sourcehook.as_ptr(), id) };
 }
 
 /// Forgets the hook managers' assignments and the slots they hooked, as

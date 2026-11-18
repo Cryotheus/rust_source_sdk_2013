@@ -242,9 +242,8 @@ fn pauses_and_reloads_let_the_weapons_push() {
 		harness.set_status(true, true, harness.generation);
 		assert_eq!(push(harness, &mut weapon), (true, vec!["push"]));
 
-		// A later load, which has not installed its own hooks yet. Its
-		// generation is one no later harness takes, as it installs hooks.
-		harness.set_status(true, false, harness.generation | 1 << 63);
+		// A later load, which has not installed its own hooks yet.
+		harness.load_again();
 		assert_eq!(push(harness, &mut weapon), (true, vec!["push"]));
 		assert!(!hooks.hooks.iter().any(|&hook| api.has_hook(hook)));
 

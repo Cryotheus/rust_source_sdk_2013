@@ -20,10 +20,35 @@
 //!   runs the plugin on. Calls from other threads go to the function as if
 //!   the plugin had no hooks on it.
 //! - Handlers stop running while the plugin is paused, and once it unloads.
-//! - A plugin's hooks stay installed until Metamod unloads it, which removes
-//!   them before unloading the library: removing a hook only stops its
-//!   handler. Metamod 2.0 never unloads a library whose plugin removed a KHook
-//!   hook itself, so each hooked function keeps one hook per timing.
+//! - Each hooked function has one hook of the library's per timing, which
+//!   runs all of the plugin's handlers of that timing. Metamod removes the
+//!   hooks left as it unloads the plugin, before unloading the library.
+//! - Removing a hook stops its handler at once. Once a vtable slot has no
+//!   handler of a timing left, the library's hook of that timing leaves the
+//!   slot, and the next handler installs it again. This is done under
+//!   SourceHook, and under KHook in Metamod 2.0 build 1490, which reports its
+//!   build through its `metamod_version` console variable to plugins built
+//!   with the `sdk` feature. There, KHook removes the hook from its own thread
+//!   shortly after, and keeps a detour on the slot, which costs far less than
+//!   the hook. The build is the count of commits Metamod was built from, so a
+//!   custom build of the same count is taken for build 1490.
+//! - Other 2.0 builds keep the library's hook until the plugin unloads: those
+//!   before 1490 mishandle a plugin that removed hooks of its own, and later
+//!   ones are not known to cope yet. There, each call still goes through the
+//!   hook, which finds no handler and calls the function, and that costs a
+//!   little on every call of a function the game calls very often.
+//! - Putting the library's hook back is not free under KHook. Each time, the
+//!   plugin keeps a few bytes for good, and Metamod remembers one more hook
+//!   until the plugin unloads. KHook's worker thread inserts the hook, and it
+//!   inserts one waiting hook, of any plugin's, every 5 milliseconds or more,
+//!   so the new handler misses the calls made until then. A plugin that often
+//!   removes the last handler of a function and adds one again should keep
+//!   one handler on it instead.
+//! - A handler that removes the last hook of its own function's timing leaves
+//!   the library's hook in place until the plugin next adds or removes a hook
+//!   outside the handlers of that function.
+//! - Detoured functions keep their hooks until the plugin removes them all
+//!   with [`MetamodApi::remove_function_hooks`].
 //! - Of a plugin's handlers on one function, the greatest action decides the
 //!   call, with the value of the last one that overrode or superseded it.
 //!
@@ -476,12 +501,12 @@ impl MetamodApi<'_> {
 			// SAFETY: As `DetouredFunction::new` promises, the function is of the
 			// site's signature.
 			unsafe { registry.install(site, timing) }?;
-			site.set_installed(timing);
 		}
 
 		let id = HookId::next();
 
 		site.push(id, timing, None, handler);
+		registry.release_emptied();
 		Ok(id)
 	}
 
@@ -490,10 +515,12 @@ impl MetamodApi<'_> {
 	/// The hook lasts until [removed](Self::remove_hook), or until Metamod
 	/// unloads the plugin. It is installed on the vtable the target goes
 	/// through. When KHook has already detoured the function's slot, for another
-	/// plugin or for this plugin's hooks of the other [`HookTiming`], it adds the
-	/// hook from a worker thread. The worker polls every 5 milliseconds, and
-	/// tries again later while the function is being called, so the hook can
-	/// miss the calls made in the meantime.
+	/// plugin, for this plugin's hooks of the other [`HookTiming`], or for an
+	/// earlier hook of this plugin's that was removed, it adds the hook from a
+	/// worker thread. The worker inserts one waiting hook, of any plugin's,
+	/// every 5 milliseconds or more, and puts a hook back in the queue while
+	/// the function is being called, so the hook can miss the calls made in the
+	/// meantime, for longer when many hooks wait.
 	///
 	/// # Safety
 	///
@@ -517,12 +544,12 @@ impl MetamodApi<'_> {
 			// SAFETY: As the caller promises, the slot holds a function of the
 			// site's signature.
 			unsafe { registry.install(site, timing) }?;
-			site.set_installed(timing);
 		}
 
 		let id = HookId::next();
 
 		site.push(id, timing, instance, handler);
+		registry.release_emptied();
 		Ok(id)
 	}
 
@@ -557,12 +584,15 @@ impl MetamodApi<'_> {
 
 	/// Removes every hook of a [`DetouredFunction`], and the detours themselves.
 	///
-	/// Call it in the plugin's `Unload`, before it returns. Metamod removes the
-	/// plugin's hooks of vtable slots after `Unload`, and unloads the library once
-	/// it has, but it keeps no record of the detours of functions, which would stay
-	/// installed and call into the unloaded library. Does nothing under
-	/// SourceHook, which installs none. Hooks added afterwards install new
-	/// detours.
+	/// Call it in the plugin's `Unload`, before it returns. Metamod 2.0 builds
+	/// before 1474 keep no record of the hooks of detoured functions, which would
+	/// stay installed and call into the unloaded library, so there the call is
+	/// needed. From build 1474, Metamod removes them itself as it unloads the
+	/// plugin, and the call is a plugin removing hooks of its own, which only
+	/// build 1490 is known to cope with: build 1474 then never unloads the
+	/// library, and builds 1475 through 1489 can skip hooks, leave the library
+	/// loaded, or crash as they unload it. Does nothing under SourceHook, which
+	/// installs none. Hooks added afterwards install new detours.
 	pub fn remove_function_hooks(self) {
 		if let Some(mut registry) = Registry::current(self) {
 			registry.remove_detours();
@@ -571,6 +601,10 @@ impl MetamodApi<'_> {
 
 	/// Stops the hook's handler. Returns whether the hook was installed, for
 	/// this load of the plugin.
+	///
+	/// When no handler of its timing is left on its vtable slot, the hooking
+	/// library's hook leaves the slot where the library allows it, as the
+	/// [module](self) describes, with what putting it back costs.
 	pub fn remove_hook(self, id: HookId) -> bool {
 		Registry::current(self).is_some_and(|registry| registry.remove(id))
 	}

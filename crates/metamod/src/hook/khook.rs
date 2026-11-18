@@ -8,30 +8,92 @@
 //! still run. Its implementation forwards each call to KHook's globals and
 //! ignores `this`, so its vtable is kept, and called with the latest object.
 //!
-//! Metamod unloads a library once KHook reports the removal of each hook its
-//! plugin installed. A plugin removing a hook itself would keep Metamod
-//! waiting for a report that never comes, so hooks on vtable slots are never
-//! removed here. Metamod does not track the hooks of detoured functions (its
-//! `SetupHook` keeps no record of them, unlike its `SetupVirtualHook`), so
+//! Metamod keeps the ID of each hook a plugin installs through its `IKHook`,
+//! and as it unloads the plugin, asks KHook to remove each, and unloads the
+//! library once KHook reported every removal. KHook keeps a slot's detour
+//! after its last hook leaves, and the detour then goes straight to the
+//! original function, for much less than a call through a hook.
+//!
+//! A plugin removing a hook on a vtable slot itself leaves its ID with
+//! Metamod, which asks for its removal again at the unload. Before build 1475,
+//! KHook never reported the removal of a hook it no longer had, so Metamod
+//! would wait for ever and never unload the library. From 1475, it reports it
+//! at once, but until 1489, Metamod's unload removed IDs from the set it was
+//! walking through, which could skip hooks, leave the library loaded, or
+//! crash. Build 1490 walks a copy. So hooks on vtable slots are only removed
+//! here under a Metamod that reports itself as a build known to cope (see
+//! [`releases_slot_hooks`]); under any other, they stay until the unload.
+//!
+//! The removal is asynchronous: KHook's own thread removes the hook once no
+//! call of the function runs, while the main thread goes on. A synchronous
+//! removal would wait for every running call of the function to end, for ever
+//! if one is running further up the main thread's own stack. Until the hook is
+//! gone, KHook can still call it, alongside a newer hook of the same timing
+//! that the plugin installed since, so each hook is called with a context of
+//! its own, which stops running handlers once its removal is asked for. No
+//! function of the plugin's is given to KHook to call back after a removal:
+//! the removal can complete after Metamod unloaded the library.
+//!
+//! Metamod does not track the hooks of detoured functions before build 1474
+//! (its `SetupHook` kept no record of them, unlike its `SetupVirtualHook`), so
 //! those would stay installed after the library is unloaded, and the next
 //! call of the function would crash. The plugin removes them as it unloads, by
 //! [`MetamodApi::remove_function_hooks`](crate::MetamodApi::remove_function_hooks).
+//! From build 1474, Metamod tracks them too, so their removal there is a
+//! plugin removing hooks of its own, as above: safe from build 1490 only.
 
 use super::signature::{HookReturn, Signature, Thunks, nothing};
 use super::site::{Site, on_main_thread};
 use super::{CallBackend, HookCall, HookError, HookTiming, Level};
 use crate::MetamodApi;
 use crate::sys::khook::{Action, HookId as KHookId, IKHook, IKHookVtable, INVALID_HOOK};
+use std::cell::Cell;
+
+#[cfg(any(test, feature = "sdk"))]
+use std::ffi::CStr;
+
 use std::ffi::{c_int, c_uint, c_void};
 use std::mem::size_of;
+use std::ops::RangeInclusive;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicPtr, Ordering};
+
+/// The Metamod 2.0 builds known to unload a plugin that removed hooks of its
+/// own on vtable slots: those whose unload walks a copy of the plugin's hook
+/// IDs, with a KHook that reports the removal of a hook it no longer has.
+/// Later builds are not assumed to, until they are checked.
+///
+/// A build is the count of commits in the history Metamod was built from,
+/// which names the official builds of its main history only. Metamod gives
+/// plugins nothing else to tell builds apart by, so a custom build or a fork
+/// of the same count is trusted as that build.
+const RELEASING_BUILDS: RangeInclusive<u32> = 1490..=1490;
 
 /// The latest `IKHook` Metamod gave the plugin.
 static KHOOK: AtomicPtr<IKHook> = AtomicPtr::new(ptr::null_mut());
 
 /// The vtable of every `IKHook` Metamod gives, which lasts as long as Metamod.
 static KHOOK_VTABLE: AtomicPtr<IKHookVtable> = AtomicPtr::new(ptr::null_mut());
+
+/// What KHook calls one of a site's hooks with.
+pub(super) struct Context<S: Signature> {
+	site: &'static Site<S>,
+	/// Whether the hook runs the site's handlers, until its removal is asked
+	/// for. Only the main thread reads or writes it.
+	live: Cell<bool>,
+}
+
+impl<S: Signature> Context<S> {
+	/// A context for a new hook of the site's. It is never freed, as KHook may
+	/// still call the hook for a while after its removal is asked for: each
+	/// installation keeps one, of two words.
+	fn leak(site: &'static Site<S>) -> &'static Self {
+		Box::leak(Box::new(Self {
+			site,
+			live: Cell::new(true),
+		}))
+	}
+}
 
 /// Finds the plugin's `IKHook`.
 pub(super) fn bind(api: MetamodApi<'_>, plugin: c_int) -> Result<(), HookError> {
@@ -52,6 +114,23 @@ pub(super) fn bind(api: MetamodApi<'_>, plugin: c_int) -> Result<(), HookError> 
 	KHOOK.store(khook.as_ptr(), Ordering::Release);
 
 	Ok(())
+}
+
+/// The build a Metamod 2.0 version string names, such as 1490 in
+/// `2.0.0-dev+1490`: the count of commits the build was made from.
+#[cfg(any(test, feature = "sdk"))]
+pub(super) fn build_of(version: &CStr) -> Option<u32> {
+	let (release, build) = version
+		.to_str()
+		.ok()?
+		.strip_prefix("2.0.")?
+		.split_once("-dev+")?;
+
+	let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+
+	(digits(release) && digits(build))
+		.then(|| build.parse().ok())
+		.flatten()
 }
 
 /// KHook's `make_call_original`: calls the hooked function, and saves what it
@@ -96,10 +175,12 @@ unsafe fn callback<S: Signature>(
 	let (khook, vtable) = interface();
 
 	// SAFETY: As the caller promises, KHook is running a hook, whose context
-	// `install` set to its site, which is never freed.
-	let site = unsafe { &*(vtable.get_context_ptr)(khook).cast::<Site<S>>() };
+	// `install_slot` or `install_function` set to one of `S`, which is never
+	// freed.
+	let context = unsafe { &*(vtable.get_context_ptr)(khook).cast::<Context<S>>() };
+	let site = context.site;
 
-	if !site.active() {
+	if !context.live.get() || !site.active() {
 		return nothing();
 	}
 
@@ -142,6 +223,48 @@ unsafe extern "C" fn copy<R: HookReturn>(destination: *mut R, value: *const R) {
 	unsafe { destination.write_unaligned(value.read_unaligned()) };
 }
 
+/// The value Metamod declared its `metamod_version` console variable with.
+///
+/// It reads the variable by hand rather than through `source_sdk_2013`'s
+/// `Cvar::find_var` and `ConVar::default_string`, which need a `Server`
+/// binding: the plugin may install its first hook before it made one, and the
+/// hook registry keeps none.
+#[cfg(all(not(test), feature = "sdk"))]
+fn declared_version(api: MetamodApi<'_>) -> Option<std::ffi::CString> {
+	use source_sdk_2013::raw::interfaces::cvar::VERSION;
+	use source_sdk_2013::raw::vcall;
+	use source_sdk_2013::sys;
+
+	let factory = api.engine_factory()?;
+
+	// SAFETY: The engine's own factory, not Metamod's wrapper of it, takes a
+	// version string and an optional place for a return code.
+	let cvar = unsafe { factory(VERSION.as_ptr(), ptr::null_mut()) }.cast::<sys::ICvar>();
+	let cvar = NonNull::new(cvar)?;
+
+	// SAFETY: The engine exports its `ICvar` under this exact version, live as
+	// long as the engine, and the plugin runs on the main thread, in one of
+	// Metamod's callbacks.
+	let var = unsafe { vcall!(cvar.as_ptr() => ICvar_FindVar(c"metamod_version".as_ptr())) };
+	let var = NonNull::new(var)?;
+
+	// SAFETY: The registry keeps the variable it found, and the one holding its
+	// value, which is itself unless another module registered the name first.
+	// Their declared values never change. Fields are read without forming
+	// references.
+	unsafe {
+		let parent = (&raw const (*var.as_ptr()).m_pParent).read();
+		let holder = if parent.is_null() {
+			var.as_ptr()
+		} else {
+			parent
+		};
+		let declared = (&raw const (*holder).m_pszDefaultValue).read();
+
+		(!declared.is_null()).then(|| CStr::from_ptr(declared).to_owned())
+	}
+}
+
 /// KHook's `deinit_op`: return values need no destruction.
 unsafe extern "C" fn destroy<R: HookReturn>(_value: *mut R) {}
 
@@ -160,15 +283,16 @@ pub(super) unsafe fn install_function<S: Signature>(
 	let (khook, functions) = interface();
 	let thunks = S::THUNKS;
 	let (pre, post) = callbacks(thunks, timing);
+	let context = Context::leak(site);
 
 	// SAFETY: As the caller promises, the function is of the hook's signature.
-	// The site, which is never freed, is the context, and the hook only runs
-	// before Metamod unloads the library.
+	// The context, which is never freed, leads to the site, and the hook only
+	// runs before Metamod unloads the library.
 	let id = unsafe {
 		(functions.setup_hook)(
 			khook,
 			function.as_ptr(),
-			ptr::from_ref(site).cast_mut().cast(),
+			ptr::from_ref(context).cast_mut().cast(),
 			ptr::null_mut(),
 			pre,
 			post,
@@ -186,7 +310,8 @@ pub(super) unsafe fn install_function<S: Signature>(
 	}
 }
 
-/// Adds a hook running the site's handlers of `timing`, on a vtable slot.
+/// Adds a hook running the site's handlers of `timing`, on a vtable slot, with
+/// the context KHook calls it with.
 ///
 /// # Safety
 ///
@@ -196,21 +321,22 @@ pub(super) unsafe fn install_slot<S: Signature>(
 	vtable: NonNull<*mut c_void>,
 	index: usize,
 	timing: HookTiming,
-) -> Result<(), HookError> {
+) -> Result<(KHookId, &'static Context<S>), HookError> {
 	let index = c_int::try_from(index).map_err(|_| HookError::InvalidArgument)?;
 	let (khook, functions) = interface();
 	let thunks = S::THUNKS;
 	let (pre, post) = callbacks(thunks, timing);
+	let context = Context::leak(site);
 
 	// SAFETY: As the caller promises, calls through the slot go to a function of
-	// the hook's signature. The site, which is never freed, is the context, and
-	// the hook only runs before Metamod unloads the library.
+	// the hook's signature. The context, which is never freed, leads to the
+	// site, and the hook only runs before Metamod unloads the library.
 	let id = unsafe {
 		(functions.setup_virtual_hook)(
 			khook,
 			vtable.as_ptr(),
 			index,
-			ptr::from_ref(site).cast_mut().cast(),
+			ptr::from_ref(context).cast_mut().cast(),
 			ptr::null_mut(),
 			pre,
 			post,
@@ -224,7 +350,7 @@ pub(super) unsafe fn install_slot<S: Signature>(
 
 	match id {
 		INVALID_HOOK => Err(HookError::Refused),
-		_ => Ok(()),
+		id => Ok((id, context)),
 	}
 }
 
@@ -298,9 +424,22 @@ pub(super) unsafe fn pre<S: Signature>(this: *mut S::This, args: S::Args) -> S::
 	unsafe { callback::<S>(HookTiming::Pre, this, args) }
 }
 
-/// Removes the detours `ids`, which [`install_function`] added, which Metamod does not
-/// remove as it unloads the plugin, so that no detour calls into the unloaded
-/// library. Call it before the plugin's `Unload` returns.
+/// Whether hooks on vtable slots may be removed before the plugin unloads: under
+/// a Metamod that reports itself as one of [`RELEASING_BUILDS`].
+///
+/// Metamod gives plugins no call that reports its build, only its version
+/// string, as the value its `metamod_version` console variable was declared
+/// with, which console commands cannot change. Without the `sdk` feature, the
+/// plugin cannot read it, and hooks stay.
+pub(super) fn releases_slot_hooks(api: MetamodApi<'_>) -> bool {
+	running_build(api).is_some_and(|build| RELEASING_BUILDS.contains(&build))
+}
+
+/// Removes the detours `ids`, which [`install_function`] added, so that no
+/// detour calls into the unloaded library under a Metamod before build 1474,
+/// which keeps no record of them. Call it before the plugin's `Unload`
+/// returns. From build 1474, Metamod removes them itself, and only build 1490
+/// copes with the plugin removing them first (see the [module](self)).
 pub(super) fn remove_detours(ids: Vec<KHookId>) {
 	if ids.is_empty() {
 		return;
@@ -315,6 +454,19 @@ pub(super) fn remove_detours(ids: Vec<KHookId>) {
 	}
 }
 
+/// Removes a hook [`install_slot`] added, from KHook's own thread, and stops it
+/// running handlers meanwhile.
+pub(super) fn remove_slot_hook<S: Signature>(id: KHookId, context: &'static Context<S>) {
+	context.live.set(false);
+
+	let (khook, vtable) = interface();
+
+	// SAFETY: Metamod keeps the interface until the plugin's `Unload`. An
+	// asynchronous removal never waits for the hook's detour, and calls back
+	// nothing of the plugin's.
+	unsafe { (vtable.remove_hook)(khook, id, true, None, ptr::null_mut()) };
+}
+
 /// Where the value the call returns so far is kept, or null.
 ///
 /// # Safety
@@ -325,6 +477,26 @@ pub(super) unsafe fn return_value() -> *const c_void {
 
 	// SAFETY: As the caller promises.
 	unsafe { (vtable.get_current_value_ptr)(khook, false) }.cast_const()
+}
+
+/// The build of the Metamod running, from its version string.
+fn running_build(api: MetamodApi<'_>) -> Option<u32> {
+	#[cfg(test)]
+	{
+		let _ = api;
+		crate::test_support::harness::metamod_build()
+	}
+
+	#[cfg(all(not(test), feature = "sdk"))]
+	{
+		declared_version(api).as_deref().and_then(build_of)
+	}
+
+	#[cfg(all(not(test), not(feature = "sdk")))]
+	{
+		let _ = api;
+		None
+	}
 }
 
 /// Reports what a hook did, with its value, if the function returns one.

@@ -703,7 +703,9 @@ mod tests {
 		assert!(call(&harness, &mut door, c"Close"));
 		assert_eq!((GAME_CALLS.get(), CALLBACK_CALLS.get()), (2, 1));
 		hooks.remove(api);
-		assert_eq!(harness.khook.state.borrow().removed, 0);
+
+		// With no handler left on the slot, KHook is asked to remove its hook.
+		assert_eq!(harness.khook.state.borrow().removed, 1);
 	}
 }
 
