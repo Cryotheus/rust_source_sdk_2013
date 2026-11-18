@@ -21,12 +21,22 @@
 //! Under SourceHook, a plugin has [128 hook managers](crate::hook), one for each
 //! method it hooks by signature and slot, which all the classes it covers
 //! share: each module documents how many of them its hooks take. Each handle
-//! leaks a small allocation, its hooks' handler, which Metamod keeps until it
-//! unloads the plugin, as removing a hook only stops it.
+//! leaks a small allocation, its hooks' handler, which stays allocated for as
+//! long as the hooking library might call it.
+//!
+//! [`ClassHooks::remove`] stops the callback at once. Once no handler of the
+//! plugin's is left on a class's method, the hooking library's hook leaves the
+//! method too, where the library allows it: under SourceHook, and under KHook
+//! in the Metamod 2.0 builds the [hook module](crate::hook) names. Elsewhere it
+//! stays until the plugin unloads, and each call of the method still passes
+//! through it, finds no handler and goes on to the method, which costs a little
+//! on every call of a method the game calls very often. Covering the class
+//! again installs the library's hook again.
 //!
 //! With Metamod 2.0, KHook can queue a hook's activation on its worker when
 //! the vtable slot already has a detour, such as from the hook after the
-//! method for the one before it. A covered class means its hooks were
+//! method for the one before it, or from hooks removed earlier, whose detour
+//! KHook keeps. A covered class means its hooks were
 //! accepted, not that the next call reaches them. KHook polls every 5 ms and
 //! can retry while a detour is busy, so calls shortly after a class is covered
 //! can be missed, or reach only the hook after the method, which installs

@@ -3,7 +3,7 @@
 
 use super::khook::KhHook;
 use crate::hook::HookReturn;
-use crate::sys::khook::{Action, IKHook};
+use crate::sys::khook::{Action, IKHook, INVALID_HOOK};
 use crate::sys::sourcehook::{IShDelegate, ISourceHook, MetaRes};
 use std::cell::Cell;
 use std::ffi::c_void;
@@ -169,6 +169,8 @@ where
 	R: HookReturn,
 {
 	KhHook {
+		// Another plugin's hook, which this plugin never removes.
+		id: INVALID_HOOK,
 		context: value.cast_mut().cast(),
 		pre: khook_supersede::<T, A, R> as unsafe extern "C" fn(*mut T, A) -> R as *mut c_void,
 		post: ptr::null_mut(),

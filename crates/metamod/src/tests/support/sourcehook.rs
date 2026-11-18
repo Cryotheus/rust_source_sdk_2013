@@ -28,7 +28,7 @@ static MOCK_SOURCEHOOK_VTABLE: ISourceHookVtable = ISourceHookVtable {
 	get_impl_version: impl_version,
 	add_hook,
 	remove_hook,
-	remove_hook_by_id: hook_by_id,
+	remove_hook_by_id,
 	pause_hook_by_id: hook_by_id,
 	unpause_hook_by_id: hook_by_id,
 	set_res,
@@ -122,11 +122,23 @@ impl MockSourceHook {
 		self.state.borrow_mut().hooks.insert(
 			0,
 			ShHook {
+				// No ID SourceHook gives: this plugin never removes it.
+				id: 0,
 				vfnptr,
 				delegate,
 				post: false,
 			},
 		);
+	}
+
+	/// How many hooks of any plugin's SourceHook has on the vtable slot.
+	pub(crate) fn hooks_on(&self, vfnptr: *mut *mut c_void) -> usize {
+		self.state
+			.borrow()
+			.hooks
+			.iter()
+			.filter(|hook| hook.vfnptr == vfnptr)
+			.count()
 	}
 
 	pub(crate) fn ptr(&self) -> *mut ISourceHook {
@@ -144,6 +156,7 @@ impl MockSourceHook {
 /// A delegate SourceHook runs for a hooked vtable slot.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ShHook {
+	pub(crate) id: c_int,
 	vfnptr: *mut *mut c_void,
 	delegate: *mut IShDelegate,
 	pub(crate) post: bool,
@@ -160,8 +173,9 @@ pub(crate) struct ShManager {
 pub(crate) struct ShState {
 	/// The hook managers, in the order they were registered.
 	pub(crate) managers: Vec<ShManager>,
-	/// Each hooked slot, and what it held before.
-	slots: Vec<(*mut *mut c_void, *mut c_void)>,
+	/// Each hooked slot, what it held before, and the public function of the
+	/// hook manager it was patched for.
+	slots: Vec<(*mut *mut c_void, *mut c_void, usize)>,
 	/// The delegates, in the order they run.
 	pub(crate) hooks: Vec<ShHook>,
 	contexts: Vec<*mut MockContext>,
@@ -223,11 +237,11 @@ unsafe extern "C" fn add_hook(
 		};
 
 		let manager = ptr::from_ref(&*state.managers[manager].info);
-		let patch = !state.slots.iter().any(|&(slot, _)| slot == vfnptr);
+		let patch = !state.slots.iter().any(|&(slot, ..)| slot == vfnptr);
 
 		if patch {
 			// SAFETY: As above.
-			state.slots.push((vfnptr, unsafe { vfnptr.read() }));
+			state.slots.push((vfnptr, unsafe { vfnptr.read() }, key));
 		}
 
 		(manager, patch)
@@ -247,7 +261,10 @@ unsafe extern "C" fn add_hook(
 
 	state.next_id += 1;
 
+	let id = state.next_id;
+
 	state.hooks.push(ShHook {
+		id,
 		vfnptr,
 		delegate,
 		post,
@@ -325,8 +342,8 @@ unsafe extern "C" fn get_orig_vfn_ptr_entry(
 	state
 		.slots
 		.iter()
-		.find(|&&(slot, _)| slot == vfnptr.cast())
-		.map_or(ptr::null_mut(), |&(_, original)| original)
+		.find(|&&(slot, ..)| slot == vfnptr.cast())
+		.map_or(ptr::null_mut(), |&(_, original, _)| original)
 }
 
 unsafe extern "C" fn get_override_ret(this: *mut ISourceHook) -> *const c_void {
@@ -403,6 +420,57 @@ unsafe extern "C" fn remove_hook(
 	false
 }
 
+/// Removes a hook by its ID, freeing its delegate, and restores its slot once
+/// no hook is left on it, unregistering the hook manager that patched it once
+/// it patches no slot, as SourceHook does.
+unsafe extern "C" fn remove_hook_by_id(this: *mut ISourceHook, id: c_int) -> bool {
+	let sourcehook = mock_sourcehook(this);
+
+	let (hook, unregister) = {
+		let mut state = sourcehook.state.borrow_mut();
+
+		let Some(position) = state.hooks.iter().position(|hook| hook.id == id && id != 0) else {
+			return false;
+		};
+
+		let hook = state.hooks.remove(position);
+		let mut unregister = None;
+
+		if !state.hooks.iter().any(|other| other.vfnptr == hook.vfnptr) {
+			let slot = state
+				.slots
+				.iter()
+				.position(|&(slot, ..)| slot == hook.vfnptr)
+				.unwrap();
+
+			let (vfnptr, original, key) = state.slots.remove(slot);
+
+			// SAFETY: The slot was live when hooked, and the tests keep vtables.
+			unsafe { vfnptr.write(original) };
+
+			if !state.slots.iter().any(|&(.., other)| other == key) {
+				unregister = Some(key);
+			}
+		}
+
+		(hook, unregister)
+	};
+
+	// SAFETY: Hooks' delegates live until SourceHook frees them, here.
+	unsafe { ((*(*hook.delegate).vtable).delete_this)(hook.delegate) };
+
+	if let Some(key) = unregister {
+		// SAFETY: The key is a hook manager's public function.
+		unsafe {
+			let public_function = mem::transmute::<usize, HookManagerPubFunc>(key);
+
+			public_function(true, ptr::null_mut());
+		}
+	}
+
+	true
+}
+
 unsafe extern "C" fn remove_hook_manager(
 	_this: *mut ISourceHook,
 	_plugin: Plugin,
@@ -434,7 +502,7 @@ unsafe extern "C" fn setup_hook_loop(
 	let mut state = mock_sourcehook(this).state.borrow_mut();
 	let vfnptr = vfnptr.cast::<*mut c_void>();
 
-	if let Some(&(_, original)) = state.slots.iter().find(|&&(slot, _)| slot == vfnptr) {
+	if let Some(&(_, original, _)) = state.slots.iter().find(|&&(slot, ..)| slot == vfnptr) {
 		// SAFETY: The hook function passes its variable.
 		unsafe { orig_call_addr.write(original) };
 	}

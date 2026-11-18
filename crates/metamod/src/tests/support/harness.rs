@@ -28,7 +28,14 @@ thread_local! {
 
 	/// What the shell reports in place of the C++ shell's own status.
 	static PLUGIN_STATUS: Cell<Option<PluginStatus>> = const { Cell::new(None) };
+
+	/// The build Metamod reports itself as, if any.
+	static METAMOD_BUILD: Cell<Option<u32>> = const { Cell::new(None) };
 }
+
+/// The build a harness's Metamod 2.0 reports itself as, unless the test sets
+/// another: the latest known.
+pub(crate) const DEV_BUILD: u32 = 1490;
 
 /// A running Metamod of one version, through mocks of its API and hooking
 /// library.
@@ -63,6 +70,7 @@ impl Harness {
 		harness.smm.khook = harness.khook_ptr().cast();
 		FOREIGN_KHOOK.set(harness.khook_ptr());
 		harness.set_status(true, false, generation);
+		METAMOD_BUILD.set(Some(DEV_BUILD));
 
 		harness
 	}
@@ -128,6 +136,12 @@ impl Harness {
 		self.khook.ptr()
 	}
 
+	/// Has Metamod report itself as `build`, or report no build. The plugin
+	/// reads it as it installs its first hook of a load.
+	pub(crate) fn set_metamod_build(&self, build: Option<u32>) {
+		METAMOD_BUILD.set(build);
+	}
+
 	/// Has the shell report the plugin's status as this.
 	pub(crate) fn set_status(&self, loaded: bool, paused: bool, generation: u64) {
 		PLUGIN_STATUS.set(Some(PluginStatus {
@@ -146,6 +160,7 @@ impl Harness {
 impl Drop for Harness {
 	fn drop(&mut self) {
 		PLUGIN_STATUS.set(None);
+		METAMOD_BUILD.set(None);
 		FOREIGN_KHOOK.set(std::ptr::null_mut());
 	}
 }
@@ -155,6 +170,12 @@ pub(crate) fn expect(condition: bool, failure: &'static str) {
 	if !condition {
 		FAILURES.with_borrow_mut(|failures| failures.push(failure));
 	}
+}
+
+/// The build Metamod reports itself as while a harness runs, in place of its
+/// `metamod_version` console variable.
+pub(crate) fn metamod_build() -> Option<u32> {
+	METAMOD_BUILD.get()
 }
 
 /// Runs `test` on a Metamod of each version. Fails if a handler noted a

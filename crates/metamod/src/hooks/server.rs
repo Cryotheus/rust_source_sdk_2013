@@ -460,8 +460,10 @@ impl MetamodApi<'_> {
 	/// can be installed. Returns whether it was installed, for this load of the
 	/// plugin.
 	///
-	/// As with [`Self::remove_hook`], only the callback stops: the hook stays
-	/// until Metamod unloads the plugin. A refused load stops its callbacks as
+	/// As with [`Self::remove_hook`], the callback stops at once, and the
+	/// hooking library's hook leaves the function where the [hook
+	/// module](crate::hook) says it does, else it stays until Metamod unloads
+	/// the plugin. A refused load stops its callbacks as
 	/// well, but Metamod 2.0 keeps the hooks of a plugin that refused to load
 	/// until that plugin is unloaded, and for as long as the server runs if the
 	/// same file is loaded again first.
