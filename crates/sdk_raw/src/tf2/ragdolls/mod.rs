@@ -284,10 +284,10 @@ pub const RAGDOLL_PROP_FIELD_OFFSET_LIMIT: usize = 16384;
 /// [`find_ragdoll_object_fields`] finds them.
 ///
 /// The ragdoll has one physics object for each element of its list in use,
-/// the first `m_ragdoll.listCount` of [`RAGDOLL_MAX_ELEMENTS`]. Element 0's
-/// object is also the entity's own `m_pPhysicsObject`, which
-/// [`find_physics_object_field`] finds, and the ragdoll's map declares only
-/// the other elements' objects.
+/// the first `m_ragdoll.listCount` of [`RAGDOLL_MAX_ELEMENTS`]. The ragdoll's
+/// map declares only the objects of elements 1 on. Element 0's is taken to be
+/// the entity's own `m_pPhysicsObject`, which [`find_physics_object_field`]
+/// finds, as it is the ragdoll's first part, though nothing declares that.
 ///
 /// [`find_physics_object_field`]: crate::entities::find_physics_object_field
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

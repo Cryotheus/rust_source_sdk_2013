@@ -581,8 +581,12 @@ fn show(tools: ServerTools<'_>, ragdoll: Entity<'_>) -> Result<(), RagdollError>
 ///
 /// # Unverified
 ///
-/// The datamap's members are TF2's, as its server module names them. No
-/// running server has tested this yet.
+/// The datamap's members are TF2's, as its server module names them. Only a
+/// Linux TF2 server has tested this, and no Windows one. That element 0's
+/// object is the entity's own is assumed, not checked, as the datamap does not
+/// declare it: were it wrong, one object of the list would never be found,
+/// which leaves memory safety as it is, since the entity's own is checked on
+/// its own.
 #[doc(alias("prop_ragdoll", "CRagdollProp", "m_ragdoll"))]
 #[derive(Debug, Clone)]
 pub struct RagdollPhysicsObjects<'s> {
