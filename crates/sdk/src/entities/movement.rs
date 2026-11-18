@@ -945,6 +945,19 @@ impl<'s> PhysicsObject<'s> {
 		}
 	}
 
+	/// Whether the physics library moves the object (`IsMotionEnabled`), which
+	/// a ragdoll's `DisableMotion` input stops for each of its objects.
+	///
+	/// Fails as the [type's documentation](Self) says, without reading the
+	/// object.
+	#[doc(alias("IsMotionEnabled"))]
+	pub fn motion_enabled(self) -> Result<bool, PhysicsObjectError> {
+		let object = self.live()?;
+
+		// SAFETY: As for `collisions_enabled`.
+		Ok(unsafe { vcall!(object.as_ptr().cast_const() => IPhysicsObject_IsMotionEnabled()) })
+	}
+
 	/// Enables or disables the object's collisions with others
 	/// (`EnableCollisions`): without them, the physics library tests it
 	/// against nothing, the world included, so an object whose motion is

@@ -273,6 +273,10 @@ fn a_physics_object_is_only_used_while_its_entity_holds_it() {
 	assert_eq!(held.set_collisions_enabled(false), Ok(()));
 	assert_eq!(held.collisions_enabled(), Ok(false));
 	assert!(!object.enabled());
+	assert_eq!(held.motion_enabled(), Ok(true));
+
+	object.set_moving(false);
+	assert_eq!(held.motion_enabled(), Ok(false));
 
 	// Once the game replaces or destroys the object, it is not called.
 	set(other.as_ptr());

@@ -1080,7 +1080,9 @@ unsafe extern "C" fn update_transmit_state(_: *mut sys::CBaseEntity) -> c_int {
 
 /// A VPhysics object whose `IsCollisionEnabled` and `EnableCollisions` keep
 /// whether its collisions are enabled, which they are from its creation, as
-/// the physics library's are, and count the calls to `EnableCollisions`.
+/// the physics library's are, and count the calls to `EnableCollisions`, and
+/// whose `IsMotionEnabled` tells what [`set_moving`](Self::set_moving) set,
+/// moving from its creation.
 ///
 /// For tests only. It is leaked, and only changed through its cells.
 #[repr(C)]
@@ -1088,6 +1090,7 @@ pub struct MockPhysicsObject {
 	object: sys::IPhysicsObject,
 	enabled: Cell<bool>,
 	switches: Cell<usize>,
+	moving: Cell<bool>,
 }
 
 impl MockPhysicsObject {
@@ -1104,6 +1107,8 @@ impl MockPhysicsObject {
 						.write(physics_object_collisions_enabled);
 					(&raw mut (*vtable).IPhysicsObject_EnableCollisions)
 						.write(physics_object_enable_collisions);
+					(&raw mut (*vtable).IPhysicsObject_IsMotionEnabled)
+						.write(physics_object_motion_enabled);
 				},
 			)
 		};
@@ -1114,6 +1119,7 @@ impl MockPhysicsObject {
 			},
 			enabled: Cell::new(true),
 			switches: Cell::new(0),
+			moving: Cell::new(true),
 		}))
 	}
 
@@ -1125,6 +1131,11 @@ impl MockPhysicsObject {
 	/// Whether the object's collisions are enabled.
 	pub fn enabled(&self) -> bool {
 		self.enabled.get()
+	}
+
+	/// Sets whether the object moves, as `IsMotionEnabled` tells.
+	pub fn set_moving(&self, moving: bool) {
+		self.moving.set(moving);
 	}
 
 	/// How many times `EnableCollisions` was called.
@@ -1150,4 +1161,10 @@ unsafe extern "C" fn physics_object_enable_collisions(
 
 	object.enabled.set(enabled);
 	object.switches.set(object.switches() + 1);
+}
+
+/// `IPhysicsObject::IsMotionEnabled` of a [`MockPhysicsObject`].
+unsafe extern "C" fn physics_object_motion_enabled(this: *const sys::IPhysicsObject) -> bool {
+	// SAFETY: As for `physics_object_collisions_enabled`.
+	unsafe { &*this.cast::<MockPhysicsObject>() }.moving.get()
 }
