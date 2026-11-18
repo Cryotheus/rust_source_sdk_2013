@@ -510,6 +510,12 @@ impl<S: Signature> AnySite for Site<S> {
 		for timing in [HookTiming::Pre, HookTiming::Post] {
 			let hook = &self.hooks[timing as usize];
 
+			// The entries are only looked through for a hook of the library's that
+			// could be released. Detours stay until the plugin unloads.
+			if matches!(hook.get(), None | Some(LibraryHook::Detour)) {
+				continue;
+			}
+
 			let handled = self
 				.entries
 				.borrow()
@@ -534,7 +540,6 @@ impl<S: Signature> AnySite for Site<S> {
 					true
 				},
 
-				// Detours stay until the plugin unloads.
 				_ => false,
 			};
 
