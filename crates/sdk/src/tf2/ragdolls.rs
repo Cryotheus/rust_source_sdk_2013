@@ -38,8 +38,20 @@
 //! player's, and
 //! [`TfPlayer::remove_ragdoll`](crate::tf2::player::TfPlayer::remove_ragdoll)
 //! removes it.
+//!
+//! # Physics objects
+//!
+//! A `prop_ragdoll` has a VPhysics object for each of its parts, which
+//! [`RagdollPhysicsObjects`] goes over, to switch their collisions, for
+//! example.
+
+#[cfg(test)]
+#[path = "../tests/tf2/ragdolls.rs"]
+mod tests;
 
 use crate::datatables::{NetProp, NetPropError, NetValue, NetVar};
+use crate::entities::fields::FieldError;
+use crate::entities::movement::PhysicsObject;
 use crate::entities::{CollisionGroup, Entity};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
@@ -49,9 +61,10 @@ use crate::tf2::damage::{DamageInfo, DamageType};
 use crate::tf2::teams::Team;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::damage::DMG_VEHICLE;
-use sdk_raw::tf2::ragdolls::{self as raw, RAGDOLL_MAX_ELEMENTS};
+use sdk_raw::tf2::ragdolls::{self as raw, RAGDOLL_MAX_ELEMENTS, RagdollObjectFields};
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 /// The input that shows a `prop_ragdoll` (`CRagdollProp::InputTurnOn`), by
 /// clearing `EF_NODRAW`, which also has the engine send it to clients again.
@@ -547,4 +560,147 @@ fn show(tools: ServerTools<'_>, ragdoll: Entity<'_>) -> Result<(), RagdollError>
 	}
 
 	Ok(())
+}
+
+/// The physics objects of a `prop_ragdoll`, one for each of its parts in use,
+/// within the scope its entity is borrowed for: an iterator over the
+/// [`PhysicsObject`]s the ragdoll holds.
+///
+/// Its parts are the elements of its list (`m_ragdoll.list`), of which the
+/// first `m_ragdoll.listCount` are in use, at most
+/// [`RAGDOLL_MAX_ELEMENTS`]. Element 0's object is the entity's own
+/// (`m_pPhysicsObject`), and the others' are the members the ragdoll's
+/// datamap declares, as [`raw::find_ragdoll_object_fields`] finds them. An
+/// element without an object is skipped. The count is read again at each
+/// step, and each object checks its element is still in use whenever it is
+/// used.
+///
+/// Switching a ragdoll's collisions is one
+/// [`set_collisions_enabled`](PhysicsObject::set_collisions_enabled) for each
+/// object, with the care its documentation asks for.
+///
+/// # Unverified
+///
+/// The datamap's members are TF2's, as its server module names them. No
+/// running server has tested this yet.
+#[doc(alias("prop_ragdoll", "CRagdollProp", "m_ragdoll"))]
+#[derive(Debug, Clone)]
+pub struct RagdollPhysicsObjects<'s> {
+	ragdoll: Entity<'s>,
+	/// The offset of `m_pPhysicsObject`.
+	own: usize,
+	fields: RagdollObjectFields,
+	/// The next element to look at.
+	next: usize,
+}
+
+impl<'s> RagdollPhysicsObjects<'s> {
+	/// The physics objects of `ragdoll`, a `prop_ragdoll`.
+	///
+	/// Fails with [`RagdollObjectsError::NotRagdoll`] unless the entity's
+	/// datamaps include the map of a `prop_ragdoll`'s class
+	/// ([`raw::RAGDOLL_PROP_CLASS`]), with
+	/// [`RagdollObjectsError::UnexpectedFields`] unless that map declares the
+	/// objects as [`raw::find_ragdoll_object_fields`] expects, and with
+	/// [`RagdollObjectsError::Field`] unless `CBaseEntity`'s declares
+	/// `m_pPhysicsObject` as the game does. The members are found in the first
+	/// ragdoll's map, and kept for it.
+	pub fn new(ragdoll: Entity<'s>) -> Result<Self, RagdollObjectsError> {
+		static FOUND: OnceLock<(usize, RagdollObjectFields)> = OnceLock::new();
+
+		let map = ragdoll
+			.data_maps()
+			.find(|map| map.class_name() == Some(raw::RAGDOLL_PROP_CLASS))
+			.ok_or(RagdollObjectsError::NotRagdoll)?;
+
+		let address = map.as_ptr().addr();
+
+		let fields = match FOUND.get() {
+			Some(&(found, fields)) if found == address => fields,
+
+			_ => {
+				let fields = raw::find_ragdoll_object_fields(map)
+					.ok_or(RagdollObjectsError::UnexpectedFields)?;
+
+				// A game has one map for the class, so another is only searched,
+				// never kept.
+				let _ = FOUND.set((address, fields));
+				fields
+			}
+		};
+
+		Ok(Self {
+			ragdoll,
+			own: ragdoll.physics_object_offset()?,
+			fields,
+			next: 0,
+		})
+	}
+
+	/// How many of the ragdoll's elements are in use, as its count says, at
+	/// most [`RAGDOLL_MAX_ELEMENTS`], and none for a negative count.
+	fn in_use(&self) -> usize {
+		// SAFETY: The ragdoll is live for `'s`, and its class's map declares an
+		// `int` at the offset, aligned for it, which is read without forming a
+		// reference, as the game writes it too, on this, the main thread.
+		let count = unsafe {
+			self.ragdoll
+				.as_ptr()
+				.byte_add(self.fields.count)
+				.cast::<c_int>()
+				.read()
+		};
+
+		count.clamp(0, RAGDOLL_MAX_ELEMENTS).cast_unsigned() as usize
+	}
+}
+
+impl<'s> Iterator for RagdollPhysicsObjects<'s> {
+	type Item = PhysicsObject<'s>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		while self.next < self.in_use() {
+			let element = self.next;
+
+			self.next += 1;
+
+			let member = match element.checked_sub(1) {
+				Some(declared) => self.fields.objects[declared],
+				None => self.own,
+			};
+
+			// SAFETY: `m_pPhysicsObject`, the offset `CBaseEntity`'s map declares,
+			// holds the entity's `IPhysicsObject *`, which is element 0's. The
+			// ragdoll's class's map declares the others' as pointers too, and the
+			// count as an `int`, at offsets aligned for them, as
+			// `find_ragdoll_object_fields` checked.
+			let object = unsafe {
+				PhysicsObject::from_member(self.ragdoll, member, Some((self.fields.count, element)))
+			};
+
+			if object.is_some() {
+				return object;
+			}
+		}
+
+		None
+	}
+}
+
+/// Why a `prop_ragdoll`'s physics objects could not be found.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RagdollObjectsError {
+	/// `CBaseEntity`'s datamap does not declare `m_pPhysicsObject` as the
+	/// game does.
+	#[error(transparent)]
+	Field(#[from] FieldError),
+
+	/// The entity is not a `prop_ragdoll`.
+	#[error("the entity is not a prop_ragdoll")]
+	NotRagdoll,
+
+	/// The datamap of the ragdoll's class does not declare its physics
+	/// objects as expected.
+	#[error("the ragdoll's datamap does not declare its physics objects as expected")]
+	UnexpectedFields,
 }

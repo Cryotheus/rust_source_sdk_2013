@@ -1,5 +1,6 @@
 //! How an entity moves: its flags (`m_fFlags`), move type, velocity, gravity
-//! and friction, and the entity it moves with.
+//! and friction, the entity it moves with, and its VPhysics object
+//! ([`PhysicsObject`]).
 //!
 //! [`ServerTools::set_move_type`] changes how the game moves an entity.
 
@@ -35,6 +36,7 @@ use sdk_raw::entities::{
 
 use sdk_raw::vcall;
 use std::ffi::{c_int, c_void};
+use std::ptr::NonNull;
 use std::sync::OnceLock;
 
 /// `m_angAbsRotation`.
@@ -620,21 +622,7 @@ impl<'s> Entity<'s> {
 	/// declares the object as the game does, at an aligned, plausible offset.
 	#[doc(alias("VPhysicsGetObject", "m_pPhysicsObject"))]
 	pub fn has_physics_object(self) -> Result<bool, FieldError> {
-		static OFFSET: OnceLock<usize> = OnceLock::new();
-
-		let offset = match OFFSET.get() {
-			Some(&offset) => offset,
-
-			None => {
-				let offset = find_physics_object_field(self.data_maps()).ok_or_else(|| {
-					FieldError::NotFound {
-						name: c"m_pPhysicsObject".to_owned(),
-					}
-				})?;
-
-				*OFFSET.get_or_init(|| offset)
-			}
-		};
+		let offset = self.physics_object_offset()?;
 
 		// SAFETY: The offset was validated against the entity datamap, which
 		// every entity shares through its `CBaseEntity` base, and is aligned for
@@ -648,6 +636,41 @@ impl<'s> Entity<'s> {
 		};
 
 		Ok(!object.is_null())
+	}
+
+	/// The entity's VPhysics object (`m_pPhysicsObject`), or `None` while it
+	/// has none, as [`has_physics_object`](Self::has_physics_object) tells.
+	///
+	/// A ragdoll has one object for each of its parts, and this is the first
+	/// part's. With the `tf2` feature, `tf2::ragdolls::RagdollPhysicsObjects`
+	/// goes over them all.
+	///
+	/// Fails as [`has_physics_object`](Self::has_physics_object) does.
+	#[doc(alias("VPhysicsGetObject", "m_pPhysicsObject"))]
+	pub fn physics_object(self) -> Result<Option<PhysicsObject<'s>>, FieldError> {
+		let member = self.physics_object_offset()?;
+
+		// SAFETY: The datamap of every entity's `CBaseEntity` base declares the
+		// member as the entity's `IPhysicsObject` pointer, at an offset aligned
+		// for it.
+		Ok(unsafe { PhysicsObject::from_member(self, member, None) })
+	}
+
+	/// The offset of `m_pPhysicsObject`, found once and kept, as every entity
+	/// shares it through its `CBaseEntity` base.
+	pub(crate) fn physics_object_offset(self) -> Result<usize, FieldError> {
+		static OFFSET: OnceLock<usize> = OnceLock::new();
+
+		if let Some(&offset) = OFFSET.get() {
+			return Ok(offset);
+		}
+
+		let offset =
+			find_physics_object_field(self.data_maps()).ok_or_else(|| FieldError::NotFound {
+				name: c"m_pPhysicsObject".to_owned(),
+			})?;
+
+		Ok(*OFFSET.get_or_init(|| offset))
 	}
 
 	/// The entity's angles relative to its move parent, or to the attachment it
@@ -766,4 +789,193 @@ impl<'s> ServerTools<'s> {
 			))
 		};
 	}
+}
+
+/// A VPhysics object (`IPhysicsObject`) an entity holds in one of its
+/// members, with the entity, for the scope the entity is borrowed for.
+///
+/// The physics library owns the object, and the game destroys it as it
+/// removes the entity, or as it rebuilds the entity's physics, which can
+/// happen during the scope, through what the plugin calls. So the object is
+/// only used through its entity: each method first reads the member again,
+/// and fails with [`PhysicsObjectError::Gone`] unless the entity still holds
+/// this same object there, among the elements it has in use for a member of
+/// a list, and with [`PhysicsObjectError::MarkedForDeletion`] once the entity
+/// is to be removed. While neither is the case, the object is live, as the
+/// game itself relies on whenever it calls an object it finds there.
+///
+/// Like every handle, it is `!Send` and `!Sync`, and cannot outlive the
+/// entity's scope:
+///
+/// ```compile_fail,E0277
+/// use source_sdk_2013::entities::movement::PhysicsObject;
+///
+/// fn send(object: PhysicsObject<'static>) {
+///     std::thread::spawn(move || drop(object));
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use source_sdk_2013::entities::Entity;
+/// use source_sdk_2013::entities::movement::PhysicsObject;
+///
+/// fn escape<'s>(entity: Entity<'s>) -> PhysicsObject<'static> {
+///     entity.physics_object().unwrap().unwrap()
+/// }
+/// ```
+///
+/// # VPhysics' simulation
+///
+/// Enabling or disabling an object's collisions changes what the physics
+/// library tests it against, which is only safe while the library is not
+/// simulating: never from a hook or callback the game or the library runs
+/// during its step, such as one asking whether two objects collide
+/// (`ShouldCollide`, `ForceVPhysicsCollide`) or one reporting a collision
+/// (`VPhysicsCollision`). Make the change from callbacks the engine makes
+/// outside of it, such as a game frame or a think, or put it off until one.
+/// The crate cannot tell, so it does not check: the bindings include no
+/// interface through which the library tells whether it is simulating.
+#[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PhysicsObject<'s> {
+	entity: Entity<'s>,
+	/// The offset of the member holding the object in the entity.
+	member: usize,
+	/// For an element of a list, the offset of the `int` that tells how many
+	/// elements are in use, and the element's index.
+	in_use: Option<(usize, usize)>,
+	raw: NonNull<sys::IPhysicsObject>,
+}
+
+impl<'s> PhysicsObject<'s> {
+	/// Wraps the object `entity` holds in its member at offset `member`, or
+	/// returns `None` while it holds none.
+	///
+	/// With `in_use`, `(count, element)`, the member holds the object of
+	/// element `element` of a list, of which the `int` member at offset `count`
+	/// tells how many elements are in use: the object is wrapped, and later
+	/// used, only while `element` is below that count.
+	///
+	/// # Safety
+	///
+	/// The datamaps of `entity`'s class must declare a member at offset
+	/// `member` that holds the entity's `IPhysicsObject *`, null for none,
+	/// aligned for the pointer, and, with `in_use`, an `int` member at offset
+	/// `count`, aligned for it, telling how many elements of a list, whose
+	/// element `element`'s object is the one at `member`, are in use.
+	pub(crate) unsafe fn from_member(
+		entity: Entity<'s>,
+		member: usize,
+		in_use: Option<(usize, usize)>,
+	) -> Option<Self> {
+		let unread = Self {
+			entity,
+			member,
+			in_use,
+			raw: NonNull::dangling(),
+		};
+
+		Some(Self {
+			raw: unread.current()?,
+			..unread
+		})
+	}
+
+	/// Whether the physics library tests the object for collisions with
+	/// others (`IsCollisionEnabled`).
+	///
+	/// Fails as the [type's documentation](Self) says, without reading the
+	/// object.
+	#[doc(alias("IsCollisionEnabled"))]
+	pub fn collisions_enabled(self) -> Result<bool, PhysicsObjectError> {
+		let object = self.live()?;
+
+		// SAFETY: The object is live, as `live` checked through its entity, on
+		// the main thread, and the generated vtable is the target ABI's, with
+		// the method's own slot. The method only reads the object.
+		Ok(unsafe { vcall!(object.as_ptr().cast_const() => IPhysicsObject_IsCollisionEnabled()) })
+	}
+
+	/// The object the entity holds in the member now, if its element is in
+	/// use.
+	fn current(self) -> Option<NonNull<sys::IPhysicsObject>> {
+		if let Some((count, element)) = self.in_use {
+			// SAFETY: The entity is live for `'s`, and `from_member`'s caller
+			// vouched for an aligned `int` member at the offset, which is read
+			// without forming a reference, as the game writes it too, on this,
+			// the main thread.
+			let count = unsafe { self.entity.as_ptr().byte_add(count).cast::<c_int>().read() };
+
+			if usize::try_from(count)
+				.ok()
+				.is_none_or(|count| element >= count)
+			{
+				return None;
+			}
+		}
+
+		// SAFETY: As for the count, with the pointer member `from_member`'s
+		// caller vouched for.
+		let object = unsafe {
+			self.entity
+				.as_ptr()
+				.byte_add(self.member)
+				.cast::<*mut sys::IPhysicsObject>()
+				.read()
+		};
+
+		NonNull::new(object)
+	}
+
+	/// The entity holding the object.
+	pub const fn entity(self) -> Entity<'s> {
+		self.entity
+	}
+
+	/// The object, after checking that its entity is not to be removed and
+	/// still holds it, in an element in use for a list's.
+	fn live(self) -> Result<NonNull<sys::IPhysicsObject>, PhysicsObjectError> {
+		if self.entity.is_marked_for_deletion() {
+			return Err(PhysicsObjectError::MarkedForDeletion);
+		}
+
+		match self.current() {
+			Some(object) if object == self.raw => Ok(object),
+			_ => Err(PhysicsObjectError::Gone),
+		}
+	}
+
+	/// Enables or disables the object's collisions with others
+	/// (`EnableCollisions`): without them, the physics library tests it
+	/// against nothing, the world included, so an object whose motion is
+	/// enabled falls through the world, and nothing the library simulates
+	/// bumps into it.
+	///
+	/// Only call this outside of VPhysics' simulation, as the
+	/// [type's documentation](Self#vphysics-simulation) says. Fails as it
+	/// says too, without changing the object.
+	#[doc(alias("EnableCollisions"))]
+	pub fn set_collisions_enabled(self, enabled: bool) -> Result<(), PhysicsObjectError> {
+		let object = self.live()?;
+
+		// SAFETY: As for `collisions_enabled`. The physics library changes its
+		// own state, which the caller keeps it from using during the call by
+		// calling outside of its simulation.
+		unsafe { vcall!(object.as_ptr() => IPhysicsObject_EnableCollisions(enabled)) };
+		Ok(())
+	}
+}
+
+/// Why a [`PhysicsObject`] could not be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum PhysicsObjectError {
+	/// The entity no longer holds the object: the game destroyed it, or holds
+	/// another one in its place, or the element holding it is no longer in
+	/// use.
+	#[error("the entity no longer holds the physics object")]
+	Gone,
+
+	/// The entity is marked for deletion.
+	#[error("the entity holding the physics object is marked for deletion")]
+	MarkedForDeletion,
 }
