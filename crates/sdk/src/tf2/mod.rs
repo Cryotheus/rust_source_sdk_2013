@@ -9,6 +9,7 @@
 pub mod achievements;
 pub mod airblast;
 pub mod ammo;
+pub mod ammo_packs;
 pub mod animating;
 pub mod animation_layers;
 pub mod attributes;
