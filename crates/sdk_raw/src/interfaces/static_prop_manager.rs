@@ -65,6 +65,11 @@ const _: () = {
 
 /// The vtable slot of `IStaticPropMgrServer::GetAllStaticProps`, the same
 /// under both ABIs (see the [module documentation](self)).
+///
+/// The header calls `GetAllStaticProps` a testing function that may be
+/// removed. Removed without a new version of the interface, it would leave
+/// `GetAllStaticPropsInAABB` in this slot, so the slot is only trusted for the
+/// interface asked for by [`VERSION`].
 #[doc(alias("GetAllStaticProps"))]
 pub const GET_ALL_STATIC_PROPS_SLOT: usize = 5;
 

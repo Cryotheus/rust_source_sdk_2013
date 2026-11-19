@@ -21,6 +21,11 @@
 //! the collideable of each static prop, and that `GetStaticPropByIndex` gives
 //! the collideable of the prop at an index. It does not say that the list is
 //! in the order of the indices, nor what the second gives past the last prop.
+//! The header also calls `GetAllStaticProps` a testing function that may be
+//! removed. Removed without a new version of the interface, its slot would
+//! hold `GetAllStaticPropsInAABB`, which takes other arguments, so this crate
+//! calls it only on the interface asked for by its version string,
+//! `StaticPropMgrServer002`.
 //! `public/engine/IEngineTrace.h` promises that `ClipRayToCollideable` clips
 //! a ray to the collideable it is given alone, without saying what it fills
 //! the trace's entity and hitbox with.
