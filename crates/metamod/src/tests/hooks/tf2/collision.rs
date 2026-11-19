@@ -18,6 +18,9 @@ thread_local! {
 
 	/// What [`on_should_collide`] decides.
 	static ACTION: Cell<CollideAction> = const { Cell::new(CollideAction::Continue) };
+
+	/// Whether [`on_should_collide`] panics instead.
+	static PANICS: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The game's `ShouldCollide`, which notes that it ran, and collides with
@@ -81,16 +84,29 @@ fn hooks_decide_collisions_before_the_game() {
 
 		ACTION.set(CollideAction::Collide);
 		assert_eq!(collides(4), (true, vec![("hook", 4, unsigned)]));
+
+		// A callback that panics leaves the game to decide, and no scope entered.
+		PANICS.set(true);
+		assert_eq!(
+			collides(5),
+			(true, vec![("game", 5, contents.cast_unsigned())])
+		);
+		PANICS.set(false);
 	});
 }
 
-/// The callback, which notes the call and decides [`ACTION`].
+/// The callback, which notes the call and decides [`ACTION`], or panics while
+/// [`PANICS`] says so.
 fn on_should_collide(
 	_server: Server<'_>,
 	_entity: Entity<'_>,
 	group: c_int,
 	contents: c_uint,
 ) -> CollideAction {
+	if PANICS.get() {
+		panic!("the callback panics, as this test means it to");
+	}
+
 	// The dispatcher keeps the callback from changing collisions.
 	let hook = if PhysicsCallbackScope::is_entered() {
 		"hook"
