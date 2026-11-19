@@ -12,6 +12,7 @@ pub mod class;
 pub mod collision;
 pub mod construction;
 pub mod crit;
+pub mod criteria;
 pub mod damage;
 pub mod damage_effect;
 pub mod death;
