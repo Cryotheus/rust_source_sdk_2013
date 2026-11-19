@@ -35,6 +35,7 @@ mod tests;
 
 use crate::datatables::ServerClass;
 use crate::edicts::Edict;
+use crate::entities::movement::PhysicsCallbackScope;
 use crate::math::{QAngle, Vector};
 use crate::{NotThreadSafe, Server};
 use sdk_raw::entities::datamap::DataMaps;
@@ -595,15 +596,28 @@ impl<'s> Entity<'s> {
 	/// takes it out of that count.
 	///
 	/// The game warns that changing collision rules while VPhysics simulates
-	/// or runs one of its callbacks is likely to crash, which no callback a
-	/// plugin is given is known to run within.
+	/// or runs one of its callbacks is likely to crash. Within a
+	/// [`PhysicsCallbackScope`], which the hook dispatchers enter around the
+	/// callbacks that may run during VPhysics' step, as
+	/// [`PhysicsObject`](movement::PhysicsObject#vphysics-simulation)
+	/// describes, this changes nothing, and a debug build panics.
 	#[doc(alias("SetOwnerEntity", "m_hOwnerEntity"))]
 	pub fn set_owner(self, owner: Option<Entity<'_>>) {
+		if PhysicsCallbackScope::is_entered() {
+			debug_assert!(
+				false,
+				"an entity's owner cannot change during a VPhysics callback"
+			);
+			return;
+		}
+
 		// SAFETY: The entities are live during `'s`, on the main thread, and
 		// every game DLL's vtable has `SetOwnerEntity` where the generated one
-		// does. The game defers its own damage and removals during VPhysics
-		// callbacks, and buffers the touches it runs from them, so the plugin
-		// callbacks `'s` lies in are not known to run within one.
+		// does. The call does not come within a `PhysicsCallbackScope`, which
+		// the dispatchers of the hooks known to run, or able to run, during
+		// VPhysics' step enter, and no other callback `'s` lies in is known to
+		// run during it, as `PhysicsObject`'s documentation says, which also
+		// names what is not proven.
 		unsafe {
 			sdk_raw::entities::set_owner_entity(
 				self.as_ptr(),

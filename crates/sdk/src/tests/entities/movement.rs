@@ -3,9 +3,107 @@
 //! and the move types the game sets.
 
 use super::*;
-use crate::test_support::entities::{MockEntity, set_datamap, state_maps};
+
+use crate::test_support::entities::{
+	MOCK_EFLAGS_OFFSET, MOCK_STATE_OFFSET, MockEntity, MockPhysicsObject, MockState, set_datamap,
+	state_maps,
+};
+
 use crate::test_support::sdk_core::change_tracking_engine;
 use crate::test_support::server_tools::MockTools;
+use std::mem::offset_of;
+
+#[test]
+fn a_physics_object_is_only_used_while_its_entity_holds_it() {
+	let mut mock = MockEntity::new(5);
+	let entity = mock.as_ptr();
+	let object = MockPhysicsObject::leaked();
+	let other = MockPhysicsObject::leaked();
+
+	// Sets the entity's object, as the game would while the wrappers hold it.
+	let set = |object: *mut c_void| {
+		// SAFETY: The mock stores the aligned member at its offset, within its 64
+		// words.
+		unsafe {
+			entity
+				.byte_add(MOCK_STATE_OFFSET + offset_of!(MockState, physics_object))
+				.cast::<*mut c_void>()
+				.write(object)
+		}
+	};
+
+	set_datamap(state_maps(vec![]));
+	assert_eq!(mock.entity().physics_object(), Ok(None));
+
+	set(object.as_ptr());
+
+	let held = mock.entity().physics_object().unwrap().unwrap();
+
+	assert_eq!(held.collisions_enabled(), Ok(true));
+	assert_eq!(held.set_collisions_enabled(false), Ok(()));
+	assert_eq!(held.collisions_enabled(), Ok(false));
+	assert!(!object.enabled());
+	assert_eq!(held.motion_enabled(), Ok(true));
+
+	object.set_moving(false);
+	assert_eq!(held.motion_enabled(), Ok(false));
+
+	// Within a VPhysics callback's scope, collisions do not change, until the
+	// last scope ends.
+	let outer = PhysicsCallbackScope::enter();
+	let inner = PhysicsCallbackScope::enter();
+
+	assert_eq!(
+		held.set_collisions_enabled(true),
+		Err(PhysicsObjectError::Simulating)
+	);
+
+	drop(inner);
+	assert_eq!(
+		held.set_collisions_enabled(true),
+		Err(PhysicsObjectError::Simulating)
+	);
+
+	drop(outer);
+	assert!(!object.enabled());
+
+	// A scope also ends as a panic unwinds out of its callback.
+	let unwound = std::panic::catch_unwind(|| {
+		let _scope = PhysicsCallbackScope::enter();
+		panic!("the callback panics, as this test means it to");
+	});
+
+	assert!(unwound.is_err());
+	assert!(!PhysicsCallbackScope::is_entered());
+
+	// Once the game replaces or destroys the object, it is not called.
+	set(other.as_ptr());
+	assert_eq!(
+		held.set_collisions_enabled(true),
+		Err(PhysicsObjectError::Gone)
+	);
+
+	set(std::ptr::null_mut());
+	assert_eq!(held.collisions_enabled(), Err(PhysicsObjectError::Gone));
+
+	set(object.as_ptr());
+
+	// SAFETY: The mock stores the aligned flags at their offset, within its 64
+	// words.
+	unsafe {
+		entity
+			.byte_add(MOCK_EFLAGS_OFFSET)
+			.cast::<c_int>()
+			.write(EFL_KILLME)
+	};
+
+	assert_eq!(
+		held.set_collisions_enabled(true),
+		Err(PhysicsObjectError::MarkedForDeletion)
+	);
+
+	assert_eq!((object.switches(), other.switches()), (1, 0));
+}
 
 #[test]
 fn absolute_angles_are_only_read_once_computed() {

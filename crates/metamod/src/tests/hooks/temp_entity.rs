@@ -4,6 +4,7 @@
 use super::*;
 use crate::test_support::harness::{Harness, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::raw::abi::VTABLE_SLOT_SIZE;
 use source_sdk_2013::raw::vtable_slot;
 use std::cell::RefCell;
@@ -94,8 +95,38 @@ enum Seen {
 	Queued(String),
 }
 
-/// The callback, which notes what it saw and blocks explosions.
+#[test]
+fn a_callback_that_panics_leaves_no_physics_callback_scope() {
+	fn panics(_server: Server<'_>, _played: &PlayedTempEntity<'_>) -> TempEntityAction {
+		panic!("the callback panics, as this test means it to");
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let mut engine = Engine::new();
+		let mut filter = Filter::new(vec![2], false);
+
+		// SAFETY: As above.
+		unsafe {
+			api.install_playback_temp_entity(engine.ptr(), tf2_binding(no_interfaces), panics)
+		}
+		.unwrap();
+
+		// The panic is contained, the engine queues the entity, and `play` checks
+		// that no scope is left entered.
+		assert_eq!(
+			play(harness, &mut engine, &mut filter, c"DT_TEFireBullets", 0.0),
+			[Seen::Queued("DT_TEFireBullets".to_owned())]
+		);
+	});
+}
+
+/// The callback, which notes what it saw and blocks explosions, and checks
+/// that it runs within a [`PhysicsCallbackScope`].
 fn block_explosions(_server: Server<'_>, played: &PlayedTempEntity<'_>) -> TempEntityAction {
+	// Within the scope, or the panic leaves the call unseen.
+	assert!(PhysicsCallbackScope::is_entered());
+
 	let table = played.table.to_str().unwrap();
 
 	SEEN.with_borrow_mut(|seen| {
@@ -259,6 +290,7 @@ fn play(
 			11,
 		),
 	);
+	assert!(!PhysicsCallbackScope::is_entered());
 
 	SEEN.take()
 }

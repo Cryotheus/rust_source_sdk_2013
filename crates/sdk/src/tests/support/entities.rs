@@ -389,6 +389,72 @@ impl MockEntity {
 	}
 }
 
+/// A VPhysics object whose `IsCollisionEnabled` and `EnableCollisions` keep
+/// whether its collisions are enabled, which they are from its creation, as
+/// the physics library's are, and count the calls to `EnableCollisions`, and
+/// whose `IsMotionEnabled` tells what [`set_moving`](Self::set_moving) set,
+/// moving from its creation.
+///
+/// For tests only. It is leaked, and only changed through its cells.
+#[repr(C)]
+pub struct MockPhysicsObject {
+	object: sys::IPhysicsObject,
+	enabled: Cell<bool>,
+	switches: Cell<usize>,
+	moving: Cell<bool>,
+}
+
+impl MockPhysicsObject {
+	/// Builds a leaked object, with its collisions enabled.
+	pub fn leaked() -> &'static Self {
+		// SAFETY: The vtable holds only function pointers, `unexpected_call`
+		// aborts whichever slot reaches it, and the patch only writes slots of
+		// the vtable being built.
+		let vtable = unsafe {
+			mock_vtable::<sys::IPhysicsObject__bindgen_vtable>(
+				unexpected_call as *const (),
+				|vtable| {
+					(&raw mut (*vtable).IPhysicsObject_IsCollisionEnabled)
+						.write(physics_object_collisions_enabled);
+					(&raw mut (*vtable).IPhysicsObject_EnableCollisions)
+						.write(physics_object_enable_collisions);
+					(&raw mut (*vtable).IPhysicsObject_IsMotionEnabled)
+						.write(physics_object_motion_enabled);
+				},
+			)
+		};
+
+		Box::leak(Box::new(Self {
+			object: sys::IPhysicsObject {
+				vtable_: Box::leak(vtable),
+			},
+			enabled: Cell::new(true),
+			switches: Cell::new(0),
+			moving: Cell::new(true),
+		}))
+	}
+
+	/// The object's address, as the game stores it.
+	pub fn as_ptr(&'static self) -> *mut c_void {
+		ptr::from_ref(self).cast_mut().cast()
+	}
+
+	/// Whether the object's collisions are enabled.
+	pub fn enabled(&self) -> bool {
+		self.enabled.get()
+	}
+
+	/// Sets whether the object moves, as `IsMotionEnabled` tells.
+	pub fn set_moving(&self, moving: bool) {
+		self.moving.set(moving);
+	}
+
+	/// How many times `EnableCollisions` was called.
+	pub fn switches(&self) -> usize {
+		self.switches.get()
+	}
+}
+
 /// Members of `CBaseEntity` that mock entities store from
 /// [`MOCK_STATE_OFFSET`] on, as [`state_fields`] declares them, with the
 /// types their datamap declares.
@@ -454,7 +520,8 @@ pub struct MockState {
 	/// `m_iParentAttachment`.
 	pub parent_attachment: u8,
 
-	/// `m_pPhysicsObject`, which only the wrappers' null checks read.
+	/// `m_pPhysicsObject`: null, or a [`MockPhysicsObject`] wherever a wrapper
+	/// calls it.
 	pub physics_object: *mut c_void,
 
 	/// `m_angAbsRotation`.
@@ -729,6 +796,31 @@ unsafe extern "C" fn is_alive(this: *mut sys::CBaseEntity) -> bool {
 /// For tests only.
 pub fn models_set() -> Vec<(*mut sys::CBaseEntity, CString)> {
 	MODELS_SET.with_borrow(Clone::clone)
+}
+
+/// `IPhysicsObject::IsCollisionEnabled` of a [`MockPhysicsObject`].
+unsafe extern "C" fn physics_object_collisions_enabled(this: *const sys::IPhysicsObject) -> bool {
+	// SAFETY: Only mock objects have this vtable, and they start with the
+	// interface.
+	unsafe { &*this.cast::<MockPhysicsObject>() }.enabled()
+}
+
+/// `IPhysicsObject::EnableCollisions` of a [`MockPhysicsObject`].
+unsafe extern "C" fn physics_object_enable_collisions(
+	this: *mut sys::IPhysicsObject,
+	enabled: bool,
+) {
+	// SAFETY: As for `physics_object_collisions_enabled`.
+	let object = unsafe { &*this.cast::<MockPhysicsObject>() };
+
+	object.enabled.set(enabled);
+	object.switches.set(object.switches() + 1);
+}
+
+/// `IPhysicsObject::IsMotionEnabled` of a [`MockPhysicsObject`].
+unsafe extern "C" fn physics_object_motion_enabled(this: *const sys::IPhysicsObject) -> bool {
+	// SAFETY: As for `physics_object_collisions_enabled`.
+	unsafe { &*this.cast::<MockPhysicsObject>() }.moving.get()
 }
 
 /// Makes mock entities on this thread report no collideable, until the next

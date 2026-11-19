@@ -38,8 +38,19 @@
 //! player's, and
 //! [`TfPlayer::remove_ragdoll`](crate::tf2::player::TfPlayer::remove_ragdoll)
 //! removes it.
+//!
+//! # Physics objects
+//!
+//! A `prop_ragdoll` has a VPhysics object for each of its parts, which
+//! [`RagdollPhysicsObjects`] goes over, to switch their collisions, for
+//! example.
+
+#[cfg(test)]
+#[path = "../tests/tf2/ragdolls.rs"]
+mod tests;
 
 use crate::datatables::{NetProp, NetPropError, NetValue, NetVar};
+use crate::entities::movement::{PhysicsCallbackScope, PhysicsObject};
 use crate::entities::{CollisionGroup, Entity};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
@@ -49,9 +60,10 @@ use crate::tf2::damage::{DamageInfo, DamageType};
 use crate::tf2::teams::Team;
 use crate::{Game, InterfaceError, Server};
 use sdk_raw::tf2::damage::DMG_VEHICLE;
-use sdk_raw::tf2::ragdolls::{self as raw, RAGDOLL_MAX_ELEMENTS};
+use sdk_raw::tf2::ragdolls::{self as raw, RAGDOLL_MAX_ELEMENTS, RagdollObjectFields};
 use std::ffi::{CStr, c_int};
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 /// The input that shows a `prop_ragdoll` (`CRagdollProp::InputTurnOn`), by
 /// clearing `EF_NODRAW`, which also has the engine send it to clients again.
@@ -91,6 +103,11 @@ pub enum RagdollError {
 	/// again.
 	#[error("the new ragdoll could not be shown")]
 	NotShown(#[source] InputError),
+
+	/// The call came within a [`PhysicsCallbackScope`], while VPhysics may
+	/// simulate.
+	#[error("a ragdoll cannot be created during a VPhysics callback")]
+	Simulating,
 
 	/// The game server module's `CreateServerRagdoll` was not found, as
 	/// [`sdk_raw::tf2::ragdolls`] describes.
@@ -190,6 +207,163 @@ impl RagdollFlag {
 	}
 }
 
+/// Why a `prop_ragdoll`'s physics objects could not be found.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RagdollObjectsError {
+	/// The entity is not a `prop_ragdoll`.
+	#[error("the entity is not a prop_ragdoll")]
+	NotRagdoll,
+
+	/// The datamap of the ragdoll's class does not declare its physics
+	/// objects as expected.
+	#[error("the ragdoll's datamap does not declare its physics objects as expected")]
+	UnexpectedFields,
+}
+
+/// The physics objects of a `prop_ragdoll`, one for each of its parts in use,
+/// within the scope its entity is borrowed for: an iterator over the
+/// [`PhysicsObject`]s the ragdoll holds, each exactly once.
+///
+/// Its parts are the elements of its list (`m_ragdoll.list`), of which the
+/// first `m_ragdoll.listCount` are in use, at most
+/// [`RAGDOLL_MAX_ELEMENTS`]. Every element's object is read from the list,
+/// where [`raw::find_ragdoll_object_fields`] finds them: elements 1 on as the
+/// ragdoll's datamap declares them, and element 0 one element before
+/// element 1. The entity's own object
+/// ([`physics_object`](Entity::physics_object)) is not read, as it may point
+/// at any of the parts: the game points it at a part a trace attack, such as
+/// a bullet, hits. An element without an object is skipped. The count is read
+/// again at each step, and each object checks its element is still in use
+/// whenever it is used.
+///
+/// Switching a ragdoll's collisions is one
+/// [`set_collisions_enabled`](PhysicsObject::set_collisions_enabled) for each
+/// object, with the care its documentation asks for.
+///
+/// # Unverified
+///
+/// The datamap's members are TF2's, as its server module names them. Only a
+/// Linux TF2 server has tested this, and no Windows one. That element 0's
+/// object lies one element before element 1's is inferred from the members
+/// being the elements of one array, which their names say. The checks bear
+/// out only that it can lie there: [`raw::find_ragdoll_object_fields`] finds
+/// the 23 the map declares one stride apart, and
+/// [`raw::ragdoll_element_0_undeclared`] finds no member of the entity's
+/// maps declared where element 0's object is taken to lie.
+#[doc(alias("prop_ragdoll", "CRagdollProp", "m_ragdoll"))]
+#[derive(Debug, Clone)]
+pub struct RagdollPhysicsObjects<'s> {
+	ragdoll: Entity<'s>,
+	fields: RagdollObjectFields,
+	/// The next element to look at.
+	next: usize,
+}
+
+impl<'s> RagdollPhysicsObjects<'s> {
+	/// The physics objects of `ragdoll`, a `prop_ragdoll`.
+	///
+	/// Fails with [`RagdollObjectsError::NotRagdoll`] unless the entity's
+	/// datamaps include the map of a `prop_ragdoll`'s class
+	/// ([`raw::RAGDOLL_PROP_CLASS`]), and with
+	/// [`RagdollObjectsError::UnexpectedFields`] unless that map declares the
+	/// objects as [`raw::find_ragdoll_object_fields`] expects, or if any of the
+	/// entity's maps declares a member where element 0's object is taken to
+	/// lie ([`raw::ragdoll_element_0_undeclared`]). The members are found in
+	/// the first ragdoll's maps, and kept for its class.
+	pub fn new(ragdoll: Entity<'s>) -> Result<Self, RagdollObjectsError> {
+		static FOUND: OnceLock<(usize, RagdollObjectFields)> = OnceLock::new();
+
+		let map = ragdoll
+			.data_maps()
+			.find(|map| map.class_name() == Some(raw::RAGDOLL_PROP_CLASS))
+			.ok_or(RagdollObjectsError::NotRagdoll)?;
+
+		let address = map.as_ptr().addr();
+
+		let fields = match FOUND.get() {
+			Some(&(found, fields)) if found == address => fields,
+
+			_ => {
+				let fields = raw::find_ragdoll_object_fields(map)
+					.filter(|fields| raw::ragdoll_element_0_undeclared(ragdoll.data_maps(), fields))
+					.ok_or(RagdollObjectsError::UnexpectedFields)?;
+
+				// A game has one map for the class, so another is only searched,
+				// never kept.
+				let _ = FOUND.set((address, fields));
+				fields
+			}
+		};
+
+		Ok(Self {
+			ragdoll,
+			fields,
+			next: 0,
+		})
+	}
+
+	/// How many of the ragdoll's elements are in use, as its count says, at
+	/// most [`RAGDOLL_MAX_ELEMENTS`], and none for a negative count.
+	fn in_use(&self) -> usize {
+		// SAFETY: The ragdoll is live for `'s`, and its class's map declares an
+		// `int` at the offset, aligned for it, which is read without forming a
+		// reference, as the game writes it too, on this, the main thread.
+		let count = unsafe {
+			self.ragdoll
+				.as_ptr()
+				.byte_add(self.fields.count)
+				.cast::<c_int>()
+				.read()
+		};
+
+		count.clamp(0, RAGDOLL_MAX_ELEMENTS).cast_unsigned() as usize
+	}
+}
+
+impl<'s> Iterator for RagdollPhysicsObjects<'s> {
+	type Item = PhysicsObject<'s>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		while self.next < self.in_use() {
+			let element = self.next;
+
+			self.next += 1;
+
+			// SAFETY: `find_ragdoll_object_fields` checked that the ragdoll's class's
+			// map declares the objects of elements 1 on as pointers, one stride
+			// apart, and the count as an `int`, at offsets aligned for them and under
+			// the limit, and that element 0's offset, one stride before element 1's,
+			// is aligned, under the limit, past the entity's first pointer, and clear
+			// of the count. For the first ragdoll it met, `new` checked that none of
+			// the entity's maps declares a member there
+			// (`ragdoll_element_0_undeclared`), and it keeps what it found by the
+			// address of the ragdoll class's own map, so it checks no later ragdoll
+			// again. One of the same class has the same maps. One of a class deriving
+			// from it may have a map of its own that was never checked, but its
+			// class's own members lie after those of the ragdoll class it derives
+			// from, among which element 0's object lies, so none of them can lie
+			// there. Inferred, not checked: the declared members are elements 1 to 23
+			// of one array, as their names say, so element 0's object lies one stride
+			// before element 1's, as an array's elements do under MSVC and GCC alike.
+			// That is the case `from_member` allows for an element its maps leave
+			// out.
+			let object = unsafe {
+				PhysicsObject::from_member(
+					self.ragdoll,
+					self.fields.objects[element],
+					Some((self.fields.count, element)),
+				)
+			};
+
+			if object.is_some() {
+				return object;
+			}
+		}
+
+		None
+	}
+}
+
 /// TF2's `CreateServerRagdoll`, within the current engine callback.
 #[doc(alias("CreateServerRagdoll"))]
 #[derive(Debug, Clone, Copy)]
@@ -249,7 +423,10 @@ impl<'s> ServerRagdolls<'s> {
 	/// Fails with [`RagdollError::MarkedForDeletion`] or
 	/// [`RagdollError::NotAnimating`] for such an `animating`, and with
 	/// [`RagdollError::NoCollisionModel`] unless its model is a studio model
-	/// whose collision model has 1 to [`RAGDOLL_MAX_ELEMENTS`] solids. The
+	/// whose collision model has 1 to [`RAGDOLL_MAX_ELEMENTS`] solids. It
+	/// fails with [`RagdollError::Simulating`] within a
+	/// [`PhysicsCallbackScope`], as creating physics objects is only known to
+	/// be safe outside of VPhysics' simulation. The
 	/// [module documentation](self#lifetime) describes how long the ragdoll
 	/// stays.
 	#[doc(alias("CreateServerRagdoll"))]
@@ -260,6 +437,10 @@ impl<'s> ServerRagdolls<'s> {
 		info: &DamageInfo,
 		group: CollisionGroup,
 	) -> Result<Entity<'s>, RagdollError> {
+		if PhysicsCallbackScope::is_entered() {
+			return Err(RagdollError::Simulating);
+		}
+
 		if animating.is_marked_for_deletion() {
 			return Err(RagdollError::MarkedForDeletion);
 		}
@@ -303,19 +484,21 @@ impl<'s> ServerRagdolls<'s> {
 
 		// SAFETY: The game server module stays loaded through the callback, which
 		// runs on the main thread (conditions 1 and 3 of `Server::new`), and the
-		// game creates entities in plugin callbacks, none of which is known to
-		// run within VPhysics' simulation or its callbacks, from which the game
-		// defers its damage and removals. `animating` is live during `'s`, not
-		// marked for deletion, and a `CBaseAnimating`, whose networked class
-		// derives from `DT_BaseAnimating`, at the address of its `CBaseEntity`,
-		// as `sdk_raw::tf2` asserts for the bases of TF2's players. Its model is
-		// a studio model with 1 to `RAGDOLL_MAX_ELEMENTS` solids. The damage copy
-		// lives through the call. `CreateServerRagdoll` creates the ragdoll
-		// without spawning it (`CreateNoSpawn`), copies the model and effects,
-		// sets its owner, sets up `animating`'s bones twice, creates the physics
-		// objects (`InitRagdoll`), creates and spawns an `env_entity_dissolver`
-		// if `animating` is dissolving, and sets the collision bounds. None of
-		// this frees an entity, so condition 4 holds.
+		// game creates entities in plugin callbacks. The call does not come
+		// within a `PhysicsCallbackScope`, which the dispatchers of the hooks
+		// known to run, or able to run, during VPhysics' step enter, and no other
+		// callback `'s` lies in is known to run during it, as `PhysicsObject`'s
+		// documentation says, which also names what is not proven. `animating`
+		// is live during `'s`, not marked for deletion, and a `CBaseAnimating`,
+		// whose networked class derives from `DT_BaseAnimating`, at the address
+		// of its `CBaseEntity`, as `sdk_raw::tf2` asserts for the bases of TF2's
+		// players. Its model is a studio model with 1 to `RAGDOLL_MAX_ELEMENTS`
+		// solids. The damage copy lives through the call. `CreateServerRagdoll`
+		// creates the ragdoll without spawning it (`CreateNoSpawn`), copies the
+		// model and effects, sets its owner, sets up `animating`'s bones twice,
+		// creates the physics objects (`InitRagdoll`), creates and spawns an
+		// `env_entity_dissolver` if `animating` is dissolving, and sets the
+		// collision bounds. None of this frees an entity, so condition 4 holds.
 		let ragdoll = unsafe {
 			self.raw.create(
 				NonNull::new(animating.as_ptr()).unwrap().cast(),

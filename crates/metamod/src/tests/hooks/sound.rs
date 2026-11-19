@@ -4,6 +4,7 @@
 use super::*;
 use crate::test_support::harness::{Harness, on_both};
 use crate::test_support::server::{no_interfaces, tf2_binding};
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::raw::abi::VTABLE_SLOT_SIZE;
 use source_sdk_2013::raw::vtable_slot;
 use std::cell::RefCell;
@@ -94,6 +95,31 @@ enum Seen {
 }
 
 #[test]
+fn a_callback_that_panics_leaves_no_physics_callback_scope() {
+	fn panics(_server: Server<'_>, _sound: &EmittedSound<'_>) -> EmitSoundAction {
+		panic!("the callback panics, as this test means it to");
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let mut engine = Engine::new();
+		let mut filter = Filter::new(vec![2], false);
+
+		// SAFETY: The mock interface has `EmitSound` at the slot, and is leaked
+		// with its vtable.
+		unsafe { api.install_emit_sound(engine.ptr(), tf2_binding(no_interfaces), panics) }
+			.unwrap();
+
+		// The panic is contained, the engine emits the sound, and `emit` checks
+		// that no scope is left entered.
+		assert_eq!(
+			emit(harness, &mut engine, &mut filter, c"vo/null.mp3", None),
+			[Seen::Emitted("vo/null.mp3".to_owned())]
+		);
+	});
+}
+
+#[test]
 fn announcer_samples_are_blocked_and_others_reach_the_engine() {
 	on_both(|harness| {
 		let api = harness.api();
@@ -171,8 +197,12 @@ fn announcer_samples_are_blocked_and_others_reach_the_engine() {
 	});
 }
 
-/// The callback, which notes what it saw and blocks the announcer's samples.
+/// The callback, which notes what it saw and blocks the announcer's samples,
+/// and checks that it runs within a [`PhysicsCallbackScope`].
 fn block_announcer(_server: Server<'_>, sound: &EmittedSound<'_>) -> EmitSoundAction {
+	// Within the scope, or the panic leaves the call unseen.
+	assert!(PhysicsCallbackScope::is_entered());
+
 	let sample = sound.sample.to_str().unwrap();
 
 	SEEN.with_borrow_mut(|seen| {
@@ -226,6 +256,7 @@ fn emit(
 			-1,
 		),
 	);
+	assert!(!PhysicsCallbackScope::is_entered());
 
 	SEEN.take()
 }

@@ -40,6 +40,27 @@ impl Mock {
 }
 
 #[test]
+fn a_callback_that_panics_leaves_no_physics_callback_scope() {
+	fn panics(_server: Server<'_>, _entity: Entity<'_>) {
+		panic!("the callback panics, as this test means it to");
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let mut script = Mock::of_new_class(game_run_vscripts);
+		let address = script.ptr().as_ptr().addr();
+
+		// SAFETY: The mock class has `RunVScripts` at the slot, and is leaked.
+		unsafe { api.install_scripts(script.vtable(), tf2_binding(no_interfaces), panics) }
+			.unwrap();
+
+		// The panic is contained, the game's scripts ran, and `run_scripts`
+		// checks that no scope is left entered.
+		assert_eq!(run_scripts(harness, &mut script), [("game", address)]);
+	});
+}
+
+#[test]
 fn callbacks_run_before_the_scripts() {
 	on_both(|harness| {
 		let api = harness.api();
@@ -127,14 +148,21 @@ unsafe extern "C" fn game_run_vscripts(this: *mut sys::CBaseEntity) {
 	CALLS.with_borrow_mut(|calls| calls.push(("game", this.addr())));
 }
 
-/// The callback, which notes the entity it saw.
+/// The callback, which notes the entity it saw, and checks that it runs within
+/// a [`PhysicsCallbackScope`].
 fn on_scripts(_server: Server<'_>, entity: Entity<'_>) {
+	// Within the scope, or the panic leaves the call unseen.
+	assert!(PhysicsCallbackScope::is_entered());
 	CALLS.with_borrow_mut(|calls| calls.push(("callback", entity.as_ptr().addr())));
 }
 
-/// Calls `entity`'s hooked `RunVScripts`, and returns what ran.
+/// Calls `entity`'s hooked `RunVScripts`, checks that no
+/// [`PhysicsCallbackScope`] is left entered, and returns what ran.
 fn run_scripts(harness: &Harness, entity: &mut Mock) -> Vec<(&'static str, usize)> {
 	CALLS.take();
 	harness.call::<RunVScripts>(entity.ptr().as_ptr(), RUN_VSCRIPTS_SLOT, ());
+
+	// Even after a callback that panicked.
+	assert!(!PhysicsCallbackScope::is_entered());
 	CALLS.take()
 }

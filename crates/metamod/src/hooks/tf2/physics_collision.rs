@@ -22,6 +22,7 @@ use crate::MetamodApi;
 use crate::hook::{HookAction, HookCall, HookTiming, VirtualFunction};
 use crate::hooks::tf2::class::ClassHooks;
 use source_sdk_2013::entities::Entity;
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 
 use source_sdk_2013::raw::tf2::virtuals::{
 	FORCE_VPHYSICS_COLLIDE_SLOT, ForceVPhysicsCollideFn as ForceVPhysicsCollide,
@@ -107,6 +108,10 @@ fn decide<'s>(
 	// which stays in the entity list through the call, on the main thread
 	// during the engine's invocation the dispatcher runs in.
 	let other = unsafe { Entity::from_live(server, other) };
+
+	// VPhysics asks during its step, so the callback runs in a scope that
+	// keeps it from changing what the library tests for collisions.
+	let _scope = PhysicsCallbackScope::enter();
 
 	match callback(server, entity, other) {
 		ForceCollideAction::Continue => HookAction::Ignore,

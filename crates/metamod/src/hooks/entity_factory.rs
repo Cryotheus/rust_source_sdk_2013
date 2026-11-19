@@ -18,6 +18,12 @@
 //! UTIL_PrecacheOther`). Callers that do not check crash, which is why
 //! installing the hook is unsafe.
 //!
+//! The game may create entities during VPhysics' simulation, from its handlers
+//! of collisions, so the callback runs within a [`PhysicsCallbackScope`]: it
+//! must not change what the physics library simulates, and
+//! [`PhysicsObject::set_collisions_enabled`](source_sdk_2013::entities::movement::PhysicsObject::set_collisions_enabled)
+//! fails there, as do the other calls that refuse within the scope.
+//!
 //! Hooks last until removed or the plugin unloads. As with other Metamod
 //! hooks, they stop calling callbacks while the plugin is paused, so the game
 //! creates the class's entities as usual then.
@@ -33,6 +39,7 @@ use crate::hook::{
 };
 
 use source_sdk_2013::entities::factory::EntityFactory;
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::raw::entities::factory::{CREATE_SLOT, CreateFn};
 use source_sdk_2013::{Server, ServerBinding, sys};
 use std::cell::Cell;
@@ -98,6 +105,11 @@ impl Handler<CreateFn> for FactoryRoute {
 		// SAFETY: The hook dispatcher runs on the main thread during one live
 		// engine invocation. Binding was supplied during plugin integration.
 		let server = unsafe { route.binding.server(&scope) };
+
+		// The game may create entities during VPhysics' step, from its handlers
+		// of collisions, so the callback runs in a scope that keeps it from
+		// changing what the library tests for collisions.
+		let _physics = PhysicsCallbackScope::enter();
 
 		match (route.callback)(server, class_name) {
 			CreateAction::Allow => HookAction::Ignore,

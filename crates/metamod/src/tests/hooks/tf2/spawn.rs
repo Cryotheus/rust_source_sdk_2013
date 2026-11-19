@@ -39,6 +39,26 @@ impl Mock {
 	}
 }
 
+#[test]
+fn a_callback_that_panics_leaves_no_physics_callback_scope() {
+	fn panics(_server: Server<'_>, _entity: Entity<'_>) {
+		panic!("the callback panics, as this test means it to");
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let mut flames = Mock::of_new_class();
+		let address = flames.ptr().addr().get();
+
+		// SAFETY: The mock class has `Spawn` at the slot, and is leaked.
+		unsafe { api.install_spawns(flames.vtable(), tf2_binding(no_interfaces), panics) }.unwrap();
+
+		// The panic is contained, the game's `Spawn` ran, and `spawn` checks that
+		// no scope is left entered.
+		assert_eq!(spawn(harness, &mut flames), [("game", address)]);
+	});
+}
+
 /// Another callback, which only notes that it ran.
 fn also_on_spawned(_server: Server<'_>, entity: Entity<'_>) {
 	note("also", entity.as_ptr().addr());
@@ -54,15 +74,22 @@ fn note(name: &'static str, entity: usize) {
 	CALLS.with_borrow_mut(|calls| calls.push((name, entity)));
 }
 
-/// The callback, which notes that it ran.
+/// The callback, which notes that it ran, and checks that it runs within a
+/// [`PhysicsCallbackScope`].
 fn on_spawned(_server: Server<'_>, entity: Entity<'_>) {
+	// Within the scope, or the panic leaves the call unseen.
+	assert!(PhysicsCallbackScope::is_entered());
 	note("spawned", entity.as_ptr().addr());
 }
 
-/// Calls `entity`'s hooked `Spawn`, and returns what ran.
+/// Calls `entity`'s hooked `Spawn`, checks that no [`PhysicsCallbackScope`]
+/// is left entered, and returns what ran.
 fn spawn(harness: &Harness, entity: &mut Mock) -> Vec<(&'static str, usize)> {
 	CALLS.take();
 	harness.call::<Spawn>(entity.ptr().as_ptr(), SPAWN_SLOT, ());
+
+	// Even after a callback that panicked.
+	assert!(!PhysicsCallbackScope::is_entered());
 	CALLS.take()
 }
 

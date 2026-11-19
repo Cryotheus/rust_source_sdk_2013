@@ -5,6 +5,7 @@
 use super::*;
 use crate::test_support::harness::on_both;
 use crate::test_support::server::{no_interfaces, tf2_binding};
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::sys;
 use source_sdk_2013::tf2::class_targets::ClassTarget;
 use std::cell::{Cell, RefCell};
@@ -18,6 +19,9 @@ thread_local! {
 
 	/// What [`on_force_collide`] decides.
 	static ACTION: Cell<ForceCollideAction> = const { Cell::new(ForceCollideAction::Continue) };
+
+	/// Whether [`on_force_collide`] panics instead.
+	static PANICS: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The game's `ForceVPhysicsCollide`, which notes that it ran, and forces no
@@ -62,6 +66,7 @@ fn hooks_force_collisions_before_the_game() {
 			CALLS.take();
 			let forced =
 				harness.call::<ForceVPhysicsCollide>(this, FORCE_VPHYSICS_COLLIDE_SLOT, (other,));
+			assert!(!PhysicsCallbackScope::is_entered());
 			(forced, CALLS.take())
 		};
 		let (this_addr, other_addr) = (this.addr(), other.addr());
@@ -83,6 +88,14 @@ fn hooks_force_collisions_before_the_game() {
 		ACTION.set(ForceCollideAction::Collide);
 		assert_eq!(forced(other), (true, vec![("hook", this_addr, other_addr)]));
 
+		// A callback that panics leaves the game to decide, and no scope entered.
+		PANICS.set(true);
+		assert_eq!(
+			forced(other),
+			(false, vec![("game", this_addr, other_addr)])
+		);
+		PANICS.set(false);
+
 		// Without another entity, the game decides alone.
 		assert_eq!(
 			forced(ptr::null_mut()),
@@ -91,14 +104,26 @@ fn hooks_force_collisions_before_the_game() {
 	});
 }
 
-/// The callback, which notes the call and decides [`ACTION`].
+/// The callback, which notes the call and decides [`ACTION`], or panics while
+/// [`PANICS`] says so.
 fn on_force_collide(
 	_server: Server<'_>,
 	entity: Entity<'_>,
 	other: Entity<'_>,
 ) -> ForceCollideAction {
+	if PANICS.get() {
+		panic!("the callback panics, as this test means it to");
+	}
+
+	// The dispatcher keeps the callback from changing collisions.
+	let hook = if PhysicsCallbackScope::is_entered() {
+		"hook"
+	} else {
+		"hook out of its scope"
+	};
+
 	CALLS.with_borrow_mut(|calls| {
-		calls.push(("hook", entity.as_ptr().addr(), other.as_ptr().addr()));
+		calls.push((hook, entity.as_ptr().addr(), other.as_ptr().addr()));
 	});
 	ACTION.get()
 }

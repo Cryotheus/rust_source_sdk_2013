@@ -4,6 +4,7 @@
 use super::*;
 use crate::test_support::harness::on_both;
 use crate::test_support::server::{no_interfaces, tf2_binding};
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::sys;
 use source_sdk_2013::tf2::class_targets::ClassTarget;
 use std::cell::{Cell, RefCell};
@@ -17,6 +18,9 @@ thread_local! {
 
 	/// What [`on_should_collide`] decides.
 	static ACTION: Cell<CollideAction> = const { Cell::new(CollideAction::Continue) };
+
+	/// Whether [`on_should_collide`] panics instead.
+	static PANICS: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The game's `ShouldCollide`, which notes that it ran, and collides with
@@ -60,6 +64,7 @@ fn hooks_decide_collisions_before_the_game() {
 			CALLS.take();
 			let collides =
 				harness.call::<ShouldCollide>(this, SHOULD_COLLIDE_SLOT, (group, contents));
+			assert!(!PhysicsCallbackScope::is_entered());
 			(collides, CALLS.take())
 		};
 
@@ -79,16 +84,36 @@ fn hooks_decide_collisions_before_the_game() {
 
 		ACTION.set(CollideAction::Collide);
 		assert_eq!(collides(4), (true, vec![("hook", 4, unsigned)]));
+
+		// A callback that panics leaves the game to decide, and no scope entered.
+		PANICS.set(true);
+		assert_eq!(
+			collides(5),
+			(true, vec![("game", 5, contents.cast_unsigned())])
+		);
+		PANICS.set(false);
 	});
 }
 
-/// The callback, which notes the call and decides [`ACTION`].
+/// The callback, which notes the call and decides [`ACTION`], or panics while
+/// [`PANICS`] says so.
 fn on_should_collide(
 	_server: Server<'_>,
 	_entity: Entity<'_>,
 	group: c_int,
 	contents: c_uint,
 ) -> CollideAction {
-	CALLS.with_borrow_mut(|calls| calls.push(("hook", group, contents)));
+	if PANICS.get() {
+		panic!("the callback panics, as this test means it to");
+	}
+
+	// The dispatcher keeps the callback from changing collisions.
+	let hook = if PhysicsCallbackScope::is_entered() {
+		"hook"
+	} else {
+		"hook out of its scope"
+	};
+
+	CALLS.with_borrow_mut(|calls| calls.push((hook, group, contents)));
 	ACTION.get()
 }

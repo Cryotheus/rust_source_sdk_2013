@@ -1,7 +1,8 @@
 //! TF2's server-side ragdolls: `CreateServerRagdoll`
 //! (`game/server/physics_prop_ragdoll.cpp`), which turns an animating entity's
 //! current pose into a new `prop_ragdoll` whose physics the server simulates,
-//! and the header values describing such ragdolls.
+//! the header values describing such ragdolls, and where a `prop_ragdoll`
+//! keeps its physics objects ([`find_ragdoll_object_fields`]).
 //!
 //! TF2's players instead become ragdolls their clients simulate, through
 //! `BecomeRagdollOnClient` and `CTFPlayer::CreateRagdollEntity`. The game
@@ -34,9 +35,14 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
+#[cfg(test)]
+#[path = "../../tests/tf2/ragdolls/mod.rs"]
+mod tests;
+
+use crate::entities::datamap::{DataMap, DataMaps};
 use crate::interfaces::CreateInterfaceFn;
 use crate::util::{ModuleCache, ModuleKey};
-use std::ffi::c_int;
+use std::ffi::{CStr, c_int};
 use std::mem::transmute;
 use std::ptr::{self, NonNull};
 
@@ -71,6 +77,19 @@ pub const NO_FORCE_BONE: c_int = -1;
 /// This is `RAGDOLL_MAX_ELEMENTS` from `game/shared/ragdoll_shared.h`.
 pub const RAGDOLL_MAX_ELEMENTS: c_int = 24;
 
+/// How many of a ragdoll's physics objects its map declares: every element's
+/// but the first.
+const RAGDOLL_OBJECT_MEMBERS: usize = RAGDOLL_MAX_ELEMENTS as usize - 1;
+
+/// The class of a `prop_ragdoll` (`CRagdollProp`), as its data description
+/// map names it.
+#[doc(alias("CRagdollProp", "prop_ragdoll"))]
+pub const RAGDOLL_PROP_CLASS: &CStr = c"CRagdollProp";
+
+/// The offset under which [`find_ragdoll_object_fields`] trusts a member of a
+/// `prop_ragdoll` to lie, well past the size of the class.
+pub const RAGDOLL_PROP_FIELD_OFFSET_LIMIT: usize = 16384;
+
 /// The `prop_ragdoll` spawn flag that lets it be dissolved.
 pub const SF_RAGDOLLPROP_ALLOW_DISSOLVE: c_int = 0x2000;
 
@@ -99,6 +118,33 @@ pub const SF_RAGDOLLPROP_USE_LRU_RETIREMENT: c_int = 0x1000;
 /// The last resolution [`ServerRagdolls::cached`] kept, with the module it
 /// was resolved in.
 static CACHE: ModuleCache<usize> = ModuleCache::new();
+
+/// Where a `prop_ragdoll` keeps its physics objects, in its `m_ragdoll`, as
+/// [`find_ragdoll_object_fields`] finds them.
+///
+/// The ragdoll has one physics object for each element of its list in use,
+/// the first `m_ragdoll.listCount` of [`RAGDOLL_MAX_ELEMENTS`]. The ragdoll's
+/// map declares only the objects of elements 1 on, an element's size apart, as
+/// members of an array are, so element 0's lies one element's size before
+/// element 1's.
+///
+/// The entity's own `m_pPhysicsObject`, which [`find_physics_object_field`]
+/// finds, holds one of the elements' objects too, but not always the same
+/// one: element 0's as the ragdoll is made, and another part's once a trace
+/// attack, such as a bullet, hits that part.
+///
+/// [`find_physics_object_field`]: crate::entities::find_physics_object_field
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RagdollObjectFields {
+	/// The offset of `m_ragdoll.listCount`, an `int`: how many elements of the
+	/// list are in use.
+	pub count: usize,
+
+	/// The offsets of `m_ragdoll.list[0].pObject` to
+	/// `m_ragdoll.list[23].pObject`, in order: each an `IPhysicsObject *`, null
+	/// for none.
+	pub objects: [usize; RAGDOLL_MAX_ELEMENTS as usize],
+}
 
 /// TF2's `CreateServerRagdoll`, resolved in a game server module.
 ///
@@ -263,4 +309,156 @@ pub enum ServerRagdollsError {
 	/// not match retail TF2's, as the [module documentation](self) describes.
 	#[error("the game's CreateServerRagdoll could not be found")]
 	Unresolved,
+}
+
+/// Finds where a `prop_ragdoll` keeps its physics objects, as `map`, the own
+/// map of its class ([`RAGDOLL_PROP_CLASS`]), declares them:
+/// `m_ragdoll.listCount` as one `FIELD_INTEGER` of 4 bytes, and each
+/// `m_ragdoll.list[i].pObject`, for `i` from 1 to 23, as one `FIELD_CUSTOM`
+/// member (`DEFINE_PHYSPTR`), whose size the map leaves out. Element 0's
+/// object, which the map does not declare, lies one element's size before
+/// element 1's, as the elements of an array do.
+///
+/// Fails closed, returning `None` unless the map declares the count and every
+/// one of these objects exactly once, each under
+/// [`RAGDOLL_PROP_FIELD_OFFSET_LIMIT`] and aligned for its type, with the
+/// objects an element's size apart, as members of an array are, element 0's
+/// past the entity's first pointer, the one to its table of virtual
+/// functions, and the count clear of all 24. A map that declares the object
+/// of element 0, or of an element past the most a ragdoll has, is another
+/// layout, and gives `None` too.
+///
+/// That element 0's object lies one element before element 1's is inferred
+/// from the members' names, which say they are elements 1 on of one array,
+/// and only the arithmetic above is checked here.
+/// [`ragdoll_element_0_undeclared`] checks against all of the entity's maps
+/// that no other member is declared there.
+#[doc(alias("m_ragdoll", "listCount", "pObject"))]
+pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectFields> {
+	let pointer = align_of::<*const ()>();
+	let mut count = None;
+	let mut objects = [None; RAGDOLL_OBJECT_MEMBERS];
+
+	for field in map.fields() {
+		let Some(name) = field.name() else {
+			continue;
+		};
+
+		if name == c"m_ragdoll.listCount" {
+			let offset = field.offset().filter(|&offset| {
+				field.fieldType == sys::_fieldtypes_FIELD_INTEGER
+					&& field.fieldSize == 1
+					&& usize::try_from(field.fieldSizeInBytes) == Ok(size_of::<c_int>())
+					&& offset < RAGDOLL_PROP_FIELD_OFFSET_LIMIT
+					&& offset.is_multiple_of(align_of::<c_int>())
+			})?;
+
+			if count.replace(offset).is_some() {
+				return None;
+			}
+		} else if let Some(element) = ragdoll_object_element(name.to_bytes()) {
+			let offset = field.offset().filter(|&offset| {
+				field.fieldType == sys::_fieldtypes_FIELD_CUSTOM
+					&& field.fieldSize == 1
+					&& offset < RAGDOLL_PROP_FIELD_OFFSET_LIMIT
+					&& offset.is_multiple_of(pointer)
+			})?;
+
+			// The map of this layout leaves element 0's out, and those past the
+			// last element are another layout's.
+			let slot = objects.get_mut(element.checked_sub(1)?)?;
+
+			if slot.replace(offset).is_some() {
+				return None;
+			}
+		}
+	}
+
+	let count = count?;
+	let mut declared = [0; RAGDOLL_OBJECT_MEMBERS];
+
+	for (declared, object) in declared.iter_mut().zip(objects) {
+		*declared = object?;
+	}
+
+	let stride = declared[1].checked_sub(declared[0])?;
+
+	// Element 0 lies one element before element 1, so its object is aligned
+	// and under the limit as element 1's is. It must lie past the pointer to
+	// the entity's table of virtual functions, at its start.
+	let first = declared[0]
+		.checked_sub(stride)
+		.filter(|&first| first >= size_of::<*const ()>())?;
+	let mut found = [first; RAGDOLL_MAX_ELEMENTS as usize];
+
+	found[1..].copy_from_slice(&declared);
+
+	// An element holds at least its object, and the array keeps the objects
+	// aligned, so the elements lie a whole number of pointers apart.
+	let in_array = stride >= pointer
+		&& stride.is_multiple_of(pointer)
+		&& (0..).zip(found).all(|(element, object)| {
+			stride
+				.checked_mul(element)
+				.and_then(|distance| first.checked_add(distance))
+				== Some(object)
+		});
+
+	let count_clear = found
+		.iter()
+		.all(|&object| count + size_of::<c_int>() <= object || object + pointer <= count);
+
+	(in_array && count_clear).then_some(RagdollObjectFields {
+		count,
+		objects: found,
+	})
+}
+
+/// Whether none of `maps`, all of a `prop_ragdoll`'s maps from its own class's
+/// towards `CBaseEntity`'s, declares a field over element 0's object in
+/// `fields`, the pointer [`find_ragdoll_object_fields`] takes to lie one
+/// element before element 1's, where no map declares it.
+///
+/// A field covers its offset and the `fieldSizeInBytes` after it, or only its
+/// offset for a field whose size its map leaves out, as `FIELD_CUSTOM` ones
+/// do. A field with a negative offset covers nothing. Element 0's object
+/// lies where a member of the ragdoll or of its bases is declared only if the
+/// declared objects are not the elements 1 on of one array after all, so this
+/// refuses that case. A word there that no map declares still passes: that
+/// part of the inference stays an inference.
+#[doc(alias("m_ragdoll", "pObject"))]
+pub fn ragdoll_element_0_undeclared(maps: DataMaps<'_>, fields: &RagdollObjectFields) -> bool {
+	let object = fields.objects[0];
+	let end = object + size_of::<*const ()>();
+
+	maps.flat_map(DataMap::fields).all(|field| {
+		let Some(offset) = field.offset() else {
+			return true;
+		};
+
+		let size = usize::try_from(field.fieldSizeInBytes).unwrap_or(0).max(1);
+
+		offset.saturating_add(size) <= object || end <= offset
+	})
+}
+
+/// The element `i` of a member named `m_ragdoll.list[i].pObject`, with `i` in
+/// decimal without leading zeros, or `None` for any other name.
+fn ragdoll_object_element(name: &[u8]) -> Option<usize> {
+	let digits = name
+		.strip_prefix(b"m_ragdoll.list[")?
+		.strip_suffix(b"].pObject")?;
+
+	if digits.is_empty()
+		|| (digits.len() > 1 && digits[0] == b'0')
+		|| !digits.iter().all(u8::is_ascii_digit)
+	{
+		return None;
+	}
+
+	digits.iter().try_fold(0_usize, |element, &digit| {
+		element
+			.checked_mul(10)?
+			.checked_add(usize::from(digit - b'0'))
+	})
 }
