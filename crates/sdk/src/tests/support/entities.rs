@@ -93,8 +93,9 @@ thread_local! {
 /// `TakeHealth` calls [`take_health_calls`] records, `UpdateTransmitState`,
 /// whose calls [`transmit_state_updates`] counts, `Activate`, whose calls
 /// [`activations`] records, `SetModel`, whose calls [`models_set`] records,
-/// `SetOwnerEntity`, whose calls [`owners_set`] records, and, with TF2's script bindings, `GetScriptDesc`, which returns the
-/// descriptor `set_script_description` sets.
+/// `SetOwnerEntity`, whose calls [`owners_set`] records, and, with TF2's
+/// script bindings, `GetScriptDesc`, which returns the descriptor
+/// `set_script_description` sets.
 ///
 /// For tests only. Its allocations are leaked, and only reached through raw
 /// pointers, like the engine's objects.
