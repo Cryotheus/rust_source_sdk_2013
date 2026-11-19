@@ -46,6 +46,11 @@
 //!   placed and turned as the map has it, for all but three of 974 props
 //!   solid by their collision model. Two of those three were looked at, and
 //!   reached past them by 0.57 units.
+//! - A whole trace was seen to stop at a static prop along a ray that passed
+//!   an eighth of a unit outside the prop's bounds, and a clip of a prop's
+//!   collideable, along a ray toward the prop's middle, to meet the prop 18
+//!   units outside them. So the bounds hold neither every ray along which a
+//!   whole trace may find a prop nor every point at which a clip may meet it.
 //! - `IEngineTrace::EnumerateEntities`, given a box, hands no static prop to
 //!   its enumerator, only entities, so it cannot find them.
 //! - `TraceRayAgainstStaticProp` leaves the trace it is given as it was, so
