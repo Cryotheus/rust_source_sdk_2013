@@ -696,10 +696,11 @@ impl<'s> EngineTrace<'s> {
 		let mut trace = MaybeUninit::<sys::trace_t>::zeroed();
 
 		// SAFETY: `Server::new` guarantees the interface is live. The collideable
-		// is the live prop's for `'s`, as `StaticProps::get` tells: the props were
-		// listed within this call into the plugin, during which the level, and with
-		// it its props, last. The ray and the trace are locals that outlive the
-		// call, which is the only time the engine uses them.
+		// is the live prop's for `'s`, for the reason the documentation of
+		// `StaticProp` gives: `'s` lies within one call into the plugin, during
+		// which the level, and with it its props, last. The ray and the trace are
+		// locals that outlive the call, which is the only time the engine uses
+		// them.
 		unsafe {
 			vcall!(self.as_ptr() => IEngineTrace_ClipRayToCollideable(&raw, mask, prop.collideable().as_ptr(), trace.as_mut_ptr()))
 		};

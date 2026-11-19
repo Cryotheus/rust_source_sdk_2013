@@ -109,6 +109,12 @@ unsafe impl Send for List {}
 
 /// A static prop of the running level, as the engine has it, for one call
 /// into the plugin.
+///
+/// Its collideable stays the live prop's for all of `'s`, also after the
+/// [`StaticProps`] it came from is dropped: the engine keeps a level's static
+/// props for the whole level, and `'s` lies within one call into the plugin,
+/// during which no level change completes (condition 3 of [`Server::new`]).
+/// The calls on the collideable rest on that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StaticProp<'s> {
 	collideable: NonNull<sys::ICollideable>,
@@ -124,9 +130,9 @@ impl<'s> StaticProp<'s> {
 	/// turned.
 	#[doc(alias("GetCollisionAngles"))]
 	pub fn angles(self) -> QAngle {
-		// SAFETY: The collideable is the live prop's for `'s`, as
-		// `StaticProps::get` tells. Its angles are a member of it, copied at
-		// once.
+		// SAFETY: The collideable is the live prop's for `'s`, for the
+		// reason the documentation of `StaticProp` gives. Its angles are a member of
+		// it, copied at once.
 		unsafe { (*vcall!(self.collideable.as_ptr() => ICollideable_GetCollisionAngles())).into() }
 	}
 
