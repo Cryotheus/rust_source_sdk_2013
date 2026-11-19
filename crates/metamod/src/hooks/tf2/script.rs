@@ -11,6 +11,17 @@
 //! `Precache` and `OnPostSpawn`, which the game only runs for an entity that
 //! names a script.
 //!
+//! The game runs an entity's scripts as it spawns it, just before the
+//! entity's own `Spawn`, and an entity the game creates during VPhysics'
+//! simulation, from its handlers of collisions, may be spawned there too, so
+//! the callback runs within a [`PhysicsCallbackScope`]: it must not change what
+//! the physics library simulates, and
+//! [`PhysicsObject::set_collisions_enabled`](source_sdk_2013::entities::movement::PhysicsObject::set_collisions_enabled),
+//! [`Entity::set_owner`] and the other calls that refuse within the scope fail
+//! there, for every entity the callback sees, even one spawned outside the
+//! step: a callback can never make such changes, and must leave them to a
+//! later callback, such as the next game frame.
+//!
 //! Install for each entity class to hook, from the class's vtable, which
 //! [`ScriptTargets`](source_sdk_2013::tf2::scripts::ScriptTargets) finds by the
 //! class's C++ name even before any of its entities exists, such as
@@ -30,6 +41,7 @@ use crate::hook::{
 };
 
 use source_sdk_2013::entities::Entity;
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::raw::tf2::scripts::{RUN_VSCRIPTS_SLOT, RunVScriptsFn as RunVScripts};
 use source_sdk_2013::tf2::scripts::ScriptTarget;
 use source_sdk_2013::{Game, Server, ServerBinding};
@@ -101,6 +113,11 @@ impl Handler<RunVScripts> for ScriptRoute {
 		// SAFETY: The class hook supplies the live entity whose method is about
 		// to run, which stays in the entity list through the call.
 		let entity = unsafe { Entity::from_live(server, entity) };
+
+		// The game runs an entity's scripts as it spawns it, which it may do
+		// during VPhysics' step, so the callback runs in a scope that keeps it
+		// from changing what the library tests for collisions.
+		let _physics = PhysicsCallbackScope::enter();
 
 		(route.callback)(server, entity);
 		HookAction::Ignore

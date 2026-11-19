@@ -611,8 +611,9 @@ impl MoveType {
 ///   during the step, such as the dust of an impact;
 /// - user messages, as the game sends some during the step, such as the
 ///   screen shake of a heavy object's impact;
-/// - entity factories and spawns, as the game may create and spawn entities
-///   from its handlers of collisions.
+/// - entity factories, entity scripts and spawns, as the game may create and
+///   spawn entities from its handlers of collisions, and runs an entity's
+///   scripts as it spawns it, just before the entity's own `Spawn`.
 ///
 /// The game defers its own damage and removals during VPhysics callbacks, and
 /// buffers the touches of objects that come into contact. It does not buffer
