@@ -87,8 +87,8 @@ use crate::hook::{
 use crate::hooks::server::with_server;
 use source_sdk_2013::bitbuf::{BitReader, BitWriter};
 use source_sdk_2013::edicts::Edict;
-use source_sdk_2013::interfaces::ValveEngine;
 use source_sdk_2013::entities::movement::PhysicsCallbackScope;
+use source_sdk_2013::interfaces::ValveEngine;
 use source_sdk_2013::raw::bitbuf::BfWrite;
 
 use source_sdk_2013::raw::interfaces::valve_engine::{
