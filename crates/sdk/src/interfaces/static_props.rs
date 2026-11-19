@@ -4,8 +4,8 @@
 //!
 //! A static prop is a model the map places that never moves. The engine keeps
 //! no entity for it: [`EngineTrace::trace`] finds it along the ray as it finds
-//! entities, and reports it as the world's [entity](Trace::entity) with its
-//! index in the [hitbox](Trace::hitbox) (see [`Trace::static_prop`]).
+//! entities, and reports it as the world's [entity][`Trace::entity`] with its
+//! index in the [hitbox][`Trace::hitbox`] (see [`Trace::static_prop`]).
 //! [`EngineTrace::clip_to_entity`] cannot reach one, as it has no entity.
 //!
 //! [`StaticProps::of`] lists the running level's props for one call into the
@@ -50,6 +50,13 @@
 //!   its enumerator, only entities, so it cannot find them.
 //! - `TraceRayAgainstStaticProp` leaves the trace it is given as it was, so
 //!   this crate does not call it.
+//!
+//! [`EngineTrace::clip_to_static_prop`]: crate::interfaces::EngineTrace::clip_to_static_prop
+//! [`EngineTrace::trace`]: crate::interfaces::EngineTrace::trace
+//! [`EngineTrace::clip_to_entity`]: crate::interfaces::EngineTrace::clip_to_entity
+//! [`Trace::static_prop`]: crate::interfaces::engine_trace::Trace::static_prop
+//! [`Trace::entity`]: crate::interfaces::engine_trace::Trace::entity
+//! [`Trace::hitbox`]: crate::interfaces::engine_trace::Trace::hitbox
 
 #[cfg(test)]
 #[path = "../tests/interfaces/static_props.rs"]
@@ -164,6 +171,8 @@ impl<'s> StaticProp<'s> {
 
 	/// The prop's index among the level's static props, as
 	/// [`Trace::static_prop`] reports it.
+	///
+	/// [`Trace::static_prop`]: crate::interfaces::engine_trace::Trace::static_prop
 	pub const fn index(self) -> u32 {
 		self.index
 	}
