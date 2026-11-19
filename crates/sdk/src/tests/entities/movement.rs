@@ -67,6 +67,15 @@ fn a_physics_object_is_only_used_while_its_entity_holds_it() {
 	drop(outer);
 	assert!(!object.enabled());
 
+	// A scope also ends as a panic unwinds out of its callback.
+	let unwound = std::panic::catch_unwind(|| {
+		let _scope = PhysicsCallbackScope::enter();
+		panic!("the callback panics, as this test means it to");
+	});
+
+	assert!(unwound.is_err());
+	assert!(!PhysicsCallbackScope::is_entered());
+
 	// Once the game replaces or destroys the object, it is not called.
 	set(other.as_ptr());
 	assert_eq!(
