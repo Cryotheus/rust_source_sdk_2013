@@ -4,13 +4,15 @@
 //! [`TraceFilter`] lets it hit, until it meets contents in a mask such as
 //! [`MASK_PLAYERSOLID`]. [`EngineTrace::trace_line`] and
 //! [`EngineTrace::trace_world_line`] are its common lines.
-//! [`EngineTrace::clip_to_entity`] clips a ray to one entity and nothing else.
+//! [`EngineTrace::clip_to_entity`] clips a ray to one entity and nothing else,
+//! and [`EngineTrace::clip_to_static_prop`] to one static prop.
 
 #[cfg(test)]
 #[path = "../../tests/interfaces/engine_trace.rs"]
 mod tests;
 
 use crate::entities::Entity;
+use crate::interfaces::static_props::StaticProp;
 use crate::math::Vector;
 use sdk_raw::vcall;
 use std::ffi::{CStr, c_int, c_short, c_uint, c_ushort};
@@ -658,6 +660,67 @@ impl<'s> EngineTrace<'s> {
 		// SAFETY: The engine filled the trace just now, within `'s`, over zeroed
 		// memory, and the entity it names is the argument.
 		unsafe { Trace::from_raw(trace, Some(entity)) }
+	}
+
+	/// Clips `ray` to the static prop `prop` alone, by the engine's
+	/// `ClipRayToCollideable` given the prop's collideable: how far a line, or a
+	/// box swept along one, gets from the ray's start to its end before it meets
+	/// the prop's collision model where its contents are in `mask`. Only the prop
+	/// is tested, not the world, any entity nor any other prop, so a ray that
+	/// misses it reaches its end whatever else lies along it.
+	///
+	/// Nothing here decides whether the prop should stop the ray: a prop that is
+	/// not solid is clipped like any other, though [`Self::trace`] passes
+	/// through it, so a caller that wants only what a trace would stop at tests
+	/// the prop's [solid type](StaticProp::solid_type) itself.
+	///
+	/// A ray that met the prop, by stopping before its end or by starting or
+	/// lying inside it, reports it as a trace that stops at it does: its
+	/// [entity](Trace::entity) is the world, and [`Trace::static_prop`] is the
+	/// prop's index. Both are set here, from the prop, not read back from the
+	/// engine, whose interface does not say what a clip fills them with. A ray
+	/// that misses has no entity, and of it only the
+	/// [fraction](Trace::fraction) of 1 is promised, as for
+	/// [`Self::clip_to_entity`].
+	///
+	/// A trace through the world and the static props is not promised to clip
+	/// each prop as this does, nor to hand a prop the whole ray: where the
+	/// world stops the ray first, one was seen to hand the props the ray as far
+	/// as the world let it go (see the
+	/// [module documentation](crate::interfaces::static_props)). So clip a prop
+	/// to the ray the world leaves, and compare against [`Self::trace`] before
+	/// relying on the two agreeing.
+	#[doc(alias("ClipRayToCollideable"))]
+	pub fn clip_to_static_prop(self, ray: Ray, mask: c_uint, prop: StaticProp<'s>) -> Trace<'s> {
+		let raw = ray.to_raw();
+		let mut trace = MaybeUninit::<sys::trace_t>::zeroed();
+
+		// SAFETY: `Server::new` guarantees the interface is live. The collideable
+		// is the live prop's for `'s`, as `StaticProps::get` tells: the props were
+		// listed within this call into the plugin, during which the level, and with
+		// it its props, last. The ray and the trace are locals that outlive the
+		// call, which is the only time the engine uses them.
+		unsafe {
+			vcall!(self.as_ptr() => IEngineTrace_ClipRayToCollideable(&raw, mask, prop.collideable().as_ptr(), trace.as_mut_ptr()))
+		};
+
+		// SAFETY: As in `clip_ray_to_entity`, the zeroed trace is initialised
+		// whatever the engine wrote of it.
+		let mut trace = unsafe { trace.assume_init() };
+		let met = trace._base.fraction < 1.0 || trace._base.startsolid || trace._base.allsolid;
+
+		if !met {
+			return Trace::miss(ray.end);
+		}
+
+		// A prop's index is below the length of a list the engine keeps as an
+		// `int`, so 1 more than it is an `int` too.
+		trace.hitbox =
+			c_int::try_from(prop.index()).map_or(c_int::MAX, |index| index.saturating_add(1));
+
+		// SAFETY: The engine filled the trace just now, within `'s`, over zeroed
+		// memory, and the entity it names is the world, which lives for `'s`.
+		unsafe { Trace::from_raw(trace, Some(prop.world())) }
 	}
 
 	/// The `CONTENTS_*` flags of the world and entities at a point, as defined

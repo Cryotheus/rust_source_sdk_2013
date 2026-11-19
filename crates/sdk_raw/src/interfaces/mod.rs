@@ -18,6 +18,7 @@ pub mod server_game_dll;
 pub mod server_game_ents;
 pub mod server_game_tags;
 pub mod server_tools;
+pub mod static_prop_manager;
 pub mod temp_entities;
 pub mod valve_engine;
 pub mod voice_server;
