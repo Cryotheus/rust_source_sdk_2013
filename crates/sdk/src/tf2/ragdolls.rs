@@ -244,9 +244,12 @@ pub enum RagdollObjectsError {
 ///
 /// The datamap's members are TF2's, as its server module names them. Only a
 /// Linux TF2 server has tested this, and no Windows one. That element 0's
-/// object lies one element before element 1's follows from the members being
-/// the elements of one array, which their names say, and which the checks of
-/// [`raw::find_ragdoll_object_fields`] bear out for the 23 the map declares.
+/// object lies one element before element 1's is inferred from the members
+/// being the elements of one array, which their names say. The checks bear
+/// out only that it can lie there: [`raw::find_ragdoll_object_fields`] finds
+/// the 23 the map declares one stride apart, and
+/// [`raw::ragdoll_element_0_undeclared`] finds no member of the entity's
+/// maps declared where element 0's object is taken to lie.
 #[doc(alias("prop_ragdoll", "CRagdollProp", "m_ragdoll"))]
 #[derive(Debug, Clone)]
 pub struct RagdollPhysicsObjects<'s> {
@@ -263,8 +266,10 @@ impl<'s> RagdollPhysicsObjects<'s> {
 	/// datamaps include the map of a `prop_ragdoll`'s class
 	/// ([`raw::RAGDOLL_PROP_CLASS`]), and with
 	/// [`RagdollObjectsError::UnexpectedFields`] unless that map declares the
-	/// objects as [`raw::find_ragdoll_object_fields`] expects. The members are
-	/// found in the first ragdoll's map, and kept for it.
+	/// objects as [`raw::find_ragdoll_object_fields`] expects, or if any of the
+	/// entity's maps declares a member where element 0's object is taken to
+	/// lie ([`raw::ragdoll_element_0_undeclared`]). The members are found in
+	/// the first ragdoll's maps, and kept for its class.
 	pub fn new(ragdoll: Entity<'s>) -> Result<Self, RagdollObjectsError> {
 		static FOUND: OnceLock<(usize, RagdollObjectFields)> = OnceLock::new();
 
@@ -280,6 +285,7 @@ impl<'s> RagdollPhysicsObjects<'s> {
 
 			_ => {
 				let fields = raw::find_ragdoll_object_fields(map)
+					.filter(|fields| raw::ragdoll_element_0_undeclared(ragdoll.data_maps(), fields))
 					.ok_or(RagdollObjectsError::UnexpectedFields)?;
 
 				// A game has one map for the class, so another is only searched,
@@ -323,11 +329,18 @@ impl<'s> Iterator for RagdollPhysicsObjects<'s> {
 
 			self.next += 1;
 
-			// SAFETY: The ragdoll's class's map declares the objects of elements 1
-			// on as pointers, and the count as an `int`, at offsets aligned for them,
-			// as `find_ragdoll_object_fields` checked. Element 0's lies one element
-			// before element 1's in the same array, within the entity, aligned as
-			// they are and clear of the count, as it checked too.
+			// SAFETY: `find_ragdoll_object_fields` checked that the ragdoll's
+			// class's map declares the objects of elements 1 on as pointers, one
+			// stride apart, and the count as an `int`, at offsets aligned for them
+			// and under the limit, and that element 0's offset, one stride before
+			// element 1's, is aligned, under the limit, past the entity's first
+			// pointer, and clear of the count. `new` checked that no map of the
+			// entity declares a member there (`ragdoll_element_0_undeclared`).
+			// Inferred, not checked: the declared members are elements 1 to 23 of
+			// one array, as their names say, so element 0's object lies one stride
+			// before element 1's, as an array's elements do under MSVC and GCC
+			// alike. That is the case `from_member` allows for an element its maps
+			// leave out.
 			let object = unsafe {
 				PhysicsObject::from_member(
 					self.ragdoll,

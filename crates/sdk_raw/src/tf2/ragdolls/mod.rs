@@ -39,7 +39,7 @@ mod platform;
 #[path = "../../tests/tf2/ragdolls/mod.rs"]
 mod tests;
 
-use crate::entities::datamap::DataMap;
+use crate::entities::datamap::{DataMap, DataMaps};
 use crate::interfaces::CreateInterfaceFn;
 use crate::util::{ModuleCache, ModuleKey};
 use std::ffi::{CStr, c_int};
@@ -323,9 +323,16 @@ pub enum ServerRagdollsError {
 /// one of these objects exactly once, each under
 /// [`RAGDOLL_PROP_FIELD_OFFSET_LIMIT`] and aligned for its type, with the
 /// objects an element's size apart, as members of an array are, element 0's
-/// within the entity, and the count clear of all 24. A map that declares the
-/// object of element 0, or of an element past the most a ragdoll has, is
-/// another layout, and gives `None` too.
+/// past the entity's first pointer, the one to its table of virtual
+/// functions, and the count clear of all 24. A map that declares the object
+/// of element 0, or of an element past the most a ragdoll has, is another
+/// layout, and gives `None` too.
+///
+/// That element 0's object lies one element before element 1's is inferred
+/// from the members' names, which say they are elements 1 on of one array,
+/// and only the arithmetic above is checked here.
+/// [`ragdoll_element_0_undeclared`] checks against all of the entity's maps
+/// that no other member is declared there.
 #[doc(alias("m_ragdoll", "listCount", "pObject"))]
 pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectFields> {
 	let pointer = align_of::<*const ()>();
@@ -376,9 +383,12 @@ pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectField
 
 	let stride = declared[1].checked_sub(declared[0])?;
 
-	// Element 0 lies one element before element 1, within the entity, so its
-	// object is aligned and under the limit as element 1's is.
-	let first = declared[0].checked_sub(stride)?;
+	// Element 0 lies one element before element 1, so its object is aligned
+	// and under the limit as element 1's is. It must lie past the pointer to
+	// the entity's table of virtual functions, at its start.
+	let first = declared[0]
+		.checked_sub(stride)
+		.filter(|&first| first >= size_of::<*const ()>())?;
 	let mut found = [first; RAGDOLL_MAX_ELEMENTS as usize];
 
 	found[1..].copy_from_slice(&declared);
@@ -401,6 +411,33 @@ pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectField
 	(in_array && count_clear).then_some(RagdollObjectFields {
 		count,
 		objects: found,
+	})
+}
+
+/// Whether none of `maps`, all of a `prop_ragdoll`'s maps from its own class's
+/// towards `CBaseEntity`'s, declares a field over element 0's object in
+/// `fields`, the pointer [`find_ragdoll_object_fields`] takes to lie one
+/// element before element 1's, where no map declares it.
+///
+/// A field covers its offset and the `fieldSizeInBytes` after it, or only its
+/// offset for a field whose size its map leaves out, as `FIELD_CUSTOM` ones
+/// do. A field with a negative offset covers nothing. Element 0's object
+/// lies where a member of the ragdoll or of its bases is declared only if the
+/// declared objects are not the elements 1 on of one array after all, so this
+/// turns that inference into a check that fails closed.
+#[doc(alias("m_ragdoll", "pObject"))]
+pub fn ragdoll_element_0_undeclared(maps: DataMaps<'_>, fields: &RagdollObjectFields) -> bool {
+	let object = fields.objects[0];
+	let end = object + size_of::<*const ()>();
+
+	maps.flat_map(DataMap::fields).all(|field| {
+		let Some(offset) = field.offset() else {
+			return true;
+		};
+
+		let size = usize::try_from(field.fieldSizeInBytes).unwrap_or(0).max(1);
+
+		offset.saturating_add(size) <= object || end <= offset
 	})
 }
 

@@ -16,6 +16,48 @@ const LIST: usize = 1040;
 const STRIDE: usize = 32;
 
 #[test]
+fn a_member_declared_where_element_0s_object_lies_is_found() {
+	let sized = |name: &'static CStr, offset: usize, size: usize| {
+		let mut field = field(name, sys::_fieldtypes_FIELD_INTEGER, offset);
+
+		field.fieldSize = 1;
+		field.fieldSizeInBytes = size as c_int;
+		field
+	};
+
+	// Members just before and just after it leave it clear.
+	let own = [
+		ragdoll_fields(),
+		vec![
+			sized(c"before", object(0) - 8, 8),
+			sized(c"after", object(0) + 8, 4),
+		],
+	]
+	.concat();
+
+	assert!(undeclared(own, vec![sized(c"m_iHealth", 64, 4)]));
+
+	// One of the ragdoll's own members on it, whether its size is known or not.
+	let own = [ragdoll_fields(), vec![sized(c"on", object(0) + 4, 4)]].concat();
+
+	assert!(!undeclared(own, Vec::new()));
+
+	let own = [
+		ragdoll_fields(),
+		vec![field(c"on", sys::_fieldtypes_FIELD_CUSTOM, object(0))],
+	]
+	.concat();
+
+	assert!(!undeclared(own, Vec::new()));
+
+	// A base's member reaching into it from before.
+	assert!(!undeclared(
+		ragdoll_fields(),
+		vec![sized(c"m_pPhysicsObject", object(0) - 4, 8)]
+	));
+}
+
+#[test]
 fn a_missing_or_repeated_member_finds_nothing() {
 	for element in 1..RAGDOLL_MAX_ELEMENTS as usize {
 		let mut fields = ragdoll_fields();
@@ -50,6 +92,18 @@ fn an_element_0_outside_the_entity_or_on_the_count_finds_nothing() {
 	}
 
 	assert_eq!(find(fields), None);
+
+	// Element 0's object on the entity's first pointer, its table of virtual
+	// functions, and one pointer past it.
+	for (start, found) in [(0, false), (size_of::<*const ()>(), true)] {
+		let mut fields = vec![count_field(COUNT)];
+
+		for element in 1..RAGDOLL_MAX_ELEMENTS as usize {
+			fields.push(object_field(element, start + element * STRIDE));
+		}
+
+		assert_eq!(find(fields).is_some(), found, "element 0 at {start}");
+	}
 
 	// The count where element 0's object lies.
 	let mut fields = ragdoll_fields();
@@ -231,6 +285,23 @@ fn only_canonical_member_names_name_an_element() {
 		ragdoll_object_element(b"m_ragdoll.list[99999999999999999999999].pObject"),
 		None
 	);
+}
+
+/// Whether [`ragdoll_element_0_undeclared`] finds element 0's object clear in a
+/// ragdoll's map of `own`, whose base's map declares `base`.
+fn undeclared(own: Vec<sys::typedescription_t>, base: Vec<sys::typedescription_t>) -> bool {
+	let base = data_map(c"CBaseEntity", base, std::ptr::null_mut());
+	let own = data_map(RAGDOLL_PROP_CLASS, own, base);
+
+	// SAFETY: The maps are leaked, with their fields and their names.
+	let (map, maps) = unsafe {
+		(
+			DataMap::from_raw(NonNull::new(own).unwrap()),
+			DataMaps::new(own),
+		)
+	};
+
+	ragdoll_element_0_undeclared(maps, &find_ragdoll_object_fields(map).unwrap())
 }
 
 /// The fields of a ragdoll's map, with others around them, as the game

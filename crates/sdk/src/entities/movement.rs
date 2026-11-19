@@ -646,11 +646,15 @@ impl<'s> PhysicsObject<'s> {
 	///
 	/// # Safety
 	///
-	/// The datamaps of `entity`'s class must declare a member at offset
-	/// `member` that holds the entity's `IPhysicsObject *`, null for none,
-	/// aligned for the pointer, and, with `in_use`, an `int` member at offset
-	/// `count`, aligned for it, telling how many elements of a list, whose
-	/// element `element`'s object is the one at `member`, are in use.
+	/// The member at offset `member` must hold the entity's `IPhysicsObject *`,
+	/// null for none, aligned for the pointer. The datamaps of `entity`'s class
+	/// must declare it there, or, with `in_use`, it must be the object of an
+	/// element of a list whose other elements' objects those maps declare at
+	/// one fixed stride, lying at its element's place at that stride, where the
+	/// declared members' names say they are elements of the same array. With
+	/// `in_use`, the maps must also declare an `int` member at offset `count`,
+	/// aligned for it, telling how many elements of that list, whose element
+	/// `element`'s object is the one at `member`, are in use.
 	pub(crate) unsafe fn from_member(
 		entity: Entity<'s>,
 		member: usize,
