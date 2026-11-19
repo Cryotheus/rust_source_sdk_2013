@@ -624,9 +624,10 @@ impl MoveType {
 /// during the step, and which no hook of this crate or of `metamod_source`
 /// covers. No other callback a plugin is given is known to run during the
 /// step, though that is not proven: a hook added later for anything the game
-/// may call during the step must enter the scope too. [`Entity::set_owner`]
-/// and `ServerRagdolls::create_server_ragdoll`, which change collision rules
-/// or create physics objects, refuse within a scope too, and rely on the same.
+/// may call during the step must enter the scope too. [`Entity::set_owner`],
+/// [`Entity::clear_owner`] and `ServerRagdolls::create_server_ragdoll`, which
+/// change collision rules or create physics objects, refuse within a scope
+/// too, and rely on the same.
 #[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhysicsObject<'s> {

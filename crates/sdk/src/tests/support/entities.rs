@@ -80,6 +80,7 @@ thread_local! {
 	static OBB_MAXS: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: 1.0, y: 1.0, z: 1.0 }) };
 	static OBB_MINS: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: -1.0, y: -1.0, z: -1.0 }) };
 	static ORIGIN: Cell<sys::Vector> = const { Cell::new(sys::Vector { x: 1.0, y: 2.0, z: 3.0 }) };
+	static OWNERS_SET: RefCell<Vec<(*mut sys::CBaseEntity, *mut sys::CBaseEntity)>> = const { RefCell::new(Vec::new()) };
 	static SERVER_CLASS: Cell<*mut sys::ServerClass> = const { Cell::new(null_mut()) };
 	static SOLID_TYPE: Cell<sys::SolidType_t> = const { Cell::new(sys::SolidType_t_SOLID_BBOX) };
 	static TAKE_HEALTH_CALLS: RefCell<Vec<(f32, c_int)>> = const { RefCell::new(Vec::new()) };
@@ -92,7 +93,7 @@ thread_local! {
 /// `TakeHealth` calls [`take_health_calls`] records, `UpdateTransmitState`,
 /// whose calls [`transmit_state_updates`] counts, `Activate`, whose calls
 /// [`activations`] records, `SetModel`, whose calls [`models_set`] records,
-/// and, with TF2's script bindings, `GetScriptDesc`, which returns the
+/// `SetOwnerEntity`, whose calls [`owners_set`] records, and, with TF2's script bindings, `GetScriptDesc`, which returns the
 /// descriptor `set_script_description` sets.
 ///
 /// For tests only. Its allocations are leaked, and only reached through raw
@@ -104,9 +105,9 @@ pub struct MockEntity {
 impl MockEntity {
 	/// Builds an entity whose handle is `handle`, and resets the datamap,
 	/// collideable, origin, box in its own space, solid type, collision group,
-	/// teleport count, transmit state update count, `TakeHealth`, `Activate`
-	/// and `SetModel` calls, server class, and edict that mock entities on this
-	/// thread report.
+	/// teleport count, transmit state update count, `TakeHealth`, `Activate`,
+	/// `SetModel` and `SetOwnerEntity` calls, server class, and edict that mock
+	/// entities on this thread report.
 	pub fn new(handle: u32) -> Self {
 		Self::with_layout(handle, Layout::new::<[usize; 64]>())
 	}
@@ -122,6 +123,7 @@ impl MockEntity {
 			.max(sdk_raw::transmit::UPDATE_TRANSMIT_STATE_SLOT)
 			.max(sdk_raw::entities::spawn::ACTIVATE_SLOT)
 			.max(sdk_raw::entities::spawn::SET_MODEL_SLOT)
+			.max(sdk_raw::entities::SET_OWNER_ENTITY_SLOT)
 			+ 1
 	}
 
@@ -153,6 +155,7 @@ impl MockEntity {
 		vtable[sdk_raw::transmit::UPDATE_TRANSMIT_STATE_SLOT] = update_transmit_state as *const ();
 		vtable[sdk_raw::entities::spawn::ACTIVATE_SLOT] = activate as *const ();
 		vtable[sdk_raw::entities::spawn::SET_MODEL_SLOT] = set_model as *const ();
+		vtable[sdk_raw::entities::SET_OWNER_ENTITY_SLOT] = set_owner_entity as *const ();
 
 		#[cfg(feature = "tf2")]
 		{
@@ -255,6 +258,7 @@ impl MockEntity {
 		ACTIVATIONS.take();
 		ACTIVATION_REMOVES.set(false);
 		MODELS_SET.take();
+		OWNERS_SET.take();
 		set_networking(null_mut(), null_mut());
 
 		Self { storage }
@@ -538,6 +542,9 @@ pub struct MockState {
 
 	/// `m_hMovePeer`.
 	pub move_peer: u32,
+
+	/// `m_hOwnerEntity`, which the mock's `SetOwnerEntity` writes too.
+	pub owner: u32,
 }
 
 /// `CBaseEntity::AcceptInput`, which records the input for [`take_inputs`]
@@ -798,6 +805,14 @@ pub fn models_set() -> Vec<(*mut sys::CBaseEntity, CString)> {
 	MODELS_SET.with_borrow(Clone::clone)
 }
 
+/// The entity and the owner of each call of mock entities' `SetOwnerEntity`
+/// on this thread since the last [`MockEntity::new`], in order.
+///
+/// For tests only.
+pub fn owners_set() -> Vec<(*mut sys::CBaseEntity, *mut sys::CBaseEntity)> {
+	OWNERS_SET.with_borrow(Clone::clone)
+}
+
 /// `IPhysicsObject::IsCollisionEnabled` of a [`MockPhysicsObject`].
 unsafe extern "C" fn physics_object_collisions_enabled(this: *const sys::IPhysicsObject) -> bool {
 	// SAFETY: Only mock objects have this vtable, and they start with the
@@ -890,6 +905,29 @@ pub fn set_networking(class: *mut sys::ServerClass, edict: *mut sys::edict_t) {
 	EDICT.set(edict);
 }
 
+/// `CBaseEntity::SetOwnerEntity`, which records the entity and the owner for
+/// [`owners_set`], and writes the owner's handle, or an invalid one for none,
+/// to the entity's [`MockState::owner`], recording no change for networking.
+unsafe extern "C" fn set_owner_entity(this: *mut sys::CBaseEntity, owner: *mut sys::CBaseEntity) {
+	OWNERS_SET.with_borrow_mut(|owners| owners.push((this, owner)));
+
+	let handle = if owner.is_null() {
+		sdk_raw::entities::INVALID_EHANDLE_INDEX
+	} else {
+		// SAFETY: The wrappers pass a live mock entity, which stores its handle at
+		// its offset.
+		unsafe { owner.byte_add(MOCK_HANDLE_OFFSET).cast::<usize>().read() as u32 }
+	};
+
+	// SAFETY: Every mock entity stores its state at its offset, within its 64
+	// words, aligned for the handle.
+	unsafe {
+		this.byte_add(MOCK_STATE_OFFSET + offset_of!(MockState, owner))
+			.cast::<u32>()
+			.write(handle)
+	};
+}
+
 /// Sets the solid type mock entities report on this thread, such as
 /// `SOLID_VPHYSICS`, until the next [`MockEntity::new`] resets it to
 /// `SOLID_BBOX`.
@@ -904,7 +942,7 @@ pub fn set_solid_type(solid: sys::SolidType_t) {
 ///
 /// For tests only. They are kept apart from [`base_entity_fields`], as
 /// [`health_fields`] are.
-pub fn state_fields() -> [sys::typedescription_t; 25] {
+pub fn state_fields() -> [sys::typedescription_t; 26] {
 	let member = |name, field_type, offset: usize, size: usize| {
 		let mut member = field(name, field_type, MOCK_STATE_OFFSET + offset);
 
@@ -1067,6 +1105,12 @@ pub fn state_fields() -> [sys::typedescription_t; 25] {
 			c"m_hMovePeer",
 			sys::_fieldtypes_FIELD_EHANDLE,
 			offset_of!(MockState, move_peer),
+			int,
+		),
+		member(
+			c"m_hOwnerEntity",
+			sys::_fieldtypes_FIELD_EHANDLE,
+			offset_of!(MockState, owner),
 			int,
 		),
 	]
