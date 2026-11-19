@@ -329,18 +329,24 @@ impl<'s> Iterator for RagdollPhysicsObjects<'s> {
 
 			self.next += 1;
 
-			// SAFETY: `find_ragdoll_object_fields` checked that the ragdoll's
-			// class's map declares the objects of elements 1 on as pointers, one
-			// stride apart, and the count as an `int`, at offsets aligned for them
-			// and under the limit, and that element 0's offset, one stride before
-			// element 1's, is aligned, under the limit, past the entity's first
-			// pointer, and clear of the count. `new` checked that no map of the
-			// entity declares a member there (`ragdoll_element_0_undeclared`).
-			// Inferred, not checked: the declared members are elements 1 to 23 of
-			// one array, as their names say, so element 0's object lies one stride
-			// before element 1's, as an array's elements do under MSVC and GCC
-			// alike. That is the case `from_member` allows for an element its maps
-			// leave out.
+			// SAFETY: `find_ragdoll_object_fields` checked that the ragdoll's class's
+			// map declares the objects of elements 1 on as pointers, one stride
+			// apart, and the count as an `int`, at offsets aligned for them and under
+			// the limit, and that element 0's offset, one stride before element 1's,
+			// is aligned, under the limit, past the entity's first pointer, and clear
+			// of the count. For the first ragdoll it met, `new` checked that none of
+			// the entity's maps declares a member there
+			// (`ragdoll_element_0_undeclared`), and it keeps what it found by the
+			// address of the ragdoll class's own map, so it checks no later ragdoll
+			// again. One of the same class has the same maps. One of a class deriving
+			// from it may have a map of its own that was never checked, but its
+			// class's own members lie after those of the ragdoll class it derives
+			// from, among which element 0's object lies, so none of them can lie
+			// there. Inferred, not checked: the declared members are elements 1 to 23
+			// of one array, as their names say, so element 0's object lies one stride
+			// before element 1's, as an array's elements do under MSVC and GCC alike.
+			// That is the case `from_member` allows for an element its maps leave
+			// out.
 			let object = unsafe {
 				PhysicsObject::from_member(
 					self.ragdoll,
