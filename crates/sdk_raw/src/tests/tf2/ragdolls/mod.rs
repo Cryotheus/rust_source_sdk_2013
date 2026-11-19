@@ -41,8 +41,26 @@ fn a_missing_or_repeated_member_finds_nothing() {
 }
 
 #[test]
+fn an_element_0_outside_the_entity_or_on_the_count_finds_nothing() {
+	// Element 1 so near the entity's start that element 0 would lie before it.
+	let mut fields = vec![count_field(COUNT)];
+
+	for element in 1..RAGDOLL_MAX_ELEMENTS as usize {
+		fields.push(object_field(element, 16 + (element - 1) * STRIDE));
+	}
+
+	assert_eq!(find(fields), None);
+
+	// The count where element 0's object lies.
+	let mut fields = ragdoll_fields();
+
+	fields[1] = count_field(object(0) + 4);
+	assert_eq!(find(fields), None);
+}
+
+#[test]
 fn another_layouts_elements_find_nothing() {
-	// Element 0's object is the entity's own, which the map does not declare.
+	// This layout's map leaves element 0's object out.
 	let mut fields = ragdoll_fields();
 
 	fields.push(object_field(0, object(0)));
@@ -79,7 +97,8 @@ fn every_object_is_found_in_the_ragdolls_map() {
 
 	assert_eq!(found.count, COUNT);
 
-	for (element, &offset) in (1..).zip(&found.objects) {
+	// Element 0's too, which the map leaves out, one element before element 1's.
+	for (element, &offset) in found.objects.iter().enumerate() {
 		assert_eq!(offset, object(element));
 	}
 }

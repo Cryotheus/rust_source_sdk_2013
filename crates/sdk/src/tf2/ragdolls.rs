@@ -50,7 +50,6 @@
 mod tests;
 
 use crate::datatables::{NetProp, NetPropError, NetValue, NetVar};
-use crate::entities::fields::FieldError;
 use crate::entities::movement::{PhysicsCallbackScope, PhysicsObject};
 use crate::entities::{CollisionGroup, Entity};
 use crate::inputs::{InputError, InputValue};
@@ -211,11 +210,6 @@ impl RagdollFlag {
 /// Why a `prop_ragdoll`'s physics objects could not be found.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RagdollObjectsError {
-	/// `CBaseEntity`'s datamap does not declare `m_pPhysicsObject` as the
-	/// game does.
-	#[error(transparent)]
-	Field(#[from] FieldError),
-
 	/// The entity is not a `prop_ragdoll`.
 	#[error("the entity is not a prop_ragdoll")]
 	NotRagdoll,
@@ -228,16 +222,19 @@ pub enum RagdollObjectsError {
 
 /// The physics objects of a `prop_ragdoll`, one for each of its parts in use,
 /// within the scope its entity is borrowed for: an iterator over the
-/// [`PhysicsObject`]s the ragdoll holds.
+/// [`PhysicsObject`]s the ragdoll holds, each exactly once.
 ///
 /// Its parts are the elements of its list (`m_ragdoll.list`), of which the
 /// first `m_ragdoll.listCount` are in use, at most
-/// [`RAGDOLL_MAX_ELEMENTS`]. Element 0's object is the entity's own
-/// (`m_pPhysicsObject`), and the others' are the members the ragdoll's
-/// datamap declares, as [`raw::find_ragdoll_object_fields`] finds them. An
-/// element without an object is skipped. The count is read again at each
-/// step, and each object checks its element is still in use whenever it is
-/// used.
+/// [`RAGDOLL_MAX_ELEMENTS`]. Every element's object is read from the list,
+/// where [`raw::find_ragdoll_object_fields`] finds them: elements 1 on as the
+/// ragdoll's datamap declares them, and element 0 one element before
+/// element 1. The entity's own object
+/// ([`physics_object`](Entity::physics_object)) is not read, as it may point
+/// at any of the parts: the game points it at a part a trace attack, such as
+/// a bullet, hits. An element without an object is skipped. The count is read
+/// again at each step, and each object checks its element is still in use
+/// whenever it is used.
 ///
 /// Switching a ragdoll's collisions is one
 /// [`set_collisions_enabled`](PhysicsObject::set_collisions_enabled) for each
@@ -247,16 +244,13 @@ pub enum RagdollObjectsError {
 ///
 /// The datamap's members are TF2's, as its server module names them. Only a
 /// Linux TF2 server has tested this, and no Windows one. That element 0's
-/// object is the entity's own is assumed, not checked, as the datamap does not
-/// declare it: were it wrong, one object of the list would never be found,
-/// which leaves memory safety as it is, since the entity's own is checked on
-/// its own.
+/// object lies one element before element 1's follows from the members being
+/// the elements of one array, which their names say, and which the checks of
+/// [`raw::find_ragdoll_object_fields`] bear out for the 23 the map declares.
 #[doc(alias("prop_ragdoll", "CRagdollProp", "m_ragdoll"))]
 #[derive(Debug, Clone)]
 pub struct RagdollPhysicsObjects<'s> {
 	ragdoll: Entity<'s>,
-	/// The offset of `m_pPhysicsObject`.
-	own: usize,
 	fields: RagdollObjectFields,
 	/// The next element to look at.
 	next: usize,
@@ -267,12 +261,10 @@ impl<'s> RagdollPhysicsObjects<'s> {
 	///
 	/// Fails with [`RagdollObjectsError::NotRagdoll`] unless the entity's
 	/// datamaps include the map of a `prop_ragdoll`'s class
-	/// ([`raw::RAGDOLL_PROP_CLASS`]), with
+	/// ([`raw::RAGDOLL_PROP_CLASS`]), and with
 	/// [`RagdollObjectsError::UnexpectedFields`] unless that map declares the
-	/// objects as [`raw::find_ragdoll_object_fields`] expects, and with
-	/// [`RagdollObjectsError::Field`] unless `CBaseEntity`'s declares
-	/// `m_pPhysicsObject` as the game does. The members are found in the first
-	/// ragdoll's map, and kept for it.
+	/// objects as [`raw::find_ragdoll_object_fields`] expects. The members are
+	/// found in the first ragdoll's map, and kept for it.
 	pub fn new(ragdoll: Entity<'s>) -> Result<Self, RagdollObjectsError> {
 		static FOUND: OnceLock<(usize, RagdollObjectFields)> = OnceLock::new();
 
@@ -299,7 +291,6 @@ impl<'s> RagdollPhysicsObjects<'s> {
 
 		Ok(Self {
 			ragdoll,
-			own: ragdoll.physics_object_offset()?,
 			fields,
 			next: 0,
 		})
@@ -332,18 +323,17 @@ impl<'s> Iterator for RagdollPhysicsObjects<'s> {
 
 			self.next += 1;
 
-			let member = match element.checked_sub(1) {
-				Some(declared) => self.fields.objects[declared],
-				None => self.own,
-			};
-
-			// SAFETY: `m_pPhysicsObject`, the offset `CBaseEntity`'s map declares,
-			// holds the entity's `IPhysicsObject *`, which is element 0's. The
-			// ragdoll's class's map declares the others' as pointers too, and the
-			// count as an `int`, at offsets aligned for them, as
-			// `find_ragdoll_object_fields` checked.
+			// SAFETY: The ragdoll's class's map declares the objects of elements 1
+			// on as pointers, and the count as an `int`, at offsets aligned for them,
+			// as `find_ragdoll_object_fields` checked. Element 0's lies one element
+			// before element 1's in the same array, within the entity, aligned as
+			// they are and clear of the count, as it checked too.
 			let object = unsafe {
-				PhysicsObject::from_member(self.ragdoll, member, Some((self.fields.count, element)))
+				PhysicsObject::from_member(
+					self.ragdoll,
+					self.fields.objects[element],
+					Some((self.fields.count, element)),
+				)
 			};
 
 			if object.is_some() {

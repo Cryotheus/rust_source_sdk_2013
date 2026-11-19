@@ -3,14 +3,11 @@
 use super::*;
 use crate::entities::movement::PhysicsObjectError;
 
-use crate::test_support::entities::{
-	MOCK_STATE_OFFSET, MockEntity, MockPhysicsObject, MockState, set_datamap, state_maps,
-};
+use crate::test_support::entities::{MockEntity, MockPhysicsObject, set_datamap, state_maps};
 
 use sdk_raw::test_support::entities::field;
 use std::alloc::Layout;
 use std::ffi::{CString, c_void};
-use std::mem::offset_of;
 use std::ptr::null_mut;
 
 /// Where mock ragdolls store `m_ragdoll.listCount`, past the words every mock
@@ -87,7 +84,7 @@ fn every_object_of_a_ragdoll_is_found_and_switched() {
 		assert_eq!((object.enabled(), object.switches()), (false, 1));
 	}
 
-	// The objects come in the order of their elements, from the entity's own.
+	// The objects come in the order of their elements, from element 0's.
 	let mut found = 0;
 
 	for (element, object) in RagdollPhysicsObjects::new(mock.entity())
@@ -106,6 +103,44 @@ fn every_object_of_a_ragdoll_is_found_and_switched() {
 	assert_eq!(found, objects.len());
 }
 
+#[test]
+fn every_object_is_switched_once_whatever_the_entitys_own_points_at() {
+	for own in [5, RAGDOLL_MAX_ELEMENTS as usize - 1] {
+		let (mut mock, objects) = full_ragdoll();
+
+		// As the game points the entity's own object at a part a bullet hit.
+		mock.state().physics_object = objects[own].as_ptr();
+
+		let found: Vec<_> = RagdollPhysicsObjects::new(mock.entity()).unwrap().collect();
+
+		assert_eq!(found.len(), objects.len());
+
+		for object in found {
+			assert_eq!(object.set_collisions_enabled(false), Ok(()));
+		}
+
+		let switched: Vec<_> = objects.iter().map(|object| object.switches()).collect();
+
+		assert!(
+			switched.iter().all(|&switches| switches == 1),
+			"own {own}: {switched:?}"
+		);
+	}
+
+	// An entity's own object that is none of the list's is never switched.
+	let (mut mock, objects) = full_ragdoll();
+	let stray = MockPhysicsObject::leaked();
+
+	mock.state().physics_object = stray.as_ptr();
+
+	for object in RagdollPhysicsObjects::new(mock.entity()).unwrap() {
+		object.set_collisions_enabled(false).unwrap();
+	}
+
+	assert_eq!(stray.switches(), 0);
+	assert!(objects.iter().all(|object| object.switches() == 1));
+}
+
 /// A mock ragdoll with an object for each of its elements, all in use.
 fn full_ragdoll() -> (MockEntity, Vec<&'static MockPhysicsObject>) {
 	let mut mock = mock_ragdoll(c"CRagdollProp", ragdoll_fields(None));
@@ -117,6 +152,8 @@ fn full_ragdoll() -> (MockEntity, Vec<&'static MockPhysicsObject>) {
 		set_object(mock.as_ptr(), element, object.as_ptr());
 	}
 
+	// As the game leaves the entity's own as it makes the ragdoll.
+	mock.state().physics_object = objects[0].as_ptr();
 	set_count(mock.as_ptr(), RAGDOLL_MAX_ELEMENTS);
 	(mock, objects)
 }
@@ -130,8 +167,7 @@ fn mock_ragdoll(class: &'static CStr, fields: Vec<sys::typedescription_t>) -> Mo
 	mock
 }
 
-/// Where a mock ragdoll stores the object of `element`, from 1, 8 bytes into
-/// it.
+/// Where a mock ragdoll stores the object of `element`, 8 bytes into it.
 fn object_offset(element: usize) -> usize {
 	LIST + element * STRIDE + 8
 }
@@ -231,11 +267,11 @@ fn set_count(ragdoll: *mut sys::CBaseEntity, count: c_int) {
 /// Gives `ragdoll`, a mock ragdoll, an object for `element`, or none for
 /// null, as the game would while the wrappers hold it.
 fn set_object(ragdoll: *mut sys::CBaseEntity, element: usize, object: *mut c_void) {
-	let offset = match element {
-		0 => MOCK_STATE_OFFSET + offset_of!(MockState, physics_object),
-		_ => object_offset(element),
-	};
-
 	// SAFETY: The mock's storage holds 256 words, past the aligned member.
-	unsafe { ragdoll.byte_add(offset).cast::<*mut c_void>().write(object) };
+	unsafe {
+		ragdoll
+			.byte_add(object_offset(element))
+			.cast::<*mut c_void>()
+			.write(object)
+	};
 }

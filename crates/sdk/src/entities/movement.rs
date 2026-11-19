@@ -936,9 +936,11 @@ impl<'s> Entity<'s> {
 	/// The entity's VPhysics object (`m_pPhysicsObject`), or `None` while it
 	/// has none, as [`has_physics_object`](Self::has_physics_object) tells.
 	///
-	/// A ragdoll has one object for each of its parts, and this is the first
-	/// part's. With the `tf2` feature, `tf2::ragdolls::RagdollPhysicsObjects`
-	/// goes over them all.
+	/// A ragdoll has one object for each of its parts, and this is one of them:
+	/// the first part's as the ragdoll is made, but the game makes it the
+	/// part's that a trace attack, such as a bullet, hits. With the `tf2`
+	/// feature, `tf2::ragdolls::RagdollPhysicsObjects` goes over them all,
+	/// each once.
 	///
 	/// Fails as [`has_physics_object`](Self::has_physics_object) does.
 	#[doc(alias("VPhysicsGetObject", "m_pPhysicsObject"))]
@@ -953,7 +955,7 @@ impl<'s> Entity<'s> {
 
 	/// The offset of `m_pPhysicsObject`, found once and kept, as every entity
 	/// shares it through its `CBaseEntity` base.
-	pub(crate) fn physics_object_offset(self) -> Result<usize, FieldError> {
+	fn physics_object_offset(self) -> Result<usize, FieldError> {
 		static OFFSET: OnceLock<usize> = OnceLock::new();
 
 		if let Some(&offset) = OFFSET.get() {

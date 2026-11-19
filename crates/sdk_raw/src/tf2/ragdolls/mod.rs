@@ -124,9 +124,14 @@ static CACHE: ModuleCache<usize> = ModuleCache::new();
 ///
 /// The ragdoll has one physics object for each element of its list in use,
 /// the first `m_ragdoll.listCount` of [`RAGDOLL_MAX_ELEMENTS`]. The ragdoll's
-/// map declares only the objects of elements 1 on. Element 0's is taken to be
-/// the entity's own `m_pPhysicsObject`, which [`find_physics_object_field`]
-/// finds, as it is the ragdoll's first part, though nothing declares that.
+/// map declares only the objects of elements 1 on, an element's size apart, as
+/// members of an array are, so element 0's lies one element's size before
+/// element 1's.
+///
+/// The entity's own `m_pPhysicsObject`, which [`find_physics_object_field`]
+/// finds, holds one of the elements' objects too, but not always the same
+/// one: element 0's as the ragdoll is made, and another part's once a trace
+/// attack, such as a bullet, hits that part.
 ///
 /// [`find_physics_object_field`]: crate::entities::find_physics_object_field
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -135,10 +140,10 @@ pub struct RagdollObjectFields {
 	/// list are in use.
 	pub count: usize,
 
-	/// The offsets of `m_ragdoll.list[1].pObject` to
+	/// The offsets of `m_ragdoll.list[0].pObject` to
 	/// `m_ragdoll.list[23].pObject`, in order: each an `IPhysicsObject *`, null
 	/// for none.
-	pub objects: [usize; RAGDOLL_OBJECT_MEMBERS],
+	pub objects: [usize; RAGDOLL_MAX_ELEMENTS as usize],
 }
 
 /// TF2's `CreateServerRagdoll`, resolved in a game server module.
@@ -310,15 +315,17 @@ pub enum ServerRagdollsError {
 /// map of its class ([`RAGDOLL_PROP_CLASS`]), declares them:
 /// `m_ragdoll.listCount` as one `FIELD_INTEGER` of 4 bytes, and each
 /// `m_ragdoll.list[i].pObject`, for `i` from 1 to 23, as one `FIELD_CUSTOM`
-/// member (`DEFINE_PHYSPTR`), whose size the map leaves out.
+/// member (`DEFINE_PHYSPTR`), whose size the map leaves out. Element 0's
+/// object, which the map does not declare, lies one element's size before
+/// element 1's, as the elements of an array do.
 ///
 /// Fails closed, returning `None` unless the map declares the count and every
 /// one of these objects exactly once, each under
 /// [`RAGDOLL_PROP_FIELD_OFFSET_LIMIT`] and aligned for its type, with the
-/// objects an element's size apart, as members of an array are, and the count
-/// clear of them. A map that declares the object of element 0, or of an
-/// element past the most a ragdoll has, is another layout, and gives `None`
-/// too.
+/// objects an element's size apart, as members of an array are, element 0's
+/// within the entity, and the count clear of all 24. A map that declares the
+/// object of element 0, or of an element past the most a ragdoll has, is
+/// another layout, and gives `None` too.
 #[doc(alias("m_ragdoll", "listCount", "pObject"))]
 pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectFields> {
 	let pointer = align_of::<*const ()>();
@@ -350,8 +357,8 @@ pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectField
 					&& offset.is_multiple_of(pointer)
 			})?;
 
-			// Element 0's is the entity's own object, and those past the last
-			// element are another layout's.
+			// The map of this layout leaves element 0's out, and those past the
+			// last element are another layout's.
 			let slot = objects.get_mut(element.checked_sub(1)?)?;
 
 			if slot.replace(offset).is_some() {
@@ -361,14 +368,20 @@ pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectField
 	}
 
 	let count = count?;
-	let mut found = [0; RAGDOLL_OBJECT_MEMBERS];
+	let mut declared = [0; RAGDOLL_OBJECT_MEMBERS];
 
-	for (found, object) in found.iter_mut().zip(objects) {
-		*found = object?;
+	for (declared, object) in declared.iter_mut().zip(objects) {
+		*declared = object?;
 	}
 
-	let first = found[0];
-	let stride = found[1].checked_sub(first)?;
+	let stride = declared[1].checked_sub(declared[0])?;
+
+	// Element 0 lies one element before element 1, within the entity, so its
+	// object is aligned and under the limit as element 1's is.
+	let first = declared[0].checked_sub(stride)?;
+	let mut found = [first; RAGDOLL_MAX_ELEMENTS as usize];
+
+	found[1..].copy_from_slice(&declared);
 
 	// An element holds at least its object, and the array keeps the objects
 	// aligned, so the elements lie a whole number of pointers apart.
