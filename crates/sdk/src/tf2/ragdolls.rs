@@ -482,17 +482,17 @@ impl<'s> ServerRagdolls<'s> {
 		// within a `PhysicsCallbackScope`, which the dispatchers of the hooks
 		// known to run, or able to run, during VPhysics' step enter, and no other
 		// callback `'s` lies in is known to run during it, as `PhysicsObject`'s
-		// documentation says, which also names what is not proven. `animating` is live during `'s`, not marked for deletion, and a
-		// `CBaseAnimating`, whose networked class derives from
-		// `DT_BaseAnimating`, at the address of its `CBaseEntity`,
-		// as `sdk_raw::tf2` asserts for the bases of TF2's players. Its model is
-		// a studio model with 1 to `RAGDOLL_MAX_ELEMENTS` solids. The damage copy
-		// lives through the call. `CreateServerRagdoll` creates the ragdoll
-		// without spawning it (`CreateNoSpawn`), copies the model and effects,
-		// sets its owner, sets up `animating`'s bones twice, creates the physics
-		// objects (`InitRagdoll`), creates and spawns an `env_entity_dissolver`
-		// if `animating` is dissolving, and sets the collision bounds. None of
-		// this frees an entity, so condition 4 holds.
+		// documentation says, which also names what is not proven. `animating`
+		// is live during `'s`, not marked for deletion, and a `CBaseAnimating`,
+		// whose networked class derives from `DT_BaseAnimating`, at the address
+		// of its `CBaseEntity`, as `sdk_raw::tf2` asserts for the bases of TF2's
+		// players. Its model is a studio model with 1 to `RAGDOLL_MAX_ELEMENTS`
+		// solids. The damage copy lives through the call. `CreateServerRagdoll`
+		// creates the ragdoll without spawning it (`CreateNoSpawn`), copies the
+		// model and effects, sets its owner, sets up `animating`'s bones twice,
+		// creates the physics objects (`InitRagdoll`), creates and spawns an
+		// `env_entity_dissolver` if `animating` is dissolving, and sets the
+		// collision bounds. None of this frees an entity, so condition 4 holds.
 		let ragdoll = unsafe {
 			self.raw.create(
 				NonNull::new(animating.as_ptr()).unwrap().cast(),
