@@ -494,6 +494,14 @@ impl<'s> Server<'s> {
 		self.interface()
 	}
 
+	/// `IStaticPropMgrServer`, the engine's manager of the level's static
+	/// props.
+	pub fn static_prop_manager(
+		&self,
+	) -> Result<crate::interfaces::StaticPropManager<'s>, InterfaceError> {
+		self.interface()
+	}
+
 	/// `IVEngineServer`, the engine's services for the game server.
 	pub fn valve_engine(&self) -> Result<ValveEngine<'s>, InterfaceError> {
 		self.interface()
