@@ -13,6 +13,13 @@
 //! effects that way too. The callback sees the name of the entity's send
 //! table, which tells its kind, and the clients the game sends it to.
 //!
+//! The game plays some temporary entities during VPhysics' simulation, such
+//! as the dust of an impact, so the callback runs within a
+//! [`PhysicsCallbackScope`]: it must not change what the physics library
+//! simulates, and [`PhysicsObject::set_collisions_enabled`] fails there.
+//!
+//! [`PhysicsObject::set_collisions_enabled`]: source_sdk_2013::entities::movement::PhysicsObject::set_collisions_enabled
+//!
 //! # When to install
 //!
 //! The interface lives as long as the engine, so install while loading. The
@@ -46,6 +53,7 @@ use crate::hook::{
 
 use crate::recipients::Recipients;
 use source_sdk_2013::datatables::{ObjectValue, SendTable};
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::interfaces::ValveEngine;
 
 use source_sdk_2013::raw::interfaces::valve_engine::{
@@ -195,6 +203,11 @@ impl Handler<PlaybackTempEntity> for TempEntityRoute {
 		// SAFETY: The hook dispatcher runs on the main thread, during one call
 		// from the engine. The plugin supplied the binding with the hook.
 		let server = unsafe { routed.binding.server(&scope) };
+
+		// The game plays some during VPhysics' step, such as the dust of an
+		// impact, so the callback runs in a scope that keeps it from changing
+		// what the library tests for collisions.
+		let _physics = PhysicsCallbackScope::enter();
 
 		match (routed.callback)(server, &played) {
 			TempEntityAction::Continue => HookAction::Ignore,

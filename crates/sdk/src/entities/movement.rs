@@ -605,8 +605,10 @@ impl MoveType {
 /// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`],
 /// which the hook dispatchers that run a callback during the step enter. The
 /// game defers its own damage and removals during VPhysics callbacks, and
-/// buffers the touches it runs from them, so no other callback a plugin is
-/// given is known to run within one, as [`Entity::set_owner`] relies on too.
+/// buffers the touches it runs from them. It plays some temporary entities
+/// from within one, such as the dust of an impact, and emits some sounds, and
+/// `metamod_source`'s hooks on both enter the scope too. No other callback a
+/// plugin is given is known to run within one.
 #[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhysicsObject<'s> {
@@ -1034,14 +1036,17 @@ thread_local! {
 }
 
 /// The scope of a callback that VPhysics runs during its simulation, such as
-/// a hook asking whether two physics objects collide. Hook dispatchers that
-/// hand such a callback entities enter one around it, as `metamod_source`'s
-/// do, and while one is entered on the thread,
-/// [`PhysicsObject::set_collisions_enabled`] fails with
+/// a hook asking whether two physics objects collide, or that the game may
+/// run during it, such as a hook on the temporary entities it plays or the
+/// sounds it emits. Hook dispatchers that run such a callback enter one
+/// around it, as `metamod_source`'s do, and while one is entered on the
+/// thread, [`PhysicsObject::set_collisions_enabled`] fails with
 /// [`PhysicsObjectError::Simulating`].
 ///
 /// Entering a scope only makes such calls fail, so it is safe anywhere, and a
-/// scope that is never dropped only keeps them failing.
+/// scope that is never dropped only keeps them failing. A scope ends as its
+/// value is dropped, also as a panic unwinds out of the callback, so a
+/// dispatcher that contains the panic leaves none entered.
 #[must_use = "the scope ends as soon as it is dropped"]
 #[derive(Debug)]
 pub struct PhysicsCallbackScope {

@@ -7,6 +7,13 @@
 //! the callback sees the sample a script entry chose, and the clients the game
 //! sends it to.
 //!
+//! The game emits some sounds during VPhysics' simulation, so the callback
+//! runs within a [`PhysicsCallbackScope`]: it must not change what the physics
+//! library simulates, and [`PhysicsObject::set_collisions_enabled`] fails
+//! there.
+//!
+//! [`PhysicsObject::set_collisions_enabled`]: source_sdk_2013::entities::movement::PhysicsObject::set_collisions_enabled
+//!
 //! # When to install
 //!
 //! The interface lives as long as the engine, so install while loading. The
@@ -51,6 +58,7 @@ use crate::hook::{
 };
 
 use crate::recipients::Recipients;
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::interfaces::{EngineSound, ValveEngine};
 use source_sdk_2013::math::Vector;
 use source_sdk_2013::raw::interfaces::engine_sound::{EMIT_SOUND_SLOT, EmitSoundFn as EmitSound};
@@ -325,6 +333,11 @@ impl Handler<EmitSound> for SoundRoute {
 		// SAFETY: The hook dispatcher runs on the main thread, during one call
 		// from the engine. The plugin supplied the binding with the hook.
 		let server = unsafe { routed.binding.server(&scope) };
+
+		// The game emits some during VPhysics' step, so the callback runs in a
+		// scope that keeps it from changing what the library tests for
+		// collisions.
+		let _physics = PhysicsCallbackScope::enter();
 
 		match (routed.callback)(server, &sound) {
 			EmitSoundAction::Continue => HookAction::Ignore,
