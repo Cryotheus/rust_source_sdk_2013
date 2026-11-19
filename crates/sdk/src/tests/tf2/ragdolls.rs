@@ -2,9 +2,7 @@
 
 use super::*;
 use crate::entities::movement::PhysicsObjectError;
-
 use crate::test_support::entities::{MockEntity, MockPhysicsObject, set_datamap, state_maps};
-
 use sdk_raw::test_support::entities::field;
 use std::alloc::Layout;
 use std::ffi::{CString, c_void};
@@ -71,39 +69,6 @@ fn an_entity_that_is_not_a_ragdoll_has_no_ragdoll_objects() {
 }
 
 #[test]
-fn every_object_of_a_ragdoll_is_found_and_switched() {
-	let (mut mock, objects) = full_ragdoll();
-	let found = RagdollPhysicsObjects::new(mock.entity()).unwrap();
-
-	for object in found {
-		assert_eq!(object.set_collisions_enabled(false), Ok(()));
-		assert_eq!(object.collisions_enabled(), Ok(false));
-	}
-
-	for object in &objects {
-		assert_eq!((object.enabled(), object.switches()), (false, 1));
-	}
-
-	// The objects come in the order of their elements, from element 0's.
-	let mut found = 0;
-
-	for (element, object) in RagdollPhysicsObjects::new(mock.entity())
-		.unwrap()
-		.enumerate()
-	{
-		assert_eq!(object.set_collisions_enabled(true), Ok(()));
-
-		let (switched, left) = objects.split_at(element + 1);
-
-		assert!(switched.iter().all(|object| object.enabled()));
-		assert!(left.iter().all(|object| !object.enabled()));
-		found += 1;
-	}
-
-	assert_eq!(found, objects.len());
-}
-
-#[test]
 fn every_object_is_switched_once_whatever_the_entitys_own_points_at() {
 	for own in [5, RAGDOLL_MAX_ELEMENTS as usize - 1] {
 		let (mut mock, objects) = full_ragdoll();
@@ -139,6 +104,39 @@ fn every_object_is_switched_once_whatever_the_entitys_own_points_at() {
 
 	assert_eq!(stray.switches(), 0);
 	assert!(objects.iter().all(|object| object.switches() == 1));
+}
+
+#[test]
+fn every_object_of_a_ragdoll_is_found_and_switched() {
+	let (mut mock, objects) = full_ragdoll();
+	let found = RagdollPhysicsObjects::new(mock.entity()).unwrap();
+
+	for object in found {
+		assert_eq!(object.set_collisions_enabled(false), Ok(()));
+		assert_eq!(object.collisions_enabled(), Ok(false));
+	}
+
+	for object in &objects {
+		assert_eq!((object.enabled(), object.switches()), (false, 1));
+	}
+
+	// The objects come in the order of their elements, from element 0's.
+	let mut found = 0;
+
+	for (element, object) in RagdollPhysicsObjects::new(mock.entity())
+		.unwrap()
+		.enumerate()
+	{
+		assert_eq!(object.set_collisions_enabled(true), Ok(()));
+
+		let (switched, left) = objects.split_at(element + 1);
+
+		assert!(switched.iter().all(|object| object.enabled()));
+		assert!(left.iter().all(|object| !object.enabled()));
+		found += 1;
+	}
+
+	assert_eq!(found, objects.len());
 }
 
 /// A mock ragdoll with an object for each of its elements, all in use.
