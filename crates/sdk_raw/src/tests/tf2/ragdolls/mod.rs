@@ -287,6 +287,20 @@ fn only_canonical_member_names_name_an_element() {
 	);
 }
 
+/// The fields of a ragdoll's map, with others around them, as the game
+/// declares them.
+fn ragdoll_fields() -> Vec<sys::typedescription_t> {
+	let mut fields = vec![field(c"m_flBlendWeight", sys::_fieldtypes_FIELD_FLOAT, 8)];
+
+	fields.push(count_field(COUNT));
+
+	for element in 1..RAGDOLL_MAX_ELEMENTS as usize {
+		fields.push(object_field(element, object(element)));
+	}
+
+	fields
+}
+
 /// Whether [`ragdoll_element_0_undeclared`] finds element 0's object clear in a
 /// ragdoll's map of `own`, whose base's map declares `base`.
 fn undeclared(own: Vec<sys::typedescription_t>, base: Vec<sys::typedescription_t>) -> bool {
@@ -302,18 +316,4 @@ fn undeclared(own: Vec<sys::typedescription_t>, base: Vec<sys::typedescription_t
 	};
 
 	ragdoll_element_0_undeclared(maps, &find_ragdoll_object_fields(map).unwrap())
-}
-
-/// The fields of a ragdoll's map, with others around them, as the game
-/// declares them.
-fn ragdoll_fields() -> Vec<sys::typedescription_t> {
-	let mut fields = vec![field(c"m_flBlendWeight", sys::_fieldtypes_FIELD_FLOAT, 8)];
-
-	fields.push(count_field(COUNT));
-
-	for element in 1..RAGDOLL_MAX_ELEMENTS as usize {
-		fields.push(object_field(element, object(element)));
-	}
-
-	fields
 }
