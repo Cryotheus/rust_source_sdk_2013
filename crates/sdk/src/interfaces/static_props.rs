@@ -35,6 +35,12 @@
 //!   entity and 1 more than the prop's index as its hitbox, as a whole trace
 //!   that stops at the prop does. Where both are handed the same ray, every
 //!   number of the two traces is the same to the bit.
+//! - A prop's collideable gives the prop's origin as its map places it, and
+//!   zero for its angles, however the map turns it. On one map, its bounds
+//!   (`WorldSpaceSurroundingBounds`) held the corners of its collision model,
+//!   placed and turned as the map has it, for all but three of 974 props
+//!   solid by their collision model. Two of those three were looked at, and
+//!   reached past them by 0.57 units.
 //! - `IEngineTrace::EnumerateEntities`, given a box, hands no static prop to
 //!   its enumerator, only entities, so it cannot find them.
 //! - `TraceRayAgainstStaticProp` leaves the trace it is given as it was, so
@@ -107,7 +113,10 @@ pub struct StaticProp<'s> {
 }
 
 impl<'s> StaticProp<'s> {
-	/// How the prop is turned (`GetCollisionAngles`).
+	/// The angles of the prop's collision (`GetCollisionAngles`). They were
+	/// seen to be zero for every static prop, however its map turns it (see
+	/// the [module documentation](self)), so they do not tell how the prop is
+	/// turned.
 	#[doc(alias("GetCollisionAngles"))]
 	pub fn angles(self) -> QAngle {
 		// SAFETY: The collideable is the live prop's for `'s`, as
