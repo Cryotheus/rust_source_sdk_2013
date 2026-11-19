@@ -615,15 +615,18 @@ impl MoveType {
 ///   spawn entities from its handlers of collisions, and runs an entity's
 ///   scripts as it spawns it, just before the entity's own `Spawn`.
 ///
-/// The game defers its own damage and removals during VPhysics callbacks, and
-/// buffers the touches of objects that come into contact. It does not buffer
-/// the touches of physics triggers, which it runs during the step, and which
-/// no hook of this crate or of `metamod_source` covers. No other callback a
-/// plugin is given is known to run during the step, though that is not
-/// proven: a hook added later for anything the game may call during the step
-/// must enter the scope too. [`Entity::set_owner`] and
-/// `ServerRagdolls::create_server_ragdoll`, which change collision rules or
-/// create physics objects, refuse within a scope too, and rely on the same.
+/// The game puts off its own damage, deaths and removals during VPhysics
+/// callbacks, and runs them once the collisions of a step are handled, never
+/// inside a callback of the library, at a point it treats as safe for changes
+/// to physics objects: the hooks on damage and deaths enter no scope, and may
+/// change collisions. It also buffers the touches of objects that come into
+/// contact. It does not buffer the touches of physics triggers, which it runs
+/// during the step, and which no hook of this crate or of `metamod_source`
+/// covers. No other callback a plugin is given is known to run during the
+/// step, though that is not proven: a hook added later for anything the game
+/// may call during the step must enter the scope too. [`Entity::set_owner`]
+/// and `ServerRagdolls::create_server_ragdoll`, which change collision rules
+/// or create physics objects, refuse within a scope too, and rely on the same.
 #[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhysicsObject<'s> {
