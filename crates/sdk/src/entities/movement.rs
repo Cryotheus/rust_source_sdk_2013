@@ -603,12 +603,24 @@ impl MoveType {
 /// it is simulating, so the crate cannot ask it. Instead,
 /// [`set_collisions_enabled`](Self::set_collisions_enabled) fails with
 /// [`PhysicsObjectError::Simulating`] within a [`PhysicsCallbackScope`],
-/// which the hook dispatchers that run a callback during the step enter. The
-/// game defers its own damage and removals during VPhysics callbacks, and
-/// buffers the touches it runs from them. It plays some temporary entities
-/// from within one, such as the dust of an impact, and emits some sounds, and
-/// `metamod_source`'s hooks on both enter the scope too. No other callback a
-/// plugin is given is known to run within one. [`Entity::set_owner`] and
+/// which `metamod_source`'s hook dispatchers enter around the callbacks known
+/// to run, or able to run, during the step:
+///
+/// - `ForceVPhysicsCollide` and `ShouldCollide`, which the step asks;
+/// - temporary entities and sounds, as the game plays some and emits some
+///   during the step, such as the dust of an impact;
+/// - user messages, as the game sends some during the step, such as the
+///   screen shake of a heavy object's impact;
+/// - entity factories and spawns, as the game may create and spawn entities
+///   from its handlers of collisions.
+///
+/// The game defers its own damage and removals during VPhysics callbacks, and
+/// buffers the touches of objects that come into contact. It does not buffer
+/// the touches of physics triggers, which it runs during the step, and which
+/// no hook of this crate or of `metamod_source` covers. No other callback a
+/// plugin is given is known to run during the step, though that is not
+/// proven: a hook added later for anything the game may call during the step
+/// must enter the scope too. [`Entity::set_owner`] and
 /// `ServerRagdolls::create_server_ragdoll`, which change collision rules or
 /// create physics objects, refuse within a scope too, and rely on the same.
 #[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
@@ -768,8 +780,9 @@ impl<'s> PhysicsObject<'s> {
 		// SAFETY: As for `collisions_enabled`. The physics library changes its
 		// own state, so the call must not come while it simulates. It does not
 		// come within a `PhysicsCallbackScope`, which the dispatchers of the
-		// hooks that run during the step enter, and no other callback `'s` lies
-		// in is known to run during it, as the type's documentation says.
+		// hooks known to run, or able to run, during the step enter, and no
+		// other callback `'s` lies in is known to run during it, as the type's
+		// documentation says, which also names what is not proven.
 		unsafe { vcall!(object.as_ptr() => IPhysicsObject_EnableCollisions(enabled)) };
 		Ok(())
 	}

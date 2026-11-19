@@ -10,6 +10,7 @@ use source_sdk_2013::interfaces::ServerGameDll;
 use source_sdk_2013::raw::test_support::edicts::mock_edict;
 use source_sdk_2013::raw::test_support::{mock_vtable, unexpected_call};
 use source_sdk_2013::test_support::leak;
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::test_support::server::{export, mock_binding};
 use std::cell::RefCell;
 use std::ffi::{CString, c_char};
@@ -423,7 +424,8 @@ fn on_client_print(_server: Server<'_>, client: Edict<'_>, text: &CStr) {
 	}
 }
 
-/// Notes the message, and panics for a `TextMsg` with the text `panic`.
+/// Notes the message, checks that it runs within a [`PhysicsCallbackScope`],
+/// and panics for a `TextMsg` with the text `panic`.
 fn on_user_message(_server: Server<'_>, message: &SentUserMessage<'_>) {
 	let mut reader = message.reader();
 	let read = (|| Some((reader.read_u8().ok()?, reader.read_cstring().ok()?)))();
@@ -431,6 +433,11 @@ fn on_user_message(_server: Server<'_>, message: &SentUserMessage<'_>) {
 	expect(
 		message.data().to_bytes() == message.bytes() && message.data().len() == message.bit_len(),
 		"the payload's views agree",
+	);
+
+	expect(
+		PhysicsCallbackScope::is_entered(),
+		"the listener runs within a physics callback scope",
 	);
 
 	SEEN.with_borrow_mut(|seen| {
@@ -579,7 +586,8 @@ fn send_entity_message(
 }
 
 /// Has the game send a user message of type `id` to `filter`'s clients with
-/// `payload` through the engine's hooked vtable, and returns what happened.
+/// `payload` through the engine's hooked vtable, checks that no
+/// [`PhysicsCallbackScope`] is left entered, and returns what happened.
 fn send_user_message(
 	harness: &Harness,
 	engine: NonNull<sys::IVEngineServer>,
@@ -597,6 +605,9 @@ fn send_user_message(
 
 	write(buffer, payload);
 	harness.call::<MessageEnd>(engine.as_ptr(), MESSAGE_END_SLOT, ());
+
+	// Even after a listener that panicked.
+	assert!(!PhysicsCallbackScope::is_entered());
 	SEEN.take()
 }
 

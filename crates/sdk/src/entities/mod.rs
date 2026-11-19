@@ -614,9 +614,10 @@ impl<'s> Entity<'s> {
 		// SAFETY: The entities are live during `'s`, on the main thread, and
 		// every game DLL's vtable has `SetOwnerEntity` where the generated one
 		// does. The call does not come within a `PhysicsCallbackScope`, which
-		// the dispatchers of the hooks that may run during VPhysics' step
-		// enter, and no other callback `'s` lies in is known to run during it,
-		// as `PhysicsObject`'s documentation says.
+		// the dispatchers of the hooks known to run, or able to run, during
+		// VPhysics' step enter, and no other callback `'s` lies in is known to
+		// run during it, as `PhysicsObject`'s documentation says, which also
+		// names what is not proven.
 		unsafe {
 			sdk_raw::entities::set_owner_entity(
 				self.as_ptr(),

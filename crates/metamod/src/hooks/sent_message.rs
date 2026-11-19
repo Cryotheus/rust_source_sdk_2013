@@ -16,6 +16,13 @@
 //! `MessageEnd` passes the listener the message with the payload written to
 //! that buffer, as a [`SentUserMessage`].
 //!
+//! The game sends some user messages during VPhysics' simulation, such as the
+//! screen shake a heavy object's impact causes, so the user message listener
+//! runs within a [`PhysicsCallbackScope`]: it must not change what the physics
+//! library simulates, and
+//! [`PhysicsObject::set_collisions_enabled`](source_sdk_2013::entities::movement::PhysicsObject::set_collisions_enabled)
+//! fails there.
+//!
 //! The engine has not sent the message yet then, and still has it open. It
 //! has one message open at a time, so the listener must not begin another
 //! user or entity message, such as with
@@ -81,6 +88,7 @@ use crate::hooks::server::with_server;
 use source_sdk_2013::bitbuf::{BitReader, BitWriter};
 use source_sdk_2013::edicts::Edict;
 use source_sdk_2013::interfaces::ValveEngine;
+use source_sdk_2013::entities::movement::PhysicsCallbackScope;
 use source_sdk_2013::raw::bitbuf::BfWrite;
 
 use source_sdk_2013::raw::interfaces::valve_engine::{
@@ -317,6 +325,12 @@ impl Handler<MessageEnd> for SentMessageRoute {
 		let bytes = data.to_bytes();
 
 		with_server(routed.binding, |server| {
+			// The game sends some user messages during VPhysics' step, such as the
+			// screen shake of a heavy object's impact, so the listener runs in a
+			// scope that keeps it from changing what the library tests for
+			// collisions.
+			let _physics = PhysicsCallbackScope::enter();
+
 			let name = usize::try_from(message.id)
 				.ok()
 				.and_then(|index| server.server_game_dll().ok()?.user_message(index))

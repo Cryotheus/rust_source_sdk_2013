@@ -43,8 +43,33 @@ impl Factory {
 	}
 }
 
-/// Creates an entity of `class_name` through `factory`'s hooked `Create`, and
-/// returns what it returned and what ran.
+#[test]
+fn a_callback_that_panics_leaves_no_physics_callback_scope() {
+	fn panics(_server: Server<'_>, _class_name: &CStr) -> CreateAction {
+		panic!("the callback panics, as this test means it to");
+	}
+
+	on_both(|harness| {
+		let api = harness.api();
+		let mut gift = Factory::of_new_class(game_create);
+		let gift_entity = gift.ptr().as_ptr().cast();
+
+		// SAFETY: The mock class has `Create` at the slot, is leaked, and its
+		// caller here copes with null.
+		unsafe { api.install_factory(gift.ptr(), tf2_binding(no_interfaces), panics) }.unwrap();
+
+		// The panic is contained and lets the entity be created, and `create`
+		// checks that no scope is left entered.
+		assert_eq!(
+			create(harness, &mut gift, c"gift"),
+			(gift_entity, vec![("game", "gift")])
+		);
+	});
+}
+
+/// Creates an entity of `class_name` through `factory`'s hooked `Create`,
+/// checks that no [`PhysicsCallbackScope`] is left entered, and returns what it
+/// returned and what ran.
 fn create(
 	harness: &Harness,
 	factory: &mut Factory,
@@ -57,6 +82,10 @@ fn create(
 
 	let created =
 		harness.call::<CreateFn>(factory.ptr().as_ptr(), CREATE_SLOT, (class_name.as_ptr(),));
+
+	// Even after a callback that panicked.
+	assert!(!PhysicsCallbackScope::is_entered());
+
 	let calls = CALLS
 		.take()
 		.into_iter()
@@ -171,8 +200,11 @@ unsafe extern "C" fn game_create(
 	this.cast()
 }
 
-/// The callback, which notes the class name, and refuses `souls_pack`.
+/// The callback, which notes the class name, refuses `souls_pack`, and checks
+/// that it runs within a [`PhysicsCallbackScope`].
 fn on_create(_server: Server<'_>, class_name: &CStr) -> CreateAction {
+	// Within the scope, or the panic leaves the call unseen.
+	assert!(PhysicsCallbackScope::is_entered());
 	CALLS.with_borrow_mut(|calls| calls.push(("callback", class_name.to_owned())));
 
 	match class_name == c"souls_pack" {

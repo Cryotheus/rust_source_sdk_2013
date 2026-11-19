@@ -467,9 +467,9 @@ impl<'s> ServerRagdolls<'s> {
 		// runs on the main thread (conditions 1 and 3 of `Server::new`), and the
 		// game creates entities in plugin callbacks. The call does not come
 		// within a `PhysicsCallbackScope`, which the dispatchers of the hooks
-		// that may run during VPhysics' step enter, and no other callback `'s`
-		// lies in is known to run during it, as `PhysicsObject`'s documentation
-		// says. `animating` is live during `'s`, not marked for deletion, and a
+		// known to run, or able to run, during VPhysics' step enter, and no other
+		// callback `'s` lies in is known to run during it, as `PhysicsObject`'s
+		// documentation says, which also names what is not proven. `animating` is live during `'s`, not marked for deletion, and a
 		// `CBaseAnimating`, whose networked class derives from
 		// `DT_BaseAnimating`, at the address of its `CBaseEntity`,
 		// as `sdk_raw::tf2` asserts for the bases of TF2's players. Its model is
