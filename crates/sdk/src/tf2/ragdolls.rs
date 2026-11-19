@@ -51,7 +51,7 @@ mod tests;
 
 use crate::datatables::{NetProp, NetPropError, NetValue, NetVar};
 use crate::entities::fields::FieldError;
-use crate::entities::movement::PhysicsObject;
+use crate::entities::movement::{PhysicsCallbackScope, PhysicsObject};
 use crate::entities::{CollisionGroup, Entity};
 use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
@@ -104,6 +104,11 @@ pub enum RagdollError {
 	/// again.
 	#[error("the new ragdoll could not be shown")]
 	NotShown(#[source] InputError),
+
+	/// The call came within a [`PhysicsCallbackScope`], while VPhysics may
+	/// simulate.
+	#[error("a ragdoll cannot be created during a VPhysics callback")]
+	Simulating,
 
 	/// The game server module's `CreateServerRagdoll` was not found, as
 	/// [`sdk_raw::tf2::ragdolls`] describes.
@@ -409,7 +414,10 @@ impl<'s> ServerRagdolls<'s> {
 	/// Fails with [`RagdollError::MarkedForDeletion`] or
 	/// [`RagdollError::NotAnimating`] for such an `animating`, and with
 	/// [`RagdollError::NoCollisionModel`] unless its model is a studio model
-	/// whose collision model has 1 to [`RAGDOLL_MAX_ELEMENTS`] solids. The
+	/// whose collision model has 1 to [`RAGDOLL_MAX_ELEMENTS`] solids. It
+	/// fails with [`RagdollError::Simulating`] within a
+	/// [`PhysicsCallbackScope`], as creating physics objects is only known to
+	/// be safe outside of VPhysics' simulation. The
 	/// [module documentation](self#lifetime) describes how long the ragdoll
 	/// stays.
 	#[doc(alias("CreateServerRagdoll"))]
@@ -420,6 +428,10 @@ impl<'s> ServerRagdolls<'s> {
 		info: &DamageInfo,
 		group: CollisionGroup,
 	) -> Result<Entity<'s>, RagdollError> {
+		if PhysicsCallbackScope::is_entered() {
+			return Err(RagdollError::Simulating);
+		}
+
 		if animating.is_marked_for_deletion() {
 			return Err(RagdollError::MarkedForDeletion);
 		}
@@ -463,11 +475,13 @@ impl<'s> ServerRagdolls<'s> {
 
 		// SAFETY: The game server module stays loaded through the callback, which
 		// runs on the main thread (conditions 1 and 3 of `Server::new`), and the
-		// game creates entities in plugin callbacks, none of which is known to
-		// run within VPhysics' simulation or its callbacks, from which the game
-		// defers its damage and removals. `animating` is live during `'s`, not
-		// marked for deletion, and a `CBaseAnimating`, whose networked class
-		// derives from `DT_BaseAnimating`, at the address of its `CBaseEntity`,
+		// game creates entities in plugin callbacks. The call does not come
+		// within a `PhysicsCallbackScope`, which the dispatchers of the hooks
+		// that may run during VPhysics' step enter, and no other callback `'s`
+		// lies in is known to run during it, as `PhysicsObject`'s documentation
+		// says. `animating` is live during `'s`, not marked for deletion, and a
+		// `CBaseAnimating`, whose networked class derives from
+		// `DT_BaseAnimating`, at the address of its `CBaseEntity`,
 		// as `sdk_raw::tf2` asserts for the bases of TF2's players. Its model is
 		// a studio model with 1 to `RAGDOLL_MAX_ELEMENTS` solids. The damage copy
 		// lives through the call. `CreateServerRagdoll` creates the ragdoll

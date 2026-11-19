@@ -608,7 +608,9 @@ impl MoveType {
 /// buffers the touches it runs from them. It plays some temporary entities
 /// from within one, such as the dust of an impact, and emits some sounds, and
 /// `metamod_source`'s hooks on both enter the scope too. No other callback a
-/// plugin is given is known to run within one.
+/// plugin is given is known to run within one. [`Entity::set_owner`] and
+/// `ServerRagdolls::create_server_ragdoll`, which change collision rules or
+/// create physics objects, refuse within a scope too, and rely on the same.
 #[doc(alias("IPhysicsObject", "VPhysicsGetObject"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhysicsObject<'s> {
