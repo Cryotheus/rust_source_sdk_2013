@@ -361,11 +361,12 @@ impl<'s> Entity<'s> {
 	/// this calls `set_owner(None)`. An entity without an owner is left as it
 	/// is, with nothing written or recorded.
 	///
-	/// Whether `former` has a physics object is read where the game keeps an
-	/// entity's own, as [`has_physics_object`](Self::has_physics_object) reads
-	/// it. Where the recheck is left out, so is the rest of the game's
-	/// `SetOwnerEntity`: an override of it by the entity's class, and a detour
-	/// another plugin put on it, do not run.
+	/// Whether `former` has a physics object is read from its primary VPhysics
+	/// object alone, as [`has_physics_object`](Self::has_physics_object) reads
+	/// it, so an owner whose class keeps its objects only elsewhere, with no
+	/// primary one, is taken to have none. Where the recheck is left out, so is
+	/// the rest of the game's `SetOwnerEntity`: an override of it by the
+	/// entity's class, and a detour another plugin put on it, do not run.
 	///
 	/// Within a [`PhysicsCallbackScope`] this changes nothing, as `set_owner`
 	/// changes nothing there, and a debug build panics.
