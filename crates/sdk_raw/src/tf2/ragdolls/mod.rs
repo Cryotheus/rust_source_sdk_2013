@@ -424,7 +424,8 @@ pub fn find_ragdoll_object_fields(map: DataMap<'_>) -> Option<RagdollObjectField
 /// do. A field with a negative offset covers nothing. Element 0's object
 /// lies where a member of the ragdoll or of its bases is declared only if the
 /// declared objects are not the elements 1 on of one array after all, so this
-/// turns that inference into a check that fails closed.
+/// refuses that case. A word there that no map declares still passes: that
+/// part of the inference stays an inference.
 #[doc(alias("m_ragdoll", "pObject"))]
 pub fn ragdoll_element_0_undeclared(maps: DataMaps<'_>, fields: &RagdollObjectFields) -> bool {
 	let object = fields.objects[0];
