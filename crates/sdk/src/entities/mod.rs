@@ -35,7 +35,9 @@ mod tests;
 
 use crate::datatables::ServerClass;
 use crate::edicts::Edict;
+use crate::entities::fields::BaseField;
 use crate::entities::movement::PhysicsCallbackScope;
+use crate::interfaces::ValveEngine;
 use crate::math::{QAngle, Vector};
 use crate::{NotThreadSafe, Server};
 use sdk_raw::entities::datamap::DataMaps;
@@ -59,6 +61,11 @@ use std::marker::PhantomData;
 use std::num::NonZero;
 use std::ptr::{self, NonNull};
 use std::sync::OnceLock;
+
+/// The entity's owner, `m_hOwnerEntity`, which [`Entity::owner`] reads and
+/// [`Entity::clear_owner`] may clear.
+static OWNER: BaseField<EntityHandle> =
+	BaseField::new(c"m_hOwnerEntity", sys::_fieldtypes_FIELD_EHANDLE);
 
 /// Which entities an entity collides with (`Collision_Group_t`), and which
 /// traces hit it, as the game rules' `ShouldCollide` decides, which games
@@ -334,6 +341,65 @@ impl<'s> Entity<'s> {
 			.unwrap_or_default()
 	}
 
+	/// Clears the entity's owner (`m_hOwnerEntity`), as
+	/// [`set_owner(None)`](Self::set_owner) does, but leaves out the game's
+	/// recheck of the collision filters of the entity's VPhysics objects where
+	/// it has nothing to refresh: when the owner is `former` and `former` holds
+	/// no VPhysics object of its own.
+	///
+	/// The game's collision filter reads an entity's owner only to let the
+	/// entity and its owner pass through each other, so of the pairs of
+	/// physics objects the recheck refreshes, only those between the entity's
+	/// objects and its owner's own can depend on the owner. An owner without a
+	/// physics object is in no such pair, and neither is no owner, so nothing
+	/// is left stale. In that case the handle is written as invalid at the
+	/// member [`owner`](Self::owner) reads, and the change is recorded for
+	/// networking at that member, as [`NetProp::set`] records one, so clients
+	/// are sent the same as after the game's own call. In every other case,
+	/// such as an owner that is another entity than `former`, or one with a
+	/// physics object, as a player's shadow is, or a datamap this cannot read,
+	/// this calls `set_owner(None)`. An entity without an owner is left as it
+	/// is, with nothing written or recorded.
+	///
+	/// Whether `former` has a physics object is read from its primary VPhysics
+	/// object alone, as [`has_physics_object`](Self::has_physics_object) reads
+	/// it, so an owner whose class keeps its objects only elsewhere, with no
+	/// primary one, is taken to have none. Where the recheck is left out, so is
+	/// the rest of the game's `SetOwnerEntity`: an override of it by the
+	/// entity's class, and a detour another plugin put on it, do not run.
+	///
+	/// Within a [`PhysicsCallbackScope`] this changes nothing, as `set_owner`
+	/// changes nothing there, and a debug build panics.
+	///
+	/// [`NetProp::set`]: crate::datatables::NetProp::set
+	#[doc(alias("SetOwnerEntity", "m_hOwnerEntity"))]
+	pub fn clear_owner(self, engine: ValveEngine<'_>, former: Entity<'_>) {
+		if PhysicsCallbackScope::is_entered() {
+			debug_assert!(
+				false,
+				"an entity's owner cannot change during a VPhysics callback"
+			);
+			return;
+		}
+
+		let Ok(owner) = OWNER.read(self) else {
+			self.set_owner(None);
+			return;
+		};
+
+		if !owner.is_valid() {
+			return;
+		}
+
+		if owner == former.handle() && former.has_physics_object() == Ok(false) {
+			// The member was found and validated as `owner` reads it, and the write
+			// records the change at it, as `NetProp::set` does.
+			let _ = OWNER.write(engine, self, EntityHandle::INVALID);
+		} else {
+			self.set_owner(None);
+		}
+	}
+
 	/// The entity's `ICollideable`, or `None` if Source reports none.
 	pub(crate) fn collideable(self) -> Option<NonNull<sys::ICollideable>> {
 		// SAFETY: As for `handle`.
@@ -517,29 +583,9 @@ impl<'s> Entity<'s> {
 	/// declare it as an entity handle at a plausible offset.
 	#[doc(alias("GetOwnerEntity", "m_hOwnerEntity"))]
 	pub fn owner(self) -> Result<Option<EntityHandle>, OwnerError> {
-		static OWNER_OFFSET: OnceLock<usize> = OnceLock::new();
-
-		let offset = match OWNER_OFFSET.get() {
-			Some(&offset) => offset,
-
-			None => {
-				let offset = self
-					.find_base_entity_field(
-						c"m_hOwnerEntity",
-						sys::_fieldtypes_FIELD_EHANDLE,
-						size_of::<u32>(),
-					)
-					.ok_or(OwnerError::UnsupportedLayout)?;
-
-				*OWNER_OFFSET.get_or_init(|| offset)
-			}
-		};
-
-		// SAFETY: The offset was validated against the entity datamap, which
-		// every entity shares through its `CBaseEntity` base, for a handle,
-		// whose `CBaseHandle` holds only its raw value. The member is read
-		// without forming a reference, as the game writes it too.
-		let handle = EntityHandle(unsafe { self.as_ptr().byte_add(offset).cast::<u32>().read() });
+		let handle = OWNER
+			.read(self)
+			.map_err(|_| OwnerError::UnsupportedLayout)?;
 
 		Ok(handle.is_valid().then_some(handle))
 	}
