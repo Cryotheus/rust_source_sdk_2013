@@ -56,6 +56,7 @@ use crate::inputs::{InputError, InputValue};
 use crate::interfaces::ServerTools;
 use crate::math::Vector;
 use crate::tf2::PlayerClass;
+use crate::tf2::animating::{Animating, AnimatingError};
 use crate::tf2::damage::{DamageInfo, DamageType};
 use crate::tf2::teams::Team;
 use crate::{Game, InterfaceError, Server};
@@ -68,6 +69,12 @@ use std::sync::OnceLock;
 /// The input that shows a `prop_ragdoll` (`CRagdollProp::InputTurnOn`), by
 /// clearing `EF_NODRAW`, which also has the engine send it to clients again.
 const ENABLE_INPUT: &CStr = c"Enable";
+
+/// What `GetSequenceName` returns in place of a name: `Unknown` for every
+/// sequence at or above the model's count of sequences (`GetSequenceName` in
+/// `game/shared/animation.cpp`), and `No model!` for every one while the game
+/// has no studio header for the entity (`CBaseAnimating::GetSequenceName`).
+const NOT_SEQUENCE_NAMES: [&CStr; 2] = [c"Unknown", c"No model!"];
 
 /// Why a server ragdoll could not be created.
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +97,17 @@ pub enum RagdollError {
 	#[error("the entity's model has no collision model a ragdoll can be made from")]
 	NoCollisionModel,
 
+	/// The entity plays no sequence of its model, or one its model names
+	/// `Unknown`: its `GetSequence` is negative, as a TF2 player's can be for
+	/// a moment at its death, or `GetSequenceName` gives it no name, as for
+	/// every sequence at or above the model's count of sequences. For a model
+	/// that includes other models, as TF2's class models do, the game's
+	/// `CreateServerRagdoll` would index the model's sequences with a negative
+	/// one for an entity that is not moving, and setting up the bones can with
+	/// one at or above the count, moving or not.
+	#[error("the entity plays no animation sequence")]
+	NoSequence,
+
 	/// The entity is not a `CBaseAnimating`: its networked class does not
 	/// derive from `DT_BaseAnimating`.
 	#[error("the entity is not an animating entity")]
@@ -103,6 +121,11 @@ pub enum RagdollError {
 	/// again.
 	#[error("the new ragdoll could not be shown")]
 	NotShown(#[source] InputError),
+
+	/// The entity's sequence or its name (`GetSequence`, `GetSequenceName`)
+	/// could not be read.
+	#[error("the entity's animation sequence could not be read")]
+	Sequence(#[source] AnimatingError),
 
 	/// The call came within a [`PhysicsCallbackScope`], while VPhysics may
 	/// simulate.
@@ -424,7 +447,16 @@ impl<'s> ServerRagdolls<'s> {
 	/// [`RagdollError::NotAnimating`] for such an `animating`, and with
 	/// [`RagdollError::NoCollisionModel`] unless its model is a studio model
 	/// whose collision model has 1 to [`RAGDOLL_MAX_ELEMENTS`] solids. It
-	/// fails with [`RagdollError::Simulating`] within a
+	/// fails with [`RagdollError::NoSequence`] while `animating` plays no
+	/// sequence of its model, as a TF2 player may for a moment at its death:
+	/// for an entity that is not moving, the game reads the movement of its
+	/// sequence, and for a model that includes other models, as TF2's class
+	/// models do, indexes the model's sequences with it unchecked below 0. A
+	/// sequence at or above the model's count, which `GetSequenceName` calls
+	/// `Unknown`, is refused too, since setting up the bones can index with it,
+	/// and so are a sequence the model names `Unknown` and every sequence
+	/// while the game has no studio header for `animating`. It fails with
+	/// [`RagdollError::Simulating`] within a
 	/// [`PhysicsCallbackScope`], as creating physics objects is only known to
 	/// be safe outside of VPhysics' simulation. The
 	/// [module documentation](self#lifetime) describes how long the ragdoll
@@ -473,6 +505,25 @@ impl<'s> ServerRagdolls<'s> {
 			.filter(|_| model_info.studio_name(model).is_some())
 			.ok_or(RagdollError::NoCollisionModel)?;
 
+		// `CreateServerRagdoll` hands the sequence of an `animating` whose
+		// velocity is zero to `Studio_SeqMovement`, whose `Studio_SeqAnims`
+		// only checks it against the model's count of sequences before
+		// `CStudioHdr::iRelativeAnim` indexes with it, and setting up the bones
+		// can index with one at or above that count. `GetSequenceName` names
+		// every sequence from 0 to below the count, and calls those at or above
+		// it `Unknown`, or every one `No model!` without a studio header.
+		let animation = Animating::new(self.server, animating).map_err(RagdollError::Sequence)?;
+		let sequence = animation.sequence().map_err(RagdollError::Sequence)?;
+
+		if sequence < 0
+			|| animation
+				.sequence_name(sequence)
+				.map_err(RagdollError::Sequence)?
+				.is_none_or(|name| NOT_SEQUENCE_NAMES.contains(&name.as_c_str()))
+		{
+			return Err(RagdollError::NoSequence);
+		}
+
 		let force_bone = force_bone
 			.and_then(|bone| c_int::try_from(bone).ok())
 			.filter(|bone| (0..solids).contains(bone))
@@ -493,12 +544,20 @@ impl<'s> ServerRagdolls<'s> {
 		// whose networked class derives from `DT_BaseAnimating`, at the address
 		// of its `CBaseEntity`, as `sdk_raw::tf2` asserts for the bases of TF2's
 		// players. Its model is a studio model with 1 to `RAGDOLL_MAX_ELEMENTS`
-		// solids. The damage copy lives through the call. `CreateServerRagdoll`
-		// creates the ragdoll without spawning it (`CreateNoSpawn`), copies the
-		// model and effects, sets its owner, sets up `animating`'s bones twice,
-		// creates the physics objects (`InitRagdoll`), creates and spawns an
-		// `env_entity_dissolver` if `animating` is dissolving, and sets the
-		// collision bounds. None of this frees an entity, so condition 4 holds.
+		// solids. Its sequence is one of its model's: not negative, and named
+		// by `GetSequenceName`, which names none at or above the model's count,
+		// nor any while the game has no studio header for `animating`. The
+		// game's code the call runs before reading it does not change it; the
+		// call also notifies entity listeners, such as other plugins', which
+		// are assumed to leave it alone. The sequences of its overlay layers,
+		// which setting up its bones reads the same way, are assumed to be its
+		// model's, as the game's code sets them. The damage copy lives through
+		// the call. `CreateServerRagdoll` creates the ragdoll without spawning
+		// it (`CreateNoSpawn`), copies the model and effects, sets its owner,
+		// sets up `animating`'s bones twice, creates the physics objects
+		// (`InitRagdoll`), creates and spawns an `env_entity_dissolver` if
+		// `animating` is dissolving, and sets the collision bounds. None of
+		// this frees an entity, so condition 4 holds.
 		let ragdoll = unsafe {
 			self.raw.create(
 				NonNull::new(animating.as_ptr()).unwrap().cast(),

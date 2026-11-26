@@ -10,7 +10,12 @@
 //! Sequences, bones, pose parameters and bodygroups are numbered by the
 //! entity's model, so a number found on one model means nothing on another.
 //! Activities are numbered by the game, alike for every model. The game
-//! treats a sequence the model lacks as its first.
+//! checks a sequence the model lacks, or reads its first in its place, in most
+//! reads, but not all: for a model that includes other models, reading a
+//! sequence's movement, as `CreateServerRagdoll` does for an entity at rest,
+//! indexes the model's sequences with a negative one unchecked, and setting up
+//! the bones can with one at or above their count when the model's first
+//! sequence has layers. So never set one.
 //!
 //! # Unverified
 //!

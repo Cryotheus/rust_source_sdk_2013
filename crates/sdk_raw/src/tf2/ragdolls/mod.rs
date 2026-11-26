@@ -254,9 +254,10 @@ impl ServerRagdolls {
 	/// retires by fading them out once it keeps too many. Without it, the
 	/// ragdoll stays until it is removed, as the round's cleanup does.
 	///
-	/// The ragdoll copies `animating`'s model, skin, body groups, sequence,
-	/// cycle, and effects, such as `EF_NODRAW`, which keeps the engine from
-	/// sending it to clients. Returns `None` if the game created no ragdoll.
+	/// The ragdoll copies `animating`'s model, skin, body groups and effects,
+	/// such as `EF_NODRAW`, which keeps the engine from sending it to clients,
+	/// and is put on its model's `ACT_DIERAGDOLL` sequence, or sequence 0, at
+	/// its start. Returns `None` if the game created no ragdoll.
 	///
 	/// The engine ends the process with a fatal error if it has no edict left
 	/// for the new entity, as for every entity created.
@@ -271,7 +272,17 @@ impl ServerRagdolls {
 	///   its callbacks, since the call creates physics objects.
 	/// - `animating` points to a live `CBaseAnimating` of that module, not
 	///   marked for deletion, whose model is a studio model with a collision
-	///   model of 1 to [`RAGDOLL_MAX_ELEMENTS`] solids.
+	///   model of 1 to [`RAGDOLL_MAX_ELEMENTS`] solids, and whose sequence
+	///   (`GetSequence`) is one of its model's, from 0 to below the model's
+	///   count of sequences. For an entity whose velocity is zero, the function
+	///   reads the movement of that sequence, where `Studio_SeqAnims` checks it
+	///   only against the count before `CStudioHdr::iRelativeAnim` indexes the
+	///   model's sequences with it. Setting up the entity's bones can index
+	///   them with a sequence at or above the count when the model's first
+	///   sequence has layers. Both index them only for a model that includes
+	///   other models, as TF2's class models do. The sequences of its active
+	///   overlay layers must be its model's too, as setting up its bones reads
+	///   them the same way.
 	/// - `info` points to a `CTakeDamageInfo` that stays live and unchanged for
 	///   the whole call.
 	/// - Everything the call runs, including the entity factories it calls and
